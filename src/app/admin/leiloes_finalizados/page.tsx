@@ -39,42 +39,36 @@ export default function LeiloesFinalizadosPage() {
       return
     }
 
-    try {
-      const salario = Math.round(leilao.valor_atual * 0.007)
+    const salario = Math.round(leilao.valor_atual * 0.007)
 
-      const { error: erroInsert } = await supabase
-        .from('elenco') // ✅ Nome correto da tabela
-        .insert({
-          id_time: leilao.id_time_vencedor,
-          nome: leilao.nome,
-          posicao: leilao.posicao,
-          overall: leilao.overall,
-          valor: leilao.valor_atual,
-          salario,
-          imagem_url: leilao.imagem_url || '',
-          link_sofifa: leilao.link_sofifa || '',
-          nacionalidade: leilao.nacionalidade || ''
-        })
-
-      if (erroInsert) throw erroInsert
-
-      const { error: erroSaldo } = await supabase.rpc('atualizar_saldo_time', {
-        p_id_time: leilao.id_time_vencedor,
-        p_valor: -Math.abs(leilao.valor_atual)
+    const { error: erroInsert } = await supabase
+      .from('elenco')
+      .insert({
+        id_time: leilao.id_time_vencedor,
+        nome: leilao.nome,
+        posicao: leilao.posicao,
+        overall: leilao.overall,
+        valor: leilao.valor_atual,
+        salario,
+        imagem_url: leilao.imagem_url || '',
+        link_sofifa: leilao.link_sofifa || '',
+        nacionalidade: leilao.nacionalidade || ''
       })
 
-      if (erroSaldo) throw erroSaldo
-
-      await supabase
-        .from('leiloes_sistema')
-        .update({ status: 'concluido' })
-        .eq('id', leilao.id)
-
-      alert('✅ Jogador enviado ao elenco com sucesso!')
-    } catch (err: any) {
-      console.error('❌ Erro ao enviar para elenco:', err.message)
-      alert('❌ Erro ao enviar para elenco.')
+    if (erroInsert) {
+      console.error('❌ Erro ao enviar para elenco:', erroInsert)
+      alert(`❌ Erro ao enviar para elenco:\n${erroInsert.message}`)
+      return
     }
+
+    await supabase.rpc('atualizar_saldo_time', {
+      p_id_time: leilao.id_time_vencedor,
+      p_valor: -Math.abs(leilao.valor_atual)
+    })
+
+    await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+
+    alert('✅ Jogador enviado ao elenco com sucesso!')
   }
 
   const excluirLeilao = async (leilao: any) => {
@@ -105,7 +99,9 @@ export default function LeiloesFinalizadosPage() {
           >
             <option value="">📌 Todas as Posições</option>
             {POSICOES.map((pos) => (
-              <option key={pos} value={pos}>{pos}</option>
+              <option key={pos} value={pos}>
+                {pos}
+              </option>
             ))}
           </select>
           <input
@@ -141,14 +137,21 @@ export default function LeiloesFinalizadosPage() {
                     className="w-full h-48 object-cover rounded mb-2 border"
                   />
                 )}
-                <p className="font-bold text-lg">{leilao.nome} ({leilao.posicao})</p>
-                <p>⭐ Overall: {leilao.overall}</p>
-                <p>🌍 {leilao.nacionalidade}</p>
+                <p className="font-bold text-lg text-white">{leilao.nome} ({leilao.posicao})</p>
+                <p className="text-gray-300">⭐ Overall: {leilao.overall}</p>
+                <p className="text-gray-300">🌍 {leilao.nacionalidade}</p>
                 <p className="text-yellow-400">💰 Valor final: <strong>R$ {Number(leilao.valor_atual).toLocaleString()}</strong></p>
-                <p>🏆 Time vencedor: <strong>{leilao.id_time_vencedor ? leilao.nome_time_vencedor : '— Sem Vencedor'}</strong></p>
-                <p className="text-xs text-gray-400 mt-1">🕒 Finalizado em: {new Date(leilao.fim).toLocaleString('pt-BR')}</p>
+                <p className="text-gray-300">🏆 Time vencedor: <strong>{leilao.id_time_vencedor ? leilao.nome_time_vencedor : '— Sem Vencedor'}</strong></p>
+                <p className="text-xs text-gray-400 mt-1">
+                  🕒 Finalizado em: {new Date(leilao.fim).toLocaleString('pt-BR')}
+                </p>
                 {leilao.link_sofifa && (
-                  <a href={leilao.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-sm mt-2 inline-block hover:underline">
+                  <a
+                    href={leilao.link_sofifa}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 text-sm mt-2 inline-block hover:underline"
+                  >
                     🔗 Ver no Sofifa
                   </a>
                 )}
