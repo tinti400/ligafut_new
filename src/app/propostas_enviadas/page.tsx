@@ -13,10 +13,12 @@ export default function PropostasEnviadasPage() {
   const [jogadores, setJogadores] = useState<any>({})
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [novoValor, setNovoValor] = useState<string>('')
-
-  const id_time = localStorage.getItem('id_time') || ''
+  const [idTime, setIdTime] = useState('')
 
   useEffect(() => {
+    const id_time = localStorage.getItem('id_time') || ''
+    setIdTime(id_time)
+
     const buscarPropostas = async () => {
       const { data } = await supabase
         .from('propostas_app')
@@ -44,7 +46,7 @@ export default function PropostasEnviadasPage() {
     }
 
     if (id_time) buscarPropostas()
-  }, [id_time])
+  }, [])
 
   const cancelarProposta = async (id: string) => {
     await supabase.from('propostas_app').delete().eq('id', id)
