@@ -41,19 +41,18 @@ export default function LeiloesFinalizadosPage() {
 
     const salario = Math.round(leilao.valor_atual * 0.007)
 
-    const { error: erroInsert } = await supabase
-      .from('elenco')
-      .insert({
-        id_time: leilao.id_time_vencedor,
-        nome: leilao.nome,
-        posicao: leilao.posicao,
-        overall: leilao.overall,
-        valor: leilao.valor_atual,
-        salario,
-        imagem_url: leilao.imagem_url || '',
-        link_sofifa: leilao.link_sofifa || '',
-        nacionalidade: leilao.nacionalidade || ''
-      })
+    const { error: erroInsert } = await supabase.from('elenco').insert({
+      id_time: leilao.id_time_vencedor,
+      nome: leilao.nome,
+      posicao: leilao.posicao,
+      overall: leilao.overall,
+      valor: leilao.valor_atual,
+      salario,
+      imagem_url: leilao.imagem_url || '',
+      link_sofifa: leilao.link_sofifa || '',
+      nacionalidade: leilao.nacionalidade || '',
+      jogos: 0
+    })
 
     if (erroInsert) {
       console.error('❌ Erro ao enviar para elenco:', erroInsert)
@@ -61,14 +60,21 @@ export default function LeiloesFinalizadosPage() {
       return
     }
 
-    await supabase.rpc('atualizar_saldo_time', {
-      p_id_time: leilao.id_time_vencedor,
-      p_valor: -Math.abs(leilao.valor_atual)
-    })
+    const { error: erroSaldo } = await supabase
+      .from('times')
+      .update({ saldo: supabase.literal(`saldo - ${leilao.valor_atual}`) })
+      .eq('id', leilao.id_time_vencedor)
+
+    if (erroSaldo) {
+      console.error('❌ Erro ao atualizar saldo:', erroSaldo)
+      alert('Erro ao atualizar saldo.')
+      return
+    }
 
     await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
 
-    alert('✅ Jogador enviado ao elenco com sucesso!')
+    alert('✅ Jogador enviado ao elenco e saldo debitado!')
+    location.reload()
   }
 
   const excluirLeilao = async (leilao: any) => {
@@ -99,9 +105,7 @@ export default function LeiloesFinalizadosPage() {
           >
             <option value="">📌 Todas as Posições</option>
             {POSICOES.map((pos) => (
-              <option key={pos} value={pos}>
-                {pos}
-              </option>
+              <option key={pos} value={pos}>{pos}</option>
             ))}
           </select>
           <input
@@ -112,10 +116,7 @@ export default function LeiloesFinalizadosPage() {
             className="p-2 border rounded text-black"
           />
           <button
-            onClick={() => {
-              setFiltroPosicao('')
-              setFiltroTime('')
-            }}
+            onClick={() => { setFiltroPosicao(''); setFiltroTime('') }}
             className="bg-gray-300 hover:bg-gray-400 text-black py-2 px-4 rounded"
           >
             ❌ Limpar Filtros
@@ -137,24 +138,19 @@ export default function LeiloesFinalizadosPage() {
                     className="w-full h-48 object-cover rounded mb-2 border"
                   />
                 )}
-                <p className="font-bold text-lg text-white">{leilao.nome} ({leilao.posicao})</p>
+                <p className="font-bold text-lg">{leilao.nome} ({leilao.posicao})</p>
                 <p className="text-gray-300">⭐ Overall: {leilao.overall}</p>
                 <p className="text-gray-300">🌍 {leilao.nacionalidade}</p>
-                <p className="text-yellow-400">💰 Valor final: <strong>R$ {Number(leilao.valor_atual).toLocaleString()}</strong></p>
-                <p className="text-gray-300">🏆 Time vencedor: <strong>{leilao.id_time_vencedor ? leilao.nome_time_vencedor : '— Sem Vencedor'}</strong></p>
-                <p className="text-xs text-gray-400 mt-1">
-                  🕒 Finalizado em: {new Date(leilao.fim).toLocaleString('pt-BR')}
-                </p>
+                <p className="text-yellow-400">💰 R$ {Number(leilao.valor_atual).toLocaleString()}</p>
+                <p className="text-gray-300">🏆 {leilao.nome_time_vencedor || '— Sem Vencedor'}</p>
+                <p className="text-xs text-gray-400 mt-1">🕒 {new Date(leilao.fim).toLocaleString('pt-BR')}</p>
+
                 {leilao.link_sofifa && (
-                  <a
-                    href={leilao.link_sofifa}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 text-sm mt-2 inline-block hover:underline"
-                  >
+                  <a href={leilao.link_sofifa} target="_blank" className="text-blue-400 text-sm mt-2 inline-block hover:underline">
                     🔗 Ver no Sofifa
                   </a>
                 )}
+
                 {leilao.id_time_vencedor ? (
                   <button
                     onClick={() => enviarParaElenco(leilao)}
@@ -178,4 +174,3 @@ export default function LeiloesFinalizadosPage() {
     </main>
   )
 }
-
