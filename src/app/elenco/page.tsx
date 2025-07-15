@@ -12,7 +12,10 @@ export default function ElencoPage() {
   const [elenco, setElenco] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [nomeTime, setNomeTime] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
   const [corPrimaria, setCorPrimaria] = useState('#10b981')
+  const [saldo, setSaldo] = useState(0)
+  const [folhaSalarial, setFolhaSalarial] = useState(0)
 
   useEffect(() => {
     const fetchElenco = async () => {
@@ -27,8 +30,6 @@ export default function ElencoPage() {
       const userData = JSON.parse(userStorage)
       const id_time = userData.id_time
 
-      console.log('✅ ID do time carregado:', id_time)
-
       if (!id_time) {
         console.log('❌ ID do time não encontrado no objeto user')
         return setLoading(false)
@@ -36,7 +37,7 @@ export default function ElencoPage() {
 
       const { data: timeData, error: errorTime } = await supabase
         .from('times')
-        .select('nome')
+        .select('nome, logo_url, saldo')
         .eq('id', id_time)
         .single()
 
@@ -47,20 +48,24 @@ export default function ElencoPage() {
 
       const nome = timeData?.nome || ''
       setNomeTime(nome)
+      setLogoUrl(timeData?.logo_url || '')
+      setSaldo(timeData?.saldo || 0)
       setCorPrimaria(definirCorPorTime(nome))
 
       const { data: jogadores, error: errorElenco } = await supabase
-        .from('elenco')  // TABELA CERTA
+        .from('elenco')
         .select('*')
         .eq('id_time', id_time)
 
       if (errorElenco) {
         console.error('❌ Erro ao buscar elenco:', errorElenco)
-      } else {
-        console.log('✅ Jogadores encontrados:', jogadores)
       }
 
       setElenco(jogadores || [])
+
+      const folha = (jogadores || []).reduce((acc, curr) => acc + (curr.salario || 0), 0)
+      setFolhaSalarial(folha)
+
       setLoading(false)
     }
 
@@ -119,9 +124,17 @@ export default function ElencoPage() {
 
   return (
     <div className="p-6 bg-gray-900 min-h-screen text-white">
-      <h1 className="text-2xl font-bold text-center mb-6" style={{ color: corPrimaria }}>
+      <h1 className="text-2xl font-bold text-center mb-2" style={{ color: corPrimaria }}>
         👥 Elenco do {nomeTime}
       </h1>
+      {logoUrl && (
+        <div className="flex justify-center mb-4">
+          <img src={logoUrl} alt="Logo do time" className="w-16 h-16 rounded-full border" />
+        </div>
+      )}
+      <div className="text-center text-sm text-gray-300 mb-6">
+        💰 Caixa: R$ {saldo.toLocaleString('pt-BR')} | 👥 Jogadores: {elenco.length} | 🧾 Folha Salarial: R$ {folhaSalarial.toLocaleString('pt-BR')}
+      </div>
 
       {loading ? (
         <p className="text-center text-gray-400">Carregando elenco...</p>
