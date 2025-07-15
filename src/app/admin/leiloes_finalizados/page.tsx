@@ -42,7 +42,7 @@ export default function LeiloesFinalizadosPage() {
     const salario = Math.round(leilao.valor_atual * 0.007)
 
     const { error: erroElenco } = await supabase
-      .from('elencos')
+      .from('elenco')
       .insert({
         id_time: leilao.id_time_vencedor,
         nome: leilao.nome,
@@ -67,6 +67,8 @@ export default function LeiloesFinalizadosPage() {
     })
 
     await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+
+    setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
 
     alert('✅ Jogador enviado ao elenco com sucesso!')
   }
@@ -178,3 +180,4 @@ export default function LeiloesFinalizadosPage() {
     </main>
   )
 }
+
