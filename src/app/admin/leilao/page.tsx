@@ -167,19 +167,24 @@ export default function AdminLeilaoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-5xl mx-auto bg-gray-800 shadow-xl rounded-xl p-6">
+    <main className="min-h-screen bg-gray-900 text-white p-4">
+      <div className="max-w-5xl mx-auto bg-gray-800 shadow-md rounded-lg p-6">
         <h1 className="text-3xl font-bold text-center mb-6">🎯 Admin - Leilão</h1>
 
         <div className="mb-6">
-          <label className="block font-medium mb-2">📥 Importar Jogadores (.xlsx)</label>
-          <input type="file" accept=".xlsx" onChange={handleImportar} className="w-full border rounded p-2 text-black" />
+          <label className="block font-semibold mb-2">📥 Importar Jogadores (.xlsx)</label>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={handleImportar}
+            className="w-full border rounded p-2 bg-gray-700 text-white"
+          />
           {importando && <p className="text-yellow-300 mt-2">⏳ Importando...</p>}
           {msg && <p className="text-green-300 mt-2">{msg}</p>}
         </div>
 
         {leilaoAtivo ? (
-          <div className="bg-yellow-900 border-l-4 border-yellow-500 p-4 rounded mb-6">
+          <div className="bg-yellow-800 border-l-4 border-yellow-400 p-4 rounded mb-6">
             <p><strong>🎬 Em Leilão:</strong> {leilaoAtivo.nome} ({leilaoAtivo.posicao})</p>
             <p><strong>⏱ Tempo restante:</strong> {tempoRestante}</p>
             <p><strong>💰 Lance atual:</strong> R$ {Number(leilaoAtivo.valor_atual).toLocaleString()}</p>
@@ -189,14 +194,15 @@ export default function AdminLeilaoPage() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-          <input type="text" placeholder="Nome" value={jogador} onChange={(e) => setJogador(e.target.value)} className="p-2 border rounded text-black" />
-          <select value={posicao} onChange={(e) => setPosicao(e.target.value)} className="p-2 border rounded text-black">
+          <input type="text" placeholder="Nome" value={jogador} onChange={(e) => setJogador(e.target.value)} className="p-2 border rounded bg-gray-700 text-white" />
+          <select value={posicao} onChange={(e) => setPosicao(e.target.value)} className="p-2 border rounded bg-gray-700 text-white">
             {POSICOES.map(p => <option key={p}>{p}</option>)}
           </select>
-          <input type="number" placeholder="Overall" value={overall} onChange={(e) => setOverall(Number(e.target.value))} className="p-2 border rounded text-black" />
-          <input type="number" placeholder="Valor (R$)" value={valorInicial} onChange={(e) => setValorInicial(Number(e.target.value))} className="p-2 border rounded text-black" />
-          <input type="number" placeholder="Duração (min)" value={duracaoMin} onChange={(e) => setDuracaoMin(Number(e.target.value))} className="p-2 border rounded text-black" />
+          <input type="number" placeholder="Overall" value={overall} onChange={(e) => setOverall(Number(e.target.value))} className="p-2 border rounded bg-gray-700 text-white" />
+          <input type="number" placeholder="Valor (R$)" value={valorInicial} onChange={(e) => setValorInicial(Number(e.target.value))} className="p-2 border rounded bg-gray-700 text-white" />
+          <input type="number" placeholder="Duração (min)" value={duracaoMin} onChange={(e) => setDuracaoMin(Number(e.target.value))} className="p-2 border rounded bg-gray-700 text-white" />
         </div>
+
         <button onClick={criarLeilaoManual} className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded mb-6">
           🚀 Criar Leilão Manual
         </button>
@@ -213,7 +219,7 @@ export default function AdminLeilaoPage() {
                 <p>💰 R$ {Number(jog.valor_atual).toLocaleString()}</p>
                 <button
                   onClick={() => iniciarLeilaoDaFila(jog)}
-                  className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+                  className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded w-full"
                 >
                   🎬 Iniciar Leilão
                 </button>
@@ -225,3 +231,4 @@ export default function AdminLeilaoPage() {
     </main>
   )
 }
+
