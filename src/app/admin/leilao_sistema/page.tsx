@@ -128,22 +128,24 @@ export default function LeilaoSistemaPage() {
   if (!leilao) return <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-3xl mx-auto bg-gray-800 rounded-xl shadow-xl p-6 text-center">
-        <h1 className="text-3xl font-bold mb-4">⚔️ Leilão Ativo</h1>
+    <main className="min-h-screen bg-gray-900 text-white p-6 flex items-center justify-center">
+      <div className="w-full max-w-2xl bg-gray-800 rounded-xl shadow-2xl p-6 text-center">
+        <h1 className="text-3xl font-bold mb-6 text-green-400">⚔️ Leilão Ativo</h1>
 
         {leilao.imagem_url && (
           <img
             src={leilao.imagem_url}
             alt={leilao.nome}
-            className="w-48 h-48 object-cover rounded-full mx-auto mb-4 border border-gray-500"
+            className="w-40 h-40 object-cover rounded-full mx-auto mb-4 border-2 border-green-400"
           />
         )}
 
-        <h2 className="text-2xl font-semibold mb-2">{leilao.nome} ({leilao.posicao})</h2>
-        <p className="mb-1">⭐ Overall: {leilao.overall}</p>
-        <p className="mb-1">🌍 Nacionalidade: {leilao.nacionalidade}</p>
-        <p className="mb-2 font-bold text-lg text-green-400">💰 Lance atual: R$ {Number(leilao.valor_atual).toLocaleString()}</p>
+        <h2 className="text-2xl font-bold mb-2">{leilao.nome} <span className="text-sm">({leilao.posicao})</span></h2>
+        <p className="mb-1">⭐ Overall: <span className="font-semibold">{leilao.overall}</span></p>
+        <p className="mb-1">🌍 Nacionalidade: <span className="font-semibold">{leilao.nacionalidade}</span></p>
+        <p className="mb-2 text-green-400 text-xl font-bold">
+          💰 R$ {Number(leilao.valor_atual).toLocaleString()}
+        </p>
 
         {leilao.nome_time_vencedor && (
           <p className="mb-4 text-sm text-gray-300">
@@ -152,12 +154,12 @@ export default function LeilaoSistemaPage() {
         )}
 
         {tempoRestante !== null && (
-          <div className="text-2xl font-mono bg-black text-white inline-block px-4 py-2 rounded-lg mb-4">
+          <div className="text-2xl font-mono bg-black text-white inline-block px-5 py-2 rounded-lg mb-6 shadow">
             ⏱️ {formatarTempo(tempoRestante)}
           </div>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 my-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
           {[...Array(5)].map((_, i) => {
             const incremento = 2000000 * Math.pow(2, i)
             return (
@@ -165,7 +167,7 @@ export default function LeilaoSistemaPage() {
                 key={i}
                 onClick={() => darLance(incremento)}
                 disabled={tempoRestante === 0}
-                className="bg-green-600 hover:bg-green-700 text-white py-2 px-2 rounded text-sm font-bold disabled:opacity-50"
+                className="bg-green-600 hover:bg-green-700 text-white py-2 rounded text-xs font-bold transition disabled:opacity-50"
               >
                 + R$ {(incremento / 1000000).toLocaleString()} mi
               </button>
@@ -178,7 +180,7 @@ export default function LeilaoSistemaPage() {
             href={leilao.link_sofifa}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-400 underline text-sm"
+            className="text-blue-400 underline text-sm hover:text-blue-300 transition"
           >
             🔗 Ver no Sofifa
           </a>
