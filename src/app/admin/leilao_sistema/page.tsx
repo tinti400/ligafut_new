@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
-import { v4 as uuidv4 } from 'uuid'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -61,36 +60,7 @@ export default function LeilaoSistemaPage() {
   }, [leilao])
 
   const finalizarLeilao = async () => {
-    if (!leilao?.id_time_vencedor) return
-
-    const jogador = {
-      id: uuidv4(),
-      nome: leilao.nome,
-      posicao: leilao.posicao,
-      overall: leilao.overall,
-      valor: leilao.valor_atual,
-      imagem_url: leilao.imagem_url || '',
-      link_sofifa: leilao.link_sofifa || '',
-      nacionalidade: leilao.nacionalidade || '',
-      id_time: leilao.id_time_vencedor
-    }
-
-    await supabase.from('elencos').insert(jogador)
-
-    await supabase.rpc('executar_sql', {
-      sql: `UPDATE times SET saldo = saldo - ${leilao.valor_atual} WHERE id = '${leilao.id_time_vencedor}'`
-    })
-
-    await supabase.from('movimentacoes_financeiras').insert({
-      id: uuidv4(),
-      id_time: leilao.id_time_vencedor,
-      tipo: 'saida',
-      descricao: `Compra em leilão: ${leilao.nome}`,
-      valor: leilao.valor_atual
-    })
-
     await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilao.id)
-
     setLeilao(null)
     setTempoRestante(0)
     router.refresh()
