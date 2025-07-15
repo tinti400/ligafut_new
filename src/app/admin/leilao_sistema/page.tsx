@@ -124,29 +124,29 @@ export default function LeilaoSistemaPage() {
     return `${min}:${sec}`
   }
 
-  if (carregando) return <div className="p-6">⏳ Carregando...</div>
-  if (!leilao) return <div className="p-6">⚠️ Nenhum leilão ativo no momento.</div>
+  if (carregando) return <div className="p-6 text-white">⏳ Carregando...</div>
+  if (!leilao) return <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-6">
-      <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-xl p-6 text-center">
+    <main className="min-h-screen bg-gray-900 text-white p-6">
+      <div className="max-w-3xl mx-auto bg-gray-800 rounded-xl shadow-xl p-6 text-center">
         <h1 className="text-3xl font-bold mb-4">⚔️ Leilão Ativo</h1>
 
         {leilao.imagem_url && (
           <img
             src={leilao.imagem_url}
             alt={leilao.nome}
-            className="w-48 h-48 object-cover rounded-full mx-auto mb-4"
+            className="w-48 h-48 object-cover rounded-full mx-auto mb-4 border border-gray-500"
           />
         )}
 
         <h2 className="text-2xl font-semibold mb-2">{leilao.nome} ({leilao.posicao})</h2>
         <p className="mb-1">⭐ Overall: {leilao.overall}</p>
         <p className="mb-1">🌍 Nacionalidade: {leilao.nacionalidade}</p>
-        <p className="mb-2 font-bold text-lg">💰 Lance atual: R$ {Number(leilao.valor_atual).toLocaleString()}</p>
+        <p className="mb-2 font-bold text-lg text-green-400">💰 Lance atual: R$ {Number(leilao.valor_atual).toLocaleString()}</p>
 
         {leilao.nome_time_vencedor && (
-          <p className="mb-4 text-sm text-gray-600">
+          <p className="mb-4 text-sm text-gray-300">
             👑 Último lance por: <strong>{leilao.nome_time_vencedor}</strong>
           </p>
         )}
@@ -165,7 +165,7 @@ export default function LeilaoSistemaPage() {
                 key={i}
                 onClick={() => darLance(incremento)}
                 disabled={tempoRestante === 0}
-                className="bg-green-600 hover:bg-green-700 text-white py-2 px-2 rounded text-sm font-bold"
+                className="bg-green-600 hover:bg-green-700 text-white py-2 px-2 rounded text-sm font-bold disabled:opacity-50"
               >
                 + R$ {(incremento / 1000000).toLocaleString()} mi
               </button>
@@ -174,7 +174,12 @@ export default function LeilaoSistemaPage() {
         </div>
 
         {leilao.link_sofifa && (
-          <a href={leilao.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline text-sm">
+          <a
+            href={leilao.link_sofifa}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 underline text-sm"
+          >
             🔗 Ver no Sofifa
           </a>
         )}
