@@ -60,18 +60,28 @@ export default function LeiloesFinalizadosPage() {
       return
     }
 
-    const { error: erroSaldo } = await supabase
+    // Buscar saldo atual
+    const { data: timeData, error: errorBusca } = await supabase
       .from('times')
-      .update({ saldo: supabase.literal(`saldo - ${leilao.valor_atual}`) })
+      .select('saldo')
       .eq('id', leilao.id_time_vencedor)
+      .single()
 
-    if (erroSaldo) {
-      console.error('❌ Erro ao atualizar saldo:', erroSaldo)
-      alert('Erro ao atualizar saldo.')
+    if (errorBusca || !timeData) {
+      console.error('❌ Erro ao buscar saldo:', errorBusca)
+      alert('Erro ao buscar saldo do time.')
       return
     }
 
-    await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+    await supabase
+      .from('times')
+      .update({ saldo: timeData.saldo - leilao.valor_atual })
+      .eq('id', leilao.id_time_vencedor)
+
+    await supabase
+      .from('leiloes_sistema')
+      .update({ status: 'concluido' })
+      .eq('id', leilao.id)
 
     alert('✅ Jogador enviado ao elenco e saldo debitado!')
     location.reload()
