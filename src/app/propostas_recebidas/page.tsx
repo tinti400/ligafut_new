@@ -12,9 +12,14 @@ export default function PropostasRecebidasPage() {
   const [pendentes, setPendentes] = useState<any[]>([])
   const [concluidas, setConcluidas] = useState<any[]>([])
   const [jogadores, setJogadores] = useState<any>({})
-  const id_time = localStorage.getItem('id_time') || ''
+  const [idTime, setIdTime] = useState<string>('')
 
   useEffect(() => {
+    const id_time = localStorage.getItem('id_time') || ''
+    setIdTime(id_time)
+
+    if (!id_time) return
+
     const buscarPropostas = async () => {
       const { data: pendentesData } = await supabase
         .from('propostas_app')
@@ -55,8 +60,8 @@ export default function PropostasRecebidasPage() {
       }
     }
 
-    if (id_time) buscarPropostas()
-  }, [id_time])
+    buscarPropostas()
+  }, [])
 
   const aceitarProposta = async (proposta: any) => {
     try {
