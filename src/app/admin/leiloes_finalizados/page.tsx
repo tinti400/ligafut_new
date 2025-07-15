@@ -71,6 +71,13 @@ export default function LeiloesFinalizadosPage() {
     alert('✅ Jogador enviado ao elenco com sucesso!')
   }
 
+  const excluirLeilao = async (leilao: any) => {
+    if (!confirm('❗ Tem certeza que deseja excluir este leilão?')) return
+    await supabase.from('leiloes_sistema').delete().eq('id', leilao.id)
+    setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+    alert('✅ Leilão excluído com sucesso!')
+  }
+
   const leiloesFiltrados = leiloes.filter((leilao) => {
     const matchPosicao = filtroPosicao ? leilao.posicao === filtroPosicao : true
     const matchTime = filtroTime
@@ -80,13 +87,13 @@ export default function LeiloesFinalizadosPage() {
   })
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 p-6">
-      <div className="max-w-6xl mx-auto bg-white shadow-xl rounded-xl p-6">
-        <h1 className="text-3xl font-bold text-center mb-6">📜 Leilões Finalizados</h1>
+    <main className="min-h-screen bg-gray-900 text-white p-6">
+      <div className="max-w-6xl mx-auto bg-gray-800 shadow-xl rounded-xl p-6">
+        <h1 className="text-3xl font-bold text-center mb-6 text-green-400">📜 Leilões Finalizados</h1>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <select
-            className="p-2 border rounded"
+            className="p-2 border rounded text-black"
             value={filtroPosicao}
             onChange={(e) => setFiltroPosicao(e.target.value)}
           >
@@ -102,7 +109,7 @@ export default function LeiloesFinalizadosPage() {
             placeholder="🔍 Buscar por Time Vencedor"
             value={filtroTime}
             onChange={(e) => setFiltroTime(e.target.value)}
-            className="p-2 border rounded"
+            className="p-2 border rounded text-black"
           />
           <button
             onClick={() => {
@@ -116,18 +123,18 @@ export default function LeiloesFinalizadosPage() {
         </div>
 
         {carregando ? (
-          <p className="text-center text-gray-500">⏳ Carregando...</p>
+          <p className="text-center text-gray-400">⏳ Carregando...</p>
         ) : leiloesFiltrados.length === 0 ? (
-          <p className="text-center text-gray-500 italic">Nenhum leilão encontrado com os filtros.</p>
+          <p className="text-center text-gray-400 italic">Nenhum leilão encontrado com os filtros.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {leiloesFiltrados.map((leilao) => (
-              <div key={leilao.id} className="border rounded p-4 shadow bg-gray-50 hover:bg-gray-100 transition">
+              <div key={leilao.id} className="border rounded p-4 shadow bg-gray-700 hover:bg-gray-600 transition">
                 {leilao.imagem_url && (
                   <img
                     src={leilao.imagem_url}
                     alt={leilao.nome}
-                    className="w-full h-48 object-cover rounded mb-2"
+                    className="w-full h-48 object-cover rounded mb-2 border"
                   />
                 )}
                 <p className="font-bold text-lg">{leilao.nome} ({leilao.posicao})</p>
@@ -135,7 +142,7 @@ export default function LeiloesFinalizadosPage() {
                 <p>🌍 {leilao.nacionalidade}</p>
                 <p>💰 Valor final: <strong>R$ {Number(leilao.valor_atual).toLocaleString()}</strong></p>
                 <p>🏆 Time vencedor: <strong>{leilao.nome_time_vencedor || '—'}</strong></p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-gray-300 mt-1">
                   🕒 Finalizado em: {new Date(leilao.fim).toLocaleString('pt-BR')}
                 </p>
                 {leilao.link_sofifa && (
@@ -143,17 +150,26 @@ export default function LeiloesFinalizadosPage() {
                     href={leilao.link_sofifa}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-600 text-sm mt-2 inline-block"
+                    className="text-blue-400 text-sm mt-2 inline-block hover:underline"
                   >
                     🔗 Ver no Sofifa
                   </a>
                 )}
-                <button
-                  onClick={() => enviarParaElenco(leilao)}
-                  className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded"
-                >
-                  ➕ Enviar para Elenco
-                </button>
+                {leilao.id_time_vencedor ? (
+                  <button
+                    onClick={() => enviarParaElenco(leilao)}
+                    className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded"
+                  >
+                    ➕ Enviar para Elenco
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => excluirLeilao(leilao)}
+                    className="mt-3 w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded"
+                  >
+                    🗑️ Excluir Leilão
+                  </button>
+                )}
               </div>
             ))}
           </div>
