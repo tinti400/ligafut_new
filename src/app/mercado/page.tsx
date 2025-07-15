@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -156,6 +156,7 @@ export default function MercadoPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+        {/* Filtros */}
         <input
           type="text"
           placeholder="🔎 Buscar por nome"
@@ -241,7 +242,7 @@ export default function MercadoPage() {
             <p className="text-gray-400 text-xs">Salário: R${(jogador.salario || 0).toLocaleString()}</p>
 
             {isAdmin && (
-              <div>
+              <>
                 <label className="text-xs">💰 Alterar Preço (R$):</label>
                 <input
                   type="number"
@@ -257,17 +258,15 @@ export default function MercadoPage() {
                   />
                   Selecionar para excluir
                 </label>
-              </div>
+              </>
             )}
 
-            {!isAdmin && (
-              <button
-                onClick={() => comprarJogador(jogador)}
-                className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm"
-              >
-                Comprar
-              </button>
-            )}
+            <button
+              onClick={() => comprarJogador(jogador)}
+              className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full"
+            >
+              Comprar
+            </button>
           </div>
         ))}
       </div>
@@ -278,4 +277,3 @@ export default function MercadoPage() {
     </div>
   )
 }
-
