@@ -67,7 +67,12 @@ export default function LeilaoSistemaPage() {
   }
 
   const darLance = async (incremento: number) => {
-    if (!leilao || !id_time || !nome_time || tempoRestante === 0) return
+    if (!leilao || !id_time || !nome_time || tempoRestante === 0) {
+      console.log('🚫 Lance bloqueado', { leilao, id_time, nome_time, tempoRestante })
+      return
+    }
+
+    console.log('✅ Tentando dar lance de:', incremento)
 
     const novoValor = Number(leilao.valor_atual) + incremento
     const agora = Date.now()
@@ -84,8 +89,12 @@ export default function LeilaoSistemaPage() {
       fim: novaDataFim
     }).eq('id', leilao.id)
 
-    if (!error) router.refresh()
-    else alert('Erro ao dar lance.')
+    if (!error) {
+      console.log('✅ Lance registrado com sucesso')
+      router.refresh()
+    } else {
+      console.error('❌ Erro ao dar lance:', error)
+    }
   }
 
   const formatarTempo = (segundos: number) => {
