@@ -22,47 +22,31 @@ export default function ElencoPage() {
       setLoading(true)
 
       const userStorage = localStorage.getItem('user')
-      if (!userStorage) {
-        console.log('❌ Usuário não encontrado no localStorage')
-        return setLoading(false)
-      }
+      if (!userStorage) return setLoading(false)
 
       const userData = JSON.parse(userStorage)
       const id_time = userData.id_time
+      if (!id_time) return setLoading(false)
 
-      if (!id_time) {
-        console.log('❌ ID do time não encontrado no objeto user')
-        return setLoading(false)
-      }
-
-      const { data: timeData, error: errorTime } = await supabase
+      const { data: timeData } = await supabase
         .from('times')
         .select('nome, saldo, logo_url')
         .eq('id', id_time)
         .single()
-
-      if (errorTime) {
-        console.error('❌ Erro ao buscar dados do time:', errorTime)
-        return setLoading(false)
-      }
 
       setNomeTime(timeData?.nome || '')
       setLogoUrl(timeData?.logo_url || '')
       setSaldo(timeData?.saldo || 0)
       setCorPrimaria(definirCorPorTime(timeData?.nome || ''))
 
-      const { data: jogadores, error: errorElenco } = await supabase
+      const { data: jogadores } = await supabase
         .from('elenco')
         .select('*')
         .eq('id_time', id_time)
 
-      if (errorElenco) {
-        console.error('❌ Erro ao buscar elenco:', errorElenco)
-      } else {
-        const folha = (jogadores || []).reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
-        setElenco(jogadores || [])
-        setFolhaSalarial(folha)
-      }
+      const folha = (jogadores || []).reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
+      setElenco(jogadores || [])
+      setFolhaSalarial(folha)
 
       setLoading(false)
     }
@@ -91,35 +75,58 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
-      await supabase.from('mercado_transferencias').insert({
-        jogador_id: jogador.id,
-        nome: jogador.nome,
-        posicao: jogador.posicao,
-        overall: jogador.overall,
-        valor: jogador.valor,
-        imagem_url: jogador.imagem_url || '',
-        id_time_origem: jogador.id_time,
-        status: 'disponivel',
-        created_at: new Date().toISOString()
-      })
+      const { error: errorInsert } = await supabase
+        .from('mercado_transferencias')
+        .insert({
+          jogador_id: jogador.id,
+          nome: jogador.nome,
+          posicao: jogador.posicao,
+          overall: jogador.overall,
+          valor: jogador.valor,
+          imagem_url: jogador.imagem_url || '',
+          id_time_origem: jogador.id_time,
+          status: 'disponivel',
+          created_at: new Date().toISOString()
+        })
 
-      await supabase.from('elenco').delete().eq('id', jogador.id)
+      if (errorInsert) {
+        console.error('❌ Erro ao inserir no mercado:', errorInsert)
+        alert('❌ Erro ao inserir o jogador no mercado.')
+        return
+      }
+
+      const { error: errorDelete } = await supabase
+        .from('elenco')
+        .delete()
+        .eq('id', jogador.id)
+
+      if (errorDelete) {
+        console.error('❌ Erro ao remover do elenco:', errorDelete)
+        alert('❌ Erro ao remover o jogador do elenco.')
+        return
+      }
 
       const valorRecebido = Math.round(jogador.valor * 0.7)
-      await supabase.rpc('atualizar_saldo_time', {
-        p_id_time: jogador.id_time,
-        p_valor: valorRecebido
-      })
+      const { error: errorSaldo } = await supabase
+        .from('times')
+        .update({ saldo: saldo + valorRecebido })
+        .eq('id', jogador.id_time)
+
+      if (errorSaldo) {
+        console.error('❌ Erro ao atualizar saldo:', errorSaldo)
+        alert('❌ Erro ao atualizar o saldo do time.')
+        return
+      }
 
       setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
       setSaldo((prev) => prev + valorRecebido)
       setFolhaSalarial((prev) => prev - (jogador.salario || 0))
 
-      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado ao clube.`)
+      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
 
     } catch (error) {
-      console.error('❌ Erro ao vender jogador:', error)
-      alert('❌ Ocorreu um erro ao tentar vender o jogador.')
+      console.error('❌ Erro inesperado:', error)
+      alert('❌ Ocorreu um erro inesperado.')
     }
   }
 
