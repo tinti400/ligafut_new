@@ -63,16 +63,16 @@ export default function LoginPage() {
         .eq('email', userData.usuario)
         .single()
 
-      localStorage.setItem(
-        'user',
-        JSON.stringify({
-          usuario_id: userData.id,
-          id_time: timeData.id,
-          nome_time: timeData.nome,
-          usuario: userData.usuario,
-          isAdmin: !!adminData
-        })
-      )
+      localStorage.setItem('user', JSON.stringify({
+        usuario_id: userData.id,
+        id_time: timeData.id,
+        nome_time: timeData.nome,
+        usuario: userData.usuario,
+        isAdmin: !!adminData
+      }))
+
+      localStorage.setItem('id_time', timeData.id)
+      localStorage.setItem('nome_time', timeData.nome)
 
       router.push('/')
     } catch (err) {
