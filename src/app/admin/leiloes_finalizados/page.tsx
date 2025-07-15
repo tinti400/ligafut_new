@@ -137,12 +137,12 @@ export default function LeiloesFinalizadosPage() {
                     className="w-full h-48 object-cover rounded mb-2 border"
                   />
                 )}
-                <p className="font-bold text-lg">{leilao.nome} ({leilao.posicao})</p>
-                <p>⭐ Overall: {leilao.overall}</p>
-                <p>🌍 {leilao.nacionalidade}</p>
-                <p>💰 Valor final: <strong>R$ {Number(leilao.valor_atual).toLocaleString()}</strong></p>
-                <p>🏆 Time vencedor: <strong>{leilao.nome_time_vencedor || '—'}</strong></p>
-                <p className="text-sm text-gray-300 mt-1">
+                <p className="font-bold text-lg text-white">{leilao.nome} ({leilao.posicao})</p>
+                <p className="text-gray-300">⭐ Overall: {leilao.overall}</p>
+                <p className="text-gray-300">🌍 {leilao.nacionalidade}</p>
+                <p className="text-yellow-400">💰 Valor final: <strong>R$ {Number(leilao.valor_atual).toLocaleString()}</strong></p>
+                <p className="text-gray-300">🏆 Time vencedor: <strong>{leilao.id_time_vencedor ? leilao.nome_time_vencedor : '— Sem Vencedor'}</strong></p>
+                <p className="text-xs text-gray-400 mt-1">
                   🕒 Finalizado em: {new Date(leilao.fim).toLocaleString('pt-BR')}
                 </p>
                 {leilao.link_sofifa && (
