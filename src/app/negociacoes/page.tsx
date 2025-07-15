@@ -20,10 +20,19 @@ export default function NegociacoesPage() {
   const [jogadoresOferecidos, setJogadoresOferecidos] = useState<{ [key: string]: string[] }>({})
   const [mensagemSucesso, setMensagemSucesso] = useState<{ [key: string]: boolean }>({})
 
-  const userStorage = localStorage.getItem('user')
-  const userData = userStorage ? JSON.parse(userStorage) : null
-  const id_time = userData?.id_time
-  const nome_time = userData?.nome_time
+  const [userData, setUserData] = useState<any>(null)
+  const [id_time, setIdTime] = useState<string | null>(null)
+  const [nome_time, setNomeTime] = useState<string | null>(null)
+
+  useEffect(() => {
+    const userStorage = localStorage.getItem('user')
+    if (userStorage) {
+      const parsed = JSON.parse(userStorage)
+      setUserData(parsed)
+      setIdTime(parsed.id_time)
+      setNomeTime(parsed.nome_time)
+    }
+  }, [])
 
   useEffect(() => {
     const buscarTimes = async () => {
