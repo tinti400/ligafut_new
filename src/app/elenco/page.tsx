@@ -78,7 +78,7 @@ export default function ElencoPage() {
       const { error: errorInsert } = await supabase
         .from('mercado_transferencias')
         .insert({
-          jogador_id: jogador.id,
+          jogador_id: jogador.uuid, // Agora usando uuid
           nome: jogador.nome,
           posicao: jogador.posicao,
           overall: jogador.overall,
@@ -98,7 +98,7 @@ export default function ElencoPage() {
       const { error: errorDelete } = await supabase
         .from('elenco')
         .delete()
-        .eq('id', jogador.id)
+        .eq('uuid', jogador.uuid) // Agora removendo pelo uuid correto
 
       if (errorDelete) {
         console.error('❌ Erro ao remover do elenco:', errorDelete)
@@ -118,7 +118,7 @@ export default function ElencoPage() {
         return
       }
 
-      setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
+      setElenco((prev) => prev.filter((j) => j.uuid !== jogador.uuid))
       setSaldo((prev) => prev + valorRecebido)
       setFolhaSalarial((prev) => prev - (jogador.salario || 0))
 
@@ -159,7 +159,7 @@ export default function ElencoPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {elencoOrdenado.map((jogador) => (
-            <div key={jogador.id} className="border border-gray-700 rounded-lg p-4 shadow bg-gray-800 text-center flex flex-col items-center">
+            <div key={jogador.uuid} className="border border-gray-700 rounded-lg p-4 shadow bg-gray-800 text-center flex flex-col items-center">
               <img
                 src={jogador.imagem_url || 'https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png'}
                 alt={jogador.nome}
