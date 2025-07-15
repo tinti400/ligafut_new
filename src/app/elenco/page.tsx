@@ -17,47 +17,35 @@ export default function ElencoPage() {
   const [folhaSalarial, setFolhaSalarial] = useState(0)
   const [corPrimaria, setCorPrimaria] = useState('#10b981')
 
+  const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
+
   useEffect(() => {
     const fetchElenco = async () => {
+      if (!user?.id_time) return
+
       setLoading(true)
 
-      const userStorage = localStorage.getItem('user')
-      if (!userStorage) return setLoading(false)
-
-      const userData = JSON.parse(userStorage)
-      const id_time = userData.id_time
-
-      if (!id_time) return setLoading(false)
-
-      const { data: timeData, error: errorTime } = await supabase
+      const { data: timeData } = await supabase
         .from('times')
         .select('nome, saldo, logo_url')
-        .eq('id', id_time)
+        .eq('id', user.id_time)
         .single()
 
-      console.log('✅ Time Data:', timeData)
-
-      if (errorTime || !timeData) {
-        console.error('❌ Erro ao buscar time:', errorTime)
-        return setLoading(false)
+      if (timeData) {
+        setNomeTime(timeData.nome)
+        setLogoUrl(timeData.logo_url)
+        setSaldo(timeData.saldo)
+        setCorPrimaria(definirCorPorTime(timeData.nome))
       }
 
-      setNomeTime(timeData.nome || '')
-      setLogoUrl(timeData.logo_url || '')
-      setSaldo(timeData.saldo || 0)
-      setCorPrimaria(definirCorPorTime(timeData.nome))
-
-      const { data: jogadores, error: errorElenco } = await supabase
+      const { data: jogadores } = await supabase
         .from('elenco')
         .select('*')
-        .eq('id_time', id_time)
+        .eq('id_time', user.id_time)
 
-      if (errorElenco) {
-        console.error('❌ Erro ao buscar elenco:', errorElenco)
-      }
-
-      const folha = (jogadores || []).reduce((acc, j) => acc + (j.salario || 0), 0)
       setElenco(jogadores || [])
+
+      const folha = (jogadores || []).reduce((total, j) => total + (j.salario || 0), 0)
       setFolhaSalarial(folha)
 
       setLoading(false)
@@ -67,7 +55,7 @@ export default function ElencoPage() {
   }, [])
 
   const definirCorPorTime = (nome: string) => {
-    const mapaCores: { [key: string]: string } = {
+    const cores: any = {
       'Flamengo': '#d32f2f',
       'Palmeiras': '#1b5e20',
       'Corinthians': '#212121',
@@ -79,12 +67,11 @@ export default function ElencoPage() {
       'Botafogo': '#37474f',
       'Atlético-MG': '#424242'
     }
-    return mapaCores[nome] || '#10b981'
+    return cores[nome] || '#10b981'
   }
 
   const venderJogador = async (jogador: any) => {
-    const confirmar = confirm(`💸 Vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% desse valor.`)
-    if (!confirmar) return
+    if (!confirm(`💸 Vender ${jogador.nome} por R$ ${jogador.valor.toLocaleString()}?\nVocê receberá 70% do valor.`)) return
 
     try {
       await supabase.from('mercado_transferencias').insert({
@@ -101,36 +88,34 @@ export default function ElencoPage() {
 
       await supabase.from('elenco').delete().eq('id', jogador.id)
 
-      const valorRecebido = Math.round(jogador.valor * 0.7)
       await supabase.rpc('atualizar_saldo_time', {
         p_id_time: jogador.id_time,
-        p_valor: valorRecebido
+        p_valor: Math.round(jogador.valor * 0.7)
       })
 
       setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
-      setSaldo((prev) => prev + valorRecebido)
+      setSaldo((prev) => prev + Math.round(jogador.valor * 0.7))
       setFolhaSalarial((prev) => prev - (jogador.salario || 0))
 
-      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado ao clube.`)
-
-    } catch (error) {
-      console.error('❌ Erro ao vender jogador:', error)
-      alert('❌ Erro ao tentar vender o jogador.')
+      alert('✅ Jogador vendido e saldo atualizado!')
+    } catch (err) {
+      console.error('Erro ao vender jogador:', err)
+      alert('❌ Erro ao vender jogador.')
     }
   }
 
-  const ordemPosicoes = ['GL', 'ZAG', 'LE', 'LD', 'VOL', 'MC', 'MEI', 'MD', 'ME', 'SA', 'PD', 'PE', 'CA']
-  const elencoOrdenado = [...elenco].sort((a, b) => {
-    return ordemPosicoes.indexOf(a.posicao) - ordemPosicoes.indexOf(b.posicao)
-  })
+  const ordem = ['GL', 'ZAG', 'LE', 'LD', 'VOL', 'MC', 'MEI', 'MD', 'ME', 'SA', 'PD', 'PE', 'CA']
+  const elencoOrdenado = [...elenco].sort((a, b) => ordem.indexOf(a.posicao) - ordem.indexOf(b.posicao))
 
   return (
     <div className="p-6 bg-gray-900 min-h-screen text-white">
       <div className="flex items-center justify-center gap-4 mb-4">
         {logoUrl ? (
-          <img src={logoUrl} alt="Logo Time" className="w-12 h-12 rounded-full border" />
+          <img src={logoUrl} alt="Logo" className="w-12 h-12 rounded-full border" />
         ) : (
-          <div className="w-12 h-12 rounded-full border flex items-center justify-center bg-gray-700 text-xs">Sem Logo</div>
+          <div className="w-12 h-12 rounded-full border flex items-center justify-center bg-gray-700 text-xs">
+            Sem Logo
+          </div>
         )}
         <h1 className="text-2xl font-bold" style={{ color: corPrimaria }}>
           👥 Elenco do {nomeTime}
@@ -149,23 +134,23 @@ export default function ElencoPage() {
         <p className="text-center text-gray-400">Nenhum jogador encontrado.</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {elencoOrdenado.map((jogador) => (
-            <div key={jogador.id} className="border border-gray-700 rounded-lg p-4 shadow bg-gray-800 text-center flex flex-col items-center">
+          {elencoOrdenado.map((j) => (
+            <div key={j.id} className="border border-gray-700 rounded-lg p-4 shadow bg-gray-800 text-center flex flex-col items-center">
               <img
-                src={jogador.imagem_url || 'https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png'}
-                alt={jogador.nome}
+                src={j.imagem_url || 'https://upload.wikimedia.org/wikipedia/commons/9/99/Sample_User_Icon.png'}
+                alt={j.nome}
                 className="w-16 h-16 rounded-full object-cover mb-2 border"
               />
-              <div className="font-semibold">{jogador.nome}</div>
-              <div className="text-xs text-gray-300">{jogador.posicao} • Overall {jogador.overall}</div>
+              <div className="font-semibold">{j.nome}</div>
+              <div className="text-xs text-gray-300">{j.posicao} • Overall {j.overall}</div>
               <div className="text-green-400 font-bold text-sm mt-1">
-                💰 R$ {Number(jogador.valor).toLocaleString('pt-BR')}
+                💰 R$ {j.valor.toLocaleString('pt-BR')}
               </div>
-              <div className="text-xs text-gray-400">Salário: R$ {Number(jogador.salario || 0).toLocaleString('pt-BR')}</div>
-              <div className="text-xs text-gray-400">Jogos: {jogador.jogos || 0}</div>
+              <div className="text-xs text-gray-400">Salário: R$ {(j.salario || 0).toLocaleString('pt-BR')}</div>
+              <div className="text-xs text-gray-400">Jogos: {j.jogos || 0}</div>
 
-              {jogador.link_sofifa ? (
-                <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-xs text-green-400 mt-1 hover:underline">
+              {j.link_sofifa ? (
+                <a href={j.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-xs text-green-400 mt-1 hover:underline">
                   🔗 Ver no SoFIFA
                 </a>
               ) : (
@@ -173,7 +158,7 @@ export default function ElencoPage() {
               )}
 
               <button
-                onClick={() => venderJogador(jogador)}
+                onClick={() => venderJogador(j)}
                 className="mt-3 bg-green-600 hover:bg-green-700 text-white text-xs px-4 py-1 rounded"
               >
                 💸 Vender
