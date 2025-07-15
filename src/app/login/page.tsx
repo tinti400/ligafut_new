@@ -24,51 +24,63 @@ export default function LoginPage() {
   }, [])
 
   const handleLogin = async () => {
+    if (!usuario || !senha) {
+      alert('⚠️ Preencha usuário e senha!')
+      return
+    }
+
     setLoading(true)
 
-    const { data: userData, error } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('usuario', usuario)
-      .eq('senha', senha)
-      .single()
+    try {
+      const { data: userData, error } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('usuario', usuario)
+        .eq('senha', senha)
+        .single()
 
-    if (error || !userData) {
-      alert('❌ Usuário ou senha inválidos!')
+      if (error || !userData) {
+        alert('❌ Usuário ou senha inválidos!')
+        setLoading(false)
+        return
+      }
+
+      const { data: timeData, error: timeError } = await supabase
+        .from('times')
+        .select('id, nome')
+        .eq('id', userData.time_id)
+        .single()
+
+      if (timeError || !timeData) {
+        alert('❌ Seu time não foi encontrado. Contate o administrador.')
+        setLoading(false)
+        return
+      }
+
+      const { data: adminData } = await supabase
+        .from('admins')
+        .select('email')
+        .eq('email', userData.usuario)
+        .single()
+
+      localStorage.setItem(
+        'user',
+        JSON.stringify({
+          usuario_id: userData.id,
+          id_time: timeData.id,
+          nome_time: timeData.nome,
+          usuario: userData.usuario,
+          isAdmin: !!adminData
+        })
+      )
+
+      router.push('/')
+    } catch (err) {
+      console.error('Erro ao fazer login:', err)
+      alert('❌ Ocorreu um erro ao tentar fazer login.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    const { data: timeData, error: timeError } = await supabase
-      .from('times')
-      .select('id, nome')
-      .eq('id', userData.time_id)  // Mantendo como você pediu!
-      .single()
-
-    if (timeError || !timeData) {
-      alert('❌ Seu time não foi encontrado. Contate o administrador.')
-      setLoading(false)
-      return
-    }
-
-    const { data: adminData } = await supabase
-      .from('admins')
-      .select('email')
-      .eq('email', userData.usuario)
-      .single()
-
-    localStorage.setItem(
-      'user',
-      JSON.stringify({
-        usuario_id: userData.id,
-        id_time: timeData.id,
-        nome_time: timeData.nome,
-        usuario: userData.usuario,
-        isAdmin: !!adminData
-      })
-    )
-
-    router.push('/')
   }
 
   const handleTrocarSenha = async () => {
@@ -79,29 +91,35 @@ export default function LoginPage() {
 
     setLoading(true)
 
-    const { data: userData, error } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('usuario', usuario)
-      .eq('senha', senha)
-      .single()
+    try {
+      const { data: userData, error } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('usuario', usuario)
+        .eq('senha', senha)
+        .single()
 
-    if (error || !userData) {
-      alert('❌ Usuário ou senha inválidos!')
+      if (error || !userData) {
+        alert('❌ Usuário ou senha inválidos!')
+        setLoading(false)
+        return
+      }
+
+      await supabase
+        .from('usuarios')
+        .update({ senha: novaSenha })
+        .eq('id', userData.id)
+
+      alert('✅ Senha atualizada com sucesso! Faça login novamente.')
+      setTela('login')
+      setSenha('')
+      setNovaSenha('')
+    } catch (err) {
+      console.error('Erro ao atualizar senha:', err)
+      alert('❌ Erro ao tentar atualizar a senha.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    await supabase
-      .from('usuarios')
-      .update({ senha: novaSenha })
-      .eq('id', userData.id)
-
-    alert('✅ Senha atualizada com sucesso! Faça login novamente.')
-    setTela('login')
-    setLoading(false)
-    setSenha('')
-    setNovaSenha('')
   }
 
   return (

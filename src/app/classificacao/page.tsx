@@ -49,7 +49,7 @@ export default function ClassificacaoPage() {
   })
 
   const divisoesDisponiveis = Object.keys(classificacaoPorDivisao)
-    .map((d) => parseInt(d))
+    .map(Number)
     .sort((a, b) => a - b)
 
   const timesDaDivisao = divisaoSelecionada
@@ -62,7 +62,6 @@ export default function ClassificacaoPage() {
   const editarClassificacao = (item: ClassificacaoItem) => {
     if (!isAdmin) return
     alert(`📝 Editar classificação do time: ${item.times.nome}`)
-    // Aqui você pode abrir um modal ou redirecionar para tela de edição
   }
 
   if (erro) return <div className="text-red-500 p-4">{erro}</div>

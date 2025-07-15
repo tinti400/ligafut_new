@@ -14,10 +14,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const POSICOES = [
-  'GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME',
-  'PD', 'PE', 'SA', 'CA'
-]
+const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
 export default function AdminLeilaoPage() {
   const router = useRouter()
@@ -36,9 +33,7 @@ export default function AdminLeilaoPage() {
   useEffect(() => {
     buscarFila()
     buscarLeilaoAtual()
-    const intervalo = setInterval(() => {
-      buscarLeilaoAtual()
-    }, 5000)
+    const intervalo = setInterval(buscarLeilaoAtual, 5000)
     return () => clearInterval(intervalo)
   }, [])
 
@@ -49,8 +44,8 @@ export default function AdminLeilaoPage() {
       .eq('status', 'fila')
       .order('criado_em', { ascending: true })
 
-    if (error) console.error('Erro ao buscar fila:', error.message)
-    setFila(data || [])
+    if (!error) setFila(data || [])
+    else console.error('Erro ao buscar fila:', error.message)
   }
 
   const buscarLeilaoAtual = async () => {
@@ -61,15 +56,11 @@ export default function AdminLeilaoPage() {
       .order('fim', { ascending: false })
       .limit(1)
 
-    if (error) {
-      console.error('Erro ao buscar leilão ativo:', error.message)
-      return
-    }
-
-    if (data && data[0] && new Date(data[0].fim) > new Date()) {
-      setLeilaoAtivo(data[0])
+    if (!error) {
+      if (data && data[0] && new Date(data[0].fim) > new Date()) setLeilaoAtivo(data[0])
+      else setLeilaoAtivo(null)
     } else {
-      setLeilaoAtivo(null)
+      console.error('Erro ao buscar leilão ativo:', error.message)
     }
   }
 
@@ -123,11 +114,11 @@ export default function AdminLeilaoPage() {
       })
       .eq('id', jogador.id)
 
-    if (error) {
-      console.error('Erro ao iniciar leilão da fila:', error.message)
-    } else {
+    if (!error) {
       buscarFila()
       buscarLeilaoAtual()
+    } else {
+      console.error('Erro ao iniciar leilão da fila:', error.message)
     }
   }
 
@@ -146,11 +137,7 @@ export default function AdminLeilaoPage() {
       const json = XLSX.utils.sheet_to_json(sheet)
 
       for (const item of json as any[]) {
-        const {
-          nome, posicao, overall,
-          origem, nacionalidade, imagem_url, link_sofifa
-        } = item
-
+        const { nome, posicao, overall, origem, nacionalidade, imagem_url, link_sofifa } = item
         const criado_em = new Date()
         const fim = new Date(criado_em.getTime() + 2 * 60000)
 
@@ -168,9 +155,7 @@ export default function AdminLeilaoPage() {
           status: 'fila'
         })
 
-        if (error) {
-          console.error('Erro ao inserir jogador:', error.message)
-        }
+        if (error) console.error('Erro ao inserir jogador:', error.message)
       }
 
       setMsg('✅ Jogadores importados com sucesso!')
@@ -187,7 +172,7 @@ export default function AdminLeilaoPage() {
         <h1 className="text-3xl font-bold text-center mb-6">🎯 Admin - Leilão</h1>
 
         <div className="mb-6">
-          <label className="block font-medium mb-2">📥 Importar Jogadores da Planilha (.xlsx)</label>
+          <label className="block font-medium mb-2">📥 Importar Jogadores (.xlsx)</label>
           <input type="file" accept=".xlsx" onChange={handleImportar} className="w-full border rounded p-2" />
           {importando && <p className="text-yellow-700 mt-2">⏳ Importando...</p>}
           {msg && <p className="text-green-700 mt-2">{msg}</p>}

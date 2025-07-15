@@ -1,32 +1,34 @@
+// src/app/api/elenco/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// 🔐 Conexão com o Supabase
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// 📥 GET /api/elenco?id_time=XXX
 export async function GET(req: NextRequest) {
-  const id_time = req.nextUrl.searchParams.get("id_time");
+  try {
+    const id_time = req.nextUrl.searchParams.get("id_time");
 
-  // 🚫 Verificação do parâmetro
-  if (!id_time) {
-    return NextResponse.json({ error: "id_time é obrigatório" }, { status: 400 });
+    if (!id_time) {
+      return NextResponse.json({ error: "id_time é obrigatório." }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from("elencos")
+      .select("*")
+      .eq("id_time", id_time);
+
+    if (error) {
+      console.error("Erro ao buscar elenco:", error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json(data || []);
+  } catch (err: any) {
+    console.error("Erro inesperado na API elenco:", err.message);
+    return NextResponse.json({ error: "Erro interno do servidor." }, { status: 500 });
   }
-
-  // 🔄 Busca no Supabase
-  const { data, error } = await supabase
-    .from("elencos") // Certifique-se de que sua tabela se chama "elencos"
-    .select("*")
-    .eq("id_time", id_time);
-
-  // ❌ Tratamento de erro
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  // ✅ Retorno dos dados
-  return NextResponse.json(data);
 }

@@ -19,7 +19,7 @@ export default function ElencoPage() {
       setLoading(true)
 
       const userStorage = localStorage.getItem('user')
-      if (!userStorage) return
+      if (!userStorage) return setLoading(false)
 
       const userData = JSON.parse(userStorage)
       const id_time = userData.id_time
@@ -35,7 +35,7 @@ export default function ElencoPage() {
       setCorPrimaria(definirCorPorTime(nome))
 
       const { data: jogadores } = await supabase
-        .from('elenco')
+        .from('elencos')
         .select('*')
         .eq('id_time', id_time)
 
@@ -79,7 +79,7 @@ export default function ElencoPage() {
         created_at: new Date().toISOString()
       })
 
-      await supabase.from('elenco').delete().eq('id', jogador.id)
+      await supabase.from('elencos').delete().eq('id', jogador.id)
       setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
 
       alert('✅ Jogador colocado no mercado com sucesso!')

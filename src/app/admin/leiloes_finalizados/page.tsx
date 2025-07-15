@@ -24,11 +24,9 @@ export default function LeiloesFinalizadosPage() {
         .eq('status', 'leiloado')
         .order('fim', { ascending: false })
 
-      if (error) {
-        console.error('Erro ao buscar leilões finalizados:', error)
-      } else {
-        setLeiloes(data || [])
-      }
+      if (!error) setLeiloes(data || [])
+      else console.error('Erro ao buscar leilões finalizados:', error)
+
       setCarregando(false)
     }
 
@@ -44,7 +42,7 @@ export default function LeiloesFinalizadosPage() {
     const salario = Math.round(leilao.valor_atual * 0.007)
 
     const { error: erroElenco } = await supabase
-      .from('elenco')
+      .from('elencos')
       .insert({
         id_time: leilao.id_time_vencedor,
         nome: leilao.nome,
@@ -53,7 +51,8 @@ export default function LeiloesFinalizadosPage() {
         valor: leilao.valor_atual,
         salario,
         imagem_url: leilao.imagem_url || '',
-        link_sofifa: leilao.link_sofifa || ''
+        link_sofifa: leilao.link_sofifa || '',
+        nacionalidade: leilao.nacionalidade || ''
       })
 
     if (erroElenco) {
@@ -67,10 +66,7 @@ export default function LeiloesFinalizadosPage() {
       p_valor: -Math.abs(leilao.valor_atual)
     })
 
-    await supabase
-      .from('leiloes_sistema')
-      .update({ status: 'concluido' })
-      .eq('id', leilao.id)
+    await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
 
     alert('✅ Jogador enviado ao elenco com sucesso!')
   }
@@ -126,10 +122,7 @@ export default function LeiloesFinalizadosPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {leiloesFiltrados.map((leilao) => (
-              <div
-                key={leilao.id}
-                className="border rounded p-4 shadow bg-gray-50 hover:bg-gray-100 transition"
-              >
+              <div key={leilao.id} className="border rounded p-4 shadow bg-gray-50 hover:bg-gray-100 transition">
                 {leilao.imagem_url && (
                   <img
                     src={leilao.imagem_url}

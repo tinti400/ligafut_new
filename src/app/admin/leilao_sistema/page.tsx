@@ -16,8 +16,8 @@ export default function LeilaoSistemaPage() {
   const [carregando, setCarregando] = useState(true)
   const [tempoRestante, setTempoRestante] = useState<number | null>(null)
 
-  const id_time = localStorage.getItem('id_time')
-  const nome_time = localStorage.getItem('nome_time')
+  const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+  const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
   useEffect(() => {
     const buscarLeilaoAtivo = async () => {
@@ -28,11 +28,8 @@ export default function LeilaoSistemaPage() {
         .order('criado_em', { ascending: true })
         .limit(1)
 
-      if (error) {
-        console.error('Erro ao buscar leilão:', error)
-      } else {
-        setLeilao(data?.[0] || null)
-      }
+      if (!error) setLeilao(data?.[0] || null)
+      else console.error('Erro ao buscar leilão:', error)
 
       setCarregando(false)
     }
@@ -46,7 +43,7 @@ export default function LeilaoSistemaPage() {
     if (!leilao || !leilao.fim) return
 
     const atualizarTempo = () => {
-      const agora = new Date().getTime()
+      const agora = Date.now()
       const fim = new Date(leilao.fim).getTime()
       const restante = Math.floor((fim - agora) / 1000)
 
@@ -64,10 +61,7 @@ export default function LeilaoSistemaPage() {
   }, [leilao])
 
   const finalizarLeilao = async () => {
-    if (!leilao || !leilao.id_time_vencedor) return
-
-    const vencedor_id = leilao.id_time_vencedor
-    const vencedor_nome = leilao.nome_time_vencedor
+    if (!leilao?.id_time_vencedor) return
 
     const jogador = {
       id: uuidv4(),
@@ -78,30 +72,24 @@ export default function LeilaoSistemaPage() {
       imagem_url: leilao.imagem_url || '',
       link_sofifa: leilao.link_sofifa || '',
       nacionalidade: leilao.nacionalidade || '',
-      id_time: vencedor_id
+      id_time: leilao.id_time_vencedor
     }
 
     await supabase.from('elencos').insert(jogador)
 
     await supabase.rpc('executar_sql', {
-      sql: `
-        UPDATE times
-        SET saldo = saldo - ${leilao.valor_atual}
-        WHERE id = '${vencedor_id}'
-      `
+      sql: `UPDATE times SET saldo = saldo - ${leilao.valor_atual} WHERE id = '${leilao.id_time_vencedor}'`
     })
 
     await supabase.from('movimentacoes_financeiras').insert({
       id: uuidv4(),
-      id_time: vencedor_id,
+      id_time: leilao.id_time_vencedor,
       tipo: 'saida',
       descricao: `Compra em leilão: ${leilao.nome}`,
       valor: leilao.valor_atual
     })
 
-    await supabase.from('leiloes_sistema')
-      .update({ status: 'leiloado' })
-      .eq('id', leilao.id)
+    await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilao.id)
 
     setLeilao(null)
     setTempoRestante(0)
@@ -112,31 +100,22 @@ export default function LeilaoSistemaPage() {
     if (!leilao || !id_time || !nome_time || tempoRestante === 0) return
 
     const novoValor = Number(leilao.valor_atual) + incremento
-
-    const agora = new Date().getTime()
+    const agora = Date.now()
     const fimAtual = new Date(leilao.fim).getTime()
-    const tempoRestanteSegundos = Math.floor((fimAtual - agora) / 1000)
-
+    const restante = Math.floor((fimAtual - agora) / 1000)
     let novaDataFim = leilao.fim
-    if (tempoRestanteSegundos <= 15) {
-      novaDataFim = new Date(agora + 15 * 1000).toISOString()
-    }
 
-    const { error } = await supabase
-      .from('leiloes_sistema')
-      .update({
-        valor_atual: novoValor,
-        id_time_vencedor: id_time,
-        nome_time_vencedor: nome_time,
-        fim: novaDataFim
-      })
-      .eq('id', leilao.id)
+    if (restante <= 15) novaDataFim = new Date(agora + 15000).toISOString()
 
-    if (error) {
-      alert('Erro ao dar lance.')
-    } else {
-      router.refresh()
-    }
+    const { error } = await supabase.from('leiloes_sistema').update({
+      valor_atual: novoValor,
+      id_time_vencedor: id_time,
+      nome_time_vencedor: nome_time,
+      fim: novaDataFim
+    }).eq('id', leilao.id)
+
+    if (!error) router.refresh()
+    else alert('Erro ao dar lance.')
   }
 
   const formatarTempo = (segundos: number) => {
@@ -195,12 +174,7 @@ export default function LeilaoSistemaPage() {
         </div>
 
         {leilao.link_sofifa && (
-          <a
-            href={leilao.link_sofifa}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 underline text-sm"
-          >
+          <a href={leilao.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline text-sm">
             🔗 Ver no Sofifa
           </a>
         )}
