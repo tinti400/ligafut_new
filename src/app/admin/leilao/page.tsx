@@ -167,53 +167,53 @@ export default function AdminLeilaoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 p-6">
-      <div className="max-w-5xl mx-auto bg-white shadow-xl rounded-xl p-6">
+    <main className="min-h-screen bg-gray-900 text-white p-6">
+      <div className="max-w-5xl mx-auto bg-gray-800 shadow-xl rounded-xl p-6">
         <h1 className="text-3xl font-bold text-center mb-6">🎯 Admin - Leilão</h1>
 
         <div className="mb-6">
           <label className="block font-medium mb-2">📥 Importar Jogadores (.xlsx)</label>
-          <input type="file" accept=".xlsx" onChange={handleImportar} className="w-full border rounded p-2" />
-          {importando && <p className="text-yellow-700 mt-2">⏳ Importando...</p>}
-          {msg && <p className="text-green-700 mt-2">{msg}</p>}
+          <input type="file" accept=".xlsx" onChange={handleImportar} className="w-full border rounded p-2 text-black" />
+          {importando && <p className="text-yellow-300 mt-2">⏳ Importando...</p>}
+          {msg && <p className="text-green-300 mt-2">{msg}</p>}
         </div>
 
         {leilaoAtivo ? (
-          <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 rounded mb-6">
+          <div className="bg-yellow-900 border-l-4 border-yellow-500 p-4 rounded mb-6">
             <p><strong>🎬 Em Leilão:</strong> {leilaoAtivo.nome} ({leilaoAtivo.posicao})</p>
             <p><strong>⏱ Tempo restante:</strong> {tempoRestante}</p>
             <p><strong>💰 Lance atual:</strong> R$ {Number(leilaoAtivo.valor_atual).toLocaleString()}</p>
           </div>
         ) : (
-          <p className="text-center text-sm text-gray-500 italic mb-6">Nenhum leilão em andamento.</p>
+          <p className="text-center text-sm text-gray-400 italic mb-6">Nenhum leilão em andamento.</p>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-          <input type="text" placeholder="Nome" value={jogador} onChange={(e) => setJogador(e.target.value)} className="p-2 border rounded" />
-          <select value={posicao} onChange={(e) => setPosicao(e.target.value)} className="p-2 border rounded">
+          <input type="text" placeholder="Nome" value={jogador} onChange={(e) => setJogador(e.target.value)} className="p-2 border rounded text-black" />
+          <select value={posicao} onChange={(e) => setPosicao(e.target.value)} className="p-2 border rounded text-black">
             {POSICOES.map(p => <option key={p}>{p}</option>)}
           </select>
-          <input type="number" placeholder="Overall" value={overall} onChange={(e) => setOverall(Number(e.target.value))} className="p-2 border rounded" />
-          <input type="number" placeholder="Valor (R$)" value={valorInicial} onChange={(e) => setValorInicial(Number(e.target.value))} className="p-2 border rounded" />
-          <input type="number" placeholder="Duração (min)" value={duracaoMin} onChange={(e) => setDuracaoMin(Number(e.target.value))} className="p-2 border rounded" />
+          <input type="number" placeholder="Overall" value={overall} onChange={(e) => setOverall(Number(e.target.value))} className="p-2 border rounded text-black" />
+          <input type="number" placeholder="Valor (R$)" value={valorInicial} onChange={(e) => setValorInicial(Number(e.target.value))} className="p-2 border rounded text-black" />
+          <input type="number" placeholder="Duração (min)" value={duracaoMin} onChange={(e) => setDuracaoMin(Number(e.target.value))} className="p-2 border rounded text-black" />
         </div>
-        <button onClick={criarLeilaoManual} className="w-full bg-green-600 text-white py-3 rounded mb-6 hover:bg-green-700">
+        <button onClick={criarLeilaoManual} className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded mb-6">
           🚀 Criar Leilão Manual
         </button>
 
         <h2 className="text-xl font-semibold mb-4">📋 Fila de Leilões</h2>
         {fila.length === 0 ? (
-          <p className="text-sm text-gray-500 italic">Nenhum jogador na fila.</p>
+          <p className="text-sm text-gray-400 italic">Nenhum jogador na fila.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {fila.map(jog => (
-              <div key={jog.id} className="border rounded p-4 shadow bg-gray-50">
+              <div key={jog.id} className="border rounded p-4 shadow bg-gray-700">
                 <p><strong>{jog.nome}</strong> ({jog.posicao})</p>
                 <p>Overall: {jog.overall}</p>
                 <p>💰 R$ {Number(jog.valor_atual).toLocaleString()}</p>
                 <button
                   onClick={() => iniciarLeilaoDaFila(jog)}
-                  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
                 >
                   🎬 Iniciar Leilão
                 </button>
