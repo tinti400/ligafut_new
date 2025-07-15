@@ -19,25 +19,46 @@ export default function ElencoPage() {
       setLoading(true)
 
       const userStorage = localStorage.getItem('user')
-      if (!userStorage) return setLoading(false)
+      if (!userStorage) {
+        console.log('❌ Usuário não encontrado no localStorage')
+        return setLoading(false)
+      }
 
       const userData = JSON.parse(userStorage)
       const id_time = userData.id_time
 
-      const { data: timeData } = await supabase
+      console.log('✅ ID do time carregado:', id_time)
+
+      if (!id_time) {
+        console.log('❌ ID do time não encontrado no objeto user')
+        return setLoading(false)
+      }
+
+      const { data: timeData, error: errorTime } = await supabase
         .from('times')
         .select('nome')
         .eq('id', id_time)
         .single()
 
+      if (errorTime) {
+        console.error('❌ Erro ao buscar nome do time:', errorTime)
+        return setLoading(false)
+      }
+
       const nome = timeData?.nome || ''
       setNomeTime(nome)
       setCorPrimaria(definirCorPorTime(nome))
 
-      const { data: jogadores } = await supabase
-        .from('elenco')  // ✅ TABELA CORRETA
+      const { data: jogadores, error: errorElenco } = await supabase
+        .from('elenco')  // TABELA CERTA
         .select('*')
         .eq('id_time', id_time)
+
+      if (errorElenco) {
+        console.error('❌ Erro ao buscar elenco:', errorElenco)
+      } else {
+        console.log('✅ Jogadores encontrados:', jogadores)
+      }
 
       setElenco(jogadores || [])
       setLoading(false)
