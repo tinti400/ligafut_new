@@ -6,6 +6,7 @@ import { useAdmin } from '@/hooks/useAdmin'
 interface Time {
   nome: string
   logo_url: string
+  tecnico: string
 }
 
 interface ClassificacaoItem {
@@ -56,6 +57,7 @@ export default function ClassificacaoPage() {
     ? (classificacaoPorDivisao[divisaoSelecionada] || []).map((item) => ({
         ...item,
         saldo_gols: item.gols_pro - item.gols_contra,
+        jogos: item.vitorias + item.empates + item.derrotas,
       }))
     : []
 
@@ -99,6 +101,7 @@ export default function ClassificacaoPage() {
                   <tr>
                     <th className="py-2 px-4 text-left">Posição</th>
                     <th className="py-2 px-4 text-left">Time</th>
+                    <th className="py-2 px-4 text-center">Jogos</th>
                     <th className="py-2 px-4 text-center">Pts</th>
                     <th className="py-2 px-4 text-center">VIT</th>
                     <th className="py-2 px-4 text-center">E</th>
@@ -115,10 +118,16 @@ export default function ClassificacaoPage() {
                     .map((item, index) => (
                       <tr key={item.id_time} className="border-b border-gray-700 hover:bg-gray-700">
                         <td className="py-2 px-4">{index + 1}º</td>
-                        <td className="py-2 px-4 flex items-center gap-2">
-                          <img src={item.times.logo_url} alt={item.times.nome} className="w-6 h-6" />
-                          {item.times.nome}
+                        <td className="py-2 px-4">
+                          <div className="flex items-center gap-2">
+                            <img src={item.times.logo_url} alt={item.times.nome} className="w-6 h-6" />
+                            <div>
+                              <div>{item.times.nome}</div>
+                              <div className="text-xs text-gray-400">{item.times.tecnico}</div>
+                            </div>
+                          </div>
                         </td>
+                        <td className="py-2 px-4 text-center">{item.jogos}</td>
                         <td className="py-2 px-4 text-center">{item.pontos}</td>
                         <td className="py-2 px-4 text-center">{item.vitorias}</td>
                         <td className="py-2 px-4 text-center">{item.empates}</td>
