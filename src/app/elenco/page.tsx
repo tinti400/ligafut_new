@@ -22,38 +22,31 @@ export default function ElencoPage() {
       setLoading(true)
 
       const userStorage = localStorage.getItem('user')
-      if (!userStorage) {
-        console.log('❌ Usuário não encontrado no localStorage')
-        return setLoading(false)
-      }
+      if (!userStorage) return setLoading(false)
 
       const userData = JSON.parse(userStorage)
       const id_time = userData.id_time
 
-      if (!id_time) {
-        console.log('❌ ID do time não encontrado no objeto user')
-        return setLoading(false)
-      }
+      if (!id_time) return setLoading(false)
 
-      // Buscar dados do time (nome, saldo e logo)
       const { data: timeData, error: errorTime } = await supabase
         .from('times')
         .select('nome, saldo, logo_url')
         .eq('id', id_time)
         .single()
 
-      if (errorTime) {
-        console.error('❌ Erro ao buscar dados do time:', errorTime)
+      console.log('✅ Time Data:', timeData)
+
+      if (errorTime || !timeData) {
+        console.error('❌ Erro ao buscar time:', errorTime)
         return setLoading(false)
       }
 
-      const nome = timeData?.nome || ''
-      setNomeTime(nome)
-      setLogoUrl(timeData?.logo_url || '')
-      setSaldo(timeData?.saldo || 0)
-      setCorPrimaria(definirCorPorTime(nome))
+      setNomeTime(timeData.nome || '')
+      setLogoUrl(timeData.logo_url || '')
+      setSaldo(timeData.saldo || 0)
+      setCorPrimaria(definirCorPorTime(timeData.nome))
 
-      // Buscar jogadores do elenco
       const { data: jogadores, error: errorElenco } = await supabase
         .from('elenco')
         .select('*')
@@ -61,11 +54,11 @@ export default function ElencoPage() {
 
       if (errorElenco) {
         console.error('❌ Erro ao buscar elenco:', errorElenco)
-      } else {
-        const folha = (jogadores || []).reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
-        setElenco(jogadores || [])
-        setFolhaSalarial(folha)
       }
+
+      const folha = (jogadores || []).reduce((acc, j) => acc + (j.salario || 0), 0)
+      setElenco(jogadores || [])
+      setFolhaSalarial(folha)
 
       setLoading(false)
     }
@@ -90,11 +83,10 @@ export default function ElencoPage() {
   }
 
   const venderJogador = async (jogador: any) => {
-    const confirmar = confirm(`💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`)
+    const confirmar = confirm(`💸 Vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% desse valor.`)
     if (!confirmar) return
 
     try {
-      // Inserir no mercado
       await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
         nome: jogador.nome,
@@ -107,17 +99,14 @@ export default function ElencoPage() {
         created_at: new Date().toISOString()
       })
 
-      // Remover do elenco
       await supabase.from('elenco').delete().eq('id', jogador.id)
 
-      // Creditar 70% do valor ao clube
       const valorRecebido = Math.round(jogador.valor * 0.7)
       await supabase.rpc('atualizar_saldo_time', {
         p_id_time: jogador.id_time,
         p_valor: valorRecebido
       })
 
-      // Atualizar visual
       setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
       setSaldo((prev) => prev + valorRecebido)
       setFolhaSalarial((prev) => prev - (jogador.salario || 0))
@@ -126,21 +115,23 @@ export default function ElencoPage() {
 
     } catch (error) {
       console.error('❌ Erro ao vender jogador:', error)
-      alert('❌ Ocorreu um erro ao tentar vender o jogador.')
+      alert('❌ Erro ao tentar vender o jogador.')
     }
   }
 
   const ordemPosicoes = ['GL', 'ZAG', 'LE', 'LD', 'VOL', 'MC', 'MEI', 'MD', 'ME', 'SA', 'PD', 'PE', 'CA']
   const elencoOrdenado = [...elenco].sort((a, b) => {
-    const posA = ordemPosicoes.indexOf(a.posicao)
-    const posB = ordemPosicoes.indexOf(b.posicao)
-    return posA - posB
+    return ordemPosicoes.indexOf(a.posicao) - ordemPosicoes.indexOf(b.posicao)
   })
 
   return (
     <div className="p-6 bg-gray-900 min-h-screen text-white">
       <div className="flex items-center justify-center gap-4 mb-4">
-        {logoUrl && <img src={logoUrl} alt="Logo Time" className="w-12 h-12 rounded-full border" />}
+        {logoUrl ? (
+          <img src={logoUrl} alt="Logo Time" className="w-12 h-12 rounded-full border" />
+        ) : (
+          <div className="w-12 h-12 rounded-full border flex items-center justify-center bg-gray-700 text-xs">Sem Logo</div>
+        )}
         <h1 className="text-2xl font-bold" style={{ color: corPrimaria }}>
           👥 Elenco do {nomeTime}
         </h1>
