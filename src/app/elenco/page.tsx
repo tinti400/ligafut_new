@@ -13,9 +13,9 @@ export default function ElencoPage() {
   const [loading, setLoading] = useState(true)
   const [nomeTime, setNomeTime] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
-  const [corPrimaria, setCorPrimaria] = useState('#10b981')
   const [saldo, setSaldo] = useState(0)
   const [folhaSalarial, setFolhaSalarial] = useState(0)
+  const [corPrimaria, setCorPrimaria] = useState('#10b981')
 
   useEffect(() => {
     const fetchElenco = async () => {
@@ -35,14 +35,15 @@ export default function ElencoPage() {
         return setLoading(false)
       }
 
+      // Buscar dados do time (nome, saldo e logo)
       const { data: timeData, error: errorTime } = await supabase
         .from('times')
-        .select('nome, logo_url, saldo')
+        .select('nome, saldo, logo_url')
         .eq('id', id_time)
         .single()
 
       if (errorTime) {
-        console.error('❌ Erro ao buscar nome do time:', errorTime)
+        console.error('❌ Erro ao buscar dados do time:', errorTime)
         return setLoading(false)
       }
 
@@ -52,6 +53,7 @@ export default function ElencoPage() {
       setSaldo(timeData?.saldo || 0)
       setCorPrimaria(definirCorPorTime(nome))
 
+      // Buscar jogadores do elenco
       const { data: jogadores, error: errorElenco } = await supabase
         .from('elenco')
         .select('*')
@@ -59,12 +61,11 @@ export default function ElencoPage() {
 
       if (errorElenco) {
         console.error('❌ Erro ao buscar elenco:', errorElenco)
+      } else {
+        const folha = (jogadores || []).reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
+        setElenco(jogadores || [])
+        setFolhaSalarial(folha)
       }
-
-      setElenco(jogadores || [])
-
-      const folha = (jogadores || []).reduce((acc, curr) => acc + (curr.salario || 0), 0)
-      setFolhaSalarial(folha)
 
       setLoading(false)
     }
@@ -89,10 +90,11 @@ export default function ElencoPage() {
   }
 
   const venderJogador = async (jogador: any) => {
-    const confirmar = confirm(`💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?`)
+    const confirmar = confirm(`💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`)
     if (!confirmar) return
 
     try {
+      // Inserir no mercado
       await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
         nome: jogador.nome,
@@ -105,12 +107,25 @@ export default function ElencoPage() {
         created_at: new Date().toISOString()
       })
 
+      // Remover do elenco
       await supabase.from('elenco').delete().eq('id', jogador.id)
-      setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
 
-      alert('✅ Jogador colocado no mercado com sucesso!')
+      // Creditar 70% do valor ao clube
+      const valorRecebido = Math.round(jogador.valor * 0.7)
+      await supabase.rpc('atualizar_saldo_time', {
+        p_id_time: jogador.id_time,
+        p_valor: valorRecebido
+      })
+
+      // Atualizar visual
+      setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
+      setSaldo((prev) => prev + valorRecebido)
+      setFolhaSalarial((prev) => prev - (jogador.salario || 0))
+
+      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado ao clube.`)
+
     } catch (error) {
-      console.error('Erro ao vender jogador:', error)
+      console.error('❌ Erro ao vender jogador:', error)
       alert('❌ Ocorreu um erro ao tentar vender o jogador.')
     }
   }
@@ -124,20 +139,21 @@ export default function ElencoPage() {
 
   return (
     <div className="p-6 bg-gray-900 min-h-screen text-white">
-      <h1 className="text-2xl font-bold text-center mb-2" style={{ color: corPrimaria }}>
-        👥 Elenco do {nomeTime}
-      </h1>
-      {logoUrl && (
-        <div className="flex justify-center mb-4">
-          <img src={logoUrl} alt="Logo do time" className="w-16 h-16 rounded-full border" />
-        </div>
-      )}
+      <div className="flex items-center justify-center gap-4 mb-4">
+        {logoUrl && <img src={logoUrl} alt="Logo Time" className="w-12 h-12 rounded-full border" />}
+        <h1 className="text-2xl font-bold" style={{ color: corPrimaria }}>
+          👥 Elenco do {nomeTime}
+        </h1>
+      </div>
+
       <div className="text-center text-sm text-gray-300 mb-6">
-        💰 Caixa: R$ {saldo.toLocaleString('pt-BR')} | 👥 Jogadores: {elenco.length} | 🧾 Folha Salarial: R$ {folhaSalarial.toLocaleString('pt-BR')}
+        💰 Caixa: <span className="text-green-400 font-bold">R$ {saldo.toLocaleString('pt-BR')}</span> •
+        👥 Jogadores: <span className="text-green-400 font-bold">{elenco.length}</span> •
+        📝 Folha Salarial: <span className="text-green-400 font-bold">R$ {folhaSalarial.toLocaleString('pt-BR')}</span>
       </div>
 
       {loading ? (
-        <p className="text-center text-gray-400">Carregando elenco...</p>
+        <p className="text-center text-gray-400">⏳ Carregando elenco...</p>
       ) : elenco.length === 0 ? (
         <p className="text-center text-gray-400">Nenhum jogador encontrado.</p>
       ) : (
