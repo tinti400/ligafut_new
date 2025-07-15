@@ -35,7 +35,7 @@ export default function ElencoPage() {
       setCorPrimaria(definirCorPorTime(nome))
 
       const { data: jogadores } = await supabase
-        .from('elencos')
+        .from('elenco')  // ✅ TABELA CORRETA
         .select('*')
         .eq('id_time', id_time)
 
@@ -79,7 +79,7 @@ export default function ElencoPage() {
         created_at: new Date().toISOString()
       })
 
-      await supabase.from('elencos').delete().eq('id', jogador.id)
+      await supabase.from('elenco').delete().eq('id', jogador.id)
       setElenco((prev) => prev.filter((j) => j.id !== jogador.id))
 
       alert('✅ Jogador colocado no mercado com sucesso!')
