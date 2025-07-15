@@ -1,23 +1,38 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 export default function Home() {
   const router = useRouter()
+  const [nomeTime, setNomeTime] = useState('')
 
   useEffect(() => {
     const user = localStorage.getItem('user')
     if (!user) {
       router.push('/login')
+    } else {
+      const userData = JSON.parse(user)
+      setNomeTime(userData.nome_time || '')
     }
   }, [])
+
+  const handleLogout = () => {
+    localStorage.clear()
+    router.push('/login')
+  }
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-8">
       <div className="max-w-4xl mx-auto text-center">
-        <h1 className="text-4xl font-bold mb-4 text-green-400">🏟️ Bem-vindo à LigaFut</h1>
-        <p className="mb-8 text-gray-300">Gerencie seu time, participe dos leilões, acompanhe as rodadas e negocie jogadores!</p>
+        <h1 className="text-4xl font-bold mb-2 text-green-400">🏟️ Bem-vindo à LigaFut</h1>
+        {nomeTime && <p className="mb-4 text-gray-300">🔰 Gerenciando: <strong>{nomeTime}</strong></p>}
+        <button
+          onClick={handleLogout}
+          className="mb-8 px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm font-bold"
+        >
+          🚪 Sair
+        </button>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gray-800 p-6 rounded-lg shadow hover:shadow-lg hover:bg-gray-700 transition">

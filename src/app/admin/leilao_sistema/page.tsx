@@ -18,23 +18,23 @@ export default function LeilaoSistemaPage() {
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
+  const buscarLeilaoAtivo = async () => {
+    const { data, error } = await supabase
+      .from('leiloes_sistema')
+      .select('*')
+      .eq('status', 'ativo')
+      .order('criado_em', { ascending: true })
+      .limit(1)
+
+    if (!error) setLeilao(data?.[0] || null)
+    else console.error('Erro ao buscar leilão:', error)
+
+    setCarregando(false)
+  }
+
   useEffect(() => {
-    const buscarLeilaoAtivo = async () => {
-      const { data, error } = await supabase
-        .from('leiloes_sistema')
-        .select('*')
-        .eq('status', 'ativo')
-        .order('criado_em', { ascending: true })
-        .limit(1)
-
-      if (!error) setLeilao(data?.[0] || null)
-      else console.error('Erro ao buscar leilão:', error)
-
-      setCarregando(false)
-    }
-
     buscarLeilaoAtivo()
-    const intervalo = setInterval(buscarLeilaoAtivo, 5000)
+    const intervalo = setInterval(buscarLeilaoAtivo, 2000) // Atualização a cada 2s
     return () => clearInterval(intervalo)
   }, [])
 
@@ -63,16 +63,10 @@ export default function LeilaoSistemaPage() {
     await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilao.id)
     setLeilao(null)
     setTempoRestante(0)
-    router.refresh()
   }
 
   const darLance = async (incremento: number) => {
-    if (!leilao || !id_time || !nome_time || tempoRestante === 0) {
-      console.log('🚫 Lance bloqueado', { leilao, id_time, nome_time, tempoRestante })
-      return
-    }
-
-    console.log('✅ Tentando dar lance de:', incremento)
+    if (!leilao || !id_time || !nome_time || tempoRestante === 0) return
 
     const novoValor = Number(leilao.valor_atual) + incremento
     const agora = Date.now()
@@ -90,8 +84,14 @@ export default function LeilaoSistemaPage() {
     }).eq('id', leilao.id)
 
     if (!error) {
-      console.log('✅ Lance registrado com sucesso')
-      router.refresh()
+      setLeilao({
+        ...leilao,
+        valor_atual: novoValor,
+        id_time_vencedor: id_time,
+        nome_time_vencedor: nome_time,
+        fim: novaDataFim
+      })
+      setTimeout(() => router.refresh(), 5000)
     } else {
       console.error('❌ Erro ao dar lance:', error)
     }
