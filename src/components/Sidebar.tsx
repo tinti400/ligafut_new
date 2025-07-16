@@ -9,12 +9,11 @@ export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(true)
   const [abrirLeilao, setAbrirLeilao] = useState(false)
   const [abrirElenco, setAbrirElenco] = useState(false)
-  const [abrirAdmin, setAbrirAdmin] = useState(false)  // adicionado
+  const [abrirAdmin, setAbrirAdmin] = useState(false)
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
 
   useEffect(() => {
-    // Pega as chaves que podem indicar login
     const usuarioId = localStorage.getItem('usuario_id')
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
 
@@ -56,9 +55,8 @@ export default function Sidebar() {
           {isOpen ? '←' : '☰'}
         </button>
 
-        <h1 className={`text-2xl font-bold mb-4 ${!isOpen && 'hidden'}`}>⚽ LigaFut</h1>
+        <h1 className={`text-2xl font-bold mb-4 ${!isOpen ? 'hidden' : ''}`}>⚽ LigaFut</h1>
 
-        {/* Mensagem login */}
         {isOpen && (
           <div
             className={`mb-8 px-3 py-2 rounded ${
@@ -123,7 +121,6 @@ export default function Sidebar() {
 
             {abrirLeilao && isOpen && (
               <div className="ml-4 mt-2 space-y-2 text-sm">
-                {/* Só Leilão Sistema na aba Leilão */}
                 <Link href="/admin/leilao_sistema" className="block hover:text-green-400">
                   ⚙️ Leilão Sistema
                 </Link>
@@ -152,6 +149,11 @@ export default function Sidebar() {
               </div>
             )}
           </div>
+
+          {/* Link do BID */}
+          <Link href="/bid" className="block hover:text-green-400">
+            📰 {isOpen && 'BID'}
+          </Link>
 
           <Link href="/mercado" className="block hover:text-green-400">
             💸 {isOpen && 'Mercado'}
