@@ -10,10 +10,24 @@ export default function Sidebar() {
   const [abrirLeilao, setAbrirLeilao] = useState(false)
   const [abrirElenco, setAbrirElenco] = useState(false)
   const [logado, setLogado] = useState(false)
+  const [nomeTime, setNomeTime] = useState('')
 
   useEffect(() => {
-    if (localStorage.getItem('usuario_id')) {
+    const usuarioId = localStorage.getItem('usuario_id')
+    const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
+    if (usuarioId) {
       setLogado(true)
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr)
+          setNomeTime(userData.nome_time || userData.nome || '')
+        } catch {
+          setNomeTime('')
+        }
+      }
+    } else {
+      setLogado(false)
+      setNomeTime('')
     }
   }, [])
 
@@ -36,7 +50,20 @@ export default function Sidebar() {
           {isOpen ? '←' : '☰'}
         </button>
 
-        <h1 className={`text-2xl font-bold mb-8 ${!isOpen && 'hidden'}`}>⚽ LigaFut</h1>
+        <h1 className={`text-2xl font-bold mb-4 ${!isOpen && 'hidden'}`}>⚽ LigaFut</h1>
+
+        {/* Mensagem login */}
+        {isOpen && (
+          <div
+            className={`mb-8 px-3 py-2 rounded ${
+              logado ? 'bg-green-700 text-green-200' : 'bg-red-700 text-red-200'
+            } font-semibold text-sm`}
+          >
+            {logado
+              ? `✅ Você está logado como ${nomeTime || 'usuário'}`
+              : '❌ Você não está logado'}
+          </div>
+        )}
 
         <nav className="space-y-4">
           {!logado && (
