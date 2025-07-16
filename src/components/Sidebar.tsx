@@ -8,6 +8,7 @@ export default function Sidebar() {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(true)
   const [abrirLeilao, setAbrirLeilao] = useState(false)
+  const [abrirElenco, setAbrirElenco] = useState(false)
   const [logado, setLogado] = useState(false)
 
   useEffect(() => {
@@ -50,6 +51,33 @@ export default function Sidebar() {
           <Link href="/jogos" className="block hover:text-green-400">
             📅 {isOpen && 'Jogos'}
           </Link>
+
+          {/* Elenco */}
+          <div>
+            <button
+              onClick={() => setAbrirElenco(!abrirElenco)}
+              className="w-full text-left hover:text-green-400"
+            >
+              👥 {isOpen && `Elenco ${abrirElenco ? '▲' : '▼'}`}
+            </button>
+
+            {abrirElenco && isOpen && (
+              <div className="ml-4 mt-2 space-y-2 text-sm">
+                <Link href="/elenco" className="block hover:text-green-400">
+                  👥 Meu Elenco
+                </Link>
+                <Link href="/negociacoes" className="block hover:text-green-400">
+                  🤝 Negociações
+                </Link>
+                <Link href="/propostas_recebidas" className="block hover:text-green-400">
+                  📥 Propostas Recebidas
+                </Link>
+                <Link href="/propostas_enviadas" className="block hover:text-green-400">
+                  📤 Propostas Enviadas
+                </Link>
+              </div>
+            )}
+          </div>
 
           {/* Leilão */}
           <div>
