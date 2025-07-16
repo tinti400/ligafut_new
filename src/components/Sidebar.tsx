@@ -150,9 +150,9 @@ export default function Sidebar() {
             )}
           </div>
 
-          {/* Link do bid */}
-          <Link href="/bid" className="block hover:text-green-400">
-            📰 {isOpen && 'bid'}
+          {/* Link do BID */}
+          <Link href="/BID" className="block hover:text-green-400">
+            📰 {isOpen && 'BID'}
           </Link>
 
           <Link href="/mercado" className="block hover:text-green-400">
