@@ -69,6 +69,7 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
+      // Inserir no mercado de transferências
       const { error: errorInsert } = await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
         nome: jogador.nome,
@@ -88,9 +89,11 @@ export default function ElencoPage() {
         return
       }
 
+      // Remover jogador do elenco (filtrando também pelo time)
       const { error: errorDelete } = await supabase
         .from('elenco')
         .delete()
+        .eq('id_time', jogador.id_time)
         .eq('id', jogador.id)
 
       if (errorDelete) {
@@ -98,6 +101,7 @@ export default function ElencoPage() {
         return
       }
 
+      // Atualizar saldo do time com 70% do valor do jogador
       const valorRecebido = Math.round(jogador.valor * 0.7)
       const { error: errorSaldo } = await supabase
         .from('times')
@@ -109,6 +113,7 @@ export default function ElencoPage() {
         return
       }
 
+      // Recarregar elenco atualizado
       await fetchElenco()
       alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
     } catch (error) {
@@ -130,7 +135,10 @@ export default function ElencoPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {elenco.map((jogador) => (
-            <div key={jogador.id} className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700">
+            <div
+              key={jogador.id}
+              className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700"
+            >
               <ImagemComFallback
                 src={jogador.imagem_url}
                 alt={jogador.nome}
