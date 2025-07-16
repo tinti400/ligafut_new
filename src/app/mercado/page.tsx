@@ -63,17 +63,25 @@ export default function MercadoPage() {
       return
     }
 
-    await supabase.from('elenco').insert({
+    const salario = Math.round(jogador.valor * 0.007)
+
+    const { error: errorInsert } = await supabase.from('elenco').insert({
       id_time: user.id_time,
       nome: jogador.nome,
       posicao: jogador.posicao,
       overall: jogador.overall,
       valor: jogador.valor,
       imagem_url: jogador.imagem_url,
-      salario: jogador.salario || 0,
+      salario: salario,
       jogos: 0,
       link_sofifa: jogador.link_sofifa || ''
     })
+
+    if (errorInsert) {
+      console.error('❌ Erro ao inserir no elenco:', errorInsert)
+      alert('❌ Erro ao inserir o jogador no elenco.')
+      return
+    }
 
     await supabase.from('mercado_transferencias').delete().eq('id', jogador.id)
 
@@ -156,20 +164,11 @@ export default function MercadoPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-        {/* Filtros */}
-        <input
-          type="text"
-          placeholder="🔎 Buscar por nome"
-          value={filtroNome}
-          onChange={(e) => setFiltroNome(e.target.value)}
-          className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-        />
+        <input type="text" placeholder="🔎 Buscar por nome" value={filtroNome} onChange={(e) => setFiltroNome(e.target.value)}
+          className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white" />
 
-        <select
-          value={filtroPosicao}
-          onChange={(e) => setFiltroPosicao(e.target.value)}
-          className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
-        >
+        <select value={filtroPosicao} onChange={(e) => setFiltroPosicao(e.target.value)}
+          className="p-2 border rounded bg-gray-800 border-gray-600 text-white">
           <option value="">Todas as posições</option>
           <option value="GL">Goleiro</option>
           <option value="ZAG">Zagueiro</option>
@@ -186,34 +185,17 @@ export default function MercadoPage() {
         </select>
 
         <div className="flex gap-2 items-center">
-          <input
-            type="number"
-            placeholder="Overall mín"
-            value={filtroOverallMin}
-            onChange={(e) => setFiltroOverallMin(Number(e.target.value))}
-            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-          />
-          <input
-            type="number"
-            placeholder="máx"
-            value={filtroOverallMax}
-            onChange={(e) => setFiltroOverallMax(Number(e.target.value))}
-            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-          />
+          <input type="number" placeholder="Overall mín" value={filtroOverallMin} onChange={(e) => setFiltroOverallMin(Number(e.target.value))}
+            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white" />
+          <input type="number" placeholder="máx" value={filtroOverallMax} onChange={(e) => setFiltroOverallMax(Number(e.target.value))}
+            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white" />
         </div>
 
-        <input
-          type="number"
-          placeholder="💰 Valor máx (R$)"
-          onChange={(e) => setFiltroValorMax(Number(e.target.value) || Infinity)}
-          className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-        />
+        <input type="number" placeholder="💰 Valor máx (R$)" onChange={(e) => setFiltroValorMax(Number(e.target.value) || Infinity)}
+          className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white" />
 
-        <select
-          value={ordenarPor}
-          onChange={(e) => setOrdenarPor(e.target.value)}
-          className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
-        >
+        <select value={ordenarPor} onChange={(e) => setOrdenarPor(e.target.value)}
+          className="p-2 border rounded bg-gray-800 border-gray-600 text-white">
           <option value="">Ordenar...</option>
           <option value="valor_asc">Valor ↑</option>
           <option value="valor_desc">Valor ↓</option>
@@ -229,13 +211,7 @@ export default function MercadoPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {jogadoresPaginados.map((jogador) => (
           <div key={jogador.id} className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700">
-            <ImagemComFallback
-              src={jogador.imagem_url}
-              alt={jogador.nome}
-              width={80}
-              height={80}
-              className="rounded-full mb-2 mx-auto"
-            />
+            <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={80} height={80} className="rounded-full mb-2 mx-auto" />
             <h2 className="text-lg font-bold">{jogador.nome}</h2>
             <p className="text-gray-300 text-sm">{jogador.posicao} • Overall {jogador.overall}</p>
             <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
@@ -244,27 +220,19 @@ export default function MercadoPage() {
             {isAdmin && (
               <>
                 <label className="text-xs">💰 Alterar Preço (R$):</label>
-                <input
-                  type="number"
-                  defaultValue={jogador.valor}
+                <input type="number" defaultValue={jogador.valor}
                   onBlur={(e) => atualizarPreco(jogador.id, Number(e.target.value))}
-                  className="w-full p-1 mt-1 rounded text-black text-center"
-                />
+                  className="w-full p-1 mt-1 rounded text-black text-center" />
                 <label className="flex items-center gap-1 mt-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={selecionados.includes(jogador.id)}
-                    onChange={() => toggleSelecionado(jogador.id)}
-                  />
+                  <input type="checkbox" checked={selecionados.includes(jogador.id)}
+                    onChange={() => toggleSelecionado(jogador.id)} />
                   Selecionar para excluir
                 </label>
               </>
             )}
 
-            <button
-              onClick={() => comprarJogador(jogador)}
-              className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full"
-            >
+            <button onClick={() => comprarJogador(jogador)}
+              className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full">
               Comprar
             </button>
           </div>
