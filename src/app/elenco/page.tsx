@@ -91,13 +91,19 @@ export default function ElencoPage() {
       }
 
       // Deletar jogador do elenco
-      const { error: errorDelete } = await supabase
+      const { data: dataDelete, error: errorDelete } = await supabase
         .from('elenco')
         .delete()
         .eq('id', jogador.id)
+        .select()
 
       if (errorDelete) {
         alert('❌ Erro ao remover o jogador do elenco: ' + errorDelete.message)
+        return
+      }
+
+      if (!dataDelete || dataDelete.length === 0) {
+        alert('⚠️ Jogador não encontrado no elenco para exclusão.')
         return
       }
 
@@ -139,20 +145,19 @@ export default function ElencoPage() {
               borderRadius: '8px',
               padding: '10px',
               width: '200px',
-              textAlign: 'center',
             }}
           >
             <img
-              src={jogador.imagem_url || '/default-player.png'}
+              src={jogador.imagem_url || 'https://via.placeholder.com/200x250?text=Sem+Foto'}
               alt={jogador.nome}
               style={{ width: '100%', borderRadius: '8px', marginBottom: '10px' }}
-              onError={(e) => (e.currentTarget.src = '/default-player.png')}
+              onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/200x250?text=Sem+Foto')}
             />
             <p>
               <strong>{jogador.nome}</strong>
             </p>
             <p>Posição: {jogador.posicao}</p>
-            <p>Overall: {jogador.overall ?? 'N/A'}</p>
+            <p>Overall: {jogador.overall}</p>
             <p>Valor: R$ {Number(jogador.valor).toLocaleString('pt-BR')}</p>
             <button onClick={() => venderJogador(jogador)}>Vender</button>
           </div>
