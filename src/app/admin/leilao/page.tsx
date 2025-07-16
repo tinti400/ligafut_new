@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
@@ -137,15 +137,17 @@ export default function AdminLeilaoPage() {
       const json = XLSX.utils.sheet_to_json(sheet)
 
       for (const item of json as any[]) {
-        const { nome, posicao, overall, origem, nacionalidade, imagem_url, link_sofifa } = item
+        const { nome, posicao, overall, origem, nacionalidade, imagem_url, link_sofifa, valor_inicial, valor } = item
         const criado_em = new Date()
         const fim = new Date(criado_em.getTime() + 2 * 60000)
+
+        const valorInicial = valor_inicial ?? valor ?? 2000000
 
         const { error } = await supabase.from('leiloes_sistema').insert({
           nome,
           posicao,
           overall: Number(overall),
-          valor_atual: 2000000,
+          valor_atual: Number(valorInicial),
           origem: origem || '',
           nacionalidade: nacionalidade || '',
           imagem_url: imagem_url || '',
