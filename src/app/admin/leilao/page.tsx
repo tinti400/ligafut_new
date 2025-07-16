@@ -18,6 +18,7 @@ const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD',
 
 export default function AdminLeilaoPage() {
   const router = useRouter()
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null) // null = verificando
   const [jogador, setJogador] = useState('')
   const [posicao, setPosicao] = useState('CA')
   const [overall, setOverall] = useState(80)
@@ -29,6 +30,46 @@ export default function AdminLeilaoPage() {
   const [fila, setFila] = useState<any[]>([])
   const [importando, setImportando] = useState(false)
   const [msg, setMsg] = useState('')
+
+  // Verifica se é admin no load da página
+  useEffect(() => {
+    const verificarAdmin = async () => {
+      const emailUsuario = localStorage.getItem('email')?.toLowerCase() || ''
+
+      if (!emailUsuario) {
+        router.push('/login')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('admins')
+        .select('email')
+        .eq('email', emailUsuario)
+        .single()
+
+      if (error || !data) {
+        setIsAdmin(false)
+        router.push('/acesso-negado') // Crie essa página para acesso negado
+        return
+      }
+
+      setIsAdmin(true)
+    }
+
+    verificarAdmin()
+  }, [router])
+
+  // Se ainda está verificando permissão, mostra mensagem
+  if (isAdmin === null) {
+    return <p className="text-center mt-10 text-white">Verificando permissão...</p>
+  }
+
+  // Se não for admin, não mostra nada porque já redirecionou
+  if (isAdmin === false) {
+    return null
+  }
+
+  // Se for admin, executa normalmente o resto do componente:
 
   useEffect(() => {
     buscarFila()
@@ -231,4 +272,3 @@ export default function AdminLeilaoPage() {
     </main>
   )
 }
-
