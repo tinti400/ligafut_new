@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-interface EventoBID {
+interface Eventobid {
   id: string
   tipo_evento: string
   descricao: string
@@ -23,8 +23,8 @@ interface Time {
   nome: string
 }
 
-export default function BIDPage() {
-  const [eventos, setEventos] = useState<EventoBID[]>([])
+export default function bidPage() {
+  const [eventos, setEventos] = useState<Eventobid[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -38,7 +38,7 @@ export default function BIDPage() {
     setErro(null)
 
     try {
-      // Buscar eventos do BID
+      // Buscar eventos do bid
       const { data: eventosData, error: errorEventos } = await supabase
         .from('bid')
         .select('*')
@@ -63,7 +63,7 @@ export default function BIDPage() {
       setEventos(eventosData || [])
       setTimesMap(map)
     } catch (err: any) {
-      console.error('Erro ao carregar dados do BID:', err)
+      console.error('Erro ao carregar dados do bid:', err)
       setErro('Erro ao carregar os eventos.')
       setEventos([])
     } finally {
@@ -80,7 +80,7 @@ export default function BIDPage() {
   return (
     <main className="min-h-screen bg-gray-900 text-white p-6">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-green-400">📰 Boletim Informativo Diário (BID)</h1>
+        <h1 className="text-3xl font-bold mb-6 text-green-400">📰 Boletim Informativo Diário (bid)</h1>
 
         {loading && (
           <p className="text-gray-400 flex items-center gap-2">
@@ -111,7 +111,7 @@ export default function BIDPage() {
         {erro && <p className="text-red-500">{erro}</p>}
 
         {!loading && eventos.length === 0 && (
-          <p className="text-gray-400 italic">Nenhum evento encontrado no BID.</p>
+          <p className="text-gray-400 italic">Nenhum evento encontrado no bid.</p>
         )}
 
         <ul className="space-y-4">
