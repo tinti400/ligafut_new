@@ -60,8 +60,7 @@ export default function LoginPage() {
       const { data: adminData } = await supabase
         .from('admins')
         .select('email')
-        .eq('email', userData.usuario)
-        .single()
+        .eq('email', userData.usuario.toLowerCase())  // verifica minúsculo
 
       localStorage.setItem('user', JSON.stringify({
         usuario_id: userData.id,
@@ -73,6 +72,9 @@ export default function LoginPage() {
 
       localStorage.setItem('id_time', timeData.id)
       localStorage.setItem('nome_time', timeData.nome)
+
+      // Salva o email em minúsculo para verificação admin
+      localStorage.setItem('email', userData.usuario.toLowerCase())
 
       router.push('/')
     } catch (err) {

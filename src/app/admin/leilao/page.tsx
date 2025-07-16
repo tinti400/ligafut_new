@@ -31,20 +31,20 @@ export default function AdminLeilaoPage() {
   const [importando, setImportando] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // Verificação admin pelo nome_time
+  // Verificação de admin pelo email salvo no localStorage
   useEffect(() => {
     const verificarAdmin = async () => {
-      const nomeTime = localStorage.getItem('nome_time')?.toLowerCase() || ''
+      const email = localStorage.getItem('email')?.toLowerCase() || ''
 
-      if (!nomeTime) {
+      if (!email) {
         setIsAdmin(false)
         return
       }
 
       const { data, error } = await supabase
         .from('admins')
-        .select('nome_time')
-        .eq('nome_time', nomeTime)
+        .select('email')
+        .eq('email', email)
         .single()
 
       if (error || !data) {
@@ -72,7 +72,8 @@ export default function AdminLeilaoPage() {
     )
   }
 
-  // Funções para buscar e manipular leilão
+  // O resto do seu código do Admin Leilão segue aqui, liberado para quem for admin
+
   useEffect(() => {
     buscarFila()
     buscarLeilaoAtual()
