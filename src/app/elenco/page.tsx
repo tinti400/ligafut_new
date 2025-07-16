@@ -75,6 +75,19 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
+      // Verificar se já está no mercado
+      const { data: mercadoExistente } = await supabase
+        .from('mercado_transferencias')
+        .select('jogador_id')
+        .eq('jogador_id', jogador.id)
+        .single()
+
+      if (mercadoExistente) {
+        alert('Este jogador já está no mercado.')
+        return
+      }
+
+      // Inserir no mercado
       const { error: errorInsert } = await supabase
         .from('mercado_transferencias')
         .insert({
@@ -96,6 +109,24 @@ export default function ElencoPage() {
         return
       }
 
+      // Debug antes de deletar
+      console.log('ID do jogador para deletar:', jogador.id)
+
+      // Verifica se o jogador existe no elenco
+      const { data: jogadorExistente, error: errorCheck } = await supabase
+        .from('elenco')
+        .select('*')
+        .eq('id', jogador.id)
+        .single()
+
+      console.log('Jogador encontrado no elenco:', jogadorExistente, errorCheck)
+
+      if (!jogadorExistente) {
+        alert('Jogador não encontrado no elenco para exclusão.')
+        return
+      }
+
+      // Deletar do elenco
       const { error: errorDelete } = await supabase
         .from('elenco')
         .delete()
@@ -107,6 +138,7 @@ export default function ElencoPage() {
         return
       }
 
+      // Atualizar saldo do time
       const valorRecebido = Math.round(jogador.valor * 0.7)
       const { error: errorSaldo } = await supabase
         .from('times')
@@ -119,6 +151,7 @@ export default function ElencoPage() {
         return
       }
 
+      // Atualizar a lista de elenco no front
       await fetchElenco()
 
       alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
