@@ -14,9 +14,25 @@ export default function LeilaoSistemaPage() {
   const [leilao, setLeilao] = useState<any>(null)
   const [carregando, setCarregando] = useState(true)
   const [tempoRestante, setTempoRestante] = useState<number | null>(null)
+  const [saldo, setSaldo] = useState<number | null>(null)
 
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
+
+  // Busca saldo do time
+  const buscarSaldo = async () => {
+    if (!id_time) return
+    const { data, error } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', id_time)
+      .single()
+    if (!error && data) setSaldo(data.saldo)
+    else {
+      console.error('Erro ao buscar saldo:', error)
+      setSaldo(null)
+    }
+  }
 
   const buscarLeilaoAtivo = async () => {
     const { data, error } = await supabase
@@ -34,7 +50,11 @@ export default function LeilaoSistemaPage() {
 
   useEffect(() => {
     buscarLeilaoAtivo()
-    const intervalo = setInterval(buscarLeilaoAtivo, 2000) // Atualização a cada 2s
+    buscarSaldo()
+    const intervalo = setInterval(() => {
+      buscarLeilaoAtivo()
+      buscarSaldo()
+    }, 2000) // Atualização a cada 2s
     return () => clearInterval(intervalo)
   }, [])
 
@@ -69,6 +89,12 @@ export default function LeilaoSistemaPage() {
     if (!leilao || !id_time || !nome_time || tempoRestante === 0) return
 
     const novoValor = Number(leilao.valor_atual) + incremento
+
+    if (saldo !== null && novoValor > saldo) {
+      alert('❌ Você não tem saldo suficiente para esse lance.')
+      return
+    }
+
     const agora = Date.now()
     const fimAtual = new Date(leilao.fim).getTime()
     const restante = Math.floor((fimAtual - agora) / 1000)
@@ -107,7 +133,11 @@ export default function LeilaoSistemaPage() {
   if (!leilao) return <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6 flex items-center justify-center">
+    <main className="min-h-screen bg-gray-900 text-white p-6 flex items-center justify-center flex-col">
+      <div className="mb-6 text-lg font-semibold text-green-400">
+        💳 Saldo atual do seu time: R$ {saldo !== null ? saldo.toLocaleString() : '...'}
+      </div>
+
       <div className="w-full max-w-2xl bg-gray-800 rounded-xl shadow-2xl p-6 text-center">
         <h1 className="text-3xl font-bold mb-6 text-green-400">⚔️ Leilão Ativo</h1>
 
@@ -141,12 +171,15 @@ export default function LeilaoSistemaPage() {
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
           {[...Array(5)].map((_, i) => {
             const incremento = 2000000 * Math.pow(2, i)
+            const disabled = tempoRestante === 0 || (saldo !== null && (Number(leilao.valor_atual) + incremento) > saldo)
+
             return (
               <button
                 key={i}
                 onClick={() => darLance(incremento)}
-                disabled={tempoRestante === 0}
+                disabled={disabled}
                 className="bg-green-600 hover:bg-green-700 text-white py-2 rounded text-xs font-bold transition disabled:opacity-50"
+                title={disabled ? 'Saldo insuficiente ou leilão finalizado' : ''}
               >
                 + R$ {(incremento / 1000000).toLocaleString()} mi
               </button>
@@ -168,3 +201,4 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
+
