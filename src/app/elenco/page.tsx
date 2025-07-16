@@ -1,7 +1,7 @@
-"use client"
+'use client'
 
-import { useEffect, useState } from "react"
-import { createClient } from "@supabase/supabase-js"
+import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,49 +12,47 @@ export default function ElencoPage() {
   const [elenco, setElenco] = useState<any[]>([])
   const [saldo, setSaldo] = useState<number>(0)
   const [loading, setLoading] = useState(true)
-  const [nomeTime, setNomeTime] = useState("")
+  const [nomeTime, setNomeTime] = useState('')
 
-  // Buscar elenco e saldo do time logado
+  // Função para buscar elenco e saldo
   const fetchElenco = async () => {
     setLoading(true)
     try {
-      const id_time = localStorage.getItem("id_time")
+      const id_time = localStorage.getItem('id_time')
       if (!id_time) {
-        alert("ID do time não encontrado no localStorage.")
+        alert('ID do time não encontrado no localStorage.')
         setLoading(false)
         return
       }
 
-      // Buscar elenco
       const { data: elencoData, error: errorElenco } = await supabase
-        .from("elenco")
-        .select("*")
-        .eq("id_time", id_time)
+        .from('elenco')
+        .select('*')
+        .eq('id_time', id_time)
 
       if (errorElenco) {
-        alert("Erro ao buscar elenco: " + errorElenco.message)
+        alert('Erro ao buscar elenco: ' + errorElenco.message)
         setLoading(false)
         return
       }
 
-      // Buscar saldo do time
       const { data: timeData, error: errorTime } = await supabase
-        .from("times")
-        .select("nome, saldo")
-        .eq("id", id_time)
+        .from('times')
+        .select('nome, saldo')
+        .eq('id', id_time)
         .single()
 
       if (errorTime) {
-        alert("Erro ao buscar dados do time: " + errorTime.message)
+        alert('Erro ao buscar dados do time: ' + errorTime.message)
         setLoading(false)
         return
       }
 
       setElenco(elencoData || [])
       setSaldo(timeData?.saldo || 0)
-      setNomeTime(timeData?.nome || "")
+      setNomeTime(timeData?.nome || '')
     } catch (error) {
-      alert("Erro inesperado: " + error)
+      alert('Erro inesperado: ' + error)
     } finally {
       setLoading(false)
     }
@@ -64,62 +62,76 @@ export default function ElencoPage() {
     fetchElenco()
   }, [])
 
-  // Função para vender jogador
+  // Função para vender jogador com logs extras para debug
   const venderJogador = async (jogador: any) => {
     const confirmar = confirm(
-      `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString(
-        "pt-BR"
-      )}?\nO clube receberá 70% deste valor.`
+      `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
     )
     if (!confirmar) return
 
     try {
+      console.log('Tentando vender jogador:', jogador)
+
       // Inserir no mercado_transferencias
-      const { error: errorInsert } = await supabase.from("mercado_transferencias").insert({
+      const { error: errorInsert } = await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
         nome: jogador.nome,
         posicao: jogador.posicao,
         overall: jogador.overall,
         valor: jogador.valor,
-        imagem_url: jogador.imagem_url || "",
+        imagem_url: jogador.imagem_url || '',
         salario: jogador.salario || 0,
-        link_sofifa: jogador.link_sofifa || "",
+        link_sofifa: jogador.link_sofifa || '',
         id_time_origem: jogador.id_time,
-        status: "disponivel",
+        status: 'disponivel',
         created_at: new Date().toISOString(),
       })
 
       if (errorInsert) {
-        alert("❌ Erro ao inserir o jogador no mercado: " + errorInsert.message)
+        alert('❌ Erro ao inserir o jogador no mercado: ' + errorInsert.message)
         return
       }
 
-      // Deletar do elenco
-      const { error: errorDelete } = await supabase.from("elenco").delete().eq("id", jogador.id)
+      console.log('ID do jogador para deletar:', jogador.id)
+
+      // Deletar jogador do elenco com select para retorno e log
+      const { data: dataDelete, error: errorDelete } = await supabase
+        .from('elenco')
+        .delete()
+        .eq('id', jogador.id)
+        .select()
+
+      console.log('Resultado do delete:', dataDelete, errorDelete)
 
       if (errorDelete) {
-        alert("❌ Erro ao remover o jogador do elenco: " + errorDelete.message)
+        alert('❌ Erro ao remover o jogador do elenco: ' + errorDelete.message)
+        return
+      }
+
+      if (!dataDelete || dataDelete.length === 0) {
+        alert('⚠️ Jogador não encontrado no elenco para exclusão.')
         return
       }
 
       // Atualizar saldo do time
       const valorRecebido = Math.round(jogador.valor * 0.7)
       const { error: errorSaldo } = await supabase
-        .from("times")
+        .from('times')
         .update({ saldo: saldo + valorRecebido })
-        .eq("id", jogador.id_time)
+        .eq('id', jogador.id_time)
 
       if (errorSaldo) {
-        alert("❌ Erro ao atualizar o saldo do time: " + errorSaldo.message)
+        alert('❌ Erro ao atualizar o saldo do time: ' + errorSaldo.message)
         return
       }
 
       // Atualizar elenco na UI
       await fetchElenco()
 
-      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString("pt-BR")} creditado.`)
+      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
     } catch (error) {
-      alert("❌ Ocorreu um erro inesperado: " + error)
+      alert('❌ Ocorreu um erro inesperado: ' + error)
+      console.error('Erro inesperado:', error)
     }
   }
 
@@ -128,17 +140,17 @@ export default function ElencoPage() {
   return (
     <div>
       <h2>
-        Elenco do {nomeTime} — Saldo: R$ {saldo.toLocaleString("pt-BR")}
+        Elenco do {nomeTime} — Saldo: R$ {saldo.toLocaleString('pt-BR')}
       </h2>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
         {elenco.map((jogador) => (
           <div
             key={jogador.id}
             style={{
-              border: "1px solid #ccc",
-              borderRadius: "8px",
-              padding: "10px",
-              width: "200px",
+              border: '1px solid #ccc',
+              borderRadius: '8px',
+              padding: '10px',
+              width: '200px',
             }}
           >
             <p>
@@ -146,7 +158,7 @@ export default function ElencoPage() {
             </p>
             <p>Posição: {jogador.posicao}</p>
             <p>Overall: {jogador.overall}</p>
-            <p>Valor: R$ {Number(jogador.valor).toLocaleString("pt-BR")}</p>
+            <p>Valor: R$ {Number(jogador.valor).toLocaleString('pt-BR')}</p>
             <button onClick={() => venderJogador(jogador)}>Vender</button>
           </div>
         ))}
