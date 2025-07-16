@@ -13,12 +13,11 @@ export default function LeilaoSistemaPage() {
   const router = useRouter()
   const [leiloes, setLeiloes] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
-  const [saldo, setSaldo] = useState<number | null>(null) // saldo do time
+  const [saldo, setSaldo] = useState<number | null>(null)
 
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
-  // Busca saldo do time
   const buscarSaldo = async () => {
     if (!id_time) return
     const { data, error } = await supabase
@@ -26,7 +25,6 @@ export default function LeilaoSistemaPage() {
       .select('saldo')
       .eq('id', id_time)
       .single()
-
     if (!error && data) setSaldo(data.saldo)
     else {
       console.error('Erro ao buscar saldo:', error)
@@ -34,17 +32,14 @@ export default function LeilaoSistemaPage() {
     }
   }
 
-  // Busca todos leilões ativos
   const buscarLeiloesAtivos = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
       .select('*')
       .eq('status', 'ativo')
       .order('criado_em', { ascending: true })
-
     if (!error) setLeiloes(data || [])
     else console.error('Erro ao buscar leilões:', error)
-
     setCarregando(false)
   }
 
@@ -144,7 +139,7 @@ function LeilaoCard({ leilao, saldo, id_time, nome_time, router }: any) {
         nome_time_vencedor: nome_time,
         fim: novaDataFim
       })
-      setTimeout(() => router.refresh(), 5000)
+      // Retirei router.refresh para evitar sumiço inesperado
     } else {
       console.error('❌ Erro ao dar lance:', error)
     }
