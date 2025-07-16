@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import ImagemComFallback from '@/components/ImagemComFallback' // componente para fallback de imagem
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +15,7 @@ export default function ElencoPage() {
   const [loading, setLoading] = useState(true)
   const [nomeTime, setNomeTime] = useState('')
 
-  // Função para buscar elenco e saldo
+  // Busca elenco e saldo do time
   const fetchElenco = async () => {
     setLoading(true)
     try {
@@ -70,7 +71,6 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
-      // Inserir no mercado_transferencias
       const { error: errorInsert } = await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
         nome: jogador.nome,
@@ -90,24 +90,16 @@ export default function ElencoPage() {
         return
       }
 
-      // Deletar jogador do elenco
-      const { data: dataDelete, error: errorDelete } = await supabase
+      const { error: errorDelete } = await supabase
         .from('elenco')
         .delete()
         .eq('id', jogador.id)
-        .select()
 
       if (errorDelete) {
         alert('❌ Erro ao remover o jogador do elenco: ' + errorDelete.message)
         return
       }
 
-      if (!dataDelete || dataDelete.length === 0) {
-        alert('⚠️ Jogador não encontrado no elenco para exclusão.')
-        return
-      }
-
-      // Atualizar saldo do time
       const valorRecebido = Math.round(jogador.valor * 0.7)
       const { error: errorSaldo } = await supabase
         .from('times')
@@ -119,9 +111,7 @@ export default function ElencoPage() {
         return
       }
 
-      // Atualizar elenco na UI
       await fetchElenco()
-
       alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
     } catch (error) {
       alert('❌ Ocorreu um erro inesperado: ' + error)
@@ -129,40 +119,44 @@ export default function ElencoPage() {
     }
   }
 
-  if (loading) return <p>Carregando elenco...</p>
+  if (loading) return <p className="text-center mt-10 text-white">⏳ Carregando elenco...</p>
 
   return (
-    <div>
-      <h2>
-        Elenco do {nomeTime} — Saldo: R$ {saldo.toLocaleString('pt-BR')}
-      </h2>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-        {elenco.map((jogador) => (
-          <div
-            key={jogador.id}
-            style={{
-              border: '1px solid #ccc',
-              borderRadius: '8px',
-              padding: '10px',
-              width: '200px',
-            }}
-          >
-            <img
-              src={jogador.imagem_url || 'https://via.placeholder.com/200x250?text=Sem+Foto'}
-              alt={jogador.nome}
-              style={{ width: '100%', borderRadius: '8px', marginBottom: '10px' }}
-              onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/200x250?text=Sem+Foto')}
-            />
-            <p>
-              <strong>{jogador.nome}</strong>
-            </p>
-            <p>Posição: {jogador.posicao}</p>
-            <p>Overall: {jogador.overall}</p>
-            <p>Valor: R$ {Number(jogador.valor).toLocaleString('pt-BR')}</p>
-            <button onClick={() => venderJogador(jogador)}>Vender</button>
-          </div>
-        ))}
-      </div>
+    <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
+      <h1 className="text-3xl font-bold mb-6 text-center text-green-400">
+        👥 Elenco do {nomeTime} — Saldo: R$ {saldo.toLocaleString('pt-BR')}
+      </h1>
+
+      {elenco.length === 0 ? (
+        <p className="text-center text-gray-400">Nenhum jogador no elenco.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {elenco.map((jogador) => (
+            <div key={jogador.id} className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700">
+              <ImagemComFallback
+                src={jogador.imagem_url}
+                alt={jogador.nome}
+                width={80}
+                height={80}
+                className="rounded-full mb-2 mx-auto"
+              />
+              <h2 className="text-lg font-bold">{jogador.nome}</h2>
+              <p className="text-gray-300 text-sm">
+                {jogador.posicao} • Overall {jogador.overall ?? 'N/A'}
+              </p>
+              <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
+              <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
+
+              <button
+                onClick={() => venderJogador(jogador)}
+                className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full"
+              >
+                💸 Vender
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
