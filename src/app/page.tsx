@@ -2,20 +2,52 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
+import { createClient } from '@supabase/supabase-js'
+
+// Inicialize o client Supabase com suas variáveis de ambiente
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+)
 
 export default function Home() {
   const router = useRouter()
   const [nomeTime, setNomeTime] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
 
   useEffect(() => {
     const user = localStorage.getItem('user')
     if (!user) {
       router.push('/login')
-    } else {
-      const userData = JSON.parse(user)
-      setNomeTime(userData.nome_time || '')
+      return
+    }
+
+    const userData = JSON.parse(user)
+    setNomeTime(userData.nome_time || '')
+
+    const idTime = userData.id_time
+    if (idTime) {
+      buscarLogoDoTime(idTime)
     }
   }, [])
+
+  async function buscarLogoDoTime(idTime: string) {
+    const { data, error } = await supabase
+      .from('times')
+      .select('logo_url')
+      .eq('id', idTime)
+      .single()
+
+    if (error) {
+      console.error('Erro ao buscar logo do time:', error.message)
+      return
+    }
+
+    if (data?.logo_url) {
+      setLogoUrl(data.logo_url)
+    }
+  }
 
   const handleLogout = () => {
     localStorage.clear()
@@ -25,8 +57,22 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-900 text-white p-8">
       <div className="max-w-4xl mx-auto text-center">
+        {/* Logo do time */}
+        {logoUrl && (
+          <div className="mb-6 flex justify-center">
+            <Image
+              src={logoUrl}
+              alt={`Logo do time ${nomeTime}`}
+              width={180}
+              height={180}
+              priority={true}
+            />
+          </div>
+        )}
+
         <h1 className="text-4xl font-bold mb-2 text-green-400">🏟️ Bem-vindo à LigaFut</h1>
         {nomeTime && <p className="mb-4 text-gray-300">🔰 Gerenciando: <strong>{nomeTime}</strong></p>}
+
         <button
           onClick={handleLogout}
           className="mb-8 px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm font-bold"
