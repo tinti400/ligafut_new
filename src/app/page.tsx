@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
 import { createClient } from '@supabase/supabase-js'
 
-// Inicialize o client Supabase com suas variáveis de ambiente
+// Inicializa Supabase com variáveis ambiente
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -14,7 +13,9 @@ const supabase = createClient(
 export default function Home() {
   const router = useRouter()
   const [nomeTime, setNomeTime] = useState('')
-  const [logoUrl, setLogoUrl] = useState('')
+  const [saldo, setSaldo] = useState<number | null>(null)
+  const [numJogadores, setNumJogadores] = useState<number | null>(null)
+  const [posicao, setPosicao] = useState<number | null>(null)
 
   useEffect(() => {
     const user = localStorage.getItem('user')
@@ -28,24 +29,38 @@ export default function Home() {
 
     const idTime = userData.id_time
     if (idTime) {
-      buscarLogoDoTime(idTime)
+      buscarResumoTime(idTime)
     }
   }, [])
 
-  async function buscarLogoDoTime(idTime: string) {
-    const { data, error } = await supabase
+  async function buscarResumoTime(idTime: string) {
+    // Buscar saldo do time
+    const { data: timeData, error: errTime } = await supabase
       .from('times')
-      .select('logo_url')
+      .select('saldo')
       .eq('id', idTime)
       .single()
-
-    if (error) {
-      console.error('Erro ao buscar logo do time:', error.message)
-      return
+    if (!errTime && timeData) {
+      setSaldo(timeData.saldo)
     }
 
-    if (data?.logo_url) {
-      setLogoUrl(data.logo_url)
+    // Buscar número de jogadores no elenco
+    const { count: countElenco, error: errElenco } = await supabase
+      .from('elenco')
+      .select('*', { count: 'exact', head: true })
+      .eq('id_time', idTime)
+    if (!errElenco) {
+      setNumJogadores(countElenco || 0)
+    }
+
+    // Buscar posição atual na classificação
+    const { data: classificacaoData, error: errClassificacao } = await supabase
+      .from('classificacao')
+      .select('posicao')
+      .eq('id_time', idTime)
+      .single()
+    if (!errClassificacao && classificacaoData) {
+      setPosicao(classificacaoData.posicao)
     }
   }
 
@@ -57,21 +72,24 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-900 text-white p-8">
       <div className="max-w-4xl mx-auto text-center">
-        {/* Logo do time */}
-        {logoUrl && (
-          <div className="mb-6 flex justify-center">
-            <Image
-              src={logoUrl}
-              alt={`Logo do time ${nomeTime}`}
-              width={180}
-              height={180}
-              priority={true}
-            />
-          </div>
-        )}
-
         <h1 className="text-4xl font-bold mb-2 text-green-400">🏟️ Bem-vindo à LigaFut</h1>
         {nomeTime && <p className="mb-4 text-gray-300">🔰 Gerenciando: <strong>{nomeTime}</strong></p>}
+
+        {/* Resumo rápido do time */}
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
+          <div className="bg-gray-800 p-4 rounded shadow">
+            <h3 className="font-semibold mb-1">Saldo Atual</h3>
+            <p>{saldo !== null ? `R$ ${saldo.toLocaleString('pt-BR')}` : 'Carregando...'}</p>
+          </div>
+          <div className="bg-gray-800 p-4 rounded shadow">
+            <h3 className="font-semibold mb-1">Jogadores no Elenco</h3>
+            <p>{numJogadores !== null ? numJogadores : 'Carregando...'}</p>
+          </div>
+          <div className="bg-gray-800 p-4 rounded shadow">
+            <h3 className="font-semibold mb-1">Posição na Liga</h3>
+            <p>{posicao !== null ? posicao : 'Carregando...'}</p>
+          </div>
+        </div>
 
         <button
           onClick={handleLogout}
@@ -80,6 +98,7 @@ export default function Home() {
           🚪 Sair
         </button>
 
+        {/* Seu grid de opções abaixo */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gray-800 p-6 rounded-lg shadow hover:shadow-lg hover:bg-gray-700 transition">
             <h2 className="text-2xl font-semibold mb-2">⚔️ Leilões Ativos</h2>
