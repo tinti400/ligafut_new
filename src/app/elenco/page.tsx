@@ -69,6 +69,9 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
+      console.log('--- Vender Jogador Iniciado ---')
+      console.log('Jogador a vender:', jogador)
+
       // Inserir no mercado de transferências
       const { error: errorInsert } = await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
@@ -86,11 +89,22 @@ export default function ElencoPage() {
 
       if (errorInsert) {
         alert('❌ Erro ao inserir o jogador no mercado: ' + errorInsert.message)
+        console.error('Erro ao inserir no mercado:', errorInsert)
         return
       }
+      console.log('Jogador inserido no mercado_transferencias com sucesso')
 
-      // Remover jogador do elenco (filtrando também pelo time)
-      const { error: errorDelete } = await supabase
+      // Debug antes do delete
+      const { data: jogadorAntes, error: errorBefore } = await supabase
+        .from('elenco')
+        .select('*')
+        .eq('id_time', jogador.id_time)
+        .eq('id', jogador.id)
+
+      console.log('Jogador no elenco antes do delete:', jogadorAntes, errorBefore)
+
+      // Delete do elenco
+      const { data: deleteData, error: errorDelete } = await supabase
         .from('elenco')
         .delete()
         .eq('id_time', jogador.id_time)
@@ -98,10 +112,21 @@ export default function ElencoPage() {
 
       if (errorDelete) {
         alert('❌ Erro ao remover o jogador do elenco: ' + errorDelete.message)
+        console.error('Erro no delete:', errorDelete)
         return
       }
+      console.log('Delete realizado:', deleteData)
 
-      // Atualizar saldo do time com 70% do valor do jogador
+      // Debug depois do delete
+      const { data: jogadorDepois, error: errorAfter } = await supabase
+        .from('elenco')
+        .select('*')
+        .eq('id_time', jogador.id_time)
+        .eq('id', jogador.id)
+
+      console.log('Jogador no elenco depois do delete:', jogadorDepois, errorAfter)
+
+      // Atualizar saldo do time
       const valorRecebido = Math.round(jogador.valor * 0.7)
       const { error: errorSaldo } = await supabase
         .from('times')
@@ -110,12 +135,14 @@ export default function ElencoPage() {
 
       if (errorSaldo) {
         alert('❌ Erro ao atualizar o saldo do time: ' + errorSaldo.message)
+        console.error('Erro ao atualizar saldo:', errorSaldo)
         return
       }
+      console.log(`Saldo atualizado em R$ ${valorRecebido.toLocaleString('pt-BR')}`)
 
-      // Recarregar elenco atualizado
       await fetchElenco()
       alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
+      console.log('--- Venda de jogador finalizada com sucesso ---')
     } catch (error) {
       alert('❌ Ocorreu um erro inesperado: ' + error)
       console.error('Erro inesperado:', error)
