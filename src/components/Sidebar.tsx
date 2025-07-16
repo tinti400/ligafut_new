@@ -13,10 +13,13 @@ export default function Sidebar() {
   const [nomeTime, setNomeTime] = useState('')
 
   useEffect(() => {
+    // Pega as chaves que podem indicar login
     const usuarioId = localStorage.getItem('usuario_id')
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
-    if (usuarioId) {
+
+    if (usuarioId || userStr) {
       setLogado(true)
+
       if (userStr) {
         try {
           const userData = JSON.parse(userStr)
@@ -24,6 +27,8 @@ export default function Sidebar() {
         } catch {
           setNomeTime('')
         }
+      } else {
+        setNomeTime('')
       }
     } else {
       setLogado(false)
