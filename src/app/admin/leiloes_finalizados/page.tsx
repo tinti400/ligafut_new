@@ -10,6 +10,34 @@ const supabase = createClient(
 
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
+// Função para registrar no BID
+async function registrarNoBID({
+  tipo_evento,
+  descricao,
+  id_time1,
+  id_time2 = null,
+  valor = null,
+}: {
+  tipo_evento: string,
+  descricao: string,
+  id_time1: string,
+  id_time2?: string | null,
+  valor?: number | null,
+}) {
+  const { error } = await supabase.from('bid').insert({
+    tipo_evento,
+    descricao,
+    id_time1,
+    id_time2,
+    valor,
+    data_evento: new Date(),
+  })
+
+  if (error) {
+    console.error('Erro ao registrar no BID:', error.message)
+  }
+}
+
 export default function LeiloesFinalizadosPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [leiloes, setLeiloes] = useState<any[]>([])
@@ -82,7 +110,7 @@ export default function LeiloesFinalizadosPage() {
       imagem_url: leilao.imagem_url || '',
       link_sofifa: leilao.link_sofifa || '',
       nacionalidade: leilao.nacionalidade || '',
-      jogos: 0
+      jogos: 0,
     })
 
     if (erroInsert) {
@@ -103,10 +131,20 @@ export default function LeiloesFinalizadosPage() {
       return
     }
 
+    const novoSaldo = timeData.saldo - leilao.valor_atual
+
     await supabase
       .from('times')
-      .update({ saldo: timeData.saldo - leilao.valor_atual })
+      .update({ saldo: novoSaldo })
       .eq('id', leilao.id_time_vencedor)
+
+    // Registrar no BID a movimentação
+    await registrarNoBID({
+      tipo_evento: 'compra',
+      descricao: `Time comprou o jogador ${leilao.nome} no leilão por R$${leilao.valor_atual.toLocaleString()}`,
+      id_time1: leilao.id_time_vencedor,
+      valor: leilao.valor_atual,
+    })
 
     await supabase
       .from('leiloes_sistema')
