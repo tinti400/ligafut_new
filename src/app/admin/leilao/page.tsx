@@ -18,7 +18,7 @@ const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD',
 
 export default function AdminLeilaoPage() {
   const router = useRouter()
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null) // null = verificando
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null) // null = verificando permissão
   const [jogador, setJogador] = useState('')
   const [posicao, setPosicao] = useState('CA')
   const [overall, setOverall] = useState(80)
@@ -31,6 +31,7 @@ export default function AdminLeilaoPage() {
   const [importando, setImportando] = useState(false)
   const [msg, setMsg] = useState('')
 
+  // Verificação de permissão ADMIN
   useEffect(() => {
     const verificarAdmin = async () => {
       const emailUsuario = localStorage.getItem('email')?.toLowerCase() || ''
@@ -57,15 +58,15 @@ export default function AdminLeilaoPage() {
     verificarAdmin()
   }, [])
 
-  // Enquanto verifica permissão
+  // Enquanto verifica permissão, mostrar carregando
   if (isAdmin === null) {
     return <p className="text-center mt-10 text-white">Verificando permissão...</p>
   }
 
-  // Se não for admin, mostra mensagem
+  // Se não for admin, mostrar mensagem de acesso negado
   if (isAdmin === false) {
     return (
-      <main className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+      <main className="min-h-screen bg-gray-900 flex items-center justify-center">
         <p className="text-red-500 text-xl font-semibold">
           🚫 Você não tem permissão para acessar esta página.
         </p>
@@ -73,7 +74,7 @@ export default function AdminLeilaoPage() {
     )
   }
 
-  // Se for admin, renderiza o conteúdo completo
+  // Se for admin, carrega os dados do leilão normalmente
   useEffect(() => {
     buscarFila()
     buscarLeilaoAtual()
