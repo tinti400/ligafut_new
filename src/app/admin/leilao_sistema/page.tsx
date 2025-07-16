@@ -9,16 +9,16 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function LeiloesAtivosPage() {
+export default function LeilaoSistemaPage() {
   const router = useRouter()
   const [leiloes, setLeiloes] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
-  const [saldo, setSaldo] = useState<number | null>(null)
+  const [saldo, setSaldo] = useState<number | null>(null) // saldo do time
 
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
-  // Buscar saldo do time
+  // Busca saldo do time
   const buscarSaldo = async () => {
     if (!id_time) return
     const { data, error } = await supabase
@@ -34,7 +34,7 @@ export default function LeiloesAtivosPage() {
     }
   }
 
-  // Buscar leilões ativos
+  // Busca todos leilões ativos
   const buscarLeiloesAtivos = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
@@ -54,15 +54,15 @@ export default function LeiloesAtivosPage() {
     const intervalo = setInterval(() => {
       buscarLeiloesAtivos()
       buscarSaldo()
-    }, 3000) // Atualiza a cada 3s
+    }, 2000)
     return () => clearInterval(intervalo)
   }, [])
 
-  if (carregando) return <div className="text-white p-6">⏳ Carregando...</div>
-  if (leiloes.length === 0) return <div className="text-white p-6">Nenhum leilão ativo no momento.</div>
+  if (carregando) return <div className="p-6 text-white">⏳ Carregando...</div>
+  if (leiloes.length === 0) return <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6 grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+    <main className="min-h-screen bg-gray-900 text-white p-6 flex flex-wrap justify-center gap-8">
       {leiloes.map((leilao) => (
         <LeilaoCard
           key={leilao.id}
@@ -151,16 +151,18 @@ function LeilaoCard({ leilao, saldo, id_time, nome_time, router }: any) {
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 shadow">
+    <div className="bg-gray-800 rounded-xl p-6 shadow-lg max-w-sm w-full">
       {leilaoLocal.imagem_url && (
         <img
           src={leilaoLocal.imagem_url}
           alt={leilaoLocal.nome}
-          className="w-32 h-32 object-cover rounded-full mx-auto mb-4 border-2 border-green-400"
+          className="w-36 h-36 object-cover rounded-full mx-auto mb-4 border-4 border-green-400"
         />
       )}
 
-      <h2 className="text-xl font-bold mb-2 text-center">{leilaoLocal.nome} <span className="text-sm">({leilaoLocal.posicao})</span></h2>
+      <h2 className="text-2xl font-bold mb-2 text-center">
+        {leilaoLocal.nome} <span className="text-sm">({leilaoLocal.posicao})</span>
+      </h2>
 
       <p className="text-center mb-1">⭐ Overall: {leilaoLocal.overall}</p>
       <p className="text-center mb-1">🌍 Nacionalidade: {leilaoLocal.nacionalidade}</p>
@@ -179,7 +181,7 @@ function LeilaoCard({ leilao, saldo, id_time, nome_time, router }: any) {
         💳 Saldo atual: <strong>R$ {saldo !== null ? saldo.toLocaleString() : '...'}</strong>
       </p>
 
-      <div className="text-center text-2xl font-mono bg-black text-white inline-block px-5 py-2 rounded-lg mb-6 shadow">
+      <div className="text-center text-2xl font-mono bg-black text-white inline-block px-6 py-2 rounded-lg mb-6 shadow">
         ⏱️ {formatarTempo(tempoRestante)}
       </div>
 
