@@ -31,13 +31,12 @@ export default function AdminLeilaoPage() {
   const [importando, setImportando] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // Verifica se é admin no load da página
   useEffect(() => {
     const verificarAdmin = async () => {
       const emailUsuario = localStorage.getItem('email')?.toLowerCase() || ''
 
       if (!emailUsuario) {
-        router.push('/login')
+        setIsAdmin(false)
         return
       }
 
@@ -49,7 +48,6 @@ export default function AdminLeilaoPage() {
 
       if (error || !data) {
         setIsAdmin(false)
-        router.push('/acesso-negado') // Crie essa página para acesso negado
         return
       }
 
@@ -57,20 +55,25 @@ export default function AdminLeilaoPage() {
     }
 
     verificarAdmin()
-  }, [router])
+  }, [])
 
-  // Se ainda está verificando permissão, mostra mensagem
+  // Enquanto verifica permissão
   if (isAdmin === null) {
     return <p className="text-center mt-10 text-white">Verificando permissão...</p>
   }
 
-  // Se não for admin, não mostra nada porque já redirecionou
+  // Se não for admin, mostra mensagem
   if (isAdmin === false) {
-    return null
+    return (
+      <main className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <p className="text-red-500 text-xl font-semibold">
+          🚫 Você não tem permissão para acessar esta página.
+        </p>
+      </main>
+    )
   }
 
-  // Se for admin, executa normalmente o resto do componente:
-
+  // Se for admin, renderiza o conteúdo completo
   useEffect(() => {
     buscarFila()
     buscarLeilaoAtual()
