@@ -87,8 +87,7 @@ export default function ElencoPage() {
           salario: jogador.salario || 0,
           link_sofifa: jogador.link_sofifa || '',
           id_time_origem: jogador.id_time,
-          status: 'disponivel',
-          created_at: new Date().toISOString()
+          status: 'disponivel'
         })
 
       if (errorInsert) {
