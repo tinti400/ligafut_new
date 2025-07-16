@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import ImagemComFallback from '@/components/ImagemComFallback' // componente para fallback de imagem
+import ImagemComFallback from '@/components/ImagemComFallback' // componente com fallback para imagens
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,7 +15,6 @@ export default function ElencoPage() {
   const [loading, setLoading] = useState(true)
   const [nomeTime, setNomeTime] = useState('')
 
-  // Busca elenco e saldo do time
   const fetchElenco = async () => {
     setLoading(true)
     try {
@@ -63,7 +62,6 @@ export default function ElencoPage() {
     fetchElenco()
   }, [])
 
-  // Função para vender jogador
   const venderJogador = async (jogador: any) => {
     const confirmar = confirm(
       `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
