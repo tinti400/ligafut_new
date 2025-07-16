@@ -8,30 +8,61 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
+
 export default function LeiloesFinalizadosPage() {
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [leiloes, setLeiloes] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
   const [filtroPosicao, setFiltroPosicao] = useState('')
   const [filtroTime, setFiltroTime] = useState('')
 
-  const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
-
   useEffect(() => {
-    const buscarLeiloesFinalizados = async () => {
+    const verificarAdmin = async () => {
+      const emailUsuario = localStorage.getItem('email')?.toLowerCase() || ''
+      if (!emailUsuario) {
+        setIsAdmin(false)
+        return
+      }
+
       const { data, error } = await supabase
-        .from('leiloes_sistema')
-        .select('*')
-        .eq('status', 'leiloado')
-        .order('fim', { ascending: false })
+        .from('admins')
+        .select('email')
+        .eq('email', emailUsuario)
+        .single()
 
-      if (!error) setLeiloes(data || [])
-      else console.error('Erro ao buscar leilões finalizados:', error)
+      if (error || !data) {
+        setIsAdmin(false)
+        return
+      }
 
-      setCarregando(false)
+      setIsAdmin(true)
     }
 
-    buscarLeiloesFinalizados()
+    verificarAdmin()
   }, [])
+
+  useEffect(() => {
+    if (isAdmin) {
+      buscarLeiloesFinalizados()
+    } else {
+      setCarregando(false)
+    }
+  }, [isAdmin])
+
+  const buscarLeiloesFinalizados = async () => {
+    setCarregando(true)
+    const { data, error } = await supabase
+      .from('leiloes_sistema')
+      .select('*')
+      .eq('status', 'leiloado')
+      .order('fim', { ascending: false })
+
+    if (!error) setLeiloes(data || [])
+    else console.error('Erro ao buscar leilões finalizados:', error)
+
+    setCarregando(false)
+  }
 
   const enviarParaElenco = async (leilao: any) => {
     if (!leilao.id_time_vencedor) {
@@ -60,7 +91,6 @@ export default function LeiloesFinalizadosPage() {
       return
     }
 
-    // Buscar saldo atual
     const { data: timeData, error: errorBusca } = await supabase
       .from('times')
       .select('saldo')
@@ -101,6 +131,18 @@ export default function LeiloesFinalizadosPage() {
       : true
     return matchPosicao && matchTime
   })
+
+  if (isAdmin === null) {
+    return <p className="text-center mt-10 text-white">Verificando permissão...</p>
+  }
+
+  if (isAdmin === false) {
+    return (
+      <main className="min-h-screen bg-gray-900 flex items-center justify-center text-red-500 text-xl font-semibold">
+        🚫 Você não tem permissão para acessar esta página.
+      </main>
+    )
+  }
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-6">
