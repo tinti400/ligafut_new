@@ -62,7 +62,7 @@ export default function ElencoPage() {
     fetchElenco()
   }, [])
 
-  // Função para vender jogador com logs extras para debug
+  // Função para vender jogador
   const venderJogador = async (jogador: any) => {
     const confirmar = confirm(
       `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
@@ -70,8 +70,6 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
-      console.log('Tentando vender jogador:', jogador)
-
       // Inserir no mercado_transferencias
       const { error: errorInsert } = await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
@@ -92,24 +90,14 @@ export default function ElencoPage() {
         return
       }
 
-      console.log('ID do jogador para deletar:', jogador.id)
-
-      // Deletar jogador do elenco com select para retorno e log
-      const { data: dataDelete, error: errorDelete } = await supabase
+      // Deletar jogador do elenco
+      const { error: errorDelete } = await supabase
         .from('elenco')
         .delete()
         .eq('id', jogador.id)
-        .select()
-
-      console.log('Resultado do delete:', dataDelete, errorDelete)
 
       if (errorDelete) {
         alert('❌ Erro ao remover o jogador do elenco: ' + errorDelete.message)
-        return
-      }
-
-      if (!dataDelete || dataDelete.length === 0) {
-        alert('⚠️ Jogador não encontrado no elenco para exclusão.')
         return
       }
 
@@ -138,49 +126,35 @@ export default function ElencoPage() {
   if (loading) return <p>Carregando elenco...</p>
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h2 style={{ color: '#1f2937', marginBottom: '15px' }}>
-        Elenco do <strong>{nomeTime}</strong> — Saldo: <strong>R$ {saldo.toLocaleString('pt-BR')}</strong>
+    <div>
+      <h2>
+        Elenco do {nomeTime} — Saldo: R$ {saldo.toLocaleString('pt-BR')}
       </h2>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
         {elenco.map((jogador) => (
           <div
             key={jogador.id}
             style={{
-              border: '1px solid #444',
-              borderRadius: '10px',
-              padding: '15px',
+              border: '1px solid #ccc',
+              borderRadius: '8px',
+              padding: '10px',
               width: '200px',
-              backgroundColor: '#222',
-              color: '#fff',
-              boxShadow: '0 0 10px rgba(0,0,0,0.7)',
+              textAlign: 'center',
             }}
           >
             <img
               src={jogador.imagem_url || '/default-player.png'}
               alt={jogador.nome}
-              style={{ width: '100%', borderRadius: '10px', marginBottom: '10px' }}
+              style={{ width: '100%', borderRadius: '8px', marginBottom: '10px' }}
               onError={(e) => (e.currentTarget.src = '/default-player.png')}
             />
-            <p style={{ fontWeight: 'bold', fontSize: '16px', margin: '5px 0' }}>{jogador.nome}</p>
+            <p>
+              <strong>{jogador.nome}</strong>
+            </p>
             <p>Posição: {jogador.posicao}</p>
             <p>Overall: {jogador.overall ?? 'N/A'}</p>
             <p>Valor: R$ {Number(jogador.valor).toLocaleString('pt-BR')}</p>
-            <button
-              style={{
-                marginTop: '10px',
-                padding: '8px 12px',
-                backgroundColor: '#16a34a',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '5px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-              }}
-              onClick={() => venderJogador(jogador)}
-            >
-              Vender
-            </button>
+            <button onClick={() => venderJogador(jogador)}>Vender</button>
           </div>
         ))}
       </div>
