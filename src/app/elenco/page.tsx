@@ -138,28 +138,49 @@ export default function ElencoPage() {
   if (loading) return <p>Carregando elenco...</p>
 
   return (
-    <div>
-      <h2>
-        Elenco do {nomeTime} — Saldo: R$ {saldo.toLocaleString('pt-BR')}
+    <div style={{ padding: '20px' }}>
+      <h2 style={{ color: '#1f2937', marginBottom: '15px' }}>
+        Elenco do <strong>{nomeTime}</strong> — Saldo: <strong>R$ {saldo.toLocaleString('pt-BR')}</strong>
       </h2>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
         {elenco.map((jogador) => (
           <div
             key={jogador.id}
             style={{
-              border: '1px solid #ccc',
-              borderRadius: '8px',
-              padding: '10px',
+              border: '1px solid #444',
+              borderRadius: '10px',
+              padding: '15px',
               width: '200px',
+              backgroundColor: '#222',
+              color: '#fff',
+              boxShadow: '0 0 10px rgba(0,0,0,0.7)',
             }}
           >
-            <p>
-              <strong>{jogador.nome}</strong>
-            </p>
+            <img
+              src={jogador.imagem_url || '/default-player.png'}
+              alt={jogador.nome}
+              style={{ width: '100%', borderRadius: '10px', marginBottom: '10px' }}
+              onError={(e) => (e.currentTarget.src = '/default-player.png')}
+            />
+            <p style={{ fontWeight: 'bold', fontSize: '16px', margin: '5px 0' }}>{jogador.nome}</p>
             <p>Posição: {jogador.posicao}</p>
-            <p>Overall: {jogador.overall}</p>
+            <p>Overall: {jogador.overall ?? 'N/A'}</p>
             <p>Valor: R$ {Number(jogador.valor).toLocaleString('pt-BR')}</p>
-            <button onClick={() => venderJogador(jogador)}>Vender</button>
+            <button
+              style={{
+                marginTop: '10px',
+                padding: '8px 12px',
+                backgroundColor: '#16a34a',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+              onClick={() => venderJogador(jogador)}
+            >
+              Vender
+            </button>
           </div>
         ))}
       </div>
