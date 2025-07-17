@@ -6,7 +6,9 @@ import { createClient } from '@supabase/supabase-js'
 import ImagemComFallback from '@/components/ImagemComFallback'
 import { useAdmin } from '@/hooks/useAdmin'
 
-// Helper para formatar valor monetário em reais
+import * as XLSX from 'xlsx'
+import toast, { Toaster } from 'react-hot-toast'
+
 const formatarValor = (valor: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 
@@ -14,6 +16,71 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
+// Modal simples, controle via props
+function ModalConfirm({
+  visible,
+  titulo,
+  mensagem,
+  onConfirm,
+  onCancel,
+  loading = false,
+}: {
+  visible: boolean
+  titulo: string
+  mensagem: string
+  onConfirm: () => void
+  onCancel: () => void
+  loading?: boolean
+}) {
+  if (!visible) return null
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+      <div className="bg-gray-900 text-white rounded p-6 max-w-sm w-full shadow-lg">
+        <h2 className="text-xl font-bold mb-4">{titulo}</h2>
+        <p className="mb-6">{mensagem}</p>
+        <div className="flex justify-end gap-4">
+          <button
+            disabled={loading}
+            onClick={onCancel}
+            className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded"
+          >
+            Cancelar
+          </button>
+          <button
+            disabled={loading}
+            onClick={onConfirm}
+            className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded flex items-center justify-center"
+          >
+            {loading ? (
+              <svg
+                className="animate-spin h-5 w-5 mr-2 text-white"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v8H4z"
+                />
+              </svg>
+            ) : null}
+            Confirmar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function JogadorCard({
   jogador,
@@ -38,7 +105,7 @@ function JogadorCard({
 
   const handleBlur = () => {
     if (novoValor <= 0) {
-      alert('Valor deve ser maior que zero')
+      toast.error('Valor deve ser maior que zero')
       setNovoValor(jogador.valor)
       return
     }
@@ -132,6 +199,11 @@ export default function MercadoPage() {
   const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | null>(null)
   const [loadingExcluir, setLoadingExcluir] = useState(false)
 
+  // Estado para controlar modais
+  const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
+  const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
+  const [jogadorParaComprar, setJogadorParaComprar] = useState<any | null>(null)
+
   // Debounce simples para filtro nome (200ms)
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -176,30 +248,36 @@ export default function MercadoPage() {
     carregarDados()
   }, [router])
 
-  const comprarJogador = async (jogador: any) => {
-    if (!user) return
-
+  // Abre modal de confirmação para compra
+  const solicitarCompra = (jogador: any) => {
     if (jogador.valor > saldo) {
-      alert('Saldo insuficiente!')
+      toast.error('Saldo insuficiente!')
+      return
+    }
+    setJogadorParaComprar(jogador)
+    setModalComprarVisivel(true)
+  }
+
+  const confirmarCompra = async () => {
+    if (!jogadorParaComprar || !user) {
+      setModalComprarVisivel(false)
       return
     }
 
-    if (!confirm(`Deseja comprar ${jogador.nome} por ${formatarValor(jogador.valor)}?`)) return
-
-    setLoadingComprarId(jogador.id)
+    setLoadingComprarId(jogadorParaComprar.id)
     try {
-      const salario = Math.round(jogador.valor * 0.007)
+      const salario = Math.round(jogadorParaComprar.valor * 0.007)
 
       const { error: errorInsert } = await supabase.from('elenco').insert({
         id_time: user.id_time,
-        nome: jogador.nome,
-        posicao: jogador.posicao,
-        overall: jogador.overall,
-        valor: jogador.valor,
-        imagem_url: jogador.imagem_url,
+        nome: jogadorParaComprar.nome,
+        posicao: jogadorParaComprar.posicao,
+        overall: jogadorParaComprar.overall,
+        valor: jogadorParaComprar.valor,
+        imagem_url: jogadorParaComprar.imagem_url,
         salario: salario,
         jogos: 0,
-        link_sofifa: jogador.link_sofifa || '',
+        link_sofifa: jogadorParaComprar.link_sofifa || '',
       })
 
       if (errorInsert) throw errorInsert
@@ -207,28 +285,30 @@ export default function MercadoPage() {
       const { error: errorDelete } = await supabase
         .from('mercado_transferencias')
         .delete()
-        .eq('id', jogador.id)
+        .eq('id', jogadorParaComprar.id)
 
       if (errorDelete) throw errorDelete
 
       const { error: errorUpdate } = await supabase
         .from('times')
-        .update({ saldo: saldo - jogador.valor })
+        .update({ saldo: saldo - jogadorParaComprar.valor })
         .eq('id', user.id_time)
 
       if (errorUpdate) throw errorUpdate
 
-      // Atualizar estados locais para não precisar recarregar a página
-      setSaldo((prev) => prev - jogador.valor)
-      setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
-      setSelecionados((prev) => prev.filter((id) => id !== jogador.id))
+      setSaldo((prev) => prev - jogadorParaComprar.valor)
+      setJogadores((prev) => prev.filter((j) => j.id !== jogadorParaComprar.id))
+      setSelecionados((prev) => prev.filter((id) => id !== jogadorParaComprar.id))
 
-      alert('✅ Jogador comprado com sucesso!')
+      toast.success('Jogador comprado com sucesso!')
+
     } catch (error) {
       console.error('Erro na compra:', error)
-      alert('❌ Ocorreu um erro ao comprar o jogador.')
+      toast.error('Ocorreu um erro ao comprar o jogador.')
     } finally {
       setLoadingComprarId(null)
+      setModalComprarVisivel(false)
+      setJogadorParaComprar(null)
     }
   }
 
@@ -238,13 +318,16 @@ export default function MercadoPage() {
     )
   }
 
-  const excluirSelecionados = async () => {
+  // Abre modal confirmação exclusão
+  const solicitarExcluirSelecionados = () => {
     if (selecionados.length === 0) {
-      alert('Selecione pelo menos um jogador para excluir.')
+      toast.error('Selecione pelo menos um jogador para excluir.')
       return
     }
-    if (!confirm(`⚠️ Tem certeza que deseja excluir ${selecionados.length} jogador(es)?`)) return
+    setModalExcluirVisivel(true)
+  }
 
+  const confirmarExcluirSelecionados = async () => {
     setLoadingExcluir(true)
     try {
       const { error } = await supabase
@@ -256,18 +339,19 @@ export default function MercadoPage() {
 
       setJogadores((prev) => prev.filter((j) => !selecionados.includes(j.id)))
       setSelecionados([])
-      alert('✅ Jogadores excluídos com sucesso!')
+      toast.success('Jogadores excluídos com sucesso!')
     } catch (error) {
       console.error('Erro ao excluir:', error)
-      alert('❌ Erro ao excluir jogadores.')
+      toast.error('Erro ao excluir jogadores.')
     } finally {
       setLoadingExcluir(false)
+      setModalExcluirVisivel(false)
     }
   }
 
   const atualizarPreco = async (jogadorId: string, novoValor: number) => {
     if (novoValor <= 0) {
-      alert('Valor deve ser maior que zero')
+      toast.error('Valor deve ser maior que zero')
       return
     }
     setLoadingAtualizarPrecoId(jogadorId)
@@ -289,12 +373,72 @@ export default function MercadoPage() {
             : j
         )
       )
-      alert('✅ Valor atualizado!')
+      toast.success('Valor atualizado!')
     } catch (error) {
       console.error('Erro ao atualizar preço:', error)
-      alert('❌ Erro ao atualizar preço.')
+      toast.error('Erro ao atualizar preço.')
     } finally {
       setLoadingAtualizarPrecoId(null)
+    }
+  }
+
+  // === UPLOAD XLSX ===
+  const [uploadLoading, setUploadLoading] = useState(false)
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return
+
+    const file = e.target.files[0]
+
+    setUploadLoading(true)
+
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet)
+
+      // Espera que cada linha tenha as colunas exatas para jogador:
+      // nome, posicao, overall, valor, imagem_url, link_sofifa
+      // Adaptar conforme seu arquivo excel!
+
+      // Validar e mapear dados para formato mercado_transferencias
+      const jogadoresParaInserir = jsonData.map((item: any) => {
+        if (
+          !item.nome ||
+          !item.posicao ||
+          !item.overall ||
+          !item.valor
+        ) {
+          throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
+        }
+
+        return {
+          nome: String(item.nome),
+          posicao: String(item.posicao),
+          overall: Number(item.overall),
+          valor: Number(item.valor),
+          imagem_url: item.imagem_url ? String(item.imagem_url) : '',
+          link_sofifa: item.link_sofifa ? String(item.link_sofifa) : '',
+          salario: Math.round(Number(item.valor) * 0.007),
+          jogos: 0,
+        }
+      })
+
+      // Inserir em lote no supabase (insert many)
+      const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
+
+      if (error) throw error
+
+      toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
+      // Atualiza lista local
+      setJogadores((prev) => [...prev, ...jogadoresParaInserir])
+    } catch (error: any) {
+      console.error(error)
+      toast.error(`Erro no upload: ${error.message || error}`)
+    } finally {
+      setUploadLoading(false)
+      if (e.target) e.target.value = '' // reset input file
     }
   }
 
@@ -302,7 +446,6 @@ export default function MercadoPage() {
   if (loading) return <p className="text-center mt-10 text-white">⏳ Carregando dados...</p>
   if (erro) return <p className="text-center mt-10 text-red-500">{erro}</p>
 
-  // Aplicar filtros
   const jogadoresFiltrados = jogadores
     .filter((j) => {
       const nomeMatch = j.nome.toLowerCase().includes(filtroNome.toLowerCase())
@@ -323,143 +466,194 @@ export default function MercadoPage() {
       return 0
     })
 
-  // Paginação
   const indexOfLastJogador = paginaAtual * jogadoresPorPagina
   const indexOfFirstJogador = indexOfLastJogador - jogadoresPorPagina
   const jogadoresPaginados = jogadoresFiltrados.slice(indexOfFirstJogador, indexOfLastJogador)
   const totalPaginas = Math.ceil(jogadoresFiltrados.length / jogadoresPorPagina)
 
   return (
-    <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
-      <h1 className="text-3xl font-bold mb-6 text-center text-green-400">🛒 Mercado de Transferências</h1>
+    <>
+      <Toaster position="top-right" />
 
-      {isAdmin && (
-        <button
-          onClick={excluirSelecionados}
-          disabled={loadingExcluir}
-          className={`bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded mb-4 transition-opacity ${
-            loadingExcluir ? 'opacity-70 cursor-not-allowed' : ''
-          }`}
-        >
-          {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
-        </button>
-      )}
+      <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
+        <h1 className="text-3xl font-bold mb-6 text-center text-green-400">🛒 Mercado de Transferências</h1>
 
-      {totalPaginas > 1 && (
-        <div className="flex justify-center mb-6 gap-2 flex-wrap">
-          {Array.from({ length: totalPaginas }, (_, i) => (
-            <button
-              key={i}
-              onClick={() => setPaginaAtual(i + 1)}
-              className={`px-3 py-1 rounded ${
-                paginaAtual === i + 1
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              } transition-colors`}
-            >
-              {i + 1}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-        <input
-          type="text"
-          placeholder="🔎 Buscar por nome"
-          value={filtroNome}
-          onChange={(e) => setFiltroNome(e.target.value)}
-          className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-        />
-
-        <select
-          value={filtroPosicao}
-          onChange={(e) => setFiltroPosicao(e.target.value)}
-          className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
-        >
-          <option value="">Todas as posições</option>
-          <option value="GL">Goleiro</option>
-          <option value="ZAG">Zagueiro</option>
-          <option value="LE">Lateral Esquerdo</option>
-          <option value="LD">Lateral Direito</option>
-          <option value="VOL">Volante</option>
-          <option value="MC">Meio Campo</option>
-          <option value="MD">Meia Direita</option>
-          <option value="ME">Meia Esquerda</option>
-          <option value="PD">Ponta Direita</option>
-          <option value="PE">Ponta Esquerda</option>
-          <option value="SA">Segundo Atacante</option>
-          <option value="CA">Centroavante</option>
-        </select>
-
-        <div className="flex gap-2 items-center">
-          <input
-            type="number"
-            placeholder="Overall mín"
-            value={filtroOverallMin}
-            onChange={(e) => setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
-            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-            min={0}
-            max={99}
-          />
-          <input
-            type="number"
-            placeholder="máx"
-            value={filtroOverallMax}
-            onChange={(e) => setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
-            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-            min={0}
-            max={99}
-          />
-        </div>
-
-        <input
-          type="number"
-          placeholder="💰 Valor máx (R$)"
-          value={filtroValorMax}
-          onChange={(e) => setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))}
-          className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-          min={0}
-        />
-
-        <select
-          value={ordenarPor}
-          onChange={(e) => setOrdenarPor(e.target.value)}
-          className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
-        >
-          <option value="">Ordenar...</option>
-          <option value="valor_asc">Valor ↑</option>
-          <option value="valor_desc">Valor ↓</option>
-          <option value="overall_asc">Overall ↑</option>
-          <option value="overall_desc">Overall ↓</option>
-        </select>
-
-        <div className="font-semibold text-green-400 col-span-full text-right">
-          💰 Saldo: {formatarValor(saldo)}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {jogadoresPaginados.length > 0 ? (
-          jogadoresPaginados.map((jogador) => (
-            <JogadorCard
-              key={jogador.id}
-              jogador={jogador}
-              isAdmin={isAdmin}
-              selecionado={selecionados.includes(jogador.id)}
-              toggleSelecionado={() => toggleSelecionado(jogador.id)}
-              onComprar={() => comprarJogador(jogador)}
-              onAtualizarPreco={(novoValor) => atualizarPreco(jogador.id, novoValor)}
-              loadingComprar={loadingComprarId === jogador.id}
-              loadingAtualizarPreco={loadingAtualizarPrecoId === jogador.id}
-            />
-          ))
-        ) : (
-          <p className="mt-10 text-center text-gray-400 col-span-full">
-            Nenhum jogador encontrado com os filtros atuais.
-          </p>
+        {/* Upload XLSX */}
+        {isAdmin && (
+          <div className="mb-6 flex items-center gap-4 flex-wrap">
+            <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">
+              {uploadLoading ? 'Importando...' : '📁 Importar jogadores (XLSX)'}
+              <input
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={handleFileUpload}
+                disabled={uploadLoading}
+                className="hidden"
+              />
+            </label>
+            <span className="text-sm text-gray-300 max-w-xs">
+              Formato esperado: colunas nome, posicao, overall, valor, imagem_url (opcional), link_sofifa (opcional).
+            </span>
+          </div>
         )}
+
+        {/* Botão excluir */}
+        {isAdmin && (
+          <button
+            onClick={solicitarExcluirSelecionados}
+            disabled={loadingExcluir}
+            className={`bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded mb-4 transition-opacity ${
+              loadingExcluir ? 'opacity-70 cursor-not-allowed' : ''
+            }`}
+          >
+            {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
+          </button>
+        )}
+
+        {/* Paginação */}
+        {totalPaginas > 1 && (
+          <div className="flex justify-center mb-6 gap-2 flex-wrap">
+            {Array.from({ length: totalPaginas }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => setPaginaAtual(i + 1)}
+                className={`px-3 py-1 rounded ${
+                  paginaAtual === i + 1
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                } transition-colors`}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Filtros */}
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+          <input
+            type="text"
+            placeholder="🔎 Buscar por nome"
+            value={filtroNome}
+            onChange={(e) => setFiltroNome(e.target.value)}
+            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+          />
+
+          <select
+            value={filtroPosicao}
+            onChange={(e) => setFiltroPosicao(e.target.value)}
+            className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
+          >
+            <option value="">Todas as posições</option>
+            <option value="GL">Goleiro</option>
+            <option value="ZAG">Zagueiro</option>
+            <option value="LE">Lateral Esquerdo</option>
+            <option value="LD">Lateral Direito</option>
+            <option value="VOL">Volante</option>
+            <option value="MC">Meio Campo</option>
+            <option value="MD">Meia Direita</option>
+            <option value="ME">Meia Esquerda</option>
+            <option value="PD">Ponta Direita</option>
+            <option value="PE">Ponta Esquerda</option>
+            <option value="SA">Segundo Atacante</option>
+            <option value="CA">Centroavante</option>
+          </select>
+
+          <div className="flex gap-2 items-center">
+            <input
+              type="number"
+              placeholder="Overall mín"
+              value={filtroOverallMin}
+              onChange={(e) => setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
+              className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+              min={0}
+              max={99}
+            />
+            <input
+              type="number"
+              placeholder="máx"
+              value={filtroOverallMax}
+              onChange={(e) => setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
+              className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+              min={0}
+              max={99}
+            />
+          </div>
+
+          <input
+            type="number"
+            placeholder="💰 Valor máx (R$)"
+            value={filtroValorMax}
+            onChange={(e) => setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))}
+            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+            min={0}
+          />
+
+          <select
+            value={ordenarPor}
+            onChange={(e) => setOrdenarPor(e.target.value)}
+            className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
+          >
+            <option value="">Ordenar...</option>
+            <option value="valor_asc">Valor ↑</option>
+            <option value="valor_desc">Valor ↓</option>
+            <option value="overall_asc">Overall ↑</option>
+            <option value="overall_desc">Overall ↓</option>
+          </select>
+
+          <div className="font-semibold text-green-400 col-span-full text-right">
+            💰 Saldo: {formatarValor(saldo)}
+          </div>
+        </div>
+
+        {/* Lista de jogadores */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {jogadoresPaginados.length > 0 ? (
+            jogadoresPaginados.map((jogador) => (
+              <JogadorCard
+                key={jogador.id}
+                jogador={jogador}
+                isAdmin={isAdmin}
+                selecionado={selecionados.includes(jogador.id)}
+                toggleSelecionado={() => toggleSelecionado(jogador.id)}
+                onComprar={() => solicitarCompra(jogador)}
+                onAtualizarPreco={(novoValor) => atualizarPreco(jogador.id, novoValor)}
+                loadingComprar={loadingComprarId === jogador.id}
+                loadingAtualizarPreco={loadingAtualizarPrecoId === jogador.id}
+              />
+            ))
+          ) : (
+            <p className="mt-10 text-center text-gray-400 col-span-full">
+              Nenhum jogador encontrado com os filtros atuais.
+            </p>
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* Modal Confirmar Compra */}
+      <ModalConfirm
+        visible={modalComprarVisivel}
+        titulo="Confirmar Compra"
+        mensagem={`Deseja comprar ${jogadorParaComprar?.nome} por ${
+          jogadorParaComprar ? formatarValor(jogadorParaComprar.valor) : ''
+        }?`}
+        onConfirm={confirmarCompra}
+        onCancel={() => {
+          setModalComprarVisivel(false)
+          setJogadorParaComprar(null)
+        }}
+        loading={loadingComprarId !== null}
+      />
+
+      {/* Modal Confirmar Exclusão */}
+      <ModalConfirm
+        visible={modalExcluirVisivel}
+        titulo="Confirmar Exclusão"
+        mensagem={`Tem certeza que deseja excluir ${selecionados.length} jogador(es)?`}
+        onConfirm={confirmarExcluirSelecionados}
+        onCancel={() => setModalExcluirVisivel(false)}
+        loading={loadingExcluir}
+      />
+    </>
   )
 }
