@@ -9,7 +9,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const DURACAO_INICIAL = 120 // 2 minutos em segundos
+const DURACAO_INICIAL = 120 // 2 minutos
+const TEMPO_REINICIO = 15   // 15 segundos para reiniciar o cronômetro no lance tardio
 
 export default function LeilaoSistemaPage() {
   const router = useRouter()
@@ -66,11 +67,9 @@ export default function LeilaoSistemaPage() {
 
     const atualizarTempo = () => {
       const agora = Date.now()
-      const ultimoLance = new Date(leilao.ultimo_lance_em || leilao.criado_em).getTime()
-      let restante = DURACAO_INICIAL - Math.floor((agora - ultimoLance) / 1000)
-
+      const fim = new Date(leilao.fim).getTime()
+      let restante = Math.floor((fim - agora) / 1000)
       if (restante < 0) restante = 0
-
       setTempoRestante(restante)
     }
 
@@ -90,13 +89,21 @@ export default function LeilaoSistemaPage() {
       return
     }
 
-    const agora = new Date().toISOString()
+    const agora = Date.now()
+    const fimAtual = new Date(leilao.fim).getTime()
+    const restante = Math.floor((fimAtual - agora) / 1000)
+
+    // Se estiver nos últimos 15s, reinicia para 15s
+    let novaDataFim = leilao.fim
+    if (restante <= TEMPO_REINICIO) {
+      novaDataFim = new Date(agora + TEMPO_REINICIO * 1000).toISOString()
+    }
 
     const { error } = await supabase.from('leiloes_sistema').update({
       valor_atual: novoValor,
       id_time_vencedor: id_time,
       nome_time_vencedor: nome_time,
-      ultimo_lance_em: agora,
+      fim: novaDataFim
     }).eq('id', leilao.id)
 
     if (!error) {
@@ -105,9 +112,8 @@ export default function LeilaoSistemaPage() {
         valor_atual: novoValor,
         id_time_vencedor: id_time,
         nome_time_vencedor: nome_time,
-        ultimo_lance_em: agora,
+        fim: novaDataFim
       })
-      setTempoRestante(120) // Reseta o tempo local para 2 minutos
       setTimeout(() => router.refresh(), 5000)
     } else {
       console.error('❌ Erro ao dar lance:', error)
@@ -192,3 +198,4 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
+
