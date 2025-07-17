@@ -19,7 +19,7 @@ export default function BancoPage() {
   const [divisao, setDivisao] = useState('')
   const [saldoAtual, setSaldoAtual] = useState(0)
   const [emprestimoAtivo, setEmprestimoAtivo] = useState<any | null>(null)
-  const [limiteMaximo, setLimiteMaximo] = useState(100_000_000)
+  const [limiteMaximo, setLimiteMaximo] = useState(500_000_000)
   const [valorEmprestimoMilhoes, setValorEmprestimoMilhoes] = useState(20)
   const [parcelas, setParcelas] = useState(1)
   const [juros, setJuros] = useState(0.05)
@@ -71,7 +71,7 @@ export default function BancoPage() {
         const div = String(timeData.divisao).trim()
         setDivisao(div)
         setSaldoAtual(timeData.saldo || 0)
-        setLimiteMaximo(limitesDivisao[div] || 100_000_000)
+        setLimiteMaximo(limitesDivisao[div] || 500_000_000)
 
         const { data: emprestimos, error: errorEmprestimo } = await supabase
           .from('emprestimos')
