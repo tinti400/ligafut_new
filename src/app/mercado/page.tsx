@@ -243,6 +243,59 @@ export default function MercadoPage() {
     carregarDados()
   }, [router])
 
+  // === FUNÇÃO UPLOAD XLSX ===
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return
+
+    const file = e.target.files[0]
+
+    setUploadLoading(true)
+
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet)
+
+      // Mapear para formato mercado_transferencias conforme colunas do seu arquivo
+      const jogadoresParaInserir = jsonData.map((item: any) => {
+        if (
+          !item['Nome Completo'] ||
+          !item['Posição'] ||
+          !item['Overall'] ||
+          !item['Valor']
+        ) {
+          throw new Error('Colunas obrigatórias: Nome Completo, Posição, Overall, Valor')
+        }
+
+        return {
+          nome: String(item['Nome Completo']),
+          posicao: String(item['Posição']),
+          overall: Number(item['Overall']),
+          valor: Number(item['Valor']),
+          imagem_url: item['Foto URL'] ? String(item['Foto URL']) : '',
+          link_sofifa: item['Link Sofifa'] ? String(item['Link Sofifa']) : '',
+          salario: Math.round(Number(item['Valor']) * 0.007),
+          jogos: 0,
+        }
+      })
+
+      // Inserir em lote no supabase (insert many)
+      const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
+
+      if (error) throw error
+
+      toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
+      setJogadores((prev) => [...prev, ...jogadoresParaInserir])
+    } catch (error: any) {
+      console.error(error)
+      toast.error(`Erro no upload: ${error.message || error}`)
+    } finally {
+      setUploadLoading(false)
+      if (e.target) e.target.value = '' // reset input file para permitir reupload do mesmo arquivo
+    }
+  }
+
   const toggleMarketStatus = async () => {
     if (!isAdmin) return
 
