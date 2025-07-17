@@ -19,6 +19,8 @@ export default function LeilaoSistemaPage() {
   const [tempoRestante, setTempoRestante] = useState<number | null>(null)
   const [saldo, setSaldo] = useState<number | null>(null)
 
+  const [podeDarLance, setPodeDarLance] = useState(true) // Bloqueio de 1s entre lances
+
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
@@ -79,12 +81,15 @@ export default function LeilaoSistemaPage() {
   }, [leilao])
 
   const darLance = async (incremento: number) => {
-    if (!leilao || !id_time || !nome_time || tempoRestante === 0) return
+    if (!leilao || !id_time || !nome_time || tempoRestante === 0 || !podeDarLance) return
+
+    setPodeDarLance(false) // Bloqueia lance imediatamente para evitar spams
 
     const novoValor = Number(leilao.valor_atual) + incremento
 
     if (saldo !== null && novoValor > saldo) {
       alert('❌ Você não tem saldo suficiente para esse lance.')
+      setPodeDarLance(true)
       return
     }
 
@@ -98,19 +103,22 @@ export default function LeilaoSistemaPage() {
 
       if (error) throw error
 
-      // Atualiza estado local
       setLeilao({
         ...leilao,
         valor_atual: novoValor,
         id_time_vencedor: id_time,
         nome_time_vencedor: nome_time,
-        // 'fim' é atualizado no banco, será atualizado na próxima busca
       })
+
+      setTimeout(() => {
+        setPodeDarLance(true)  // Libera após 1 segundo
+      }, 1000)
 
       setTimeout(() => router.refresh(), 5000)
     } catch (err: any) {
       console.error('Erro ao dar lance:', err)
       alert('Erro ao dar lance: ' + err.message)
+      setPodeDarLance(true) // Libera em caso de erro também
     }
   }
 
@@ -170,7 +178,8 @@ export default function LeilaoSistemaPage() {
             const incremento = 2000000 * Math.pow(2, i)
             const disabled =
               tempoRestante === 0 ||
-              (saldo !== null && Number(leilao.valor_atual) + incremento > saldo)
+              (saldo !== null && Number(leilao.valor_atual) + incremento > saldo) ||
+              !podeDarLance
 
             return (
               <button
@@ -178,7 +187,7 @@ export default function LeilaoSistemaPage() {
                 onClick={() => darLance(incremento)}
                 disabled={disabled}
                 className="bg-green-600 hover:bg-green-700 text-white py-2 rounded text-xs font-bold transition disabled:opacity-50"
-                title={disabled ? 'Saldo insuficiente ou leilão finalizado' : ''}
+                title={disabled ? 'Saldo insuficiente, leilão finalizado ou aguarde 1s entre lances' : ''}
               >
                 + R$ {(incremento / 1000000).toLocaleString()} mi
               </button>
