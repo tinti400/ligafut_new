@@ -198,16 +198,13 @@ export default function MercadoPage() {
   const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | null>(null)
   const [loadingExcluir, setLoadingExcluir] = useState(false)
 
-  // Estado para controlar modais
   const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
   const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
   const [jogadorParaComprar, setJogadorParaComprar] = useState<any | null>(null)
 
-  // Controle do status do mercado
   const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
   const [uploadLoading, setUploadLoading] = useState(false)
 
-  // Carregar status do mercado
   const carregarStatusMercado = async () => {
     try {
       const { data, error } = await supabase
@@ -219,13 +216,18 @@ export default function MercadoPage() {
       if (error) throw error
 
       setMarketStatus(data.aberto ? 'aberto' : 'fechado')
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Erro ao carregar status do mercado:', e)
-      setErro('Erro ao carregar dados. Tente novamente mais tarde.')
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === 'string'
+          ? e
+          : 'Erro desconhecido'
+      setErro('Erro ao carregar dados. Tente novamente mais tarde. ' + msg)
     }
   }
 
-  // Alternar status do mercado aberto/fechado
   const toggleMarketStatus = async () => {
     setLoading(true)
     try {
@@ -273,9 +275,15 @@ export default function MercadoPage() {
         setJogadores(resMercado.data || [])
         setSaldo(resTime.data?.saldo || 0)
         carregarStatusMercado()
-      } catch (e) {
+      } catch (e: unknown) {
         console.error('Erro ao carregar dados:', e)
-        setErro('Erro ao carregar dados. Tente novamente mais tarde. ' + (e.message || e.toString()))
+        const msg =
+          e instanceof Error
+            ? e.message
+            : typeof e === 'string'
+            ? e
+            : 'Erro desconhecido'
+        setErro('Erro ao carregar dados. Tente novamente mais tarde. ' + msg)
       } finally {
         setLoading(false)
       }
@@ -284,7 +292,6 @@ export default function MercadoPage() {
     carregarDados()
   }, [router])
 
-  // Abre modal de confirmação para compra
   const solicitarCompra = (jogador: any) => {
     if (marketStatus === 'fechado') {
       toast.error('Mercado fechado. Não é possível comprar.')
@@ -359,7 +366,6 @@ export default function MercadoPage() {
     )
   }
 
-  // Abre modal confirmação exclusão
   const solicitarExcluirSelecionados = () => {
     if (marketStatus === 'fechado') {
       toast.error('Mercado fechado. Exclusão não permitida.')
@@ -431,7 +437,6 @@ export default function MercadoPage() {
     }
   }
 
-  // === UPLOAD XLSX ===
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return
     if (marketStatus === 'fechado') {
@@ -477,9 +482,15 @@ export default function MercadoPage() {
 
       toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
       setJogadores((prev) => [...prev, ...jogadoresParaInserir])
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
-      toast.error(`Erro no upload: ${error.message || error}`)
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+          ? error
+          : 'Erro desconhecido'
+      toast.error(`Erro no upload: ${msg}`)
     } finally {
       setUploadLoading(false)
       if (e.target) e.target.value = ''
