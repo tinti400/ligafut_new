@@ -18,8 +18,7 @@ export default function LeilaoSistemaPage() {
   const [carregando, setCarregando] = useState(true)
   const [tempoRestante, setTempoRestante] = useState<number | null>(null)
   const [saldo, setSaldo] = useState<number | null>(null)
-
-  const [podeDarLance, setPodeDarLance] = useState(true) // Bloqueio de 1s entre lances
+  const [finalizando, setFinalizando] = useState(false)
 
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
@@ -80,16 +79,14 @@ export default function LeilaoSistemaPage() {
     return () => clearInterval(intervalo)
   }, [leilao])
 
+  // Função para dar lance
   const darLance = async (incremento: number) => {
-    if (!leilao || !id_time || !nome_time || tempoRestante === 0 || !podeDarLance) return
-
-    setPodeDarLance(false) // Bloqueia lance imediatamente para evitar spams
+    if (!leilao || !id_time || !nome_time || tempoRestante === 0) return
 
     const novoValor = Number(leilao.valor_atual) + incremento
 
     if (saldo !== null && novoValor > saldo) {
       alert('❌ Você não tem saldo suficiente para esse lance.')
-      setPodeDarLance(true)
       return
     }
 
@@ -103,6 +100,7 @@ export default function LeilaoSistemaPage() {
 
       if (error) throw error
 
+      // Atualiza estado local
       setLeilao({
         ...leilao,
         valor_atual: novoValor,
@@ -110,16 +108,35 @@ export default function LeilaoSistemaPage() {
         nome_time_vencedor: nome_time,
       })
 
-      setTimeout(() => {
-        setPodeDarLance(true)  // Libera após 1 segundo
-      }, 1000)
-
       setTimeout(() => router.refresh(), 5000)
     } catch (err: any) {
       console.error('Erro ao dar lance:', err)
       alert('Erro ao dar lance: ' + err.message)
-      setPodeDarLance(true) // Libera em caso de erro também
     }
+  }
+
+  // Função para finalizar leilão manualmente
+  const finalizarLeilaoAgora = async () => {
+    if (!leilao) return
+    if (!confirm('Tem certeza que deseja finalizar o leilão agora?')) return
+
+    setFinalizando(true)
+
+    const { error } = await supabase
+      .from('leiloes_sistema')
+      .update({ status: 'leiloado' })
+      .eq('id', leilao.id)
+
+    setFinalizando(false)
+
+    if (error) {
+      alert('Erro ao finalizar leilão: ' + error.message)
+      return
+    }
+
+    setLeilao(null)
+    alert('Leilão finalizado com sucesso!')
+    router.refresh()
   }
 
   const formatarTempo = (segundos: number) => {
@@ -173,13 +190,22 @@ export default function LeilaoSistemaPage() {
           </div>
         )}
 
+        {tempoRestante === 0 && (
+          <button
+            onClick={finalizarLeilaoAgora}
+            disabled={finalizando}
+            className="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded text-sm font-semibold mb-6"
+          >
+            {finalizando ? 'Finalizando...' : 'Finalizar Leilão'}
+          </button>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
           {[...Array(5)].map((_, i) => {
             const incremento = 2000000 * Math.pow(2, i)
             const disabled =
               tempoRestante === 0 ||
-              (saldo !== null && Number(leilao.valor_atual) + incremento > saldo) ||
-              !podeDarLance
+              (saldo !== null && Number(leilao.valor_atual) + incremento > saldo)
 
             return (
               <button
@@ -187,7 +213,7 @@ export default function LeilaoSistemaPage() {
                 onClick={() => darLance(incremento)}
                 disabled={disabled}
                 className="bg-green-600 hover:bg-green-700 text-white py-2 rounded text-xs font-bold transition disabled:opacity-50"
-                title={disabled ? 'Saldo insuficiente, leilão finalizado ou aguarde 1s entre lances' : ''}
+                title={disabled ? 'Saldo insuficiente ou leilão finalizado' : ''}
               >
                 + R$ {(incremento / 1000000).toLocaleString()} mi
               </button>
@@ -209,4 +235,5 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
+
 
