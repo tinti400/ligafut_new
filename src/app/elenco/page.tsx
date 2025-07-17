@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import ImagemComFallback from '@/components/ImagemComFallback'
-import { registrarMovimentacao } from '@/utils/movimentacoes' // importar função
+import { registrarMovimentacao } from '../utils/movimentacoes' // caminho relativo ajustado
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
