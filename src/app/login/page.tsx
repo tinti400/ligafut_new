@@ -57,23 +57,17 @@ export default function LoginPage() {
         return
       }
 
-      const { data: adminData } = await supabase
-        .from('admins')
-        .select('email')
-        .eq('email', userData.usuario.toLowerCase())  // verifica minúsculo
-
+      // Define isAdmin com base no campo administrador da tabela usuarios
       localStorage.setItem('user', JSON.stringify({
         usuario_id: userData.id,
         id_time: timeData.id,
         nome_time: timeData.nome,
         usuario: userData.usuario,
-        isAdmin: !!adminData
+        isAdmin: userData.administrador === true
       }))
 
       localStorage.setItem('id_time', timeData.id)
       localStorage.setItem('nome_time', timeData.nome)
-
-      // Salva o email em minúsculo para verificação admin
       localStorage.setItem('email', userData.usuario.toLowerCase())
 
       router.push('/')
