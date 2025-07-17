@@ -17,7 +17,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// Modal simples, controle via props
 function ModalConfirm({
   visible,
   titulo,
@@ -199,15 +198,13 @@ export default function MercadoPage() {
   const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | null>(null)
   const [loadingExcluir, setLoadingExcluir] = useState(false)
 
-  // Estado para controlar modais
   const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
   const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
   const [jogadorParaComprar, setJogadorParaComprar] = useState<any | null>(null)
 
-  // Estado para upload XLSX
   const [uploadLoading, setUploadLoading] = useState(false)
+  const [msg, setMsg] = useState('')
 
-  // Estado para controlar mercado aberto/fechado
   const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
 
   useEffect(() => {
@@ -249,60 +246,56 @@ export default function MercadoPage() {
     carregarDados()
   }, [router])
 
-  // Função para importar arquivo XLSX e inserir jogadores no mercado_transferencias
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return
-
-    const file = e.target.files[0]
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
 
     setUploadLoading(true)
+    setMsg('Lendo planilha...')
 
-    try {
-      const data = await file.arrayBuffer()
-      const workbook = XLSX.read(data)
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet)
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const json = XLSX.utils.sheet_to_json(sheet)
 
-      // Validar colunas obrigatórias (exemplo baseado na sua planilha)
-      const jogadoresParaInserir = jsonData.map((item: any) => {
-        if (
-          !item['Nome Completo'] ||
-          !item['Posição'] ||
-          !item['Overall'] ||
-          !item['Valor']
-        ) {
-          throw new Error('Colunas obrigatórias: Nome Completo, Posição, Overall, Valor')
-        }
+        const jogadoresParaInserir = (json as any[]).map(item => {
+          const { 'Nome Completo': nome, Posição: posicao, Overall: overall, Valor: valor, Foto: imagem_url, Link_sofifa: link_sofifa } = item
+          if (!nome || !posicao || !overall || !valor) {
+            throw new Error('Colunas obrigatórias: Nome Completo, Posição, Overall, Valor')
+          }
+          return {
+            jogador_id: crypto.randomUUID(),
+            nome: String(nome),
+            posicao: String(posicao),
+            overall: Number(overall),
+            valor: Number(valor),
+            imagem_url: imagem_url ? String(imagem_url) : '',
+            link_sofifa: link_sofifa ? String(link_sofifa) : '',
+            salario: Math.round(Number(valor) * 0.007),
+          }
+        })
 
-        return {
-          jogador_id: crypto.randomUUID(), // gera UUID para jogador_id
-          nome: String(item['Nome Completo']),
-          posicao: String(item['Posição']),
-          overall: Number(item['Overall']),
-          valor: Number(item['Valor']),
-          imagem_url: item['Foto'] ? String(item['Foto']) : '',
-          link_sofifa: item['Link_sofifa'] ? String(item['Link_sofifa']) : '',
-          salario: Math.round(Number(item['Valor']) * 0.007),
-        }
-      })
+        const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
+        if (error) throw error
 
-      const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
-
-      if (error) throw error
-
-      toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
-
-      setJogadores((prev) => [...prev, ...jogadoresParaInserir])
-    } catch (error: any) {
-      console.error(error)
-      toast.error(`Erro no upload: ${error.message || error}`)
-    } finally {
-      setUploadLoading(false)
-      if (e.target) e.target.value = ''
+        toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
+        setJogadores(prev => [...prev, ...jogadoresParaInserir])
+      } catch (error: any) {
+        console.error('Erro ao importar:', error)
+        toast.error(`Erro no upload: ${error.message || error}`)
+      } finally {
+        setUploadLoading(false)
+        if (e.target) e.target.value = ''
+        setMsg('')
+      }
     }
+
+    reader.readAsArrayBuffer(file)
   }
 
-  // Abre modal de confirmação para compra
   const solicitarCompra = (jogador: any) => {
     if (marketStatus === 'fechado') {
       toast.error('O mercado está fechado. Não é possível comprar jogadores.')
@@ -376,7 +369,6 @@ export default function MercadoPage() {
     )
   }
 
-  // Abre modal confirmação exclusão
   const solicitarExcluirSelecionados = () => {
     if (selecionados.length === 0) {
       toast.error('Selecione pelo menos um jogador para excluir.')
@@ -440,7 +432,6 @@ export default function MercadoPage() {
     }
   }
 
-  // Botão para abrir e fechar mercado
   const toggleMarketStatus = async () => {
     if (!isAdmin) return
     setLoading(true)
@@ -500,7 +491,7 @@ export default function MercadoPage() {
       <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
         <h1 className="text-3xl font-bold mb-6 text-center text-green-400">🛒 Mercado de Transferências</h1>
 
-        {/* Botão para abrir/fechar mercado */}
+        {/* Botão abrir/fechar mercado */}
         {isAdmin && (
           <button
             onClick={toggleMarketStatus}
@@ -663,7 +654,6 @@ export default function MercadoPage() {
         </div>
       </div>
 
-      {/* Modal Confirmar Compra */}
       <ModalConfirm
         visible={modalComprarVisivel}
         titulo="Confirmar Compra"
@@ -678,7 +668,6 @@ export default function MercadoPage() {
         loading={loadingComprarId !== null}
       />
 
-      {/* Modal Confirmar Exclusão */}
       <ModalConfirm
         visible={modalExcluirVisivel}
         titulo="Confirmar Exclusão"
