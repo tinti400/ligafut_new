@@ -251,11 +251,46 @@ export default function BancoPage() {
     }
   }
 
-  if (loading) return <p style={{ textAlign: 'center', marginTop: 30 }}>Carregando dados...</p>
-  if (mensagem && !emprestimoAtivo) return <p style={{ textAlign: 'center', marginTop: 30 }}>{mensagem}</p>
+  if (loading)
+    return (
+      <p
+        style={{
+          textAlign: 'center',
+          marginTop: 30,
+          color: '#ddd',
+          fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
+        }}
+      >
+        Carregando dados...
+      </p>
+    )
+  if (mensagem && !emprestimoAtivo)
+    return (
+      <p
+        style={{
+          textAlign: 'center',
+          marginTop: 30,
+          color: '#ddd',
+          fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
+        }}
+      >
+        {mensagem}
+      </p>
+    )
 
   return (
-    <main style={{ maxWidth: 700, margin: '40px auto', padding: 20, fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
+    <main
+      style={{
+        maxWidth: 700,
+        margin: '40px auto',
+        padding: 20,
+        fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
+        backgroundColor: '#121212',
+        color: '#eee',
+        borderRadius: 12,
+        boxShadow: '0 0 10px #000',
+      }}
+    >
       <h1 style={{ textAlign: 'center', marginBottom: 30 }}>🏦 Banco LigaFut</h1>
       <p style={{ textAlign: 'center', marginBottom: 30, fontSize: 18 }}>
         Invista no seu clube e escolha um jogador como garantia do empréstimo.
@@ -264,27 +299,57 @@ export default function BancoPage() {
       {emprestimoAtivo ? (
         <section
           style={{
-            border: '1px solid #ccc',
+            border: '1px solid #333',
             borderRadius: 12,
             padding: 25,
-            backgroundColor: '#f9f9f9',
-            boxShadow: '0 4px 8px rgba(0,0,0,0.05)',
+            backgroundColor: '#222',
+            boxShadow: '0 4px 8px rgba(0,0,0,0.5)',
             maxWidth: 600,
             margin: '0 auto',
           }}
         >
-          <h2 style={{ color: '#b71c1c', marginBottom: 20, textAlign: 'center' }}>Empréstimo Ativo Detectado</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, fontSize: 17 }}>
-            <div><b>Valor Total:</b> {formatBRL(emprestimoAtivo.valor_total)}</div>
-            <div><b>Parcelas Totais:</b> {emprestimoAtivo.parcelas_totais}</div>
-            <div><b>Parcelas Restantes:</b> {emprestimoAtivo.parcelas_restantes}</div>
-            <div><b>Valor por Turno:</b> {formatBRL(emprestimoAtivo.valor_parcela)}</div>
-            <div><b>Juros:</b> {(emprestimoAtivo.juros * 100).toFixed(0)}%</div>
+          <h2 style={{ color: '#90caf9', marginBottom: 20, textAlign: 'center' }}>
+            Empréstimo Ativo Detectado
+          </h2>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 15,
+              fontSize: 17,
+              color: '#bbdefb',
+            }}
+          >
+            <div>
+              <b>Valor Total:</b> {formatBRL(emprestimoAtivo.valor_total)}
+            </div>
+            <div>
+              <b>Parcelas Totais:</b> {emprestimoAtivo.parcelas_totais}
+            </div>
+            <div>
+              <b>Parcelas Restantes:</b> {emprestimoAtivo.parcelas_restantes}
+            </div>
+            <div>
+              <b>Valor por Turno:</b> {formatBRL(emprestimoAtivo.valor_parcela)}
+            </div>
+            <div>
+              <b>Juros:</b> {(emprestimoAtivo.juros * 100).toFixed(0)}%
+            </div>
             {emprestimoAtivo.jogador_garantia && (
-              <div><b>Garantia:</b> {emprestimoAtivo.jogador_garantia.nome} ({emprestimoAtivo.jogador_garantia.posicao})</div>
+              <div>
+                <b>Garantia:</b> {emprestimoAtivo.jogador_garantia.nome} (
+                {emprestimoAtivo.jogador_garantia.posicao})
+              </div>
             )}
           </div>
-          <p style={{ marginTop: 25, fontWeight: 'bold', textAlign: 'center', color: '#b71c1c' }}>
+          <p
+            style={{
+              marginTop: 25,
+              fontWeight: 'bold',
+              textAlign: 'center',
+              color: '#ef9a9a',
+            }}
+          >
             Por favor, quite o empréstimo ativo antes de solicitar um novo.
           </p>
 
@@ -298,11 +363,11 @@ export default function BancoPage() {
                   fontSize: 18,
                   fontWeight: 'bold',
                   color: '#fff',
-                  backgroundColor: pagando ? '#9e9e9e' : '#1565c0',
+                  backgroundColor: pagando ? '#555' : '#1976d2',
                   border: 'none',
                   borderRadius: 8,
                   cursor: pagando ? 'not-allowed' : 'pointer',
-                  boxShadow: pagando ? 'none' : '0 4px 10px rgba(21,101,192,0.7)',
+                  boxShadow: pagando ? 'none' : '0 4px 10px rgba(25,118,210,0.7)',
                   transition: 'background-color 0.3s ease',
                 }}
               >
@@ -313,10 +378,21 @@ export default function BancoPage() {
         </section>
       ) : (
         <>
-          <div style={{ maxWidth: 600, margin: '0 auto', backgroundColor: '#f5f5f5', padding: 25, borderRadius: 12, boxShadow: '0 3px 6px rgba(0,0,0,0.1)' }}>
+          <div
+            style={{
+              maxWidth: 600,
+              margin: '0 auto',
+              backgroundColor: '#222',
+              padding: 25,
+              borderRadius: 12,
+              boxShadow: '0 3px 6px rgba(0,0,0,0.7)',
+              color: '#eee',
+            }}
+          >
             <p style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 15 }}>
-              Limite de crédito para divisão <span style={{ color: '#1565c0' }}>{divisao.toUpperCase()}</span>:
-              <span style={{ color: '#2e7d32', marginLeft: 10 }}>{formatBRL(limiteMaximo)}</span>
+              Limite de crédito para divisão{' '}
+              <span style={{ color: '#64b5f6' }}>{divisao.toUpperCase()}</span>:
+              <span style={{ color: '#81c784', marginLeft: 10 }}>{formatBRL(limiteMaximo)}</span>
             </p>
 
             <label style={{ display: 'block', marginBottom: 20 }}>
@@ -333,8 +409,10 @@ export default function BancoPage() {
                   width: '100px',
                   padding: '6px 8px',
                   borderRadius: 6,
-                  border: '1.5px solid #888',
+                  border: '1.5px solid #555',
                   fontSize: 16,
+                  backgroundColor: '#121212',
+                  color: '#eee',
                 }}
               />
             </label>
@@ -348,8 +426,10 @@ export default function BancoPage() {
                   marginLeft: 12,
                   padding: '6px 10px',
                   borderRadius: 6,
-                  border: '1.5px solid #888',
+                  border: '1.5px solid #555',
                   fontSize: 16,
+                  backgroundColor: '#121212',
+                  color: '#eee',
                 }}
               >
                 {[1, 2, 3, 4].map((p) => (
@@ -360,12 +440,21 @@ export default function BancoPage() {
               </select>
             </label>
 
-            <hr style={{ margin: '20px 0' }} />
+            <hr style={{ margin: '20px 0', borderColor: '#444' }} />
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto auto', gap: 15, fontSize: 16, marginBottom: 25 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'auto auto',
+                gap: 15,
+                fontSize: 16,
+                marginBottom: 25,
+                color: '#cfd8dc',
+              }}
+            >
               <div>
                 <b>Valor Total com Juros:</b> <br />
-                <span style={{ color: '#1b5e20' }}>{formatBRL(valorTotal)}</span>
+                <span style={{ color: '#81c784' }}>{formatBRL(valorTotal)}</span>
               </div>
               <div>
                 <b>Parcelas:</b> <br />
@@ -390,9 +479,11 @@ export default function BancoPage() {
                   marginLeft: 12,
                   padding: '8px 12px',
                   borderRadius: 6,
-                  border: '1.5px solid #888',
+                  border: '1.5px solid #555',
                   fontSize: 16,
                   width: '100%',
+                  backgroundColor: '#121212',
+                  color: '#eee',
                 }}
               >
                 {jogadoresGarantia.map((jogador, i) => (
@@ -412,11 +503,11 @@ export default function BancoPage() {
                 fontSize: 18,
                 fontWeight: 'bold',
                 color: '#fff',
-                backgroundColor: enviando ? '#9e9e9e' : '#2e7d32',
+                backgroundColor: enviando ? '#555' : '#388e3c',
                 border: 'none',
                 borderRadius: 8,
                 cursor: enviando ? 'not-allowed' : 'pointer',
-                boxShadow: enviando ? 'none' : '0 4px 10px rgba(46,125,50,0.6)',
+                boxShadow: enviando ? 'none' : '0 4px 10px rgba(56,142,60,0.7)',
                 transition: 'background-color 0.3s ease',
               }}
             >
@@ -429,7 +520,7 @@ export default function BancoPage() {
                   marginTop: 20,
                   fontWeight: 'bold',
                   textAlign: 'center',
-                  color: mensagem.startsWith('✅') ? '#2e7d32' : '#b71c1c',
+                  color: mensagem.startsWith('✅') ? '#81c784' : '#ef9a9a',
                 }}
               >
                 {mensagem}
@@ -439,8 +530,8 @@ export default function BancoPage() {
         </>
       )}
 
-      <hr style={{ marginTop: 40, marginBottom: 30 }} />
-      <details style={{ fontSize: 15, maxWidth: 600, margin: '0 auto' }}>
+      <hr style={{ marginTop: 40, marginBottom: 30, borderColor: '#444' }} />
+      <details style={{ fontSize: 15, maxWidth: 600, margin: '0 auto', color: '#ccc' }}>
         <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
           ℹ️ Como funciona o parcelamento por turno?
         </summary>
