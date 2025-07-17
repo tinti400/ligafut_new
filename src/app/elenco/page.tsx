@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import ImagemComFallback from '@/components/ImagemComFallback'
-import { registrarMovimentacao } from '../utils/movimentacoes' // ajuste conforme seu projeto
+import ImagemComFallback from '@/components/ImagemComFallback' // componente com fallback para imagens
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -95,8 +94,17 @@ export default function ElencoPage() {
       }
       console.log('Jogador inserido no mercado_transferencias com sucesso')
 
+      // Debug antes do delete
+      const { data: jogadorAntes, error: errorBefore } = await supabase
+        .from('elenco')
+        .select('*')
+        .eq('id_time', jogador.id_time)
+        .eq('id', jogador.id)
+
+      console.log('Jogador no elenco antes do delete:', jogadorAntes, errorBefore)
+
       // Delete do elenco
-      const { error: errorDelete } = await supabase
+      const { data: deleteData, error: errorDelete } = await supabase
         .from('elenco')
         .delete()
         .eq('id_time', jogador.id_time)
@@ -107,7 +115,16 @@ export default function ElencoPage() {
         console.error('Erro no delete:', errorDelete)
         return
       }
-      console.log('Jogador removido do elenco com sucesso')
+      console.log('Delete realizado:', deleteData)
+
+      // Debug depois do delete
+      const { data: jogadorDepois, error: errorAfter } = await supabase
+        .from('elenco')
+        .select('*')
+        .eq('id_time', jogador.id_time)
+        .eq('id', jogador.id)
+
+      console.log('Jogador no elenco depois do delete:', jogadorDepois, errorAfter)
 
       // Atualizar saldo do time
       const valorRecebido = Math.round(jogador.valor * 0.7)
@@ -122,20 +139,6 @@ export default function ElencoPage() {
         return
       }
       console.log(`Saldo atualizado em R$ ${valorRecebido.toLocaleString('pt-BR')}`)
-
-      // Registrar movimentação financeira
-      try {
-        await registrarMovimentacao({
-          id_time: jogador.id_time,
-          tipo: 'venda',
-          descricao: `Venda do jogador ${jogador.nome} por R$ ${valorRecebido.toLocaleString('pt-BR')}`,
-          valor: valorRecebido,
-          id_jogador: jogador.id
-        })
-        console.log('Movimentação financeira registrada com sucesso!')
-      } catch (err) {
-        console.error('Erro ao registrar movimentação financeira:', err)
-      }
 
       await fetchElenco()
       alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
