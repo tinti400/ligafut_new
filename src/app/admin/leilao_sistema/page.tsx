@@ -34,6 +34,7 @@ export default function LeilaoSistemaPage() {
     }
   }
 
+  // Busca o leilão ativo
   const buscarLeilaoAtivo = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
@@ -80,6 +81,7 @@ export default function LeilaoSistemaPage() {
   }, [leilao])
 
   const finalizarLeilao = async () => {
+    if (!leilao) return
     await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilao.id)
     setLeilao(null)
     setTempoRestante(0)
@@ -100,7 +102,10 @@ export default function LeilaoSistemaPage() {
     const restante = Math.floor((fimAtual - agora) / 1000)
     let novaDataFim = leilao.fim
 
-    if (restante <= 15) novaDataFim = new Date(agora + 15000).toISOString()
+    // Regra: se faltar <= 15s, volta o relógio para 15 segundos a partir de agora
+    if (restante <= 15) {
+      novaDataFim = new Date(agora + 15000).toISOString()
+    }
 
     const { error } = await supabase.from('leiloes_sistema').update({
       valor_atual: novoValor,
@@ -117,6 +122,7 @@ export default function LeilaoSistemaPage() {
         nome_time_vencedor: nome_time,
         fim: novaDataFim
       })
+      setTempoRestante(Math.floor((new Date(novaDataFim).getTime() - agora) / 1000))
       setTimeout(() => router.refresh(), 5000)
     } else {
       console.error('❌ Erro ao dar lance:', error)
@@ -201,4 +207,3 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
-
