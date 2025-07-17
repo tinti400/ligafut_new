@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import ImagemComFallback from '@/components/ImagemComFallback'
-import { registrarMovimentacao } from '../utils/movimentacoes' // caminho relativo ajustado
+import { registrarMovimentacao } from '../utils/movimentacoes' // ajuste conforme a estrutura do seu projeto
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -123,7 +123,7 @@ export default function ElencoPage() {
       }
       console.log(`Saldo atualizado em R$ ${valorRecebido.toLocaleString('pt-BR')}`)
 
-      // Registrar movimentação financeira no BID
+      // Registrar movimentação financeira
       try {
         await registrarMovimentacao({
           id_time: jogador.id_time,
@@ -190,3 +190,4 @@ export default function ElencoPage() {
     </div>
   )
 }
+
