@@ -13,9 +13,9 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "baseUrl": "src",                     // <== ADICIONE ESTA LINHA
+    "baseUrl": "src",
     "paths": {
-      "@/*": ["*"]                       // <== E ALTERE ASSIM
+      "@/*": ["*"]
     },
     "plugins": [
       {
