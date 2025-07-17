@@ -9,6 +9,9 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+const DURACAO_INICIAL = 120 // segundos (2 minutos)
+const TEMPO_EXTRA = 15 // segundos
+
 export default function LeilaoSistemaPage() {
   const router = useRouter()
   const [leilao, setLeilao] = useState<any>(null)
@@ -34,7 +37,7 @@ export default function LeilaoSistemaPage() {
     }
   }
 
-  // Busca o leilão ativo
+  // Busca leilão ativo
   const buscarLeilaoAtivo = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
@@ -55,24 +58,26 @@ export default function LeilaoSistemaPage() {
     const intervalo = setInterval(() => {
       buscarLeilaoAtivo()
       buscarSaldo()
-    }, 2000) // Atualização a cada 2s
+    }, 2000)
     return () => clearInterval(intervalo)
   }, [])
 
   useEffect(() => {
-    if (!leilao || !leilao.fim) return
+    if (!leilao) return
 
     const atualizarTempo = () => {
       const agora = Date.now()
-      const fim = new Date(leilao.fim).getTime()
-      const restante = Math.floor((fim - agora) / 1000)
+      const ultimoLance = new Date(leilao.ultimo_lance_em || leilao.criado_em).getTime()
+      const segundosPassados = Math.floor((agora - ultimoLance) / 1000)
+      let restante = DURACAO_INICIAL - segundosPassados
 
-      if (restante <= 0) {
+      if (restante < 0) restante = 0
+
+      if (restante === 0) {
         finalizarLeilao()
-        setTempoRestante(0)
-      } else {
-        setTempoRestante(restante)
       }
+
+      setTempoRestante(restante)
     }
 
     atualizarTempo()
@@ -98,20 +103,20 @@ export default function LeilaoSistemaPage() {
     }
 
     const agora = Date.now()
-    const fimAtual = new Date(leilao.fim).getTime()
-    const restante = Math.floor((fimAtual - agora) / 1000)
-    let novaDataFim = leilao.fim
+    const ultimoLance = new Date(leilao.ultimo_lance_em || leilao.criado_em).getTime()
+    const segundosPassados = Math.floor((agora - ultimoLance) / 1000)
+    let novaDataUltimoLance = leilao.ultimo_lance_em || leilao.criado_em
 
-    // Regra: se faltar <= 15s, volta o relógio para 15 segundos a partir de agora
-    if (restante <= 15) {
-      novaDataFim = new Date(agora + 15000).toISOString()
+    // Se faltam 15s ou menos, reinicia o cronômetro para 15s a partir do momento do lance
+    if (DURACAO_INICIAL - segundosPassados <= TEMPO_EXTRA) {
+      novaDataUltimoLance = new Date(agora).toISOString()
     }
 
     const { error } = await supabase.from('leiloes_sistema').update({
       valor_atual: novoValor,
       id_time_vencedor: id_time,
       nome_time_vencedor: nome_time,
-      fim: novaDataFim
+      ultimo_lance_em: novaDataUltimoLance,
     }).eq('id', leilao.id)
 
     if (!error) {
@@ -120,9 +125,9 @@ export default function LeilaoSistemaPage() {
         valor_atual: novoValor,
         id_time_vencedor: id_time,
         nome_time_vencedor: nome_time,
-        fim: novaDataFim
+        ultimo_lance_em: novaDataUltimoLance,
       })
-      setTempoRestante(Math.floor((new Date(novaDataFim).getTime() - agora) / 1000))
+      setTempoRestante(TEMPO_EXTRA)
       setTimeout(() => router.refresh(), 5000)
     } else {
       console.error('❌ Erro ao dar lance:', error)
