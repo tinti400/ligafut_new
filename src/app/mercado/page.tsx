@@ -198,56 +198,17 @@ export default function MercadoPage() {
   const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | null>(null)
   const [loadingExcluir, setLoadingExcluir] = useState(false)
 
+  // Estado para controlar modais
   const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
   const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
   const [jogadorParaComprar, setJogadorParaComprar] = useState<any | null>(null)
 
-  const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
+  // Upload XLSX
   const [uploadLoading, setUploadLoading] = useState(false)
 
-  const carregarStatusMercado = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('configuracoes')
-        .select('aberto')
-        .eq('id', 'estado_mercado')
-        .single()
-
-      if (error) throw error
-
-      setMarketStatus(data.aberto ? 'aberto' : 'fechado')
-    } catch (e: unknown) {
-      console.error('Erro ao carregar status do mercado:', e)
-      const msg =
-        e instanceof Error
-          ? e.message
-          : typeof e === 'string'
-          ? e
-          : 'Erro desconhecido'
-      setErro('Erro ao carregar dados. Tente novamente mais tarde. ' + msg)
-    }
-  }
-
-  const toggleMarketStatus = async () => {
-    setLoading(true)
-    try {
-      const novoStatusBool = marketStatus === 'aberto' ? false : true
-
-      const { error } = await supabase
-        .from('configuracoes')
-        .update({ aberto: novoStatusBool })
-        .eq('id', 'estado_mercado')
-
-      if (error) throw error
-
-      setMarketStatus(novoStatusBool ? 'aberto' : 'fechado')
-    } catch (e) {
-      console.error('Erro ao alterar status do mercado:', e)
-      toast.error('Erro ao alterar status do mercado.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  // Status do mercado: aberto ou fechado
+  const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
+  const [loadingMarketStatus, setLoadingMarketStatus] = useState(false)
 
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
@@ -264,26 +225,24 @@ export default function MercadoPage() {
 
     const carregarDados = async () => {
       try {
-        const [resMercado, resTime] = await Promise.all([
+        const [resMercado, resTime, resConfig] = await Promise.all([
           supabase.from('mercado_transferencias').select('*'),
           supabase.from('times').select('saldo').eq('id', userData.id_time).single(),
+          supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
         ])
 
         if (resMercado.error) throw resMercado.error
         if (resTime.error) throw resTime.error
+        if (resConfig.error) throw resConfig.error
 
         setJogadores(resMercado.data || [])
         setSaldo(resTime.data?.saldo || 0)
-        carregarStatusMercado()
+        setMarketStatus(resConfig.data?.aberto ? 'aberto' : 'fechado')
       } catch (e: unknown) {
         console.error('Erro ao carregar dados:', e)
-        const msg =
-          e instanceof Error
-            ? e.message
-            : typeof e === 'string'
-            ? e
-            : 'Erro desconhecido'
-        setErro('Erro ao carregar dados. Tente novamente mais tarde. ' + msg)
+        let msg = 'Erro ao carregar dados. Tente novamente mais tarde. '
+        if (e instanceof Error) msg += e.message
+        setErro(msg)
       } finally {
         setLoading(false)
       }
@@ -294,7 +253,7 @@ export default function MercadoPage() {
 
   const solicitarCompra = (jogador: any) => {
     if (marketStatus === 'fechado') {
-      toast.error('Mercado fechado. Não é possível comprar.')
+      toast.error('O mercado está fechado. Não é possível comprar no momento.')
       return
     }
 
@@ -349,7 +308,6 @@ export default function MercadoPage() {
       setSelecionados((prev) => prev.filter((id) => id !== jogadorParaComprar.id))
 
       toast.success('Jogador comprado com sucesso!')
-
     } catch (error) {
       console.error('Erro na compra:', error)
       toast.error('Ocorreu um erro ao comprar o jogador.')
@@ -367,10 +325,6 @@ export default function MercadoPage() {
   }
 
   const solicitarExcluirSelecionados = () => {
-    if (marketStatus === 'fechado') {
-      toast.error('Mercado fechado. Exclusão não permitida.')
-      return
-    }
     if (selecionados.length === 0) {
       toast.error('Selecione pelo menos um jogador para excluir.')
       return
@@ -379,6 +333,12 @@ export default function MercadoPage() {
   }
 
   const confirmarExcluirSelecionados = async () => {
+    if (marketStatus === 'fechado') {
+      toast.error('O mercado está fechado. Não é possível excluir jogadores.')
+      setModalExcluirVisivel(false)
+      return
+    }
+
     setLoadingExcluir(true)
     try {
       const { error } = await supabase
@@ -402,7 +362,7 @@ export default function MercadoPage() {
 
   const atualizarPreco = async (jogadorId: string, novoValor: number) => {
     if (marketStatus === 'fechado') {
-      toast.error('Mercado fechado. Alteração de preço não permitida.')
+      toast.error('O mercado está fechado. Não é possível atualizar preços.')
       return
     }
     if (novoValor <= 0) {
@@ -437,63 +397,24 @@ export default function MercadoPage() {
     }
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return
-    if (marketStatus === 'fechado') {
-      toast.error('Mercado fechado. Importação não permitida.')
-      return
-    }
-
-    const file = e.target.files[0]
-
-    setUploadLoading(true)
-
+  const toggleMarketStatus = async () => {
+    setLoadingMarketStatus(true)
     try {
-      const data = await file.arrayBuffer()
-      const workbook = XLSX.read(data)
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet)
-
-      const jogadoresParaInserir = jsonData.map((item: any) => {
-        if (
-          !item['Nome Completo'] ||
-          !item['Posição'] ||
-          !item.Overall ||
-          !item.Valor
-        ) {
-          throw new Error('Colunas obrigatórias: Nome Completo, Posição, Overall, Valor')
-        }
-
-        return {
-          nome: String(item['Nome Completo']),
-          posicao: String(item['Posição']),
-          overall: Number(item.Overall),
-          valor: Number(item.Valor),
-          imagem_url: item['Foto URL'] ? String(item['Foto URL']) : '',
-          link_sofifa: item['Link Sofifa'] ? String(item['Link Sofifa']) : '',
-          salario: Math.round(Number(item.Valor) * 0.007),
-          jogos: 0,
-        }
-      })
-
-      const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
+      const novoStatus = marketStatus === 'aberto' ? false : true
+      const { error } = await supabase
+        .from('configuracoes')
+        .update({ aberto: novoStatus })
+        .eq('id', 'estado_mercado')
 
       if (error) throw error
 
-      toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
-      setJogadores((prev) => [...prev, ...jogadoresParaInserir])
-    } catch (error: unknown) {
-      console.error(error)
-      const msg =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'string'
-          ? error
-          : 'Erro desconhecido'
-      toast.error(`Erro no upload: ${msg}`)
+      setMarketStatus(novoStatus ? 'aberto' : 'fechado')
+      toast.success(`Mercado ${novoStatus ? 'aberto' : 'fechado'} com sucesso!`)
+    } catch (error) {
+      console.error('Erro ao atualizar status do mercado:', error)
+      toast.error('Erro ao atualizar status do mercado.')
     } finally {
-      setUploadLoading(false)
-      if (e.target) e.target.value = ''
+      setLoadingMarketStatus(false)
     }
   }
 
@@ -548,7 +469,7 @@ export default function MercadoPage() {
 
             <button
               onClick={toggleMarketStatus}
-              disabled={loading}
+              disabled={loadingMarketStatus}
               className={`px-4 py-2 rounded ${
                 marketStatus === 'aberto'
                   ? 'bg-green-600 hover:bg-green-700'
