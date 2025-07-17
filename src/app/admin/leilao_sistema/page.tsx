@@ -10,7 +10,7 @@ const supabase = createClient(
 )
 
 const DURACAO_INICIAL = 120 // 2 minutos
-const TEMPO_REINICIO = 15   // 15 segundos para reiniciar o cronômetro no lance tardio
+const TEMPO_REINICIO = 15   // 15 segundos para reiniciar o cronômetro
 
 export default function LeilaoSistemaPage() {
   const router = useRouter()
@@ -78,7 +78,6 @@ export default function LeilaoSistemaPage() {
     return () => clearInterval(intervalo)
   }, [leilao])
 
-  // Função para dar lance
   const darLance = async (incremento: number) => {
     if (!leilao || !id_time || !nome_time || tempoRestante === 0) return
 
@@ -89,34 +88,29 @@ export default function LeilaoSistemaPage() {
       return
     }
 
-    const agora = Date.now()
-    const fimAtual = new Date(leilao.fim).getTime()
-    const restante = Math.floor((fimAtual - agora) / 1000)
+    try {
+      const { error } = await supabase.rpc('dar_lance_no_leilao', {
+        p_leilao_id: leilao.id,
+        p_valor_novo: novoValor,
+        p_id_time_vencedor: id_time,
+        p_nome_time_vencedor: nome_time,
+      })
 
-    // Se estiver nos últimos 15s, reinicia para 15s
-    let novaDataFim = leilao.fim
-    if (restante <= TEMPO_REINICIO) {
-      novaDataFim = new Date(agora + TEMPO_REINICIO * 1000).toISOString()
-    }
+      if (error) throw error
 
-    const { error } = await supabase.from('leiloes_sistema').update({
-      valor_atual: novoValor,
-      id_time_vencedor: id_time,
-      nome_time_vencedor: nome_time,
-      fim: novaDataFim
-    }).eq('id', leilao.id)
-
-    if (!error) {
+      // Atualiza estado local
       setLeilao({
         ...leilao,
         valor_atual: novoValor,
         id_time_vencedor: id_time,
         nome_time_vencedor: nome_time,
-        fim: novaDataFim
+        // 'fim' é atualizado no banco, será atualizado na próxima busca
       })
+
       setTimeout(() => router.refresh(), 5000)
-    } else {
-      console.error('❌ Erro ao dar lance:', error)
+    } catch (err: any) {
+      console.error('Erro ao dar lance:', err)
+      alert('Erro ao dar lance: ' + err.message)
     }
   }
 
@@ -130,7 +124,7 @@ export default function LeilaoSistemaPage() {
   if (!leilao) return <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6 flex items-center justify-center flex-col">
+    <main className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center justify-center">
       <div className="mb-6 text-lg font-semibold text-green-400">
         💳 Saldo atual do seu time: R$ {saldo !== null ? saldo.toLocaleString() : '...'}
       </div>
@@ -146,9 +140,15 @@ export default function LeilaoSistemaPage() {
           />
         )}
 
-        <h2 className="text-2xl font-bold mb-2">{leilao.nome} <span className="text-sm">({leilao.posicao})</span></h2>
-        <p className="mb-1">⭐ Overall: <span className="font-semibold">{leilao.overall}</span></p>
-        <p className="mb-1">🌍 Nacionalidade: <span className="font-semibold">{leilao.nacionalidade}</span></p>
+        <h2 className="text-2xl font-bold mb-2">
+          {leilao.nome} <span className="text-sm">({leilao.posicao})</span>
+        </h2>
+        <p className="mb-1">
+          ⭐ Overall: <span className="font-semibold">{leilao.overall}</span>
+        </p>
+        <p className="mb-1">
+          🌍 Nacionalidade: <span className="font-semibold">{leilao.nacionalidade}</span>
+        </p>
         <p className="mb-2 text-green-400 text-xl font-bold">
           💰 R$ {Number(leilao.valor_atual).toLocaleString()}
         </p>
@@ -168,7 +168,9 @@ export default function LeilaoSistemaPage() {
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
           {[...Array(5)].map((_, i) => {
             const incremento = 2000000 * Math.pow(2, i)
-            const disabled = tempoRestante === 0 || (saldo !== null && (Number(leilao.valor_atual) + incremento) > saldo)
+            const disabled =
+              tempoRestante === 0 ||
+              (saldo !== null && Number(leilao.valor_atual) + incremento > saldo)
 
             return (
               <button
