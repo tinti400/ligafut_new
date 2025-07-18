@@ -25,28 +25,16 @@ export default function ElencoPage() {
         return
       }
 
-      const { data: elencoData, error: errorElenco } = await supabase
+      const { data: elencoData } = await supabase
         .from('elenco')
         .select('*')
         .eq('id_time', id_time)
 
-      if (errorElenco) {
-        alert('Erro ao buscar elenco: ' + errorElenco.message)
-        setLoading(false)
-        return
-      }
-
-      const { data: timeData, error: errorTime } = await supabase
+      const { data: timeData } = await supabase
         .from('times')
         .select('nome, saldo')
         .eq('id', id_time)
         .single()
-
-      if (errorTime) {
-        alert('Erro ao buscar dados do time: ' + errorTime.message)
-        setLoading(false)
-        return
-      }
 
       setElenco(elencoData || [])
       setSaldo(timeData?.saldo || 0)
@@ -62,6 +50,9 @@ export default function ElencoPage() {
     fetchElenco()
   }, [])
 
+  const valorTotalElenco = elenco.reduce((total, j) => total + (j.valor || 0), 0)
+  const totalSalarios = elenco.reduce((total, j) => total + (j.salario || 0), 0)
+
   const venderJogador = async (jogador: any) => {
     const confirmar = confirm(
       `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
@@ -69,8 +60,7 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
-      // Inserir no mercado de transferências
-      const { error: errorInsert } = await supabase.from('mercado_transferencias').insert({
+      await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
         nome: jogador.nome,
         posicao: jogador.posicao,
@@ -84,42 +74,25 @@ export default function ElencoPage() {
         created_at: new Date().toISOString(),
       })
 
-      if (errorInsert) {
-        alert('❌ Erro ao inserir o jogador no mercado: ' + errorInsert.message)
-        return
-      }
-
-      // Remover do elenco
-      const { error: errorDelete } = await supabase
+      await supabase
         .from('elenco')
         .delete()
         .eq('id_time', jogador.id_time)
         .eq('id', jogador.id)
 
-      if (errorDelete) {
-        alert('❌ Erro ao remover o jogador do elenco: ' + errorDelete.message)
-        return
-      }
-
-      // Atualizar saldo do time
       const valorRecebido = Math.round(jogador.valor * 0.7)
-      const { error: errorSaldo } = await supabase
+
+      await supabase
         .from('times')
         .update({ saldo: saldo + valorRecebido })
         .eq('id', jogador.id_time)
 
-      if (errorSaldo) {
-        alert('❌ Erro ao atualizar o saldo do time: ' + errorSaldo.message)
-        return
-      }
-
-      // ✅ Registrar no BID
       await supabase.from('bid').insert({
         tipo_evento: 'venda',
         descricao: `O ${nomeTime} vendeu ${jogador.nome} para o Mercado de Transferências por R$ ${jogador.valor.toLocaleString('pt-BR')}.`,
         id_time1: jogador.id_time,
         valor: jogador.valor,
-        data_evento: new Date().toISOString()
+        data_evento: new Date().toISOString(),
       })
 
       await fetchElenco()
@@ -133,9 +106,23 @@ export default function ElencoPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
-      <h1 className="text-3xl font-bold mb-6 text-center text-green-400">
-        👥 Elenco do {nomeTime} — Saldo: R$ {saldo.toLocaleString('pt-BR')}
+      <h1 className="text-3xl font-bold mb-2 text-center text-green-400">
+        👥 Elenco do {nomeTime}
       </h1>
+      <p className="text-center text-gray-300 mb-4">
+        💰 Saldo: <strong>R$ {saldo.toLocaleString('pt-BR')}</strong> | 🧩 Valor Total do Elenco:{' '}
+        <strong>R$ {valorTotalElenco.toLocaleString('pt-BR')}</strong> | 💵 Salários Totais:{' '}
+        <strong>R$ {totalSalarios.toLocaleString('pt-BR')}</strong>
+      </p>
+
+      <div className="text-center mb-6">
+        <button
+          onClick={fetchElenco}
+          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-full text-sm"
+        >
+          🔄 Atualizar elenco
+        </button>
+      </div>
 
       {elenco.length === 0 ? (
         <p className="text-center text-gray-400">Nenhum jogador no elenco.</p>
@@ -157,8 +144,12 @@ export default function ElencoPage() {
               <p className="text-gray-300 text-sm">
                 {jogador.posicao} • Overall {jogador.overall ?? 'N/A'}
               </p>
-              <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
-              <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
+              <p className="text-green-400 font-semibold">
+                💰 R$ {jogador.valor.toLocaleString()}
+              </p>
+              <p className="text-gray-400 text-xs">
+                Salário: R$ {(jogador.salario || 0).toLocaleString()}
+              </p>
 
               <button
                 onClick={() => venderJogador(jogador)}
