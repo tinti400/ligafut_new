@@ -84,20 +84,34 @@ export default function PropostasRecebidasPage() {
         return
       }
 
+      const saldoCompradorAntes = comprador.saldo
+      const saldoVendedorAntes = vendedor.saldo
+
+      const saldoCompradorDepois = saldoCompradorAntes - proposta.valor_oferecido
+      const saldoVendedorDepois = saldoVendedorAntes + proposta.valor_oferecido
+
       await supabase
         .from('times')
-        .update({ saldo: comprador.saldo - proposta.valor_oferecido })
+        .update({ saldo: saldoCompradorDepois })
         .eq('id', proposta.id_time_origem)
 
       await supabase
         .from('times')
-        .update({ saldo: vendedor.saldo + proposta.valor_oferecido })
+        .update({ saldo: saldoVendedorDepois })
         .eq('id', proposta.id_time_alvo)
 
       await supabase
         .from('elenco')
         .update({ id_time: proposta.id_time_origem })
         .eq('id', proposta.jogador_id)
+
+      // ✅ Atualizar valor apenas se for proposta de dinheiro
+      if (proposta.tipo_proposta === 'dinheiro') {
+        await supabase
+          .from('elenco')
+          .update({ valor: proposta.valor_oferecido })
+          .eq('id', proposta.jogador_id)
+      }
 
       const jogador = jogadores[proposta.jogador_id]
 
@@ -110,7 +124,11 @@ export default function PropostasRecebidasPage() {
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
 
-      alert('✅ Proposta aceita, jogador transferido, saldo atualizado e notificação enviada!')
+      alert(
+        `✅ Proposta aceita!\n` +
+        `💰 Comprador: saldo era R$ ${saldoCompradorAntes.toLocaleString('pt-BR')} ➔ agora R$ ${saldoCompradorDepois.toLocaleString('pt-BR')}\n` +
+        `💰 Vendedor: saldo era R$ ${saldoVendedorAntes.toLocaleString('pt-BR')} ➔ agora R$ ${saldoVendedorDepois.toLocaleString('pt-BR')}`
+      )
     } catch (err) {
       console.error('Erro ao aceitar proposta:', err)
       alert('❌ Erro ao aceitar proposta.')
