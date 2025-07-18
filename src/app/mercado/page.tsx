@@ -318,7 +318,6 @@ export default function MercadoPage() {
   setLoadingComprarId(jogadorParaComprar.id)
 
   try {
-    // 🔒 Tentar deletar o jogador e obter os dados dele ao mesmo tempo
     const { data: deletedJogador, error: deleteError } = await supabase
       .from('mercado_transferencias')
       .delete()
@@ -334,13 +333,11 @@ export default function MercadoPage() {
 
     const jogador = deletedJogador[0]
 
-    // ✅ Confere saldo antes de registrar compra
     if (jogador.valor > saldo) {
       toast.error('Saldo insuficiente.')
       return
     }
 
-    // 📝 Registra no BID
     await supabase.from('bid').insert({
       tipo_evento: 'compra',
       descricao: `O ${user.nome_time} comprou ${jogador.nome} por ${formatarValor(jogador.valor)}.`,
@@ -349,7 +346,6 @@ export default function MercadoPage() {
       data_evento: new Date().toISOString()
     })
 
-    // ✅ Insere no elenco
     const salario = Math.round(jogador.valor * 0.007)
 
     const { error: errorInsert } = await supabase.from('elenco').insert({
@@ -366,7 +362,6 @@ export default function MercadoPage() {
 
     if (errorInsert) throw errorInsert
 
-    // ✅ Atualiza saldo do time
     const { error: errorUpdate } = await supabase
       .from('times')
       .update({ saldo: saldo - jogador.valor })
@@ -374,7 +369,6 @@ export default function MercadoPage() {
 
     if (errorUpdate) throw errorUpdate
 
-    // ✅ Atualiza estado do frontend
     setSaldo((prev) => prev - jogador.valor)
     setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
     setSelecionados((prev) => prev.filter((id) => id !== jogador.id))
@@ -388,6 +382,7 @@ export default function MercadoPage() {
     setModalComprarVisivel(false)
     setJogadorParaComprar(null)
   }
+} // <- Faltava essa chave!
 
   const toggleSelecionado = (id: string) => {
     setSelecionados((prev) =>
