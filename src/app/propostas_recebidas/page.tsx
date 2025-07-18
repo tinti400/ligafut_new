@@ -69,7 +69,6 @@ export default function PropostasRecebidasPage() {
     }
 
     const buscarJogadoresOferecidos = async (ids: string[]) => {
-      if (!ids.length) return
       const { data } = await supabase
         .from('elenco')
         .select('id, nome')
@@ -124,13 +123,17 @@ export default function PropostasRecebidasPage() {
           .eq('id', proposta.jogador_id)
       }
 
+      let descricaoExtra = ''
       if (['troca_simples', 'troca_composta'].includes(proposta.tipo_proposta)) {
+        const nomes = []
         for (const idJogador of proposta.jogadores_oferecidos) {
           await supabase
             .from('elenco')
             .update({ id_time: proposta.id_time_alvo })
             .eq('id', idJogador)
+          nomes.push(jogadoresOferecidosData[idJogador] || idJogador)
         }
+        descricaoExtra = ` Na negociação, ${nomes.join(', ')} foi/foram para o ${vendedor.nome}.`
       }
 
       const jogador = jogadores[proposta.jogador_id]
@@ -143,7 +146,7 @@ export default function PropostasRecebidasPage() {
 
       await supabase.from('bid').insert({
         tipo_evento: 'transferencia',
-        descricao: `O ${vendedor.nome} vendeu ${jogador?.nome || 'Jogador'} para o ${comprador.nome} por R$ ${proposta.valor_oferecido.toLocaleString('pt-BR')}.`,
+        descricao: `O ${vendedor.nome} vendeu ${jogador?.nome || 'Jogador'} para o ${comprador.nome} por R$ ${proposta.valor_oferecido.toLocaleString('pt-BR')}.${descricaoExtra}`,
         id_time1: proposta.id_time_alvo,
         id_time2: proposta.id_time_origem,
         valor: proposta.valor_oferecido,
