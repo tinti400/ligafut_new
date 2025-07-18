@@ -81,17 +81,14 @@ export default function PropostasRecebidasPage() {
 
       if (!comprador || !vendedor) return
 
-      const saldoCompradorAntes = comprador.saldo
-      const saldoVendedorAntes = vendedor.saldo
-
       await supabase
         .from('times')
-        .update({ saldo: saldoCompradorAntes - proposta.valor_oferecido })
+        .update({ saldo: comprador.saldo - proposta.valor_oferecido })
         .eq('id', proposta.id_time_origem)
 
       await supabase
         .from('times')
-        .update({ saldo: saldoVendedorAntes + proposta.valor_oferecido })
+        .update({ saldo: vendedor.saldo + proposta.valor_oferecido })
         .eq('id', proposta.id_time_alvo)
 
       await supabase
@@ -142,6 +139,29 @@ export default function PropostasRecebidasPage() {
         titulo: '❌ Proposta recusada',
         mensagem: `Sua proposta pelo jogador ${jogador?.nome || 'Desconhecido'} foi recusada.`,
       })
+
+      const { data: vendedor } = await supabase
+        .from('times')
+        .select('nome')
+        .eq('id', recusada.id_time_alvo)
+        .single()
+
+      const { data: comprador } = await supabase
+        .from('times')
+        .select('nome')
+        .eq('id', recusada.id_time_origem)
+        .single()
+
+      if (vendedor && comprador) {
+        await supabase.from('bid').insert({
+          tipo_evento: 'proposta_recusada',
+          descricao: `O ${vendedor.nome} recusou a proposta do ${comprador.nome} pelo jogador ${jogador?.nome || 'Jogador'}.`,
+          id_time1: recusada.id_time_alvo,
+          id_time2: recusada.id_time_origem,
+          valor: recusada.valor_oferecido,
+          data_evento: new Date().toISOString(),
+        })
+      }
 
       setPendentes((prev) => prev.filter((p) => p.id !== id))
       setConcluidas((prev) => [{ ...recusada, status: 'recusada' }, ...prev].slice(0, 5))
