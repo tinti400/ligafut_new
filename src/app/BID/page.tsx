@@ -40,7 +40,7 @@ export default function BIDPage() {
     try {
       // Buscar eventos do BID
       const { data: eventosData, error: errorEventos } = await supabase
-        .from('BID')
+        .from('bid')
         .select('*')
         .order('data_evento', { ascending: false })
         .limit(50)
