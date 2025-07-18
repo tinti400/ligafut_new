@@ -57,7 +57,12 @@ export default function LoginPage() {
         return
       }
 
-      // Define isAdmin com base no campo administrador da tabela usuarios
+      if (!timeData.id || !timeData.nome) {
+        alert('❌ Dados do time inválidos. Contate o administrador.')
+        setLoading(false)
+        return
+      }
+
       localStorage.setItem('user', JSON.stringify({
         usuario_id: userData.id,
         id_time: timeData.id,
