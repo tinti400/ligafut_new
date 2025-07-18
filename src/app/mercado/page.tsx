@@ -330,6 +330,15 @@ export default function MercadoPage() {
       return
     }
 
+await supabase.from('BID').insert({
+  tipo_evento: 'compra',
+  descricao: `O ${user.nome_time} comprou ${jogadorMercado.nome} por ${formatarValor(jogadorMercado.valor)}.`,
+  id_time1: user.id_time,
+  valor: jogadorMercado.valor,
+  data_evento: new Date().toISOString()
+})
+
+
     // 2️⃣ Verificar saldo novamente
     if (jogadorMercado.valor > saldo) {
       toast.error('Saldo insuficiente.')
