@@ -318,70 +318,66 @@ export default function MercadoPage() {
   setLoadingComprarId(jogadorParaComprar.id)
 
   try {
-    // 1️⃣ Buscar o jogador novamente no mercado
-    const { data: jogadorMercado, error: errorBusca } = await supabase
+    // 🔒 Tentar deletar o jogador e obter os dados dele ao mesmo tempo
+    const { data: deletedJogador, error: deleteError } = await supabase
       .from('mercado_transferencias')
-      .select('*')
+      .delete()
       .eq('id', jogadorParaComprar.id)
-      .single()
+      .select()
 
-    if (errorBusca || !jogadorMercado) {
+    if (deleteError) throw deleteError
+
+    if (!deletedJogador || deletedJogador.length === 0) {
       toast.error('Esse jogador já foi comprado por outro clube.')
       return
     }
 
-await supabase.from('bid').insert({
-  tipo_evento: 'compra',
-  descricao: `O ${user.nome_time} comprou ${jogadorMercado.nome} por ${formatarValor(jogadorMercado.valor)}.`,
-  id_time1: user.id_time,
-  valor: jogadorMercado.valor,
-  data_evento: new Date().toISOString()
-})
+    const jogador = deletedJogador[0]
 
-
-    // 2️⃣ Verificar saldo novamente
-    if (jogadorMercado.valor > saldo) {
+    // ✅ Confere saldo antes de registrar compra
+    if (jogador.valor > saldo) {
       toast.error('Saldo insuficiente.')
       return
     }
 
-    // 3️⃣ Inserir no elenco
-    const salario = Math.round(jogadorMercado.valor * 0.007)
+    // 📝 Registra no BID
+    await supabase.from('bid').insert({
+      tipo_evento: 'compra',
+      descricao: `O ${user.nome_time} comprou ${jogador.nome} por ${formatarValor(jogador.valor)}.`,
+      id_time1: user.id_time,
+      valor: jogador.valor,
+      data_evento: new Date().toISOString()
+    })
+
+    // ✅ Insere no elenco
+    const salario = Math.round(jogador.valor * 0.007)
 
     const { error: errorInsert } = await supabase.from('elenco').insert({
       id_time: user.id_time,
-      nome: jogadorMercado.nome,
-      posicao: jogadorMercado.posicao,
-      overall: jogadorMercado.overall,
-      valor: jogadorMercado.valor,
-      imagem_url: jogadorMercado.imagem_url,
+      nome: jogador.nome,
+      posicao: jogador.posicao,
+      overall: jogador.overall,
+      valor: jogador.valor,
+      imagem_url: jogador.imagem_url,
       salario: salario,
       jogos: 0,
-      link_sofifa: jogadorMercado.link_sofifa || '',
+      link_sofifa: jogador.link_sofifa || '',
     })
 
     if (errorInsert) throw errorInsert
 
-    // 4️⃣ Deletar do mercado
-    const { error: errorDelete } = await supabase
-      .from('mercado_transferencias')
-      .delete()
-      .eq('id', jogadorMercado.id)
-
-    if (errorDelete) throw errorDelete
-
-    // 5️⃣ Atualizar saldo do time
+    // ✅ Atualiza saldo do time
     const { error: errorUpdate } = await supabase
       .from('times')
-      .update({ saldo: saldo - jogadorMercado.valor })
+      .update({ saldo: saldo - jogador.valor })
       .eq('id', user.id_time)
 
     if (errorUpdate) throw errorUpdate
 
-    // 6️⃣ Atualizar tela
-    setSaldo((prev) => prev - jogadorMercado.valor)
-    setJogadores((prev) => prev.filter((j) => j.id !== jogadorMercado.id))
-    setSelecionados((prev) => prev.filter((id) => id !== jogadorMercado.id))
+    // ✅ Atualiza estado do frontend
+    setSaldo((prev) => prev - jogador.valor)
+    setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
+    setSelecionados((prev) => prev.filter((id) => id !== jogador.id))
 
     toast.success('Jogador comprado com sucesso!')
   } catch (error) {
@@ -392,7 +388,6 @@ await supabase.from('bid').insert({
     setModalComprarVisivel(false)
     setJogadorParaComprar(null)
   }
-}
 
   const toggleSelecionado = (id: string) => {
     setSelecionados((prev) =>
