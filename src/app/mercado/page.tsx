@@ -330,7 +330,7 @@ export default function MercadoPage() {
       return
     }
 
-await supabase.from('BID').insert({
+await supabase.from('bid').insert({
   tipo_evento: 'compra',
   descricao: `O ${user.nome_time} comprou ${jogadorMercado.nome} por ${formatarValor(jogadorMercado.valor)}.`,
   id_time1: user.id_time,
