@@ -1,123 +1,109 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
-// Inicializa Supabase com variáveis ambiente
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function Home() {
-  const router = useRouter()
-  const [nomeTime, setNomeTime] = useState('')
-  const [saldo, setSaldo] = useState<number | null>(null)
-  const [numJogadores, setNumJogadores] = useState<number | null>(null)
-  const [posicao, setPosicao] = useState<number | null>(null)
+interface Movimentacao {
+  id: string
+  id_time: string
+  tipo: 'entrada' | 'saida'
+  descricao: string
+  valor: number
+  data: string
+}
+
+interface EventoBID {
+  id: string
+  id_time1: string
+  id_time2: string | null
+  valor: number | null
+  tipo_evento: string
+  data_evento: string
+}
+
+export default function PainelFinanceiroPage() {
+  const [compras, setCompras] = useState<number>(0)
+  const [vendas, setVendas] = useState<number>(0)
+  const [saldo, setSaldo] = useState<number>(0)
+  const [idTime, setIdTime] = useState<string>('')
 
   useEffect(() => {
-    const user = localStorage.getItem('user')
-    if (!user) {
-      router.push('/login')
+    const id_time = localStorage.getItem('id_time') || ''
+    setIdTime(id_time)
+    if (!id_time) return
+
+    buscarBID(id_time)
+    buscarMovimentacoes(id_time)
+  }, [])
+
+  async function buscarBID(id_time: string) {
+    const { data, error } = await supabase
+      .from('BID')
+      .select('*')
+      .or(`id_time1.eq.${id_time},id_time2.eq.${id_time}`)
+
+    if (error) {
+      console.error('Erro ao buscar BID:', error)
       return
     }
 
-    const userData = JSON.parse(user)
-    setNomeTime(userData.nome_time || '')
+    const eventos = data as EventoBID[]
 
-    const idTime = userData.id_time
-    if (idTime) {
-      buscarResumoTime(idTime)
-    }
-  }, [])
+    const totalCompras = eventos
+      .filter((e) => e.id_time1 === id_time && e.valor && e.tipo_evento === 'compra')
+      .reduce((acc, e) => acc + (e.valor || 0), 0)
 
-  async function buscarResumoTime(idTime: string) {
-    // Buscar saldo do time
-    const { data: timeData, error: errTime } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', idTime)
-      .single()
-    if (!errTime && timeData) {
-      setSaldo(timeData.saldo)
-    }
+    const totalVendas = eventos
+      .filter((e) => e.id_time2 === id_time && e.valor && e.tipo_evento === 'venda')
+      .reduce((acc, e) => acc + (e.valor || 0), 0)
 
-    // Buscar número de jogadores no elenco
-    const { count: countElenco, error: errElenco } = await supabase
-      .from('elenco')
-      .select('*', { count: 'exact', head: true })
-      .eq('id_time', idTime)
-    if (!errElenco) {
-      setNumJogadores(countElenco || 0)
-    }
-
-    // Buscar posição atual na classificação
-    const { data: classificacaoData, error: errClassificacao } = await supabase
-      .from('classificacao')
-      .select('posicao')
-      .eq('id_time', idTime)
-      .single()
-    if (!errClassificacao && classificacaoData) {
-      setPosicao(classificacaoData.posicao)
-    }
+    setCompras(totalCompras)
+    setVendas(totalVendas)
   }
 
-  const handleLogout = () => {
-    localStorage.clear()
-    router.push('/login')
+  async function buscarMovimentacoes(id_time: string) {
+    const { data, error } = await supabase
+      .from('movimentacoes')
+      .select('*')
+      .eq('id_time', id_time)
+
+    if (error) {
+      console.error('Erro ao buscar movimentações:', error)
+      return
+    }
+
+    const saldoAtual = (data as Movimentacao[]).reduce((acc: number, mov: Movimentacao) => {
+      return mov.tipo === 'entrada' ? acc + mov.valor : acc - mov.valor
+    }, 0)
+
+    setSaldo(saldoAtual)
   }
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-8">
-      <div className="max-w-4xl mx-auto text-center">
-        <h1 className="text-4xl font-bold mb-2 text-green-400">🏟️ Bem-vindo à LigaFut</h1>
-        {nomeTime && <p className="mb-4 text-gray-300">🔰 Gerenciando: <strong>{nomeTime}</strong></p>}
+    <div className="p-4">
+      <h1 className="text-2xl font-bold mb-6">💰 Painel Financeiro</h1>
 
-        {/* Resumo rápido do time */}
-        <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
-          <div className="bg-gray-800 p-4 rounded shadow">
-            <h3 className="font-semibold mb-1">Saldo Atual</h3>
-            <p>{saldo !== null ? `R$ ${saldo.toLocaleString('pt-BR')}` : 'Carregando...'}</p>
-          </div>
-          <div className="bg-gray-800 p-4 rounded shadow">
-            <h3 className="font-semibold mb-1">Jogadores no Elenco</h3>
-            <p>{numJogadores !== null ? numJogadores : 'Carregando...'}</p>
-          </div>
-          <div className="bg-gray-800 p-4 rounded shadow">
-            <h3 className="font-semibold mb-1">Posição na Liga</h3>
-            <p>{posicao !== null ? posicao : 'Carregando...'}</p>
-          </div>
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-red-200 p-4 rounded text-center">
+          <p className="text-lg font-semibold">Total Gasto em Compras</p>
+          <p className="text-2xl text-red-700 font-bold">- R$ {compras.toLocaleString('pt-BR')}</p>
         </div>
 
-        <button
-          onClick={handleLogout}
-          className="mb-8 px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm font-bold"
-        >
-          🚪 Sair
-        </button>
+        <div className="bg-green-200 p-4 rounded text-center">
+          <p className="text-lg font-semibold">Total Recebido em Vendas</p>
+          <p className="text-2xl text-green-700 font-bold">+ R$ {vendas.toLocaleString('pt-BR')}</p>
+        </div>
 
-        {/* Seu grid de opções abaixo */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-gray-800 p-6 rounded-lg shadow hover:shadow-lg hover:bg-gray-700 transition">
-            <h2 className="text-2xl font-semibold mb-2">⚔️ Leilões Ativos</h2>
-            <p className="text-gray-400">Acompanhe e participe dos leilões em tempo real.</p>
-          </div>
-          <div className="bg-gray-800 p-6 rounded-lg shadow hover:shadow-lg hover:bg-gray-700 transition">
-            <h2 className="text-2xl font-semibold mb-2">📋 Classificação</h2>
-            <p className="text-gray-400">Veja a tabela atualizada do campeonato da sua divisão.</p>
-          </div>
-          <div className="bg-gray-800 p-6 rounded-lg shadow hover:shadow-lg hover:bg-gray-700 transition">
-            <h2 className="text-2xl font-semibold mb-2">💰 Mercado de Transferências</h2>
-            <p className="text-gray-400">Negocie jogadores diretamente com outros times.</p>
-          </div>
-          <div className="bg-gray-800 p-6 rounded-lg shadow hover:shadow-lg hover:bg-gray-700 transition">
-            <h2 className="text-2xl font-semibold mb-2">📝 Painel Administrativo</h2>
-            <p className="text-gray-400">Gerencie as regras, eventos e participantes da LigaFut.</p>
-          </div>
+        <div className="bg-blue-200 p-4 rounded text-center">
+          <p className="text-lg font-semibold">Saldo Atual</p>
+          <p className="text-2xl text-blue-700 font-bold">R$ {saldo.toLocaleString('pt-BR')}</p>
         </div>
       </div>
-    </main>
+    </div>
   )
 }
