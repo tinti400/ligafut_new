@@ -2,6 +2,7 @@
 
 import './globals.css'
 import Sidebar from '../components/Sidebar'
+import ChatFlutuante from '../components/ChatFlutuante'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -13,8 +14,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </main>
         </div>
+
+        {/* Chat Flutuante Global */}
+        <ChatFlutuante />
       </body>
     </html>
   )
 }
-
