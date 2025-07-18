@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import ImagemComFallback from '@/components/ImagemComFallback' // componente com fallback para imagens
+import ImagemComFallback from '@/components/ImagemComFallback'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,9 +69,6 @@ export default function ElencoPage() {
     if (!confirmar) return
 
     try {
-      console.log('--- Vender Jogador Iniciado ---')
-      console.log('Jogador a vender:', jogador)
-
       // Inserir no mercado de transferências
       const { error: errorInsert } = await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
@@ -89,22 +86,11 @@ export default function ElencoPage() {
 
       if (errorInsert) {
         alert('❌ Erro ao inserir o jogador no mercado: ' + errorInsert.message)
-        console.error('Erro ao inserir no mercado:', errorInsert)
         return
       }
-      console.log('Jogador inserido no mercado_transferencias com sucesso')
 
-      // Debug antes do delete
-      const { data: jogadorAntes, error: errorBefore } = await supabase
-        .from('elenco')
-        .select('*')
-        .eq('id_time', jogador.id_time)
-        .eq('id', jogador.id)
-
-      console.log('Jogador no elenco antes do delete:', jogadorAntes, errorBefore)
-
-      // Delete do elenco
-      const { data: deleteData, error: errorDelete } = await supabase
+      // Remover do elenco
+      const { error: errorDelete } = await supabase
         .from('elenco')
         .delete()
         .eq('id_time', jogador.id_time)
@@ -112,19 +98,8 @@ export default function ElencoPage() {
 
       if (errorDelete) {
         alert('❌ Erro ao remover o jogador do elenco: ' + errorDelete.message)
-        console.error('Erro no delete:', errorDelete)
         return
       }
-      console.log('Delete realizado:', deleteData)
-
-      // Debug depois do delete
-      const { data: jogadorDepois, error: errorAfter } = await supabase
-        .from('elenco')
-        .select('*')
-        .eq('id_time', jogador.id_time)
-        .eq('id', jogador.id)
-
-      console.log('Jogador no elenco depois do delete:', jogadorDepois, errorAfter)
 
       // Atualizar saldo do time
       const valorRecebido = Math.round(jogador.valor * 0.7)
@@ -135,17 +110,22 @@ export default function ElencoPage() {
 
       if (errorSaldo) {
         alert('❌ Erro ao atualizar o saldo do time: ' + errorSaldo.message)
-        console.error('Erro ao atualizar saldo:', errorSaldo)
         return
       }
-      console.log(`Saldo atualizado em R$ ${valorRecebido.toLocaleString('pt-BR')}`)
+
+      // ✅ Registrar no BID
+      await supabase.from('bid').insert({
+        tipo_evento: 'venda',
+        descricao: `O ${nomeTime} vendeu ${jogador.nome} para o Mercado de Transferências por R$ ${jogador.valor.toLocaleString('pt-BR')}.`,
+        id_time1: jogador.id_time,
+        valor: jogador.valor,
+        data_evento: new Date().toISOString()
+      })
 
       await fetchElenco()
       alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
-      console.log('--- Venda de jogador finalizada com sucesso ---')
     } catch (error) {
       alert('❌ Ocorreu um erro inesperado: ' + error)
-      console.error('Erro inesperado:', error)
     }
   }
 
@@ -193,4 +173,3 @@ export default function ElencoPage() {
     </div>
   )
 }
-
