@@ -65,6 +65,8 @@ export default function PropostasRecebidasPage() {
 
   const aceitarProposta = async (proposta: any) => {
     try {
+      console.log('➡️ Aceitando proposta:', proposta)
+
       await supabase.from('propostas_app').update({ status: 'aceita' }).eq('id', proposta.id)
 
       const { data: comprador } = await supabase
@@ -81,6 +83,7 @@ export default function PropostasRecebidasPage() {
 
       if (!comprador || !vendedor) {
         alert('❌ Erro ao buscar saldo dos times.')
+        console.error('❌ Comprador ou Vendedor não encontrados:', { comprador, vendedor })
         return
       }
 
@@ -105,12 +108,16 @@ export default function PropostasRecebidasPage() {
         .update({ id_time: proposta.id_time_origem })
         .eq('id', proposta.jogador_id)
 
-      // ✅ Atualizar valor apenas se for proposta de dinheiro
+      console.log('📝 Tipo da proposta:', proposta.tipo_proposta, 'Valor oferecido:', proposta.valor_oferecido)
+
       if (proposta.tipo_proposta === 'dinheiro') {
-        await supabase
+        const { error: erroValor } = await supabase
           .from('elenco')
           .update({ valor: proposta.valor_oferecido })
           .eq('id', proposta.jogador_id)
+
+        if (erroValor) console.error('❌ Erro ao atualizar valor do jogador:', erroValor)
+        else console.log('✅ Valor do jogador atualizado para:', proposta.valor_oferecido)
       }
 
       const jogador = jogadores[proposta.jogador_id]
@@ -130,7 +137,7 @@ export default function PropostasRecebidasPage() {
         `💰 Vendedor: saldo era R$ ${saldoVendedorAntes.toLocaleString('pt-BR')} ➔ agora R$ ${saldoVendedorDepois.toLocaleString('pt-BR')}`
       )
     } catch (err) {
-      console.error('Erro ao aceitar proposta:', err)
+      console.error('❌ Erro ao aceitar proposta:', err)
       alert('❌ Erro ao aceitar proposta.')
     }
   }
