@@ -1,205 +1,172 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
+import ImagemComFallback from '@/components/ImagemComFallback'
 
-export default function Sidebar() {
-  const router = useRouter()
-  const [isOpen, setIsOpen] = useState(true)
-  const [abrirLeilao, setAbrirLeilao] = useState(false)
-  const [abrirElenco, setAbrirElenco] = useState(false)
-  const [abrirAdmin, setAbrirAdmin] = useState(false)
-  const [logado, setLogado] = useState(false)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+export default function ElencoPage() {
+  const [elenco, setElenco] = useState<any[]>([])
+  const [saldo, setSaldo] = useState<number>(0)
+  const [loading, setLoading] = useState(true)
   const [nomeTime, setNomeTime] = useState('')
-  const [saldoTime, setSaldoTime] = useState('0')
-  const [totalSalarios, setTotalSalarios] = useState('0')
 
-  useEffect(() => {
-    const usuarioId = localStorage.getItem('usuario_id')
-    const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
-    const saldo = localStorage.getItem('saldo') || '0'
-    const salarios = localStorage.getItem('total_salarios') || '0'
-
-    setSaldoTime(saldo)
-    setTotalSalarios(salarios)
-
-    if (usuarioId || userStr) {
-      setLogado(true)
-
-      if (userStr) {
-        try {
-          const userData = JSON.parse(userStr)
-          setNomeTime(userData.nome_time || userData.nome || '')
-        } catch {
-          setNomeTime('')
-        }
-      } else {
-        setNomeTime('')
+  const fetchElenco = async () => {
+    setLoading(true)
+    try {
+      const id_time = localStorage.getItem('id_time')
+      if (!id_time) {
+        alert('ID do time não encontrado no localStorage.')
+        setLoading(false)
+        return
       }
-    } else {
-      setLogado(false)
-      setNomeTime('')
-    }
-  }, [])
 
-  const logout = () => {
-    localStorage.clear()
-    router.push('/login')
+      const { data: elencoData } = await supabase
+        .from('elenco')
+        .select('*')
+        .eq('id_time', id_time)
+
+      const { data: timeData } = await supabase
+        .from('times')
+        .select('nome, saldo')
+        .eq('id', id_time)
+        .single()
+
+      setElenco(elencoData || [])
+      setSaldo(timeData?.saldo || 0)
+      setNomeTime(timeData?.nome || '')
+
+      // 🔥 Atualiza localStorage para o Sidebar puxar certo
+      localStorage.setItem('saldo', (timeData?.saldo || 0).toString())
+
+      const totalSalariosElenco = (elencoData || []).reduce((total, j) => total + (j.salario || 0), 0)
+      localStorage.setItem('total_salarios', totalSalariosElenco.toString())
+    } catch (error) {
+      alert('Erro inesperado: ' + error)
+    } finally {
+      setLoading(false)
+    }
   }
 
+  useEffect(() => {
+    fetchElenco()
+  }, [])
+
+  const valorTotalElenco = elenco.reduce((total, j) => total + (j.valor || 0), 0)
+  const totalSalarios = elenco.reduce((total, j) => total + (j.salario || 0), 0)
+
+  const venderJogador = async (jogador: any) => {
+    const confirmar = confirm(
+      `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
+    )
+    if (!confirmar) return
+
+    try {
+      await supabase.from('mercado_transferencias').insert({
+        jogador_id: jogador.id,
+        nome: jogador.nome,
+        posicao: jogador.posicao,
+        overall: jogador.overall,
+        valor: jogador.valor,
+        imagem_url: jogador.imagem_url || '',
+        salario: jogador.salario || 0,
+        link_sofifa: jogador.link_sofifa || '',
+        id_time_origem: jogador.id_time,
+        status: 'disponivel',
+        created_at: new Date().toISOString(),
+      })
+
+      await supabase
+        .from('elenco')
+        .delete()
+        .eq('id_time', jogador.id_time)
+        .eq('id', jogador.id)
+
+      const valorRecebido = Math.round(jogador.valor * 0.7)
+
+      await supabase
+        .from('times')
+        .update({ saldo: saldo + valorRecebido })
+        .eq('id', jogador.id_time)
+
+      await supabase.from('bid').insert({
+        tipo_evento: 'venda',
+        descricao: `O ${nomeTime} vendeu ${jogador.nome} para o Mercado de Transferências por R$ ${jogador.valor.toLocaleString('pt-BR')}.`,
+        id_time1: jogador.id_time,
+        valor: jogador.valor,
+        data_evento: new Date().toISOString(),
+      })
+
+      await fetchElenco()
+      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
+    } catch (error) {
+      alert('❌ Ocorreu um erro inesperado: ' + error)
+    }
+  }
+
+  if (loading) return <p className="text-center mt-10 text-white">⏳ Carregando elenco...</p>
+
   return (
-    <aside
-      className={`bg-gray-800 text-white h-screen p-4 flex flex-col justify-between transition-all duration-300 ${
-        isOpen ? 'w-64' : 'w-16'
-      }`}
-    >
-      <div>
+    <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
+      <h1 className="text-3xl font-bold mb-2 text-center text-green-400">
+        👥 Elenco do {nomeTime}
+      </h1>
+      <p className="text-center text-gray-300 mb-4">
+        💰 Saldo: <strong>R$ {saldo.toLocaleString('pt-BR')}</strong> | 🧩 Valor Total do Elenco:{' '}
+        <strong>R$ {valorTotalElenco.toLocaleString('pt-BR')}</strong> | 💵 Salários Totais:{' '}
+        <strong>R$ {totalSalarios.toLocaleString('pt-BR')}</strong>
+      </p>
+
+      <div className="text-center mb-6">
         <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="text-white mb-4 focus:outline-none"
+          onClick={fetchElenco}
+          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-full text-sm"
         >
-          {isOpen ? '←' : '☰'}
+          🔄 Atualizar elenco
         </button>
-
-        <h1 className={`text-2xl font-bold mb-4 ${!isOpen ? 'hidden' : ''}`}>⚽ LigaFut</h1>
-
-        {isOpen && (
-          <div
-            className={`mb-2 px-3 py-2 rounded ${
-              logado ? 'bg-green-700 text-green-200' : 'bg-red-700 text-red-200'
-            } font-semibold text-sm text-center`}
-          >
-            {logado
-              ? `✅ ${nomeTime || 'Usuário Logado'}`
-              : '❌ Você não está logado'}
-          </div>
-        )}
-
-        {isOpen && logado && (
-          <div className="mb-2 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
-            💰 Saldo: <span className="text-green-400">R$ {parseInt(saldoTime).toLocaleString('pt-BR')}</span>
-          </div>
-        )}
-
-        {isOpen && logado && (
-          <div className="mb-6 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
-            🧩 Salários: <span className="text-yellow-400">R$ {parseInt(totalSalarios).toLocaleString('pt-BR')}</span>
-          </div>
-        )}
-
-        <nav className="space-y-4">
-          {!logado && (
-            <Link href="/login" className="block hover:text-green-400">
-              🔑 {isOpen && 'Login'}
-            </Link>
-          )}
-
-          <Link href="/classificacao" className="block hover:text-green-400">
-            🏆 {isOpen && 'Classificação'}
-          </Link>
-          <Link href="/jogos" className="block hover:text-green-400">
-            📅 {isOpen && 'Jogos'}
-          </Link>
-
-          {/* Elenco */}
-          <div>
-            <button
-              onClick={() => setAbrirElenco(!abrirElenco)}
-              className="w-full text-left hover:text-green-400"
-            >
-              👥 {isOpen && `Elenco ${abrirElenco ? '▲' : '▼'}`}
-            </button>
-
-            {abrirElenco && isOpen && (
-              <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/elenco" className="block hover:text-green-400">
-                  👥 Meu Elenco
-                </Link>
-                <Link href="/negociacoes" className="block hover:text-green-400">
-                  🤝 Negociações
-                </Link>
-                <Link href="/propostas_recebidas" className="block hover:text-green-400">
-                  📥 Propostas Recebidas
-                </Link>
-                <Link href="/propostas_enviadas" className="block hover:text-green-400">
-                  📤 Propostas Enviadas
-                </Link>
-              </div>
-            )}
-          </div>
-
-          {/* Leilão */}
-          <div>
-            <button
-              onClick={() => setAbrirLeilao(!abrirLeilao)}
-              className="w-full text-left hover:text-green-400"
-            >
-              📢 {isOpen && `Leilão ${abrirLeilao ? '▲' : '▼'}`}
-            </button>
-
-            {abrirLeilao && isOpen && (
-              <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/admin/leilao_sistema" className="block hover:text-green-400">
-                  ⚙️ Leilão Sistema
-                </Link>
-              </div>
-            )}
-          </div>
-
-          {/* Admin */}
-          <div>
-            <button
-              onClick={() => setAbrirAdmin(!abrirAdmin)}
-              className="w-full text-left hover:text-green-400"
-            >
-              🛠️ {isOpen && `Admin ${abrirAdmin ? '▲' : '▼'}`}
-            </button>
-
-            {abrirAdmin && isOpen && (
-              <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/admin/leilao" className="block hover:text-green-400">
-                  🎯 Leilão
-                </Link>
-                <Link href="/admin/leiloes_finalizados" className="block hover:text-green-400">
-                  📜 Leilões Finalizados
-                </Link>
-              </div>
-            )}
-          </div>
-
-          <Link href="/BID" className="block hover:text-green-400">
-            📰 {isOpen && 'BID'}
-          </Link>
-
-          <Link href="/mercado" className="block hover:text-green-400">
-            💸 {isOpen && 'Mercado'}
-          </Link>
-          <Link href="/estadio" className="block hover:text-green-400">
-            🏟️ {isOpen && 'Estádio'}
-          </Link>
-          <Link href="/banco" className="block hover:text-green-400">
-            🏦 {isOpen && 'Banco'}
-          </Link>
-
-          <Link href="/financeiro" className="block hover:text-green-400">
-            💰 {isOpen && 'Painel Financeiro'}
-          </Link>
-
-          <Link href="/admin" className="block hover:text-green-400">
-            🔧 {isOpen && 'Admin'}
-          </Link>
-        </nav>
       </div>
 
-      {logado && (
-        <button
-          onClick={logout}
-          className="bg-red-600 hover:bg-red-700 text-xs py-2 px-3 rounded text-center mt-4"
-        >
-          🚪 {isOpen && 'Logout'}
-        </button>
+      {elenco.length === 0 ? (
+        <p className="text-center text-gray-400">Nenhum jogador no elenco.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {elenco.map((jogador) => (
+            <div
+              key={jogador.id}
+              className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700"
+            >
+              <ImagemComFallback
+                src={jogador.imagem_url}
+                alt={jogador.nome}
+                width={80}
+                height={80}
+                className="rounded-full mb-2 mx-auto"
+              />
+              <h2 className="text-lg font-bold">{jogador.nome}</h2>
+              <p className="text-gray-300 text-sm">
+                {jogador.posicao} • Overall {jogador.overall ?? 'N/A'}
+              </p>
+              <p className="text-green-400 font-semibold">
+                💰 R$ {jogador.valor.toLocaleString()}
+              </p>
+              <p className="text-gray-400 text-xs">
+                Salário: R$ {(jogador.salario || 0).toLocaleString()}
+              </p>
+
+              <button
+                onClick={() => venderJogador(jogador)}
+                className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full"
+              >
+                💸 Vender
+              </button>
+            </div>
+          ))}
+        </div>
       )}
-    </aside>
+    </div>
   )
 }
