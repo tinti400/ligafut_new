@@ -310,58 +310,80 @@ export default function MercadoPage() {
   }
 
   const confirmarCompra = async () => {
-    if (!jogadorParaComprar || !user) {
-      setModalComprarVisivel(false)
+  if (!jogadorParaComprar || !user) {
+    setModalComprarVisivel(false)
+    return
+  }
+
+  setLoadingComprarId(jogadorParaComprar.id)
+
+  try {
+    // 1️⃣ Buscar o jogador novamente no mercado
+    const { data: jogadorMercado, error: errorBusca } = await supabase
+      .from('mercado_transferencias')
+      .select('*')
+      .eq('id', jogadorParaComprar.id)
+      .single()
+
+    if (errorBusca || !jogadorMercado) {
+      toast.error('Esse jogador já foi comprado por outro clube.')
       return
     }
 
-    setLoadingComprarId(jogadorParaComprar.id)
-    try {
-      const salario = Math.round(jogadorParaComprar.valor * 0.007)
-
-      const { error: errorInsert } = await supabase.from('elenco').insert({
-        id_time: user.id_time,
-        nome: jogadorParaComprar.nome,
-        posicao: jogadorParaComprar.posicao,
-        overall: jogadorParaComprar.overall,
-        valor: jogadorParaComprar.valor,
-        imagem_url: jogadorParaComprar.imagem_url,
-        salario: salario,
-        jogos: 0,
-        link_sofifa: jogadorParaComprar.link_sofifa || '',
-      })
-
-      if (errorInsert) throw errorInsert
-
-      const { error: errorDelete } = await supabase
-        .from('mercado_transferencias')
-        .delete()
-        .eq('id', jogadorParaComprar.id)
-
-      if (errorDelete) throw errorDelete
-
-      const { error: errorUpdate } = await supabase
-        .from('times')
-        .update({ saldo: saldo - jogadorParaComprar.valor })
-        .eq('id', user.id_time)
-
-      if (errorUpdate) throw errorUpdate
-
-      setSaldo((prev) => prev - jogadorParaComprar.valor)
-      setJogadores((prev) => prev.filter((j) => j.id !== jogadorParaComprar.id))
-      setSelecionados((prev) => prev.filter((id) => id !== jogadorParaComprar.id))
-
-      toast.success('Jogador comprado com sucesso!')
-
-    } catch (error) {
-      console.error('Erro na compra:', error)
-      toast.error('Ocorreu um erro ao comprar o jogador.')
-    } finally {
-      setLoadingComprarId(null)
-      setModalComprarVisivel(false)
-      setJogadorParaComprar(null)
+    // 2️⃣ Verificar saldo novamente
+    if (jogadorMercado.valor > saldo) {
+      toast.error('Saldo insuficiente.')
+      return
     }
+
+    // 3️⃣ Inserir no elenco
+    const salario = Math.round(jogadorMercado.valor * 0.007)
+
+    const { error: errorInsert } = await supabase.from('elenco').insert({
+      id_time: user.id_time,
+      nome: jogadorMercado.nome,
+      posicao: jogadorMercado.posicao,
+      overall: jogadorMercado.overall,
+      valor: jogadorMercado.valor,
+      imagem_url: jogadorMercado.imagem_url,
+      salario: salario,
+      jogos: 0,
+      link_sofifa: jogadorMercado.link_sofifa || '',
+    })
+
+    if (errorInsert) throw errorInsert
+
+    // 4️⃣ Deletar do mercado
+    const { error: errorDelete } = await supabase
+      .from('mercado_transferencias')
+      .delete()
+      .eq('id', jogadorMercado.id)
+
+    if (errorDelete) throw errorDelete
+
+    // 5️⃣ Atualizar saldo do time
+    const { error: errorUpdate } = await supabase
+      .from('times')
+      .update({ saldo: saldo - jogadorMercado.valor })
+      .eq('id', user.id_time)
+
+    if (errorUpdate) throw errorUpdate
+
+    // 6️⃣ Atualizar tela
+    setSaldo((prev) => prev - jogadorMercado.valor)
+    setJogadores((prev) => prev.filter((j) => j.id !== jogadorMercado.id))
+    setSelecionados((prev) => prev.filter((id) => id !== jogadorMercado.id))
+
+    toast.success('Jogador comprado com sucesso!')
+  } catch (error) {
+    console.error('Erro na compra:', error)
+    toast.error('Ocorreu um erro ao comprar o jogador.')
+  } finally {
+    setLoadingComprarId(null)
+    setModalComprarVisivel(false)
+    setJogadorParaComprar(null)
   }
+}
 
   const toggleSelecionado = (id: string) => {
     setSelecionados((prev) =>
