@@ -9,6 +9,17 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+const bandeiras: Record<string, string> = {
+  Argentina: 'ar',
+  Suíça: 'ch',
+  Geórgia: 'ge',
+  Bélgica: 'be',
+  Alemanha: 'de',
+  Colômbia: 'co',
+  França: 'fr',
+  'Costa do Marfim': 'ci',
+}
+
 export default function ElencoPage() {
   const [elenco, setElenco] = useState<any[]>([])
   const [saldo, setSaldo] = useState<number>(0)
@@ -102,6 +113,11 @@ export default function ElencoPage() {
     }
   }
 
+  const getFlagUrl = (pais: string) => {
+    const codigo = bandeiras[pais]
+    return codigo ? `https://flagcdn.com/w40/${codigo}.png` : ''
+  }
+
   if (loading) return <p className="text-center mt-10 text-white">⏳ Carregando elenco...</p>
 
   return (
@@ -144,6 +160,22 @@ export default function ElencoPage() {
               <p className="text-gray-300 text-sm">
                 {jogador.posicao} • Overall {jogador.overall ?? 'N/A'}
               </p>
+
+              {jogador.nacionalidade && (
+                <div className="flex items-center justify-center gap-2 mt-1 mb-1">
+                  {getFlagUrl(jogador.nacionalidade) && (
+                    <img
+                      src={getFlagUrl(jogador.nacionalidade)}
+                      alt={jogador.nacionalidade}
+                      width={24}
+                      height={16}
+                      className="inline-block rounded-sm"
+                    />
+                  )}
+                  <span className="text-xs text-gray-300">{jogador.nacionalidade}</span>
+                </div>
+              )}
+
               <p className="text-green-400 font-semibold">
                 💰 R$ {jogador.valor.toLocaleString()}
               </p>
