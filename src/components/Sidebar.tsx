@@ -12,14 +12,17 @@ export default function Sidebar() {
   const [abrirAdmin, setAbrirAdmin] = useState(false)
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
+  const [saldoTime, setSaldoTime] = useState('0')
+  const [totalSalarios, setTotalSalarios] = useState('0')
 
   useEffect(() => {
     const usuarioId = localStorage.getItem('usuario_id')
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
+    setSaldoTime(localStorage.getItem('saldo') || '0')
+    setTotalSalarios(localStorage.getItem('total_salarios') || '0')
 
     if (usuarioId || userStr) {
       setLogado(true)
-
       if (userStr) {
         try {
           const userData = JSON.parse(userStr)
@@ -34,6 +37,14 @@ export default function Sidebar() {
       setLogado(false)
       setNomeTime('')
     }
+
+    const handleStorage = () => {
+      setSaldoTime(localStorage.getItem('saldo') || '0')
+      setTotalSalarios(localStorage.getItem('total_salarios') || '0')
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
   const logout = () => {
@@ -59,14 +70,26 @@ export default function Sidebar() {
 
         {isOpen && (
           <div
-            className={`mb-8 px-3 py-2 rounded ${
+            className={`mb-2 px-3 py-2 rounded ${
               logado ? 'bg-green-700 text-green-200' : 'bg-red-700 text-red-200'
-            } font-semibold text-sm`}
+            } font-semibold text-sm text-center`}
           >
             {logado
-              ? `✅ Você está logado como ${nomeTime || 'usuário'}`
+              ? `✅ ${nomeTime || 'Usuário Logado'}`
               : '❌ Você não está logado'}
           </div>
+        )}
+
+        {isOpen && logado && (
+          <>
+            <div className="mb-2 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
+              💰 Caixa: <span className="text-green-400">R$ {parseInt(saldoTime).toLocaleString('pt-BR')}</span>
+            </div>
+
+            <div className="mb-6 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
+              🧩 Salários: <span className="text-yellow-400">R$ {parseInt(totalSalarios).toLocaleString('pt-BR')}</span>
+            </div>
+          </>
         )}
 
         <nav className="space-y-4">
