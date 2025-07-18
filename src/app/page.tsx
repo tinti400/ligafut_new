@@ -9,12 +9,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
-const imagensBID = [
-  '/img/transfer1.png',
-  '/img/transfer2.png',
-  '/img/transfer3.png'
-]
-
 export default function Home() {
   const router = useRouter()
   const [nomeTime, setNomeTime] = useState('')
@@ -22,12 +16,17 @@ export default function Home() {
   const [numJogadores, setNumJogadores] = useState<number | null>(null)
   const [posicao, setPosicao] = useState<number | null>(null)
   const [totalSalarios, setTotalSalarios] = useState<number>(0)
+
   const [eventosBID, setEventosBID] = useState<any[]>([])
   const [indexBID, setIndexBID] = useState(0)
+  const [fadeBID, setFadeBID] = useState(true)
+
+  const [jogosFiltrados, setJogosFiltrados] = useState<any[]>([])
+  const [indexJogo, setIndexJogo] = useState(0)
+  const [fadeJogo, setFadeJogo] = useState(true)
+
   const [times, setTimes] = useState<any[]>([])
-  const [jogos, setJogos] = useState<any[]>([])
   const [salariosTimes, setSalariosTimes] = useState<any[]>([])
-  const [fade, setFade] = useState(true)
 
   useEffect(() => {
     const user = localStorage.getItem('user')
@@ -81,19 +80,17 @@ export default function Home() {
   }
 
   useEffect(() => {
-    const buscarDados = async () => {
+    const buscarTudo = async () => {
       const { data: bidData } = await supabase
         .from('bid')
         .select('*')
         .order('data_evento', { ascending: false })
         .limit(10)
-
       if (bidData) setEventosBID(bidData)
 
       const { data: timesData } = await supabase
         .from('times')
         .select('*')
-
       if (timesData) setTimes(timesData)
 
       const { data: rodadaData } = await supabase
@@ -103,7 +100,14 @@ export default function Home() {
         .limit(1)
         .single()
 
-      if (rodadaData?.jogos) setJogos(rodadaData.jogos)
+      if (rodadaData?.jogos) {
+        const filtrados = rodadaData.jogos.filter(
+          (j: any) =>
+            j.gols_mandante !== null &&
+            j.gols_visitante !== null
+        )
+        setJogosFiltrados(filtrados)
+      }
 
       const { data: elencoData } = await supabase
         .from('elenco')
@@ -118,26 +122,42 @@ export default function Home() {
 
         const listaSalarios = Object.entries(salariosAgrupados).map(([id_time, total]) => {
           const time = timesData.find((t) => t.id === id_time)
-          return { id_time, nome: time?.nome || 'Desconhecido', total, logo: time?.logo }
+          return { id_time, nome: time?.nome || 'Desconhecido', total }
         })
 
         setSalariosTimes(listaSalarios)
       }
     }
 
-    buscarDados()
+    buscarTudo()
   }, [])
 
   useEffect(() => {
-    const intervalo = setInterval(() => {
-      setFade(false)
+    const intervalBID = setInterval(() => {
+      setFadeBID(false)
       setTimeout(() => {
         setIndexBID((prev) => (prev + 1) % (eventosBID.length || 1))
-        setFade(true)
+        setFadeBID(true)
       }, 300)
     }, 3000)
-    return () => clearInterval(intervalo)
+    return () => clearInterval(intervalBID)
   }, [eventosBID])
+
+  useEffect(() => {
+    const intervalJogo = setInterval(() => {
+      setFadeJogo(false)
+      setTimeout(() => {
+        setIndexJogo((prev) => (prev + 1) % (jogosFiltrados.length || 1))
+        setFadeJogo(true)
+      }, 300)
+    }, 3000)
+    return () => clearInterval(intervalJogo)
+  }, [jogosFiltrados])
+
+  const buscarNomeTime = (id: string) => {
+    const time = times.find((t: any) => t.id === id)
+    return time?.nome || 'Desconhecido'
+  }
 
   const formatarValor = (valor: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
@@ -146,11 +166,6 @@ export default function Home() {
     return [...array]
       .sort((a, b) => (ordem === 'asc' ? a[campo] - b[campo] : b[campo] - a[campo]))
       .slice(0, 3)
-  }
-
-  const buscarLogo = (nome: string) => {
-    const time = times.find((t: any) => t.nome === nome)
-    return time?.logo || ''
   }
 
   const handleLogout = () => {
@@ -191,45 +206,26 @@ export default function Home() {
           🚪 Sair
         </button>
 
-        {/* Carrossel BID com Imagem */}
-        <div className="bg-gray-800 rounded mb-6 relative overflow-hidden">
-          <img
-            src={imagensBID[indexBID % imagensBID.length]}
-            alt="Transferência"
-            className="absolute inset-0 w-full h-full object-cover opacity-30"
-          />
-          <div className="p-4 relative">
-            <h2 className="text-2xl font-bold text-yellow-400 mb-2">📰 Últimos Eventos do BID</h2>
-            {eventosBID.length > 0 ? (
-              <div className={`h-20 flex items-center justify-center transition-opacity duration-500 ${fade ? 'opacity-100' : 'opacity-0'}`}>
-                <p className="text-yellow-300 text-lg">{eventosBID[indexBID]?.descricao}</p>
-              </div>
-            ) : (
-              <p className="text-gray-400">Nenhum evento encontrado.</p>
-            )}
-          </div>
+        {/* Carrossel BID */}
+        <div className="bg-gray-800 p-4 rounded mb-6">
+          <h2 className="text-2xl font-bold text-yellow-400 mb-2">📰 Últimos Eventos do BID</h2>
+          {eventosBID.length > 0 ? (
+            <div className={`h-20 flex items-center justify-center transition-opacity duration-500 ${fadeBID ? 'opacity-100' : 'opacity-0'}`}>
+              <p className="text-yellow-300 text-lg">{eventosBID[indexBID]?.descricao}</p>
+            </div>
+          ) : (
+            <p className="text-gray-400">Nenhum evento encontrado.</p>
+          )}
         </div>
 
-        {/* Últimos Jogos */}
+        {/* Carrossel Jogos */}
         <div className="bg-gray-800 p-4 rounded mb-6">
           <h2 className="text-2xl font-bold text-blue-400 mb-2">📅 Últimos Jogos</h2>
-          {jogos.length > 0 ? (
-            <div className="space-y-2">
-              {jogos.map((jogo: any, index: number) => (
-                <div key={index} className="flex justify-between items-center bg-gray-700 p-2 rounded">
-                  <div className="flex items-center gap-2">
-                    <img src={buscarLogo(jogo.mandante)} alt="" className="w-6 h-6" />
-                    <span className="text-green-300">{jogo.mandante}</span>
-                  </div>
-                  <span className="text-yellow-300 font-bold">
-                    {jogo.gols_mandante} ⚽ {jogo.gols_visitante}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-red-300">{jogo.visitante}</span>
-                    <img src={buscarLogo(jogo.visitante)} alt="" className="w-6 h-6" />
-                  </div>
-                </div>
-              ))}
+          {jogosFiltrados.length > 0 ? (
+            <div className={`h-20 flex items-center justify-center transition-opacity duration-500 ${fadeJogo ? 'opacity-100' : 'opacity-0'}`}>
+              <p className="text-white text-lg">
+                {buscarNomeTime(jogosFiltrados[indexJogo]?.mandante)} {jogosFiltrados[indexJogo]?.gols_mandante} ⚽ {jogosFiltrados[indexJogo]?.gols_visitante} {buscarNomeTime(jogosFiltrados[indexJogo]?.visitante)}
+              </p>
             </div>
           ) : (
             <p className="text-gray-400">Nenhum jogo encontrado.</p>
@@ -239,19 +235,19 @@ export default function Home() {
         {/* Rankings */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gray-800 p-4 rounded">
-            <h3 className="text-xl font-bold text-green-400 mb-2">💰 Top 3 Mais Saldo</h3>
-            {getTop(times, 'saldo', 'desc').map((time, index) => (
+            <h3 className="text-xl font-bold text-red-400 mb-2">💰 Top 3 Menores Saldo</h3>
+            {getTop(times, 'saldo', 'asc').map((time, index) => (
               <p key={time.id}>
-                {index + 1}. {time.nome} — <span className="text-green-300">{formatarValor(time.saldo)}</span>
+                {index + 1}. {time.nome} — <span className="text-red-300">{formatarValor(time.saldo)}</span>
               </p>
             ))}
           </div>
 
           <div className="bg-gray-800 p-4 rounded">
-            <h3 className="text-xl font-bold text-red-400 mb-2">💸 Top 3 Maiores Salários</h3>
-            {getTop(salariosTimes, 'total', 'desc').map((t, index) => (
+            <h3 className="text-xl font-bold text-blue-400 mb-2">📝 Top 3 Menores Salários</h3>
+            {getTop(salariosTimes, 'total', 'asc').map((t, index) => (
               <p key={t.id_time}>
-                {index + 1}. {t.nome} — <span className="text-yellow-300">{formatarValor(t.total)}</span>
+                {index + 1}. {t.nome} — <span className="text-blue-300">{formatarValor(t.total)}</span>
               </p>
             ))}
           </div>
