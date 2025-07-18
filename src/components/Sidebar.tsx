@@ -12,10 +12,14 @@ export default function Sidebar() {
   const [abrirAdmin, setAbrirAdmin] = useState(false)
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
+  const [saldoTime, setSaldoTime] = useState('0')
 
   useEffect(() => {
     const usuarioId = localStorage.getItem('usuario_id')
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
+    const saldo = localStorage.getItem('saldo') || '0'
+
+    setSaldoTime(saldo)
 
     if (usuarioId || userStr) {
       setLogado(true)
@@ -59,13 +63,19 @@ export default function Sidebar() {
 
         {isOpen && (
           <div
-            className={`mb-8 px-3 py-2 rounded ${
+            className={`mb-2 px-3 py-2 rounded ${
               logado ? 'bg-green-700 text-green-200' : 'bg-red-700 text-red-200'
-            } font-semibold text-sm`}
+            } font-semibold text-sm text-center`}
           >
             {logado
-              ? `✅ Você está logado como ${nomeTime || 'usuário'}`
+              ? `✅ ${nomeTime || 'Usuário Logado'}`
               : '❌ Você não está logado'}
+          </div>
+        )}
+
+        {isOpen && logado && (
+          <div className="mb-6 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
+            💰 Saldo: <span className="text-green-400">R$ {parseInt(saldoTime).toLocaleString('pt-BR')}</span>
           </div>
         )}
 
