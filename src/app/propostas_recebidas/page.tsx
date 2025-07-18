@@ -12,6 +12,7 @@ export default function PropostasRecebidasPage() {
   const [pendentes, setPendentes] = useState<any[]>([])
   const [concluidas, setConcluidas] = useState<any[]>([])
   const [jogadores, setJogadores] = useState<any>({})
+  const [jogadoresOferecidosData, setJogadoresOferecidosData] = useState<any>({})
   const [idTime, setIdTime] = useState<string>('')
 
   useEffect(() => {
@@ -46,6 +47,13 @@ export default function PropostasRecebidasPage() {
       ]
 
       if (idsJogadores.length > 0) buscarJogadores(idsJogadores)
+
+      const idsOferecidos = [
+        ...(pendentesData?.flatMap((p) => p.jogadores_oferecidos) || []),
+        ...(concluidasData?.flatMap((p) => p.jogadores_oferecidos) || []),
+      ].filter((v, i, a) => a.indexOf(v) === i)
+
+      if (idsOferecidos.length > 0) buscarJogadoresOferecidos(idsOferecidos)
     }
 
     const buscarJogadores = async (ids: string[]) => {
@@ -60,47 +68,48 @@ export default function PropostasRecebidasPage() {
       }
     }
 
+    const buscarJogadoresOferecidos = async (ids: string[]) => {
+      if (!ids.length) return
+      const { data } = await supabase
+        .from('elenco')
+        .select('id, nome')
+        .in('id', ids)
+
+      if (data) {
+        const dict = Object.fromEntries(data.map((j) => [j.id, j.nome]))
+        setJogadoresOferecidosData((prev: any) => ({ ...prev, ...dict }))
+      }
+    }
+
     buscarPropostas()
   }, [])
 
   const aceitarProposta = async (proposta: any) => {
     try {
-      console.log('➡️ Aceitando proposta:', proposta)
-
       await supabase.from('propostas_app').update({ status: 'aceita' }).eq('id', proposta.id)
 
       const { data: comprador } = await supabase
         .from('times')
-        .select('saldo')
+        .select('saldo, nome')
         .eq('id', proposta.id_time_origem)
         .single()
 
       const { data: vendedor } = await supabase
         .from('times')
-        .select('saldo')
+        .select('saldo, nome')
         .eq('id', proposta.id_time_alvo)
         .single()
 
-      if (!comprador || !vendedor) {
-        alert('❌ Erro ao buscar saldo dos times.')
-        console.error('❌ Comprador ou Vendedor não encontrados:', { comprador, vendedor })
-        return
-      }
-
-      const saldoCompradorAntes = comprador.saldo
-      const saldoVendedorAntes = vendedor.saldo
-
-      const saldoCompradorDepois = saldoCompradorAntes - proposta.valor_oferecido
-      const saldoVendedorDepois = saldoVendedorAntes + proposta.valor_oferecido
+      if (!comprador || !vendedor) return
 
       await supabase
         .from('times')
-        .update({ saldo: saldoCompradorDepois })
+        .update({ saldo: comprador.saldo - proposta.valor_oferecido })
         .eq('id', proposta.id_time_origem)
 
       await supabase
         .from('times')
-        .update({ saldo: saldoVendedorDepois })
+        .update({ saldo: vendedor.saldo + proposta.valor_oferecido })
         .eq('id', proposta.id_time_alvo)
 
       await supabase
@@ -108,16 +117,11 @@ export default function PropostasRecebidasPage() {
         .update({ id_time: proposta.id_time_origem })
         .eq('id', proposta.jogador_id)
 
-      console.log('📝 Tipo da proposta:', proposta.tipo_proposta, 'Valor oferecido:', proposta.valor_oferecido)
-
       if (proposta.tipo_proposta === 'dinheiro') {
-        const { error: erroValor } = await supabase
+        await supabase
           .from('elenco')
           .update({ valor: proposta.valor_oferecido })
           .eq('id', proposta.jogador_id)
-
-        if (erroValor) console.error('❌ Erro ao atualizar valor do jogador:', erroValor)
-        else console.log('✅ Valor do jogador atualizado para:', proposta.valor_oferecido)
       }
 
       const jogador = jogadores[proposta.jogador_id]
@@ -128,17 +132,19 @@ export default function PropostasRecebidasPage() {
         mensagem: `Sua proposta pelo jogador ${jogador?.nome || 'Desconhecido'} foi aceita.`,
       })
 
+      await supabase.from('bid').insert({
+        tipo_evento: 'transferencia',
+        descricao: `O ${vendedor.nome} vendeu ${jogador?.nome || 'Jogador'} para o ${comprador.nome} por R$ ${proposta.valor_oferecido.toLocaleString('pt-BR')}.`,
+        id_time1: proposta.id_time_alvo,
+        id_time2: proposta.id_time_origem,
+        valor: proposta.valor_oferecido,
+        data_evento: new Date().toISOString(),
+      })
+
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
-
-      alert(
-        `✅ Proposta aceita!\n` +
-        `💰 Comprador: saldo era R$ ${saldoCompradorAntes.toLocaleString('pt-BR')} ➔ agora R$ ${saldoCompradorDepois.toLocaleString('pt-BR')}\n` +
-        `💰 Vendedor: saldo era R$ ${saldoVendedorAntes.toLocaleString('pt-BR')} ➔ agora R$ ${saldoVendedorDepois.toLocaleString('pt-BR')}`
-      )
     } catch (err) {
       console.error('❌ Erro ao aceitar proposta:', err)
-      alert('❌ Erro ao aceitar proposta.')
     }
   }
 
@@ -154,6 +160,29 @@ export default function PropostasRecebidasPage() {
         titulo: '❌ Proposta recusada',
         mensagem: `Sua proposta pelo jogador ${jogador?.nome || 'Desconhecido'} foi recusada.`,
       })
+
+      const { data: vendedor } = await supabase
+        .from('times')
+        .select('nome')
+        .eq('id', recusada.id_time_alvo)
+        .single()
+
+      const { data: comprador } = await supabase
+        .from('times')
+        .select('nome')
+        .eq('id', recusada.id_time_origem)
+        .single()
+
+      if (vendedor && comprador) {
+        await supabase.from('bid').insert({
+          tipo_evento: 'proposta_recusada',
+          descricao: `O ${vendedor.nome} recusou a proposta do ${comprador.nome} pelo jogador ${jogador?.nome || 'Jogador'}.`,
+          id_time1: recusada.id_time_alvo,
+          id_time2: recusada.id_time_origem,
+          valor: recusada.valor_oferecido,
+          data_evento: new Date().toISOString(),
+        })
+      }
 
       setPendentes((prev) => prev.filter((p) => p.id !== id))
       setConcluidas((prev) => [{ ...recusada, status: 'recusada' }, ...prev].slice(0, 5))
@@ -192,7 +221,9 @@ export default function PropostasRecebidasPage() {
           <div className="text-xs mt-1 text-center">
             🧩 Jogadores Oferecidos:
             <br />
-            {p.jogadores_oferecidos.join(', ')}
+            {p.jogadores_oferecidos
+              .map((id: string) => jogadoresOferecidosData[id] || id)
+              .join(', ')}
           </div>
         )}
 
