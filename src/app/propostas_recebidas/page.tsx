@@ -124,6 +124,15 @@ export default function PropostasRecebidasPage() {
           .eq('id', proposta.jogador_id)
       }
 
+      if (['troca_simples', 'troca_composta'].includes(proposta.tipo_proposta)) {
+        for (const idJogador of proposta.jogadores_oferecidos) {
+          await supabase
+            .from('elenco')
+            .update({ id_time: proposta.id_time_alvo })
+            .eq('id', idJogador)
+        }
+      }
+
       const jogador = jogadores[proposta.jogador_id]
 
       await supabase.from('notificacoes').insert({
