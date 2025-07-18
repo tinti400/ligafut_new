@@ -16,11 +16,13 @@ export default function ChatFlutuante() {
 
   useEffect(() => {
     const buscarChat = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('chat')
         .select('*')
         .order('data_envio', { ascending: true })
         .limit(50)
+
+      if (error) console.log('Erro buscar chat:', error)
       if (data) setChat(data)
     }
 
@@ -40,12 +42,23 @@ export default function ChatFlutuante() {
 
   const enviarMensagem = async () => {
     if (!novaMensagem.trim()) return
+
     const user = JSON.parse(localStorage.getItem('user') || '{}')
-    await supabase.from('chat').insert({
-      usuario: user.nome_time || 'Anônimo',
+    if (!user?.id_time || !user?.nome_time) {
+      console.log('Usuário inválido — mensagem não enviada.')
+      return
+    }
+
+    const { error } = await supabase.from('chat').insert({
+      usuario: user.nome_time,
       mensagem: novaMensagem
     })
-    setNovaMensagem('')
+
+    if (error) {
+      console.log('Erro ao enviar mensagem:', error)
+    } else {
+      setNovaMensagem('')
+    }
   }
 
   useEffect(() => {
@@ -63,17 +76,18 @@ export default function ChatFlutuante() {
     }
 
     registrarOnline()
-
     const interval = setInterval(registrarOnline, 60000)
     return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
     const buscarOnline = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('online_users')
         .select('*')
         .gte('ultima_atividade', new Date(Date.now() - 2 * 60 * 1000))
+
+      if (error) console.log('Erro buscar online:', error)
       if (data) setUsuariosOnline(data)
     }
 
@@ -136,3 +150,4 @@ export default function ChatFlutuante() {
     </div>
   )
 }
+
