@@ -59,7 +59,7 @@ export default function ChatFlutuante() {
           id_time: user.id_time,
           usuario: user.nome_time,
           ultima_atividade: new Date()
-        }, { onConflict: ['id_time'] })
+        }, { onConflict: 'id_time' }) // ✅ Correção aqui!
     }
 
     registrarOnline()
