@@ -9,107 +9,26 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// 🌎 Bandeiras por continente (ISO Codes)
 const bandeiras: Record<string, string> = {
-  // América do Sul
-  Argentina: 'ar',
-  Bolívia: 'bo',
-  Brasil: 'br',
-  Chile: 'cl',
-  Colômbia: 'co',
-  Equador: 'ec',
-  Guiana: 'gy',
-  Paraguai: 'py',
-  Peru: 'pe',
-  Suriname: 'sr',
-  Uruguai: 'uy',
-  Venezuela: 've',
-
-  // América do Norte / Central
-  México: 'mx',
-  Canadá: 'ca',
-  Estados_Unidos: 'us',
-  Estados_Unidos_da_América: 'us',
-  Guatemala: 'gt',
-  Honduras: 'hn',
-  El_Salvador: 'sv',
-  Nicarágua: 'ni',
-  Costa_Rica: 'cr',
-  Panamá: 'pa',
-  Cuba: 'cu',
-  República_Dominicana: 'do',
-  Jamaica: 'jm',
-  Haiti: 'ht',
-
-  // Europa (principais + membros UEFA)
-  Alemanha: 'de',
-  França: 'fr',
-  Itália: 'it',
-  Espanha: 'es',
-  Inglaterra: 'gb',
-  Portugal: 'pt',
-  Bélgica: 'be',
-  Países_Baixos: 'nl',
-  Holanda: 'nl',
-  Suíça: 'ch',
-  Áustria: 'at',
-  Dinamarca: 'dk',
-  Suécia: 'se',
-  Noruega: 'no',
-  Finlândia: 'fi',
-  Islândia: 'is',
-  Croácia: 'hr',
-  Polônia: 'pl',
-  República_Tcheca: 'cz',
-  Hungria: 'hu',
-  Rússia: 'ru',
-  Escócia: 'gb-sct',
-  Irlanda: 'ie',
-  Sérvia: 'rs',
-  Eslovênia: 'si',
-  Eslováquia: 'sk',
-  Romênia: 'ro',
-  Ucrânia: 'ua',
-  Grécia: 'gr',
-  Turquia: 'tr',
-  Geórgia: 'ge',
-  Armênia: 'am',
-  Azerbaijão: 'az',
-  Bulgária: 'bg',
-
-  // África
-  África_do_Sul: 'za',
-  Argélia: 'dz',
-  Angola: 'ao',
-  Camarões: 'cm',
-  Costa_do_Marfim: 'ci',
-  Egito: 'eg',
-  Gana: 'gh',
-  Marrocos: 'ma',
-  Nigéria: 'ng',
-  Senegal: 'sn',
-  Tunísia: 'tn',
-  Moçambique: 'mz',
-  República_Democrática_do_Congo: 'cd',
-
-  // Ásia
-  Japão: 'jp',
-  China: 'cn',
-  Coreia_do_Sul: 'kr',
-  Irã: 'ir',
-  Iraque: 'iq',
-  Arábia_Saudita: 'sa',
-  Catar: 'qa',
-  Emirados_Árabes_Unidos: 'ae',
-  Índia: 'in',
-  Indonésia: 'id',
-  Austrália: 'au',
-  Nova_Zelândia: 'nz',
-  Uzbequistão: 'uz',
-  Cazaquistão: 'kz',
-
-  // Extra: Oceania (caso use)
-  Nova_Caledônia: 'nc',
+  Argentina: 'ar', Bolívia: 'bo', Brasil: 'br', Chile: 'cl', Colômbia: 'co',
+  Equador: 'ec', Guiana: 'gy', Paraguai: 'py', Peru: 'pe', Suriname: 'sr',
+  Uruguai: 'uy', Venezuela: 've', México: 'mx', Canadá: 'ca', Estados_Unidos: 'us',
+  Guatemala: 'gt', Honduras: 'hn', El_Salvador: 'sv', Nicarágua: 'ni',
+  Costa_Rica: 'cr', Panamá: 'pa', Cuba: 'cu', República_Dominicana: 'do',
+  Jamaica: 'jm', Haiti: 'ht', Alemanha: 'de', França: 'fr', Itália: 'it',
+  Espanha: 'es', Inglaterra: 'gb', Portugal: 'pt', Bélgica: 'be',
+  Países_Baixos: 'nl', Suíça: 'ch', Áustria: 'at', Dinamarca: 'dk', Suécia: 'se',
+  Noruega: 'no', Finlândia: 'fi', Islândia: 'is', Croácia: 'hr', Polônia: 'pl',
+  República_Tcheca: 'cz', Hungria: 'hu', Rússia: 'ru', Escócia: 'gb-sct',
+  Irlanda: 'ie', Sérvia: 'rs', Eslovênia: 'si', Eslováquia: 'sk', Romênia: 'ro',
+  Ucrânia: 'ua', Grécia: 'gr', Turquia: 'tr', Geórgia: 'ge', Armênia: 'am',
+  Azerbaijão: 'az', Bulgária: 'bg', África_do_Sul: 'za', Argélia: 'dz',
+  Angola: 'ao', Camarões: 'cm', Costa_do_Marfim: 'ci', Egito: 'eg', Gana: 'gh',
+  Marrocos: 'ma', Nigéria: 'ng', Senegal: 'sn', Tunísia: 'tn', Moçambique: 'mz',
+  República_Democrática_do_Congo: 'cd', Japão: 'jp', China: 'cn', Coreia_do_Sul: 'kr',
+  Irã: 'ir', Iraque: 'iq', Arábia_Saudita: 'sa', Catar: 'qa',
+  Emirados_Árabes_Unidos: 'ae', Índia: 'in', Indonésia: 'id', Austrália: 'au',
+  Nova_Zelândia: 'nz', Uzbequistão: 'uz', Cazaquistão: 'kz', Nova_Caledônia: 'nc',
   Taiti: 'pf',
 }
 
@@ -143,6 +62,15 @@ export default function ElencoPage() {
       setElenco(elencoData || [])
       setSaldo(timeData?.saldo || 0)
       setNomeTime(timeData?.nome || '')
+
+      // 🔥 Atualiza localStorage para Sidebar
+      localStorage.setItem('saldo', (timeData?.saldo || 0).toString())
+
+      const totalSalariosElenco = (elencoData || []).reduce(
+        (total, j) => total + (j.salario || 0), 0
+      )
+      localStorage.setItem('total_salarios', totalSalariosElenco.toString())
+
     } catch (error) {
       alert('Erro inesperado: ' + error)
     } finally {
