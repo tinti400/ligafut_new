@@ -18,11 +18,6 @@ interface EventoBID {
   data_evento: string
 }
 
-interface Time {
-  id: string
-  nome: string
-}
-
 export default function BIDPage() {
   const [eventos, setEventos] = useState<EventoBID[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, string>>({})
@@ -36,9 +31,7 @@ export default function BIDPage() {
   async function carregarDados() {
     setLoading(true)
     setErro(null)
-
     try {
-      // Buscar eventos do BID
       const { data: eventosData, error: errorEventos } = await supabase
         .from('bid')
         .select('*')
@@ -47,23 +40,18 @@ export default function BIDPage() {
 
       if (errorEventos) throw errorEventos
 
-      // Buscar todos os times para mapear id -> nome
       const { data: timesData, error: errorTimes } = await supabase
         .from('times')
         .select('id, nome')
 
       if (errorTimes) throw errorTimes
 
-      // Criar mapa id_time => nome_time
       const map: Record<string, string> = {}
-      timesData?.forEach((t) => {
-        map[t.id] = t.nome
-      })
+      timesData?.forEach((t) => (map[t.id] = t.nome))
 
       setEventos(eventosData || [])
       setTimesMap(map)
     } catch (err: any) {
-      console.error('Erro ao carregar dados do BID:', err)
       setErro('Erro ao carregar os eventos.')
       setEventos([])
     } finally {
@@ -71,88 +59,67 @@ export default function BIDPage() {
     }
   }
 
-  // Capitaliza a primeira letra da string
   function capitalizar(str: string) {
-    if (!str) return ''
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
+    return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : ''
   }
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-green-400">📰 Boletim Informativo Diário (BID)</h1>
+      <div className="max-w-3xl mx-auto">
+        <h1 className="text-4xl font-bold mb-8 text-center text-green-400">
+          📰 BID — Boletim Informativo Diário
+        </h1>
 
         {loading && (
-          <p className="text-gray-400 flex items-center gap-2">
-            <svg
-              className="animate-spin h-5 w-5 text-gray-400"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              ></circle>
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v8z"
-              ></path>
+          <p className="text-gray-400 flex items-center gap-2 justify-center">
+            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
             </svg>
             ⏳ Carregando eventos...
           </p>
         )}
 
-        {erro && <p className="text-red-500">{erro}</p>}
+        {erro && <p className="text-red-500 text-center">{erro}</p>}
 
         {!loading && eventos.length === 0 && (
-          <p className="text-gray-400 italic">Nenhum evento encontrado no BID.</p>
+          <p className="text-gray-400 italic text-center">Nenhum evento encontrado no BID.</p>
         )}
 
-        <ul className="space-y-4">
+        <div className="space-y-4">
           {eventos.map((evento) => {
             const nomeTime1 = timesMap[evento.id_time1] || 'Time Desconhecido'
-            const nomeTime2 = evento.id_time2 ? (timesMap[evento.id_time2] || 'Time Desconhecido') : null
+            const nomeTime2 = evento.id_time2 ? timesMap[evento.id_time2] || 'Time Desconhecido' : null
 
             return (
-              <li
+              <div
                 key={evento.id}
-                className="bg-gray-800 rounded p-4 shadow hover:bg-gray-700 transition"
+                className="bg-gray-800 rounded-xl p-4 shadow hover:bg-gray-700 transition border border-gray-700"
               >
-                <p className="font-semibold text-lg capitalize">{capitalizar(evento.tipo_evento)}</p>
-                <p className="mt-1">{evento.descricao}</p>
+                <div className="flex justify-between items-center">
+                  <p className="font-bold text-lg capitalize text-green-400">{capitalizar(evento.tipo_evento)}</p>
+                  <span className="text-xs text-gray-400">
+                    📅 {new Date(evento.data_evento).toLocaleDateString('pt-BR')} —{' '}
+                    {new Date(evento.data_evento).toLocaleTimeString('pt-BR')}
+                  </span>
+                </div>
 
-                {nomeTime1 && (
-                  <p className="mt-1 text-sm text-gray-300">
-                    🟢 Time principal: <strong>{nomeTime1}</strong>
-                  </p>
-                )}
-                {nomeTime2 && (
-                  <p className="mt-1 text-sm text-gray-300">
-                    🔴 Time adversário: <strong>{nomeTime2}</strong>
-                  </p>
-                )}
+                <p className="mt-2 text-gray-100">{evento.descricao}</p>
 
-                {evento.valor !== null && evento.valor !== undefined && (
-                  <p className="mt-1 text-yellow-400 font-mono">
-                    💰 {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </p>
-                )}
-
-                <p className="mt-2 text-xs text-gray-400">
-                  📅 {new Date(evento.data_evento).toLocaleString('pt-BR')}
-                </p>
-              </li>
+                <div className="mt-3 text-sm text-gray-300 space-y-1">
+                  <p>🟢 Time principal: <strong>{nomeTime1}</strong></p>
+                  {nomeTime2 && <p>🔴 Time adversário: <strong>{nomeTime2}</strong></p>}
+                  {evento.valor !== null && evento.valor !== undefined && (
+                    <p className="text-yellow-400 font-semibold">
+                      💰 {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </p>
+                  )}
+                </div>
+              </div>
             )
           })}
-        </ul>
+        </div>
       </div>
     </main>
   )
 }
-
