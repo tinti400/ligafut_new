@@ -99,14 +99,18 @@ export default function Sidebar() {
             </Link>
           )}
 
+          <Link href="/" className="block hover:text-green-400">
+            🏠 {isOpen && 'Home'}
+          </Link>
+
           <Link href="/classificacao" className="block hover:text-green-400">
             🏆 {isOpen && 'Classificação'}
           </Link>
+
           <Link href="/jogos" className="block hover:text-green-400">
             📅 {isOpen && 'Jogos'}
           </Link>
 
-          {/* Elenco */}
           <div>
             <button
               onClick={() => setAbrirElenco(!abrirElenco)}
@@ -133,7 +137,6 @@ export default function Sidebar() {
             )}
           </div>
 
-          {/* Leilão */}
           <div>
             <button
               onClick={() => setAbrirLeilao(!abrirLeilao)}
@@ -151,7 +154,6 @@ export default function Sidebar() {
             )}
           </div>
 
-          {/* Admin */}
           <div>
             <button
               onClick={() => setAbrirAdmin(!abrirAdmin)}
@@ -179,9 +181,11 @@ export default function Sidebar() {
           <Link href="/mercado" className="block hover:text-green-400">
             💸 {isOpen && 'Mercado'}
           </Link>
+
           <Link href="/estadio" className="block hover:text-green-400">
             🏟️ {isOpen && 'Estádio'}
           </Link>
+
           <Link href="/banco" className="block hover:text-green-400">
             🏦 {isOpen && 'Banco'}
           </Link>
