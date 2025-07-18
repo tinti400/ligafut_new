@@ -59,13 +59,12 @@ export default function ChatFlutuante() {
           id_time: user.id_time,
           usuario: user.nome_time,
           ultima_atividade: new Date()
-        }, { onConflict: 'id_time' }) // ✅ Correção aqui!
+        }, { onConflict: 'id_time' })
     }
 
     registrarOnline()
 
-    const interval = setInterval(registrarOnline, 60000) // Atualiza a cada 60s
-
+    const interval = setInterval(registrarOnline, 60000)
     return () => clearInterval(interval)
   }, [])
 
@@ -79,44 +78,47 @@ export default function ChatFlutuante() {
     }
 
     buscarOnline()
-    const interval = setInterval(buscarOnline, 10000) // Atualiza a cada 10s
-
+    const interval = setInterval(buscarOnline, 10000)
     return () => clearInterval(interval)
   }, [])
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className="fixed bottom-4 right-4 z-50 text-white">
       {abrirChat ? (
-        <div className="bg-gray-900 border border-green-500 rounded-lg w-80 shadow-lg">
-          <div className="bg-green-600 text-white flex justify-between items-center p-2 rounded-t-lg">
+        <div className="bg-gray-800 border border-green-500 rounded-lg w-80 shadow-xl">
+          <div className="bg-green-700 text-white flex justify-between items-center p-2 rounded-t-lg font-semibold">
             <span>💬 Chat da Liga</span>
-            <button onClick={() => setAbrirChat(false)}>❌</button>
+            <button onClick={() => setAbrirChat(false)} className="hover:text-red-400">❌</button>
           </div>
 
-          <div className="text-white text-xs p-1">
-            <strong>🟢 Online:</strong> {usuariosOnline.map(u => (
-              <span key={u.id_time} className="ml-1">🟢 {u.usuario}</span>
-            ))}
+          <div className="text-xs p-2 border-b border-gray-600 bg-gray-900">
+            <strong>🟢 Online:</strong> {usuariosOnline.length > 0 ? usuariosOnline.map(u => (
+              <span key={u.id_time} className="ml-1 text-green-400">{u.usuario}</span>
+            )) : <span className="text-gray-400 ml-1">Nenhum</span>}
           </div>
 
-          <div className="h-64 overflow-y-auto p-2 text-white bg-gray-800 text-sm">
-            {chat.map((msg, idx) => (
-              <p key={idx}><strong>{msg.usuario}:</strong> {msg.mensagem}</p>
-            ))}
+          <div className="h-64 overflow-y-auto p-2 text-sm bg-gray-900">
+            {chat.length > 0 ? chat.map((msg, idx) => (
+              <p key={idx}>
+                <strong className="text-green-400">{msg.usuario}:</strong> {msg.mensagem}
+              </p>
+            )) : (
+              <p className="text-gray-400 text-center mt-8">Nenhuma mensagem no chat.</p>
+            )}
           </div>
 
-          <div className="flex border-t border-gray-700">
+          <div className="flex border-t border-gray-700 bg-gray-800">
             <input
               type="text"
               value={novaMensagem}
               onChange={(e) => setNovaMensagem(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && enviarMensagem()}
-              placeholder="Digite..."
+              placeholder="Digite sua mensagem..."
               className="flex-1 p-2 text-black text-sm"
             />
             <button
               onClick={enviarMensagem}
-              className="bg-green-600 text-white px-3 text-sm"
+              className="bg-green-600 hover:bg-green-700 text-white px-3 text-sm"
             >
               ➤
             </button>
@@ -126,6 +128,7 @@ export default function ChatFlutuante() {
         <button
           onClick={() => setAbrirChat(true)}
           className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-full shadow-lg"
+          title="Abrir Chat"
         >
           💬
         </button>
