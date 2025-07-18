@@ -13,13 +13,16 @@ export default function Sidebar() {
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
   const [saldoTime, setSaldoTime] = useState('0')
+  const [totalSalarios, setTotalSalarios] = useState('0')
 
   useEffect(() => {
     const usuarioId = localStorage.getItem('usuario_id')
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
     const saldo = localStorage.getItem('saldo') || '0'
+    const salarios = localStorage.getItem('total_salarios') || '0'
 
     setSaldoTime(saldo)
+    setTotalSalarios(salarios)
 
     if (usuarioId || userStr) {
       setLogado(true)
@@ -74,8 +77,14 @@ export default function Sidebar() {
         )}
 
         {isOpen && logado && (
-          <div className="mb-6 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
+          <div className="mb-2 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
             💰 Saldo: <span className="text-green-400">R$ {parseInt(saldoTime).toLocaleString('pt-BR')}</span>
+          </div>
+        )}
+
+        {isOpen && logado && (
+          <div className="mb-6 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
+            🧩 Salários: <span className="text-yellow-400">R$ {parseInt(totalSalarios).toLocaleString('pt-BR')}</span>
           </div>
         )}
 
