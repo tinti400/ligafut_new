@@ -84,11 +84,16 @@ export default function ElencoPage() {
 
   const venderJogador = async (jogador: any) => {
     try {
-      const { data: config } = await supabase
+      const { data: config, error: errorConfig } = await supabase
         .from('configuracoes')
         .select('aberto')
         .eq('text', 'estado_mercado')
         .single()
+
+      if (errorConfig) {
+        alert('❌ Erro ao verificar o status do mercado.')
+        return
+      }
 
       if (!config?.aberto) {
         exibirMensagem('🚫 O mercado de transferências está fechado. Não é possível vender jogadores agora.', '#ff4d4f')
@@ -216,7 +221,17 @@ export default function ElencoPage() {
             <div key={jogador.id} className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700">
               <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={80} height={80} className="rounded-full mb-2 mx-auto" />
               <h2 className="text-lg font-bold">{jogador.nome}</h2>
-              <p className="text-gray-300 text-sm">{jogador.posicao} • Overall {jogador.overall}</p>
+              <p className="text-gray-300 text-sm">{jogador.posicao} • Overall {jogador.overall ?? 'N/A'}</p>
+
+              {jogador.nacionalidade && (
+                <div className="flex items-center justify-center gap-2 mt-1 mb-1">
+                  {getFlagUrl(jogador.nacionalidade) && (
+                    <img src={getFlagUrl(jogador.nacionalidade)} alt={jogador.nacionalidade} width={24} height={16} className="inline-block rounded-sm" />
+                  )}
+                  <span className="text-xs text-gray-300">{jogador.nacionalidade}</span>
+                </div>
+              )}
+
               <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
