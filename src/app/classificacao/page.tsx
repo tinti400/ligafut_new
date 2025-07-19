@@ -27,19 +27,32 @@ export default function ClassificacaoPage() {
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
   const { isAdmin, loading } = useAdmin()
 
-  useEffect(() => {
-    const fetchDados = async () => {
-      try {
-        const res = await fetch('/api/classificacao')
-        if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
-        const data = await res.json()
-        setClassificacao(data)
-      } catch (err: any) {
-        setErro(`Erro ao buscar dados: ${err.message}`)
-      }
+  const fetchDados = async () => {
+    try {
+      const res = await fetch('/api/classificacao')
+      if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
+      const data = await res.json()
+      setClassificacao(data)
+    } catch (err: any) {
+      setErro(`Erro ao buscar dados: ${err.message}`)
     }
+  }
+
+  useEffect(() => {
     fetchDados()
   }, [])
+
+  const iniciarNovaTemporada = async () => {
+    if (!confirm('⚠️ Tem certeza que deseja iniciar a nova temporada?')) return
+    const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
+    if (res.ok) {
+      alert('✅ Temporada iniciada com sucesso!')
+      fetchDados()
+    } else {
+      const data = await res.json()
+      alert(`❌ Erro ao iniciar temporada: ${data.erro || 'Erro desconhecido'}`)
+    }
+  }
 
   const classificacaoPorDivisao: { [key: number]: ClassificacaoItem[] } = {}
   classificacao.forEach((item) => {
@@ -69,6 +82,17 @@ export default function ClassificacaoPage() {
   return (
     <div className="max-w-6xl mx-auto mt-10 px-4 text-white">
       <h1 className="text-3xl font-bold mb-6">🏆 Classificação</h1>
+
+      {isAdmin && (
+        <div className="mb-4">
+          <button
+            onClick={iniciarNovaTemporada}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+          >
+            🚀 Iniciar Nova Temporada
+          </button>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-wrap gap-3">
         {divisoesDisponiveis.map((div) => (

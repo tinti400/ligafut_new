@@ -7,16 +7,19 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url)
+    const temporada = parseInt(searchParams.get('temporada') || '1', 10)
+
     const { data, error } = await supabase
       .from("classificacao_com_nome")
       .select("*")
-      .eq("temporada", 1);
+      .eq("temporada", temporada)
 
     if (error) {
-      console.error("Erro ao buscar classificação:", error);
-      return NextResponse.json({ erro: error.message }, { status: 500 });
+      console.error("Erro ao buscar classificação:", error)
+      return NextResponse.json({ erro: error.message }, { status: 500 })
     }
 
     const formatado = (data || []).map((item: any) => ({
@@ -33,11 +36,11 @@ export async function GET() {
         nome: item.nome_time,
         logo_url: item.logo_url || "/logo_padrao.png",
       },
-    }));
+    }))
 
-    return NextResponse.json(formatado);
+    return NextResponse.json(formatado)
   } catch (err: any) {
-    console.error("Erro inesperado:", err);
-    return NextResponse.json({ erro: err.message }, { status: 500 });
+    console.error("Erro inesperado:", err)
+    return NextResponse.json({ erro: err.message }, { status: 500 })
   }
 }

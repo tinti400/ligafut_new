@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-import { useAdmin } from "@/hooks/useAdmin";
+import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { useAdmin } from '@/hooks/useAdmin';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,7 +36,7 @@ export default function Jogos() {
   const [timesMap, setTimesMap] = useState<Record<string, Time>>({});
   const [temporada, setTemporada] = useState(1);
   const [divisao, setDivisao] = useState(1);
-  const [timeSelecionado, setTimeSelecionado] = useState<string>("");
+  const [timeSelecionado, setTimeSelecionado] = useState<string>('');
 
   const [editandoRodada, setEditandoRodada] = useState<string | null>(null);
   const [editandoIndex, setEditandoIndex] = useState<number | null>(null);
@@ -46,30 +46,30 @@ export default function Jogos() {
   const temporadasDisponiveis = [1, 2];
   const divisoesDisponiveis = [1, 2, 3];
 
-  useEffect(() => {
-    async function carregarDados() {
-      const { data: times } = await supabase.from("times").select("id, nome, logo_url");
-      const map: Record<string, Time> = {};
-      times?.forEach((t) => {
-        map[t.id] = { ...t, logo_url: t.logo_url || "" };
-      });
-      setTimesMap(map);
+  const carregarDados = async () => {
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url');
+    const map: Record<string, Time> = {};
+    times?.forEach((t) => {
+      map[t.id] = { ...t, logo_url: t.logo_url || '' };
+    });
+    setTimesMap(map);
 
-      const { data: rodadas, error } = await supabase
-        .from("rodadas")
-        .select("*")
-        .eq("temporada", temporada)
-        .eq("divisao", divisao)
-        .order("numero", { ascending: true });
+    const { data: rodadasData, error } = await supabase
+      .from('rodadas')
+      .select('*')
+      .eq('temporada', temporada)
+      .eq('divisao', divisao)
+      .order('numero', { ascending: true });
 
-      if (error) {
-        console.error("Erro ao buscar rodadas:", error.message);
-        return;
-      }
-
-      setRodadas(rodadas as Rodada[]);
+    if (error) {
+      console.error('Erro ao buscar rodadas:', error.message);
+      return;
     }
 
+    setRodadas(rodadasData as Rodada[]);
+  };
+
+  useEffect(() => {
     carregarDados();
   }, [temporada, divisao]);
 
@@ -86,14 +86,16 @@ export default function Jogos() {
       gols_visitante: golsVisitante,
     };
 
-    await supabase
-      .from("rodadas")
-      .update({ jogos: novaLista })
-      .eq("id", rodada.id);
+    const { error } = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id);
 
-    setEditandoRodada(null);
-    setEditandoIndex(null);
-    window.location.reload();
+    if (error) {
+      alert('Erro ao salvar resultado!');
+      console.error(error);
+    } else {
+      await carregarDados();
+      setEditandoRodada(null);
+      setEditandoIndex(null);
+    }
   };
 
   const filtrarRodadas = () => {
@@ -102,9 +104,7 @@ export default function Jogos() {
       .map((rodada) => ({
         ...rodada,
         jogos: rodada.jogos.filter(
-          (jogo) =>
-            jogo.mandante === timeSelecionado ||
-            jogo.visitante === timeSelecionado
+          (jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado
         ),
       }))
       .filter((rodada) => rodada.jogos.length > 0);
@@ -116,7 +116,7 @@ export default function Jogos() {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold mb-4">📅 Jogos da LigaFut</h1>
+      <h1 className="text-3xl font-bold mb-4 text-white">📅 Jogos da LigaFut</h1>
 
       <div className="flex flex-wrap gap-2 mb-4">
         {temporadasDisponiveis.map((temp) => (
@@ -124,7 +124,7 @@ export default function Jogos() {
             key={temp}
             onClick={() => setTemporada(temp)}
             className={`px-4 py-2 rounded-lg font-semibold ${
-              temporada === temp ? "bg-green-600 text-white" : "bg-zinc-700 text-gray-300"
+              temporada === temp ? 'bg-green-600 text-white' : 'bg-zinc-700 text-gray-300'
             }`}
           >
             Temporada {temp}
@@ -138,7 +138,7 @@ export default function Jogos() {
             key={div}
             onClick={() => setDivisao(div)}
             className={`px-4 py-2 rounded-lg font-semibold ${
-              divisao === div ? "bg-blue-600 text-white" : "bg-zinc-700 text-gray-300"
+              divisao === div ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-gray-300'
             }`}
           >
             Divisão {div}
@@ -173,12 +173,15 @@ export default function Jogos() {
               const estaEditando = editandoRodada === rodada.id && editandoIndex === index;
 
               return (
-                <div key={index} className="flex items-center justify-between bg-zinc-700 text-white px-4 py-2 rounded-lg">
+                <div
+                  key={index}
+                  className="flex items-center justify-between bg-zinc-700 text-white px-4 py-2 rounded-lg"
+                >
                   <div className="flex items-center w-1/3 justify-end gap-2">
                     {mandante?.logo_url && (
                       <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
                     )}
-                    <span className="font-medium text-right">{mandante?.nome || "???"}</span>
+                    <span className="font-medium text-right">{mandante?.nome || '???'}</span>
                   </div>
 
                   <div className="w-1/3 text-center text-zinc-300 font-bold">
@@ -201,12 +204,12 @@ export default function Jogos() {
                     ) : placarDisponivel ? (
                       `${jogo.gols_mandante} x ${jogo.gols_visitante}`
                     ) : (
-                      "🆚"
+                      '🆚'
                     )}
                   </div>
 
                   <div className="flex items-center w-1/3 justify-start gap-2">
-                    <span className="font-medium text-left">{visitante?.nome || "???"}</span>
+                    <span className="font-medium text-left">{visitante?.nome || '???'}</span>
                     {visitante?.logo_url && (
                       <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
                     )}
