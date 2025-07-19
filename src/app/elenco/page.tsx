@@ -119,6 +119,31 @@ export default function ElencoPage() {
         return
       }
 
+      if ((jogador.jogos || 0) < 3) {
+        const div = document.createElement('div')
+        div.innerHTML = `
+          <div style="
+            background-color: #ff9800;
+            color: white;
+            padding: 16px;
+            border-radius: 8px;
+            font-weight: bold;
+            text-align: center;
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          ">
+            🚫 Este jogador tem menos de 3 jogos e não pode ser vendido.
+          </div>
+        `
+        document.body.appendChild(div)
+        setTimeout(() => div.remove(), 3000)
+        return
+      }
+
       const confirmar = confirm(
         `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
       )
@@ -236,4 +261,3 @@ export default function ElencoPage() {
     </div>
   )
 }
-
