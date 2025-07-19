@@ -10,7 +10,6 @@ import {
   calcularPublicoSetor,
   calcularMelhoriaEstadio
 } from '@/utils/estadioUtils'
-import Estadio3D from '@/components/Estadio3D'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -122,9 +121,23 @@ export default function EstadioPage() {
         </p>
       </div>
 
-      {/* Estádio 3D */}
-      <div className="mb-4">
-        <Estadio3D capacidade={estadio.capacidade} publico={publicoTotal} />
+      {/* Visualização Simples de Lotação */}
+      <div className="bg-gray-800 rounded p-4 text-center mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2">🏟️ Visualização da Lotação</h2>
+        <div className="grid grid-cols-10 gap-1 justify-center">
+          {[...Array(100)].map((_, idx) => {
+            const ocupado = idx < Math.round((publicoTotal / estadio.capacidade) * 100)
+            return (
+              <div
+                key={idx}
+                className={`w-4 h-4 rounded ${ocupado ? 'bg-red-500' : 'bg-gray-500'}`}
+              ></div>
+            )
+          })}
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          {publicoTotal.toLocaleString()} / {estadio.capacidade.toLocaleString()} lugares ocupados
+        </p>
       </div>
 
       <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
