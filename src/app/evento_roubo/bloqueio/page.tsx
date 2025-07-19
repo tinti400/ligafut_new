@@ -90,9 +90,17 @@ export default function BloqueioPage() {
     j => !bloqueados.some(b => b.nome === j.nome)
   )
 
+  const toggleSelecionado = (nome: string) => {
+    if (selecionados.includes(nome)) {
+      setSelecionados(selecionados.filter(n => n !== nome))
+    } else if (selecionados.length + bloqueados.length < limiteBloqueios) {
+      setSelecionados([...selecionados, nome])
+    }
+  }
+
   return (
-    <div className="p-6 text-white max-w-xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">🛡️ Bloqueio de Jogadores</h1>
+    <div className="p-6 text-white max-w-2xl mx-auto">
+      <h1 className="text-3xl font-bold mb-4 text-center">🛡️ Bloqueio de Jogadores</h1>
 
       {!idTime ? (
         <p className="text-center text-red-400">⚠️ ID do time não encontrado. Faça login novamente.</p>
@@ -100,22 +108,24 @@ export default function BloqueioPage() {
         <p className="text-center">Carregando...</p>
       ) : (
         <>
-          <div className="mb-4">
-            <p className="mb-2 text-center">
+          <div className="mb-4 text-center">
+            <p className="mb-2">
               Você pode bloquear até <strong>{limiteBloqueios}</strong> jogadores.
             </p>
 
             {bloqueados.length > 0 ? (
-              <div className="bg-gray-800 p-2 rounded mb-2">
-                <p className="font-semibold mb-1 text-center">🔒 Jogadores já bloqueados:</p>
-                <ul className="list-disc ml-6 text-white">
+              <div className="bg-gray-800 p-3 rounded mb-2">
+                <p className="font-semibold mb-2 text-green-400">🔒 Já bloqueados:</p>
+                <ul className="flex flex-wrap gap-2 justify-center">
                   {bloqueados.map((j, idx) => (
-                    <li key={idx}>{j.nome} ({j.posicao})</li>
+                    <li key={idx} className="bg-green-700 px-2 py-1 rounded text-xs">
+                      {j.nome} ({j.posicao})
+                    </li>
                   ))}
                 </ul>
               </div>
             ) : (
-              <p className="text-center mb-2">Você ainda não bloqueou nenhum jogador.</p>
+              <p className="mb-2">Nenhum jogador bloqueado ainda.</p>
             )}
           </div>
 
@@ -125,25 +135,27 @@ export default function BloqueioPage() {
             </div>
           ) : (
             <>
-              <select
-                multiple
-                value={selecionados}
-                onChange={(e) =>
-                  setSelecionados(Array.from(e.target.selectedOptions, option => option.value))
-                }
-                className="border p-2 rounded w-full h-40 bg-gray-800 text-white mb-4"
-              >
+              <div className="grid grid-cols-2 gap-2 mb-4">
                 {jogadoresDisponiveis.map(j => (
-                  <option key={j.id} value={j.nome} className="text-white bg-gray-800">
-                    {j.nome} ({j.posicao})
-                  </option>
+                  <div
+                    key={j.id}
+                    onClick={() => toggleSelecionado(j.nome)}
+                    className={`p-2 rounded border cursor-pointer text-center ${
+                      selecionados.includes(j.nome)
+                        ? 'bg-green-600 border-green-400'
+                        : 'bg-gray-800 border-gray-600 hover:bg-gray-700'
+                    }`}
+                  >
+                    <p className="font-semibold">{j.nome}</p>
+                    <p className="text-xs text-gray-300">{j.posicao}</p>
+                  </div>
                 ))}
-              </select>
+              </div>
 
               <button
                 onClick={confirmarBloqueio}
-                disabled={selecionados.length === 0 || selecionados.length + bloqueados.length > limiteBloqueios}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded w-full"
+                disabled={selecionados.length === 0}
+                className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded font-bold"
               >
                 ✅ Confirmar Bloqueio
               </button>
@@ -154,3 +166,4 @@ export default function BloqueioPage() {
     </div>
   )
 }
+
