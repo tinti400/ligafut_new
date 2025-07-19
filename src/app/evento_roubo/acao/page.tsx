@@ -45,7 +45,7 @@ export default function AcaoRouboPage() {
 
     const canal = supabase
       .channel('evento-roubo')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'configuracoes', filter: 'id=eq.56f3af29-a4ac-4a76-aeb3-35400aa2a773' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'configuracoes', filter: 'id=eq.56f3af29-a4ac-4a76-aeb3-35400aa2a773' }, () => {
         carregarEvento()
       })
       .subscribe()
@@ -181,8 +181,9 @@ export default function AcaoRouboPage() {
         data_evento: new Date().toISOString()
       })
 
-    alert('✅ Jogador roubado com sucesso!')
-    window.location.reload()
+    setMostrarJogadores(false)
+    setJogadoresAlvo(jogadoresAlvo.filter(j => j.id !== jogador.id))
+    setBloqueioBotao(false)
   }
 
   async function finalizarEvento() {
@@ -191,7 +192,6 @@ export default function AcaoRouboPage() {
       .update({ ativo: false, fase: 'finalizado' })
       .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
     alert('✅ Evento finalizado!')
-    window.location.reload()
   }
 
   const podeRoubar = (alvoId: string) => {
@@ -223,7 +223,23 @@ export default function AcaoRouboPage() {
               >
                 🛑 Finalizar Evento
               </button>
+
+              <button
+                onClick={passarVez}
+                className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition"
+              >
+                ⏭️ Passar para Próximo Time
+              </button>
             </>
+          )}
+
+          {idTime === ordem[vez]?.id && !isAdmin && (
+            <button
+              onClick={passarVez}
+              className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition"
+            >
+              ⏭️ Encerrar Minha Vez
+            </button>
           )}
 
           {ordemSorteada ? (
@@ -280,13 +296,6 @@ export default function AcaoRouboPage() {
                   )}
                 </>
               )}
-
-              <button
-                onClick={passarVez}
-                className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition"
-              >
-                ⏭️ Passar para Próximo Time
-              </button>
 
               <div className="mt-6 bg-gray-800 p-4 rounded overflow-x-auto">
                 <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
