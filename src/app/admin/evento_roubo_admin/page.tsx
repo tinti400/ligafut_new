@@ -12,7 +12,6 @@ export default function EventoRouboAdminPage() {
   const [limiteBloqueios, setLimiteBloqueios] = useState(3)
   const [limitePerda, setLimitePerda] = useState(5)
   const [limiteRoubo, setLimiteRoubo] = useState(5)
-  const [ordem, setOrdem] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const idEvento = '56f3af29-a4ac-4a76-aeb3-35400aa2a773'
@@ -32,7 +31,6 @@ export default function EventoRouboAdminPage() {
       setLimiteBloqueios(data.limite_bloqueios || 3)
       setLimitePerda(data.limite_perda || 5)
       setLimiteRoubo(data.limite_roubo || 5)
-      setOrdem(data.ordem || [])
     }
     setLoading(false)
   }
@@ -76,63 +74,56 @@ export default function EventoRouboAdminPage() {
   }
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">⚙️ Administração do Evento de Roubo</h1>
+    <div className="p-6 bg-gray-900 text-white rounded shadow-md max-w-xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6 text-center">⚙️ Configurar Evento de Roubo</h1>
 
       {loading ? (
-        <p>Carregando configurações...</p>
+        <p className="text-center">Carregando configurações...</p>
       ) : (
-        <>
-          <div className="mb-4 space-y-2">
-            <label>🔒 Limite de Bloqueios:</label>
+        <div className="space-y-4">
+          <div>
+            <label className="block mb-1">🔒 Limite de Bloqueios</label>
             <input
               type="number"
               min={1}
               max={5}
               value={limiteBloqueios}
               onChange={(e) => setLimiteBloqueios(parseInt(e.target.value))}
-              className="border p-2 rounded w-24"
+              className="border p-2 rounded w-full text-black"
             />
+          </div>
 
-            <label>❌ Limite de Perda por Time:</label>
+          <div>
+            <label className="block mb-1">❌ Limite de Perda por Time</label>
             <input
               type="number"
               min={1}
               max={10}
               value={limitePerda}
               onChange={(e) => setLimitePerda(parseInt(e.target.value))}
-              className="border p-2 rounded w-24"
+              className="border p-2 rounded w-full text-black"
             />
+          </div>
 
-            <label>⚔️ Limite de Roubos:</label>
+          <div>
+            <label className="block mb-1">⚔️ Limite Total de Roubos</label>
             <input
               type="number"
               min={1}
               max={10}
               value={limiteRoubo}
               onChange={(e) => setLimiteRoubo(parseInt(e.target.value))}
-              className="border p-2 rounded w-24"
+              className="border p-2 rounded w-full text-black"
             />
           </div>
 
           <button
             onClick={iniciarEvento}
-            className="bg-green-600 text-white px-4 py-2 rounded mb-4"
+            className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 rounded mt-4"
           >
             ✅ Salvar e Iniciar Evento
           </button>
-
-          <h2 className="text-xl font-semibold mt-6 mb-2">📋 Ordem Atual</h2>
-          {ordem.length > 0 ? (
-            <ol className="list-decimal ml-6">
-              {ordem.map((t, idx) => (
-                <li key={idx}>{t}</li>
-              ))}
-            </ol>
-          ) : (
-            <p>Nenhuma ordem definida ainda.</p>
-          )}
-        </>
+        </div>
       )}
     </div>
   )
