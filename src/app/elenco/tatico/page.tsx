@@ -11,33 +11,21 @@ const supabase = createClient(
 
 const formacoes: Record<string, string[][]> = {
   '4-4-2': [
-    ['ATA', 'ATA'],
-    ['MEI', 'MEI', 'MEI', 'MEI'],
-    ['LAT', 'ZAG', 'ZAG', 'LAT'],
+    ['ATA1', 'ATA2'],
+    ['MEI1', 'MEI2', 'MEI3', 'MEI4'],
+    ['LAT1', 'ZAG1', 'ZAG2', 'LAT2'],
     ['GOL'],
   ],
   '4-3-3': [
-    ['ATA', 'ATA', 'ATA'],
-    ['MEI', 'MEI', 'MEI'],
-    ['LAT', 'ZAG', 'ZAG', 'LAT'],
+    ['ATA1', 'ATA2', 'ATA3'],
+    ['MEI1', 'MEI2', 'MEI3'],
+    ['LAT1', 'ZAG1', 'ZAG2', 'LAT2'],
     ['GOL'],
   ],
   '3-5-2': [
-    ['ATA', 'ATA'],
-    ['MEI', 'MEI', 'MEI', 'MEI', 'MEI'],
-    ['ZAG', 'ZAG', 'ZAG'],
-    ['GOL'],
-  ],
-  '3-4-3': [
-    ['ATA', 'ATA', 'ATA'],
-    ['MEI', 'MEI', 'MEI', 'MEI'],
-    ['ZAG', 'ZAG', 'ZAG'],
-    ['GOL'],
-  ],
-  '5-3-2': [
-    ['ATA', 'ATA'],
-    ['MEI', 'MEI', 'MEI'],
-    ['LAT', 'ZAG', 'ZAG', 'ZAG', 'LAT'],
+    ['ATA1', 'ATA2'],
+    ['MEI1', 'MEI2', 'MEI3', 'MEI4', 'MEI5'],
+    ['ZAG1', 'ZAG2', 'ZAG3'],
     ['GOL'],
   ],
 }
@@ -162,7 +150,7 @@ export default function PainelTaticoPage() {
                       />
                     ) : (
                       <Image
-                        src="/mnt/data/fccf7495-b787-4e64-a0c9-d6f2d95b86c4.png"
+                        src="/mnt/data/561798cf-0613-4808-992a-ce334bd02ac9.png"
                         alt="Sem imagem"
                         width={64}
                         height={64}
@@ -170,7 +158,9 @@ export default function PainelTaticoPage() {
                       />
                     )}
                   </div>
-                  <span className="text-xs text-white mt-1 text-center">{escala[pos]?.nome || pos}</span>
+                  <span className="text-xs text-white mt-1 text-center">
+                    {escala[pos]?.nome || pos.replace(/\d+/g, '')}
+                  </span>
                 </div>
               ))}
             </div>
