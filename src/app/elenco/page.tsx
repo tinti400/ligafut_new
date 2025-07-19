@@ -29,7 +29,9 @@ const bandeiras: Record<string, string> = {
   Irã: 'ir', Iraque: 'iq', Arábia_Saudita: 'sa', Catar: 'qa',
   Emirados_Árabes_Unidos: 'ae', Índia: 'in', Indonésia: 'id', Austrália: 'au',
   Nova_Zelândia: 'nz', Uzbequistão: 'uz', Cazaquistão: 'kz', Nova_Caledônia: 'nc',
-  Taiti: 'pf',
+  Taiti: 'pf', Filipinas: 'ph', Malásia: 'my', Tailândia: 'th', Vietnã: 'vn',
+  Singapura: 'sg', Hong_Kong: 'hk', Bangladesh: 'bd', Paquistão: 'pk', Qatar: 'qa',
+  Bahrein: 'bh', Omã: 'om', Kuwait: 'kw'
 }
 
 export default function ElencoPage() {
@@ -62,12 +64,6 @@ export default function ElencoPage() {
       setElenco(elencoData || [])
       setSaldo(timeData?.saldo || 0)
       setNomeTime(timeData?.nome || '')
-
-      localStorage.setItem('saldo', (timeData?.saldo || 0).toString())
-      const totalSalariosElenco = (elencoData || []).reduce(
-        (total, j) => total + (j.salario || 0), 0
-      )
-      localStorage.setItem('total_salarios', totalSalariosElenco.toString())
     } catch (error) {
       alert('Erro inesperado: ' + error)
     } finally {
@@ -79,35 +75,14 @@ export default function ElencoPage() {
     fetchElenco()
   }, [])
 
-  const valorTotalElenco = elenco.reduce((total, j) => total + (j.valor || 0), 0)
-  const totalSalarios = elenco.reduce((total, j) => total + (j.salario || 0), 0)
-
   const venderJogador = async (jogador: any) => {
     try {
-      const { data: config, error: errorConfig } = await supabase
-        .from('configuracoes')
-        .select('aberto')
-        .eq('text', 'estado_mercado')
-        .single()
-
-      if (errorConfig) {
-        alert('❌ Erro ao verificar o status do mercado.')
-        return
-      }
-
-      if (!config?.aberto) {
-        exibirMensagem('🚫 O mercado de transferências está fechado. Não é possível vender jogadores agora.', '#ff4d4f')
-        return
-      }
-
       if ((jogador.jogos || 0) < 3) {
-        exibirMensagem('🚫 O seu jogador não completou 3 jogos e não pode ser vendido.', '#ff9800')
+        exibirMensagem('🚫 O seu jogador não completou 3 jogos.', '#ff9800')
         return
       }
 
-      const confirmar = confirm(
-        `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
-      )
+      const confirmar = confirm(`💸 Deseja vender ${jogador.nome} por R$ ${jogador.valor.toLocaleString()}?`)
       if (!confirmar) return
 
       await supabase.from('mercado_transferencias').insert({
@@ -129,16 +104,8 @@ export default function ElencoPage() {
       const valorRecebido = Math.round(jogador.valor * 0.7)
       await supabase.from('times').update({ saldo: saldo + valorRecebido }).eq('id', jogador.id_time)
 
-      await supabase.from('bid').insert({
-        tipo_evento: 'venda',
-        descricao: `O ${nomeTime} vendeu ${jogador.nome} para o Mercado de Transferências por R$ ${jogador.valor.toLocaleString('pt-BR')}.`,
-        id_time1: jogador.id_time,
-        valor: jogador.valor,
-        data_evento: new Date().toISOString(),
-      })
-
       await fetchElenco()
-      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString('pt-BR')} creditado.`)
+      alert(`✅ Jogador vendido! R$ ${valorRecebido.toLocaleString()} creditado.`)
     } catch (error) {
       alert('❌ Ocorreu um erro inesperado: ' + error)
     }
@@ -181,34 +148,18 @@ export default function ElencoPage() {
     return contagem
   }
 
-  if (loading) return <p className="text-center mt-10 text-white">⏳ Carregando elenco...</p>
+  if (loading) return <p className="text-center text-white">⏳ Carregando elenco...</p>
 
   const nacionalidades = contarNacionalidades()
 
   return (
     <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
-      <h1 className="text-3xl font-bold mb-2 text-center text-green-400">
+      <h1 className="text-3xl font-bold text-center text-green-400 mb-2">
         👥 Elenco do {nomeTime} ({elenco.length} atletas)
       </h1>
-      <p className="text-center text-gray-300 mb-2">
-        💰 Saldo: <strong>R$ {saldo.toLocaleString('pt-BR')}</strong> | 🧩 Valor Total do Elenco: <strong>R$ {valorTotalElenco.toLocaleString('pt-BR')}</strong> | 💵 Salários Totais: <strong>R$ {totalSalarios.toLocaleString('pt-BR')}</strong>
-      </p>
-
-      <div className="flex flex-wrap justify-center gap-2 text-sm mb-4">
-        {Object.entries(nacionalidades).map(([pais, qtd]) => (
-          <div key={pais} className="flex items-center gap-1 bg-gray-800 px-2 py-1 rounded-full">
-            {pais === 'Resto do Mundo' ? (
-              <span>🌎</span>
-            ) : (
-              <img src={getFlagUrl(pais)} alt={pais} width={16} height={12} />
-            )}
-            <span>{pais} ({qtd})</span>
-          </div>
-        ))}
-      </div>
 
       <div className="text-center mb-6">
-        <button onClick={fetchElenco} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-full text-sm">
+        <button onClick={fetchElenco} className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full">
           🔄 Atualizar elenco
         </button>
       </div>
@@ -222,21 +173,11 @@ export default function ElencoPage() {
               <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={80} height={80} className="rounded-full mb-2 mx-auto" />
               <h2 className="text-lg font-bold">{jogador.nome}</h2>
               <p className="text-gray-300 text-sm">{jogador.posicao} • Overall {jogador.overall ?? 'N/A'}</p>
-
-              {jogador.nacionalidade && (
-                <div className="flex items-center justify-center gap-2 mt-1 mb-1">
-                  {getFlagUrl(jogador.nacionalidade) && (
-                    <img src={getFlagUrl(jogador.nacionalidade)} alt={jogador.nacionalidade} width={24} height={16} className="inline-block rounded-sm" />
-                  )}
-                  <span className="text-xs text-gray-300">{jogador.nacionalidade}</span>
-                </div>
-              )}
-
               <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
 
-              <button onClick={() => venderJogador(jogador)} className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full">
+              <button onClick={() => venderJogador(jogador)} className="mt-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm w-full">
                 💸 Vender
               </button>
             </div>
