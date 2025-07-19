@@ -134,6 +134,10 @@ function JogadorCard({
       <p className="text-gray-400 text-xs">
         Salário: {formatarValor(jogador.salario || 0)}
       </p>
+<p className="text-gray-400 text-xs">
+  🌎 {jogador.nacionalidade && jogador.nacionalidade.trim() !== '' ? jogador.nacionalidade : 'Resto do Mundo'}
+</p>
+
 
       {isAdmin && (
         <>
@@ -183,9 +187,12 @@ export default function MercadoPage() {
 
   const [filtroNome, setFiltroNome] = useState('')
   const [filtroPosicao, setFiltroPosicao] = useState('')
+  
+
   const [filtroOverallMin, setFiltroOverallMin] = useState<number | ''>('')
   const [filtroOverallMax, setFiltroOverallMax] = useState<number | ''>('')
   const [filtroValorMax, setFiltroValorMax] = useState<number | ''>('')
+  const [filtroNacionalidade, setFiltroNacionalidade] = useState('')
 
   const [ordenarPor, setOrdenarPor] = useState('')
   const [paginaAtual, setPaginaAtual] = useState(1)
@@ -267,15 +274,16 @@ export default function MercadoPage() {
             throw new Error('Colunas obrigatórias: Nome Completo, Posição, Overall, Valor')
           }
           return {
-            jogador_id: crypto.randomUUID(),
-            nome: String(nome),
-            posicao: String(posicao),
-            overall: Number(overall),
-            valor: Number(valor),
-            imagem_url: imagem_url ? String(imagem_url) : '',
-            link_sofifa: link_sofifa ? String(link_sofifa) : '',
-            salario: Math.round(Number(valor) * 0.007),
-          }
+  jogador_id: crypto.randomUUID(),
+  nome: String(nome),
+  posicao: String(posicao),
+  overall: Number(overall),
+  valor: Number(valor),
+  imagem_url: imagem_url ? String(imagem_url) : '',
+  link_sofifa: link_sofifa ? String(link_sofifa) : '',
+  salario: Math.round(Number(valor) * 0.007),
+  nacionalidade: item.Nacionalidade && item.Nacionalidade.trim() !== '' ? String(item.Nacionalidade) : 'Resto do Mundo',
+}
         })
 
         const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
@@ -481,17 +489,22 @@ export default function MercadoPage() {
   if (erro) return <p className="text-center mt-10 text-red-500">{erro}</p>
 
   const jogadoresFiltrados = jogadores
-    .filter((j) => {
-      const nomeMatch = j.nome.toLowerCase().includes(filtroNome.toLowerCase())
-      const posicaoMatch = filtroPosicao ? j.posicao === filtroPosicao : true
-      const overallMin = filtroOverallMin === '' ? 0 : filtroOverallMin
-      const overallMax = filtroOverallMax === '' ? 99 : filtroOverallMax
-      const valorMax = filtroValorMax === '' ? Infinity : filtroValorMax
+  .filter((j) => {
+    const nomeMatch = j.nome.toLowerCase().includes(filtroNome.toLowerCase())
+    const posicaoMatch = filtroPosicao ? j.posicao === filtroPosicao : true
+    const overallMin = filtroOverallMin === '' ? 0 : filtroOverallMin
+    const overallMax = filtroOverallMax === '' ? 99 : filtroOverallMax
+    const valorMax = filtroValorMax === '' ? Infinity : filtroValorMax
+    const nacionalidadeJogador = j.nacionalidade && j.nacionalidade.trim() !== '' ? j.nacionalidade : 'Resto do Mundo'
+    const nacionalidadeMatch = filtroNacionalidade
+      ? nacionalidadeJogador.toLowerCase().includes(filtroNacionalidade.toLowerCase())
+      : true
 
-      const overallMatch = j.overall >= overallMin && j.overall <= overallMax
-      const valorMatch = j.valor <= valorMax
-      return nomeMatch && posicaoMatch && overallMatch && valorMatch
-    })
+    const overallMatch = j.overall >= overallMin && j.overall <= overallMax
+    const valorMatch = j.valor <= valorMax
+    return nomeMatch && posicaoMatch && overallMatch && valorMatch && nacionalidadeMatch
+  })
+
     .sort((a, b) => {
       if (ordenarPor === 'valor_asc') return a.valor - b.valor
       if (ordenarPor === 'valor_desc') return b.valor - a.valor
@@ -576,80 +589,88 @@ export default function MercadoPage() {
 
         {/* Filtros */}
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-          <input
-            type="text"
-            placeholder="🔎 Buscar por nome"
-            value={filtroNome}
-            onChange={(e) => setFiltroNome(e.target.value)}
-            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-          />
+  <input
+    type="text"
+    placeholder="🔎 Buscar por nome"
+    value={filtroNome}
+    onChange={(e) => setFiltroNome(e.target.value)}
+    className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+  />
 
-          <select
-            value={filtroPosicao}
-            onChange={(e) => setFiltroPosicao(e.target.value)}
-            className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
-          >
-            <option value="">Todas as posições</option>
-            <option value="GL">Goleiro</option>
-            <option value="ZAG">Zagueiro</option>
-            <option value="LE">Lateral Esquerdo</option>
-            <option value="LD">Lateral Direito</option>
-            <option value="VOL">Volante</option>
-            <option value="MC">Meio Campo</option>
-            <option value="MD">Meia Direita</option>
-            <option value="ME">Meia Esquerda</option>
-            <option value="PD">Ponta Direita</option>
-            <option value="PE">Ponta Esquerda</option>
-            <option value="SA">Segundo Atacante</option>
-            <option value="CA">Centroavante</option>
-          </select>
+  <select
+    value={filtroPosicao}
+    onChange={(e) => setFiltroPosicao(e.target.value)}
+    className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
+  >
+    <option value="">Todas as posições</option>
+    <option value="GL">Goleiro</option>
+    <option value="ZAG">Zagueiro</option>
+    <option value="LE">Lateral Esquerdo</option>
+    <option value="LD">Lateral Direito</option>
+    <option value="VOL">Volante</option>
+    <option value="MC">Meio Campo</option>
+    <option value="MD">Meia Direita</option>
+    <option value="ME">Meia Esquerda</option>
+    <option value="PD">Ponta Direita</option>
+    <option value="PE">Ponta Esquerda</option>
+    <option value="SA">Segundo Atacante</option>
+    <option value="CA">Centroavante</option>
+  </select>
 
-          <div className="flex gap-2 items-center">
-            <input
-              type="number"
-              placeholder="Overall mín"
-              value={filtroOverallMin}
-              onChange={(e) => setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
-              className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-              min={0}
-              max={99}
-            />
-            <input
-              type="number"
-              placeholder="máx"
-              value={filtroOverallMax}
-              onChange={(e) => setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
-              className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-              min={0}
-              max={99}
-            />
-          </div>
+  <input
+    type="text"
+    placeholder="🌎 Filtrar por nacionalidade"
+    value={filtroNacionalidade}
+    onChange={(e) => setFiltroNacionalidade(e.target.value)}
+    className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+  />
 
-          <input
-            type="number"
-            placeholder="💰 Valor máx (R$)"
-            value={filtroValorMax}
-            onChange={(e) => setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))}
-            className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
-            min={0}
-          />
+  <div className="flex gap-2 items-center">
+    <input
+      type="number"
+      placeholder="Overall mín"
+      value={filtroOverallMin}
+      onChange={(e) => setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
+      className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+      min={0}
+      max={99}
+    />
+    <input
+      type="number"
+      placeholder="máx"
+      value={filtroOverallMax}
+      onChange={(e) => setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
+      className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+      min={0}
+      max={99}
+    />
+  </div>
 
-          <select
-            value={ordenarPor}
-            onChange={(e) => setOrdenarPor(e.target.value)}
-            className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
-          >
-            <option value="">Ordenar...</option>
-            <option value="valor_asc">Valor ↑</option>
-            <option value="valor_desc">Valor ↓</option>
-            <option value="overall_asc">Overall ↑</option>
-            <option value="overall_desc">Overall ↓</option>
-          </select>
+  <input
+    type="number"
+    placeholder="💰 Valor máx (R$)"
+    value={filtroValorMax}
+    onChange={(e) => setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))}
+    className="p-2 border rounded w-full bg-gray-800 border-gray-600 text-white"
+    min={0}
+  />
 
-          <div className="font-semibold text-green-400 col-span-full text-right">
-            💰 Saldo: {formatarValor(saldo)}
-          </div>
-        </div>
+  <select
+    value={ordenarPor}
+    onChange={(e) => setOrdenarPor(e.target.value)}
+    className="p-2 border rounded bg-gray-800 border-gray-600 text-white"
+  >
+    <option value="">Ordenar...</option>
+    <option value="valor_asc">Valor ↑</option>
+    <option value="valor_desc">Valor ↓</option>
+    <option value="overall_asc">Overall ↑</option>
+    <option value="overall_desc">Overall ↓</option>
+  </select>
+
+  <div className="font-semibold text-green-400 col-span-full text-right">
+    💰 Saldo: {formatarValor(saldo)}
+  </div>
+</div>
 
         {/* Lista de jogadores */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
