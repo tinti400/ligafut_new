@@ -24,12 +24,13 @@ interface ClassificacaoItem {
 export default function ClassificacaoPage() {
   const [classificacao, setClassificacao] = useState<ClassificacaoItem[]>([])
   const [erro, setErro] = useState<string | null>(null)
+  const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(1)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
   const { isAdmin, loading } = useAdmin()
 
-  const fetchDados = async () => {
+  const fetchDados = async (temporada: number) => {
     try {
-      const res = await fetch('/api/classificacao')
+      const res = await fetch(`/api/classificacao?temporada=${temporada}`)
       if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
       const data = await res.json()
       setClassificacao(data)
@@ -39,15 +40,15 @@ export default function ClassificacaoPage() {
   }
 
   useEffect(() => {
-    fetchDados()
-  }, [])
+    fetchDados(temporadaSelecionada)
+  }, [temporadaSelecionada])
 
   const iniciarNovaTemporada = async () => {
     if (!confirm('⚠️ Tem certeza que deseja iniciar a nova temporada?')) return
     const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
     if (res.ok) {
       alert('✅ Temporada iniciada com sucesso!')
-      fetchDados()
+      fetchDados(temporadaSelecionada)
     } else {
       const data = await res.json()
       alert(`❌ Erro ao iniciar temporada: ${data.erro || 'Erro desconhecido'}`)
@@ -82,6 +83,20 @@ export default function ClassificacaoPage() {
   return (
     <div className="max-w-6xl mx-auto mt-10 px-4 text-white">
       <h1 className="text-3xl font-bold mb-6">🏆 Classificação</h1>
+
+      <div className="mb-4 flex gap-2">
+        {[1, 2].map((temp) => (
+          <button
+            key={temp}
+            onClick={() => setTemporadaSelecionada(temp)}
+            className={`px-4 py-2 rounded-lg ${
+              temporadaSelecionada === temp ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300'
+            }`}
+          >
+            Temporada {temp}
+          </button>
+        ))}
+      </div>
 
       {isAdmin && (
         <div className="mb-4">

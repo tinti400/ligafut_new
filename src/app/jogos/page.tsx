@@ -61,12 +61,7 @@ export default function Jogos() {
       .eq('divisao', divisao)
       .order('numero', { ascending: true });
 
-    if (error) {
-      console.error('Erro ao buscar rodadas:', error.message);
-      return;
-    }
-
-    setRodadas(rodadasData as Rodada[]);
+    if (!error) setRodadas(rodadasData as Rodada[]);
   };
 
   useEffect(() => {
@@ -86,31 +81,50 @@ export default function Jogos() {
       gols_visitante: golsVisitante,
     };
 
-    const { error } = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id);
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id);
+    await carregarDados();
+    setEditandoRodada(null);
+    setEditandoIndex(null);
+  };
 
-    if (error) {
-      alert('Erro ao salvar resultado!');
-      console.error(error);
-    } else {
-      await carregarDados();
-      setEditandoRodada(null);
-      setEditandoIndex(null);
+  const gerarRodadas = async (temporada: number, divisao: number) => {
+    const { data: times } = await supabase.from('times').select('id').eq('divisao', divisao);
+    if (!times) return;
+
+    const ids = times.map((t) => t.id);
+    const jogos: { mandante: string; visitante: string }[] = [];
+
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        jogos.push({ mandante: ids[i], visitante: ids[j] });
+        jogos.push({ mandante: ids[j], visitante: ids[i] });
+      }
+    }
+
+    const embaralhados = jogos.sort(() => Math.random() - 0.5);
+    const jogosPorRodada = Math.floor(ids.length / 2) || 1;
+
+    let rodadaNum = 1;
+    for (let i = 0; i < embaralhados.length; i += jogosPorRodada) {
+      await supabase.from('rodadas').insert({
+        numero: rodadaNum++,
+        temporada,
+        divisao,
+        jogos: embaralhados.slice(i, i + jogosPorRodada),
+      });
     }
   };
 
-  const filtrarRodadas = () => {
-    if (!timeSelecionado) return rodadas;
-    return rodadas
-      .map((rodada) => ({
-        ...rodada,
-        jogos: rodada.jogos.filter(
-          (jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado
-        ),
-      }))
-      .filter((rodada) => rodada.jogos.length > 0);
-  };
-
-  const rodadasFiltradas = filtrarRodadas();
+  const rodadasFiltradas = !timeSelecionado
+    ? rodadas
+    : rodadas
+        .map((rodada) => ({
+          ...rodada,
+          jogos: rodada.jogos.filter(
+            (jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado
+          ),
+        }))
+        .filter((rodada) => rodada.jogos.length > 0);
 
   if (loading) return <p className="text-center text-white">🔄 Verificando permissões...</p>;
 
@@ -132,7 +146,7 @@ export default function Jogos() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-4">
         {divisoesDisponiveis.map((div) => (
           <button
             key={div}
@@ -145,6 +159,22 @@ export default function Jogos() {
           </button>
         ))}
       </div>
+
+      {isAdmin && (
+        <div className="mb-4">
+          <button
+            onClick={async () => {
+              if (!confirm('⚠️ Tem certeza que deseja gerar as rodadas desta temporada e divisão?')) return;
+              await gerarRodadas(temporada, divisao);
+              await carregarDados();
+              alert('✅ Rodadas geradas com sucesso!');
+            }}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+          >
+            ➕ Gerar Rodadas Automáticas
+          </button>
+        </div>
+      )}
 
       <select
         className="mb-6 p-2 bg-zinc-800 text-white rounded-lg"
@@ -167,9 +197,6 @@ export default function Jogos() {
             {rodada.jogos.map((jogo, index) => {
               const mandante = timesMap[jogo.mandante];
               const visitante = timesMap[jogo.visitante];
-              const placarDisponivel =
-                jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined;
-
               const estaEditando = editandoRodada === rodada.id && editandoIndex === index;
 
               return (
@@ -178,9 +205,7 @@ export default function Jogos() {
                   className="flex items-center justify-between bg-zinc-700 text-white px-4 py-2 rounded-lg"
                 >
                   <div className="flex items-center w-1/3 justify-end gap-2">
-                    {mandante?.logo_url && (
-                      <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
-                    )}
+                    {mandante?.logo_url && <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />}
                     <span className="font-medium text-right">{mandante?.nome || '???'}</span>
                   </div>
 
@@ -201,7 +226,7 @@ export default function Jogos() {
                           className="w-10 text-black text-center rounded"
                         />
                       </div>
-                    ) : placarDisponivel ? (
+                    ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
                       `${jogo.gols_mandante} x ${jogo.gols_visitante}`
                     ) : (
                       '🆚'
