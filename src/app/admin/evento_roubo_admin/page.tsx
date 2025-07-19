@@ -89,7 +89,7 @@ export default function EventoRouboAdminPage() {
               max={5}
               value={limiteBloqueios}
               onChange={(e) => setLimiteBloqueios(parseInt(e.target.value))}
-              className="border p-2 rounded w-full text-black"
+              className="border p-2 rounded w-full bg-gray-800 text-white"
             />
           </div>
 
@@ -101,7 +101,7 @@ export default function EventoRouboAdminPage() {
               max={10}
               value={limitePerda}
               onChange={(e) => setLimitePerda(parseInt(e.target.value))}
-              className="border p-2 rounded w-full text-black"
+              className="border p-2 rounded w-full bg-gray-800 text-white"
             />
           </div>
 
@@ -113,7 +113,7 @@ export default function EventoRouboAdminPage() {
               max={10}
               value={limiteRoubo}
               onChange={(e) => setLimiteRoubo(parseInt(e.target.value))}
-              className="border p-2 rounded w-full text-black"
+              className="border p-2 rounded w-full bg-gray-800 text-white"
             />
           </div>
 
