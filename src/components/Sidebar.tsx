@@ -170,6 +170,12 @@ export default function Sidebar() {
                 <Link href="/admin/leiloes_finalizados" className="block hover:text-green-400">
                   📜 Leilões Finalizados
                 </Link>
+                <Link href="/admin/painel_times" className="block hover:text-green-400">
+                  📋 Painel de Times
+                </Link>
+                <Link href="/admin" className="block hover:text-green-400">
+                  🗂️ Administração Geral
+                </Link>
               </div>
             )}
           </div>
@@ -192,10 +198,6 @@ export default function Sidebar() {
 
           <Link href="/financeiro" className="block hover:text-green-400">
             💰 {isOpen && 'Painel Financeiro'}
-          </Link>
-
-          <Link href="/admin" className="block hover:text-green-400">
-            🔧 {isOpen && 'Admin'}
           </Link>
         </nav>
       </div>
