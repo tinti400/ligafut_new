@@ -10,6 +10,7 @@ export default function Sidebar() {
   const [abrirLeilao, setAbrirLeilao] = useState(false)
   const [abrirElenco, setAbrirElenco] = useState(false)
   const [abrirAdmin, setAbrirAdmin] = useState(false)
+  const [abrirRoubo, setAbrirRoubo] = useState(false)
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
   const [saldoTime, setSaldoTime] = useState('0')
@@ -139,6 +140,26 @@ export default function Sidebar() {
 
           <div>
             <button
+              onClick={() => setAbrirRoubo(!abrirRoubo)}
+              className="w-full text-left hover:text-green-400"
+            >
+              🕵️ {isOpen && `Evento de Roubo ${abrirRoubo ? '▲' : '▼'}`}
+            </button>
+
+            {abrirRoubo && isOpen && (
+              <div className="ml-4 mt-2 space-y-2 text-sm">
+                <Link href="/evento_roubo/bloqueio" className="block hover:text-green-400">
+                  🔒 Bloqueio
+                </Link>
+                <Link href="/evento_roubo/acao" className="block hover:text-green-400">
+                  ⚔️ Ação
+                </Link>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <button
               onClick={() => setAbrirLeilao(!abrirLeilao)}
               className="w-full text-left hover:text-green-400"
             >
@@ -216,3 +237,4 @@ export default function Sidebar() {
     </aside>
   )
 }
+
