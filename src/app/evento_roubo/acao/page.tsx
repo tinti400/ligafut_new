@@ -42,6 +42,17 @@ export default function AcaoRouboPage() {
     const id = localStorage.getItem('id_time')
     if (id) setIdTime(id)
     carregarEvento()
+
+    const canal = supabase
+      .channel('evento-roubo')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'configuracoes', filter: 'id=eq.56f3af29-a4ac-4a76-aeb3-35400aa2a773' }, (payload) => {
+        carregarEvento()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
   }, [])
 
   useEffect(() => {
