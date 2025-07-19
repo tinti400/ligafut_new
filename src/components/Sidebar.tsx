@@ -173,6 +173,9 @@ export default function Sidebar() {
                 <Link href="/admin/painel_times" className="block hover:text-green-400">
                   📋 Painel de Times
                 </Link>
+                <Link href="/admin/evento_roubo_admin" className="block hover:text-green-400">
+                  🕵️ Evento de Roubo (Admin)
+                </Link>
                 <Link href="/admin" className="block hover:text-green-400">
                   🗂️ Administração Geral
                 </Link>
