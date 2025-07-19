@@ -233,7 +233,7 @@ export default function AcaoRouboPage() {
                   <select
                     value={alvoSelecionado}
                     onChange={(e) => setAlvoSelecionado(e.target.value)}
-                    className="w-full p-2 rounded mb-2 text-black"
+                    className="w-full p-2 rounded mb-2 text-white bg-gray-800"
                   >
                     <option value="">🎯 Selecione um time para roubar</option>
                     {ordem.filter(t => t.id !== idTime && podeRoubar(t.id)).map((time, idx) => (
