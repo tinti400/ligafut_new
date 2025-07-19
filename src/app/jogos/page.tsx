@@ -54,14 +54,14 @@ export default function Jogos() {
     });
     setTimesMap(map);
 
-    const { data: rodadasData, error } = await supabase
+    const { data: rodadasData } = await supabase
       .from('rodadas')
       .select('*')
       .eq('temporada', temporada)
       .eq('divisao', divisao)
       .order('numero', { ascending: true });
 
-    if (!error) setRodadas(rodadasData as Rodada[]);
+    setRodadas((rodadasData || []) as Rodada[]);
   };
 
   useEffect(() => {
@@ -88,6 +88,8 @@ export default function Jogos() {
   };
 
   const gerarRodadas = async (temporada: number, divisao: number) => {
+    await supabase.from('rodadas').delete().eq('temporada', temporada).eq('divisao', divisao);
+
     const { data: times } = await supabase.from('times').select('id').eq('divisao', divisao);
     if (!times) return;
 
@@ -96,8 +98,8 @@ export default function Jogos() {
 
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
-        jogos.push({ mandante: ids[i], visitante: ids[j] });
-        jogos.push({ mandante: ids[j], visitante: ids[i] });
+        jogos.push({ mandante: ids[i], visitante: ids[j] });  // turno
+        jogos.push({ mandante: ids[j], visitante: ids[i] });  // returno
       }
     }
 
@@ -164,10 +166,12 @@ export default function Jogos() {
         <div className="mb-4">
           <button
             onClick={async () => {
-              if (!confirm('⚠️ Tem certeza que deseja gerar as rodadas desta temporada e divisão?')) return;
-              await gerarRodadas(temporada, divisao);
+              if (!confirm('⚠️ Tem certeza que deseja gerar rodadas para TODAS as divisões desta temporada?')) return;
+              for (const div of divisoesDisponiveis) {
+                await gerarRodadas(temporada, div);
+              }
               await carregarDados();
-              alert('✅ Rodadas geradas com sucesso!');
+              alert('✅ Rodadas geradas para todas as divisões!');
             }}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
           >
