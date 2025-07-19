@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import Papa from 'papaparse'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -83,8 +82,13 @@ export default function PainelTimesAdmin() {
   }
 
   function exportarCSV() {
-    const csv = Papa.unparse(times)
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    if (times.length === 0) return
+
+    const header = Object.keys(times[0]).join(',')
+    const rows = times.map(obj => Object.values(obj).join(',')).join('\n')
+    const csvContent = `${header}\n${rows}`
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -160,3 +164,4 @@ export default function PainelTimesAdmin() {
     </div>
   )
 }
+
