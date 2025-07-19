@@ -11,6 +11,7 @@ const supabase = createClient(
 interface Time {
   id: string
   nome: string
+  logo_url: string
 }
 
 interface Jogador {
@@ -23,13 +24,15 @@ interface Jogador {
 
 export default function AcaoRouboPage() {
   const [vez, setVez] = useState<number>(0)
-  const [ordem, setOrdem] = useState<string[]>([])
+  const [ordem, setOrdem] = useState<Time[]>([])
   const [tempoRestante, setTempoRestante] = useState<number>(240)
   const [jogadoresAlvo, setJogadoresAlvo] = useState<Jogador[]>([])
   const [idTime, setIdTime] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [alvoSelecionado, setAlvoSelecionado] = useState<string>('')
   const [jogadorSelecionado, setJogadorSelecionado] = useState<string>('')
+  const [roubos, setRoubos] = useState<any>({})
+  const [limitePerda, setLimitePerda] = useState<number>(5)
 
   useEffect(() => {
     const id = localStorage.getItem('id_time')
@@ -52,7 +55,15 @@ export default function AcaoRouboPage() {
 
     if (data) {
       setVez(parseInt(data.vez) || 0)
-      setOrdem(data.ordem || [])
+      if (data.ordem) {
+        const { data: times } = await supabase
+          .from('times')
+          .select('id, nome, logo_url')
+          .in('id', data.ordem)
+        setOrdem(times || [])
+      }
+      setRoubos(data.roubos || {})
+      setLimitePerda(data.limite_perda || 5)
     }
     setLoading(false)
   }
@@ -67,6 +78,22 @@ export default function AcaoRouboPage() {
     setTempoRestante(240)
     setAlvoSelecionado('')
     setJogadoresAlvo([])
+  }
+
+  async function sortearOrdem() {
+    const { data: times } = await supabase
+      .from('times')
+      .select('id, nome, logo_url')
+    if (times) {
+      const embaralhado = times.sort(() => Math.random() - 0.5)
+      await supabase
+        .from('configuracoes')
+        .update({ ordem: embaralhado.map(t => t.id), vez: '0' })
+        .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+      setOrdem(embaralhado)
+      setVez(0)
+      setTempoRestante(240)
+    }
   }
 
   async function carregarJogadoresDoAlvo() {
@@ -113,8 +140,44 @@ export default function AcaoRouboPage() {
       .update({ saldo: (meuTime?.saldo || 0) - valorPago })
       .eq('id', idTime)
 
+    const atualizado = { ...roubos }
+    if (!atualizado[idTime]) atualizado[idTime] = {}
+    if (!atualizado[idTime][alvoSelecionado]) atualizado[idTime][alvoSelecionado] = 0
+    atualizado[idTime][alvoSelecionado]++
+
+    await supabase
+      .from('configuracoes')
+      .update({ roubos: atualizado })
+      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+
+    await supabase
+      .from('bid')
+      .insert({
+        tipo_evento: 'roubo',
+        descricao: `${jogador.nome} foi roubado por ${idTime}`,
+        id_time1: idTime,
+        id_time2: jogador.id_time,
+        valor: valorPago,
+        data_evento: new Date().toISOString()
+      })
+
     alert('✅ Jogador roubado com sucesso!')
     window.location.reload()
+  }
+
+  async function finalizarEvento() {
+    await supabase
+      .from('configuracoes')
+      .update({ ativo: false, fase: 'finalizado' })
+      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+    alert('✅ Evento finalizado!')
+    window.location.reload()
+  }
+
+  const podeRoubar = (alvoId: string) => {
+    const roubosDoAlvo = Object.values(roubos).map((r: any) => r[alvoId] || 0).reduce((a: any, b: any) => a + b, 0)
+    const meusRoubos = roubos[idTime]?.[alvoId] || 0
+    return roubosDoAlvo < limitePerda && meusRoubos < 2
   }
 
   return (
@@ -125,13 +188,32 @@ export default function AcaoRouboPage() {
         <p className="text-center">Carregando...</p>
       ) : (
         <>
+          <button
+            onClick={sortearOrdem}
+            className="w-full bg-yellow-500 py-2 rounded mb-4"
+          >
+            🎲 Sortear Ordem dos Times
+          </button>
+
+          <button
+            onClick={finalizarEvento}
+            className="w-full bg-red-700 py-2 rounded mb-4"
+          >
+            🛑 Finalizar Evento
+          </button>
+
           <div className="bg-gray-800 p-4 rounded mb-4 text-center">
             <p className="text-xl font-bold">🎯 Time da vez:</p>
-            <p className="text-green-400 text-xl mb-2">{ordem[vez]}</p>
+            {ordem[vez] && (
+              <div className="flex items-center justify-center gap-2">
+                <img src={ordem[vez].logo_url} alt="Logo" className="h-8 w-8" />
+                <p className="text-green-400 text-xl mb-2">{ordem[vez].nome}</p>
+              </div>
+            )}
             <p>⏳ Tempo restante: <strong>{tempoRestante}s</strong></p>
           </div>
 
-          {idTime === ordem[vez] && (
+          {idTime === ordem[vez]?.id && (
             <>
               <select
                 value={alvoSelecionado}
@@ -139,8 +221,8 @@ export default function AcaoRouboPage() {
                 className="w-full p-2 rounded mb-2 text-black"
               >
                 <option value="">🎯 Selecione um time para roubar</option>
-                {ordem.filter(t => t !== idTime).map((id, idx) => (
-                  <option key={idx} value={id}>{id}</option>
+                {ordem.filter(t => t.id !== idTime && podeRoubar(t.id)).map((time, idx) => (
+                  <option key={idx} value={time.id}>{time.nome}</option>
                 ))}
               </select>
 
@@ -186,7 +268,12 @@ export default function AcaoRouboPage() {
             <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
             <ol className="list-decimal ml-4">
               {ordem.map((t, idx) => (
-                <li key={idx} className={idx === vez ? 'text-green-400 font-bold' : ''}>{t}</li>
+                <li key={idx} className={idx === vez ? 'text-green-400 font-bold' : ''}>
+                  <div className="flex items-center gap-2">
+                    <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
+                    {t.nome}
+                  </div>
+                </li>
               ))}
             </ol>
           </div>
