@@ -10,7 +10,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function PlayoffAdminPage() {
+export default function FaseLigaAdminPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -22,7 +22,7 @@ export default function PlayoffAdminPage() {
   async function buscarJogos() {
     setLoading(true)
     const { data, error } = await supabase
-      .from('copa_playoff')
+      .from('copa_fase_liga')
       .select('*')
       .order('id', { ascending: true })
 
@@ -37,7 +37,7 @@ export default function PlayoffAdminPage() {
 
   async function salvarPlacar(jogo: any) {
     const { error } = await supabase
-      .from('copa_playoff')
+      .from('copa_fase_liga')
       .update({
         gols_time1: jogo.gols_time1,
         gols_time2: jogo.gols_time2,
@@ -55,7 +55,7 @@ export default function PlayoffAdminPage() {
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">🎯 Administração – Playoff</h1>
+      <h1 className="text-xl font-bold mb-4">🏆 Administração – Fase Liga</h1>
       {loading ? (
         <div>🔄 Carregando jogos...</div>
       ) : (
