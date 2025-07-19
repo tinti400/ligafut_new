@@ -84,63 +84,19 @@ export default function ElencoPage() {
 
   const venderJogador = async (jogador: any) => {
     try {
-      const { data: config, error: errorConfig } = await supabase
+      const { data: config } = await supabase
         .from('configuracoes')
-        .select('mercado_aberto')
+        .select('aberto')
+        .eq('text', 'estado_mercado')
         .single()
 
-      if (errorConfig) {
-        alert('❌ Erro ao verificar o status do mercado.')
-        return
-      }
-
-      if (!config?.mercado_aberto) {
-        const div = document.createElement('div')
-        div.innerHTML = `
-          <div style="
-            background-color: #ff4d4f;
-            color: white;
-            padding: 16px;
-            border-radius: 8px;
-            font-weight: bold;
-            text-align: center;
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 9999;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-          ">
-            🚫 O mercado de transferências está fechado. Não é possível vender jogadores agora.
-          </div>
-        `
-        document.body.appendChild(div)
-        setTimeout(() => div.remove(), 3000)
+      if (!config?.aberto) {
+        exibirMensagem('🚫 O mercado de transferências está fechado. Não é possível vender jogadores agora.', '#ff4d4f')
         return
       }
 
       if ((jogador.jogos || 0) < 3) {
-        const div = document.createElement('div')
-        div.innerHTML = `
-          <div style="
-            background-color: #ff9800;
-            color: white;
-            padding: 16px;
-            border-radius: 8px;
-            font-weight: bold;
-            text-align: center;
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 9999;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-          ">
-            🚫 O seu jogador não completou 3 jogos e não pode ser vendido.
-          </div>
-        `
-        document.body.appendChild(div)
-        setTimeout(() => div.remove(), 3000)
+        exibirMensagem('🚫 O seu jogador não completou 3 jogos e não pode ser vendido.', '#ff9800')
         return
       }
 
@@ -181,6 +137,29 @@ export default function ElencoPage() {
     } catch (error) {
       alert('❌ Ocorreu um erro inesperado: ' + error)
     }
+  }
+
+  const exibirMensagem = (mensagem: string, cor: string) => {
+    const div = document.createElement('div')
+    div.innerHTML = `
+      <div style="
+        background-color: ${cor};
+        color: white;
+        padding: 16px;
+        border-radius: 8px;
+        font-weight: bold;
+        text-align: center;
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 9999;
+      ">
+        ${mensagem}
+      </div>
+    `
+    document.body.appendChild(div)
+    setTimeout(() => div.remove(), 3000)
   }
 
   const getFlagUrl = (pais: string) => {
@@ -237,19 +216,10 @@ export default function ElencoPage() {
             <div key={jogador.id} className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700">
               <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={80} height={80} className="rounded-full mb-2 mx-auto" />
               <h2 className="text-lg font-bold">{jogador.nome}</h2>
-              <p className="text-gray-300 text-sm">{jogador.posicao} • Overall {jogador.overall ?? 'N/A'}</p>
-
-              {jogador.nacionalidade && (
-                <div className="flex items-center justify-center gap-2 mt-1 mb-1">
-                  {getFlagUrl(jogador.nacionalidade) && (
-                    <img src={getFlagUrl(jogador.nacionalidade)} alt={jogador.nacionalidade} width={24} height={16} className="inline-block rounded-sm" />
-                  )}
-                  <span className="text-xs text-gray-300">{jogador.nacionalidade}</span>
-                </div>
-              )}
-
+              <p className="text-gray-300 text-sm">{jogador.posicao} • Overall {jogador.overall}</p>
               <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
+              <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
 
               <button onClick={() => venderJogador(jogador)} className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full">
                 💸 Vender
