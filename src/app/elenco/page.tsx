@@ -63,14 +63,11 @@ export default function ElencoPage() {
       setSaldo(timeData?.saldo || 0)
       setNomeTime(timeData?.nome || '')
 
-      // 🔥 Atualiza localStorage para Sidebar
       localStorage.setItem('saldo', (timeData?.saldo || 0).toString())
-
       const totalSalariosElenco = (elencoData || []).reduce(
         (total, j) => total + (j.salario || 0), 0
       )
       localStorage.setItem('total_salarios', totalSalariosElenco.toString())
-
     } catch (error) {
       alert('Erro inesperado: ' + error)
     } finally {
@@ -86,11 +83,7 @@ export default function ElencoPage() {
   const totalSalarios = elenco.reduce((total, j) => total + (j.salario || 0), 0)
 
   const venderJogador = async (jogador: any) => {
-    const confirmar = confirm(
-      `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
-    )
-    if (!confirmar) return
-
+    if (!confirm(`💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`)) return
     try {
       await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
@@ -106,18 +99,10 @@ export default function ElencoPage() {
         created_at: new Date().toISOString(),
       })
 
-      await supabase
-        .from('elenco')
-        .delete()
-        .eq('id_time', jogador.id_time)
-        .eq('id', jogador.id)
+      await supabase.from('elenco').delete().eq('id_time', jogador.id_time).eq('id', jogador.id)
 
       const valorRecebido = Math.round(jogador.valor * 0.7)
-
-      await supabase
-        .from('times')
-        .update({ saldo: saldo + valorRecebido })
-        .eq('id', jogador.id_time)
+      await supabase.from('times').update({ saldo: saldo + valorRecebido }).eq('id', jogador.id_time)
 
       await supabase.from('bid').insert({
         tipo_evento: 'venda',
@@ -139,24 +124,43 @@ export default function ElencoPage() {
     return codigo ? `https://flagcdn.com/w40/${codigo}.png` : ''
   }
 
+  const contarNacionalidades = () => {
+    const contagem: Record<string, number> = {}
+    elenco.forEach((j) => {
+      const key = j.nacionalidade || 'Resto do Mundo'
+      contagem[key] = (contagem[key] || 0) + 1
+    })
+    return contagem
+  }
+
   if (loading) return <p className="text-center mt-10 text-white">⏳ Carregando elenco...</p>
+
+  const nacionalidades = contarNacionalidades()
 
   return (
     <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
       <h1 className="text-3xl font-bold mb-2 text-center text-green-400">
-        👥 Elenco do {nomeTime}
+        👥 Elenco do {nomeTime} ({elenco.length} atletas)
       </h1>
-      <p className="text-center text-gray-300 mb-4">
-        💰 Saldo: <strong>R$ {saldo.toLocaleString('pt-BR')}</strong> | 🧩 Valor Total do Elenco:{' '}
-        <strong>R$ {valorTotalElenco.toLocaleString('pt-BR')}</strong> | 💵 Salários Totais:{' '}
-        <strong>R$ {totalSalarios.toLocaleString('pt-BR')}</strong>
+      <p className="text-center text-gray-300 mb-2">
+        💰 Saldo: <strong>R$ {saldo.toLocaleString('pt-BR')}</strong> | 🧩 Valor Total do Elenco: <strong>R$ {valorTotalElenco.toLocaleString('pt-BR')}</strong> | 💵 Salários Totais: <strong>R$ {totalSalarios.toLocaleString('pt-BR')}</strong>
       </p>
 
+      <div className="flex flex-wrap justify-center gap-2 text-sm mb-4">
+        {Object.entries(nacionalidades).map(([pais, qtd]) => (
+          <div key={pais} className="flex items-center gap-1 bg-gray-800 px-2 py-1 rounded-full">
+            {pais === 'Resto do Mundo' ? (
+              <span>🌎</span>
+            ) : (
+              <img src={getFlagUrl(pais)} alt={pais} width={16} height={12} />
+            )}
+            <span>{pais} ({qtd})</span>
+          </div>
+        ))}
+      </div>
+
       <div className="text-center mb-6">
-        <button
-          onClick={fetchElenco}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-full text-sm"
-        >
+        <button onClick={fetchElenco} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-full text-sm">
           🔄 Atualizar elenco
         </button>
       </div>
@@ -166,48 +170,24 @@ export default function ElencoPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {elenco.map((jogador) => (
-            <div
-              key={jogador.id}
-              className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700"
-            >
-              <ImagemComFallback
-                src={jogador.imagem_url}
-                alt={jogador.nome}
-                width={80}
-                height={80}
-                className="rounded-full mb-2 mx-auto"
-              />
+            <div key={jogador.id} className="bg-gray-800 p-4 rounded-xl text-center border border-gray-700">
+              <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={80} height={80} className="rounded-full mb-2 mx-auto" />
               <h2 className="text-lg font-bold">{jogador.nome}</h2>
-              <p className="text-gray-300 text-sm">
-                {jogador.posicao} • Overall {jogador.overall ?? 'N/A'}
-              </p>
+              <p className="text-gray-300 text-sm">{jogador.posicao} • Overall {jogador.overall ?? 'N/A'}</p>
 
               {jogador.nacionalidade && (
                 <div className="flex items-center justify-center gap-2 mt-1 mb-1">
                   {getFlagUrl(jogador.nacionalidade) && (
-                    <img
-                      src={getFlagUrl(jogador.nacionalidade)}
-                      alt={jogador.nacionalidade}
-                      width={24}
-                      height={16}
-                      className="inline-block rounded-sm"
-                    />
+                    <img src={getFlagUrl(jogador.nacionalidade)} alt={jogador.nacionalidade} width={24} height={16} className="inline-block rounded-sm" />
                   )}
                   <span className="text-xs text-gray-300">{jogador.nacionalidade}</span>
                 </div>
               )}
 
-              <p className="text-green-400 font-semibold">
-                💰 R$ {jogador.valor.toLocaleString()}
-              </p>
-              <p className="text-gray-400 text-xs">
-                Salário: R$ {(jogador.salario || 0).toLocaleString()}
-              </p>
+              <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
+              <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
 
-              <button
-                onClick={() => venderJogador(jogador)}
-                className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full"
-              >
+              <button onClick={() => venderJogador(jogador)} className="mt-4 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-full text-sm w-full">
                 💸 Vender
               </button>
             </div>
