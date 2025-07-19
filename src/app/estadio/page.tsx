@@ -10,6 +10,7 @@ import {
   calcularPublicoSetor,
   calcularMelhoriaEstadio
 } from '@/utils/estadioUtils'
+import Estadio3D from '@/components/Estadio3D'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -119,6 +120,11 @@ export default function EstadioPage() {
         <p className="text-center text-gray-300">
           <strong>Nível:</strong> {estadio.nivel} | <strong>Capacidade:</strong> {estadio.capacidade.toLocaleString()} lugares
         </p>
+      </div>
+
+      {/* Estádio 3D */}
+      <div className="mb-4">
+        <Estadio3D capacidade={estadio.capacidade} publico={publicoTotal} />
       </div>
 
       <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">

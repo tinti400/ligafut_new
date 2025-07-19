@@ -9,6 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@react-three/drei": "^10.5.1",
+    "@react-three/fiber": "^9.2.0",
     "@supabase/supabase-js": "^2.50.5",
     "dayjs": "^1.11.13",
     "next": "15.3.5",
@@ -16,6 +18,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hot-toast": "^2.5.2",
+    "three": "^0.178.0",
     "uuid": "^11.1.0",
     "xlsx": "^0.18.5"
   },
