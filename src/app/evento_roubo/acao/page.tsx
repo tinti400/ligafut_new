@@ -30,9 +30,9 @@ export default function AcaoRouboPage() {
   const [idTime, setIdTime] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [alvoSelecionado, setAlvoSelecionado] = useState<string>('')
-  const [jogadorSelecionado, setJogadorSelecionado] = useState<string>('')
   const [roubos, setRoubos] = useState<any>({})
   const [limitePerda, setLimitePerda] = useState<number>(5)
+  const [mostrarJogadores, setMostrarJogadores] = useState(false)
 
   useEffect(() => {
     const id = localStorage.getItem('id_time')
@@ -78,6 +78,7 @@ export default function AcaoRouboPage() {
     setTempoRestante(240)
     setAlvoSelecionado('')
     setJogadoresAlvo([])
+    setMostrarJogadores(false)
   }
 
   async function sortearOrdem() {
@@ -102,15 +103,13 @@ export default function AcaoRouboPage() {
       .from('elenco')
       .select('id, nome, posicao, valor, id_time')
       .eq('id_time', alvoSelecionado)
-    if (data) setJogadoresAlvo(data)
+    if (data) {
+      setJogadoresAlvo(data)
+      setMostrarJogadores(true)
+    }
   }
 
-  async function roubarJogador() {
-    if (!jogadorSelecionado || !idTime) return
-
-    const jogador = jogadoresAlvo.find(j => j.id === jogadorSelecionado)
-    if (!jogador) return
-
+  async function roubarJogador(jogador: Jogador) {
     await supabase
       .from('elenco')
       .update({ id_time: idTime })
@@ -233,26 +232,23 @@ export default function AcaoRouboPage() {
                 🔎 Ver Jogadores Disponíveis
               </button>
 
-              {jogadoresAlvo.length > 0 && (
-                <>
-                  <select
-                    value={jogadorSelecionado}
-                    onChange={(e) => setJogadorSelecionado(e.target.value)}
-                    className="w-full p-2 rounded mb-2 text-black"
-                  >
-                    <option value="">👤 Selecione um jogador para roubar</option>
-                    {jogadoresAlvo.map(j => (
-                      <option key={j.id} value={j.id}>{j.nome} ({j.posicao}) - R$ {j.valor.toLocaleString('pt-BR')}</option>
-                    ))}
-                  </select>
-
-                  <button
-                    onClick={roubarJogador}
-                    className="w-full bg-green-600 py-2 rounded"
-                  >
-                    ✅ Roubar Jogador
-                  </button>
-                </>
+              {mostrarJogadores && (
+                <div className="grid grid-cols-1 gap-2">
+                  {jogadoresAlvo.map(j => (
+                    <div key={j.id} className="bg-gray-700 p-2 rounded flex justify-between items-center">
+                      <div>
+                        <p className="font-bold">{j.nome}</p>
+                        <p className="text-sm">{j.posicao} - R$ {j.valor.toLocaleString('pt-BR')}</p>
+                      </div>
+                      <button
+                        onClick={() => roubarJogador(j)}
+                        className="bg-green-600 px-2 py-1 rounded text-xs"
+                      >
+                        ✅ Roubar
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </>
           )}
