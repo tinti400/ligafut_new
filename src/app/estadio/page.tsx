@@ -33,7 +33,7 @@ export default function EstadioPage() {
   }, [idTime])
 
   const buscarEstadio = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('estadios')
       .select('*')
       .eq('id_time', idTime)
@@ -97,7 +97,7 @@ export default function EstadioPage() {
   const melhorarEstadio = async () => {
     const custo = calcularMelhoriaEstadio(estadio.nivel)
     if (saldo < custo) {
-      alert('Saldo insuficiente!')
+      alert('💸 Saldo insuficiente para melhorar o estádio!')
       return
     }
     await supabase
@@ -105,55 +105,60 @@ export default function EstadioPage() {
       .update({ nivel: estadio.nivel + 1, capacidade: capacidadePorNivel[estadio.nivel + 1] })
       .eq('id_time', idTime)
     await supabase.from('times').update({ saldo: saldo - custo }).eq('id', idTime)
-    alert('Estádio melhorado!')
+    alert('✅ Estádio melhorado com sucesso!')
     buscarEstadio()
     buscarSaldo()
   }
 
-  if (!estadio) return <div className="p-4">Carregando estádio...</div>
+  if (!estadio) return <div className="p-4 text-white">🔄 Carregando informações do estádio...</div>
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">🏟️ {estadio.nome}</h1>
-      <p>Nível: {estadio.nivel} | Capacidade: {estadio.capacidade.toLocaleString()} lugares</p>
-
-      <div className="mt-4 grid grid-cols-2 gap-4">
-        {Object.entries(setoresBase).map(([setor, proporcao]) => {
-          const limite = limitesPrecos[estadio.nivel][setor] || 5000
-          return (
-            <div key={setor} className="border rounded p-2">
-              <h3 className="font-semibold capitalize">{setor}</h3>
-              <input
-                type="number"
-                min={1}
-                max={limite}
-                value={precos[setor] || 0}
-                onChange={(e) => atualizarPreco(setor, parseFloat(e.target.value))}
-                className="border rounded w-full p-1 mt-1"
-              />
-              <p className="text-xs text-gray-500">Limite: R$ {limite}</p>
-            </div>
-          )
-        })}
+    <div className="p-4 max-w-2xl mx-auto text-white">
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h1 className="text-2xl font-bold text-center mb-2">🏟️ {estadio.nome}</h1>
+        <p className="text-center text-gray-300">
+          <strong>Nível:</strong> {estadio.nivel} | <strong>Capacidade:</strong> {estadio.capacidade.toLocaleString()} lugares
+        </p>
       </div>
 
-      <div className="mt-4">
-        <h2 className="text-lg font-bold">📊 Estimativas</h2>
-        <p>👥 Público total: {publicoTotal.toLocaleString()} pessoas</p>
-        <p>💰 Renda estimada: R$ {rendaTotal.toLocaleString()}</p>
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2 text-center">💵 Preços dos Setores</h2>
+        <div className="grid grid-cols-2 gap-2">
+          {Object.entries(setoresBase).map(([setor, _]) => {
+            const limite = limitesPrecos[estadio.nivel][setor] || 5000
+            return (
+              <div key={setor} className="flex flex-col border border-gray-700 rounded p-2 bg-gray-900">
+                <span className="font-semibold capitalize text-sm">{setor}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={limite}
+                  value={precos[setor] || 0}
+                  onChange={(e) => atualizarPreco(setor, parseFloat(e.target.value))}
+                  className="border border-gray-700 rounded p-1 mt-1 text-sm bg-gray-800 text-white"
+                />
+                <span className="text-xs text-gray-400 mt-1">Limite: R$ {limite}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2 text-center">📊 Estimativas</h2>
+        <p>👥 <strong>Público total:</strong> {publicoTotal.toLocaleString()} pessoas</p>
+        <p>💰 <strong>Renda estimada:</strong> R$ {rendaTotal.toLocaleString()}</p>
       </div>
 
       {estadio.nivel < 5 ? (
-        <div className="mt-4">
-          <button
-            onClick={melhorarEstadio}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-          >
-            Melhorar Estádio (Custo: R$ {calcularMelhoriaEstadio(estadio.nivel).toLocaleString()})
-          </button>
-        </div>
+        <button
+          onClick={melhorarEstadio}
+          className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700"
+        >
+          Melhorar Estádio (Custo: R$ {calcularMelhoriaEstadio(estadio.nivel).toLocaleString()})
+        </button>
       ) : (
-        <div className="mt-4 text-green-600 font-bold">🏆 Estádio no nível máximo!</div>
+        <div className="text-center text-green-400 font-bold">🏆 Estádio já está no nível máximo!</div>
       )}
     </div>
   )
