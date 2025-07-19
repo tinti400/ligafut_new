@@ -112,6 +112,7 @@ export default function Sidebar() {
             📅 {isOpen && 'Jogos'}
           </Link>
 
+          {/* Elenco + Submenu */}
           <div>
             <button
               onClick={() => setAbrirElenco(!abrirElenco)}
@@ -124,6 +125,9 @@ export default function Sidebar() {
               <div className="ml-4 mt-2 space-y-2 text-sm">
                 <Link href="/elenco" className="block hover:text-green-400">
                   👥 Meu Elenco
+                </Link>
+                <Link href="/elenco/tatico" className="block hover:text-green-400">
+                  🎯 Painel Tático
                 </Link>
                 <Link href="/negociacoes" className="block hover:text-green-400">
                   🤝 Negociações
@@ -138,6 +142,7 @@ export default function Sidebar() {
             )}
           </div>
 
+          {/* Evento de Roubo */}
           <div>
             <button
               onClick={() => setAbrirRoubo(!abrirRoubo)}
@@ -161,6 +166,7 @@ export default function Sidebar() {
             )}
           </div>
 
+          {/* Leilão */}
           <div>
             <button
               onClick={() => setAbrirLeilao(!abrirLeilao)}
@@ -178,6 +184,7 @@ export default function Sidebar() {
             )}
           </div>
 
+          {/* Administração */}
           <div>
             <button
               onClick={() => setAbrirAdmin(!abrirAdmin)}
@@ -240,4 +247,5 @@ export default function Sidebar() {
     </aside>
   )
 }
+
 
