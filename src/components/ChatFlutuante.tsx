@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -13,6 +13,7 @@ export default function ChatFlutuante() {
   const [chat, setChat] = useState<any[]>([])
   const [novaMensagem, setNovaMensagem] = useState('')
   const [usuariosOnline, setUsuariosOnline] = useState<any[]>([])
+  const chatRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const buscarChat = async () => {
@@ -39,6 +40,12 @@ export default function ChatFlutuante() {
       supabase.removeChannel(canal)
     }
   }, [])
+
+  useEffect(() => {
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight
+    }
+  }, [chat])
 
   const enviarMensagem = async () => {
     if (!novaMensagem.trim()) return
@@ -111,7 +118,10 @@ export default function ChatFlutuante() {
             )) : <span className="text-gray-400 ml-1">Nenhum</span>}
           </div>
 
-          <div className="h-64 overflow-y-auto p-2 text-sm bg-gray-900">
+          <div
+            ref={chatRef}
+            className="h-64 overflow-y-auto p-2 text-sm bg-gray-900"
+          >
             {chat.length > 0 ? chat.map((msg, idx) => (
               <p key={idx}>
                 <strong className="text-green-400">{msg.usuario}:</strong> {msg.mensagem}
@@ -150,4 +160,3 @@ export default function ChatFlutuante() {
     </div>
   )
 }
-
