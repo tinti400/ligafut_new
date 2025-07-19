@@ -24,9 +24,11 @@ export default function BloqueioPage() {
   const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') : ''
 
   useEffect(() => {
-    carregarConfig()
-    carregarElenco()
-  }, [])
+    if (idTime) {
+      carregarConfig()
+      carregarElenco()
+    }
+  }, [idTime])
 
   async function carregarConfig() {
     const { data } = await supabase
@@ -37,7 +39,7 @@ export default function BloqueioPage() {
 
     if (data) {
       setLimiteBloqueios(data.limite_bloqueios || 3)
-      if (data.bloqueios?.[idTime]) {
+      if (idTime && data.bloqueios?.[idTime]) {
         setBloqueados(data.bloqueios[idTime])
       }
     }
@@ -73,7 +75,7 @@ export default function BloqueioPage() {
       .single()
 
     const atual = configAtual?.bloqueios || {}
-    atual[idTime] = [...(atual[idTime] || []), ...novosBloqueios]
+    atual[idTime!] = [...(atual[idTime!] || []), ...novosBloqueios]
 
     await supabase
       .from('configuracoes')
@@ -92,7 +94,9 @@ export default function BloqueioPage() {
     <div className="p-6 text-white max-w-xl mx-auto">
       <h1 className="text-2xl font-bold mb-4 text-center">🛡️ Bloqueio de Jogadores</h1>
 
-      {loading ? (
+      {!idTime ? (
+        <p className="text-center text-red-400">⚠️ ID do time não encontrado. Faça login novamente.</p>
+      ) : loading ? (
         <p className="text-center">Carregando...</p>
       ) : (
         <>
