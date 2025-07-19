@@ -33,6 +33,8 @@ export default function AcaoRouboPage() {
   const [roubos, setRoubos] = useState<any>({})
   const [limitePerda, setLimitePerda] = useState<number>(5)
   const [mostrarJogadores, setMostrarJogadores] = useState(false)
+  const [ordemSorteada, setOrdemSorteada] = useState(false)
+  const [bloqueioBotao, setBloqueioBotao] = useState(false)
 
   useEffect(() => {
     const id = localStorage.getItem('id_time')
@@ -41,10 +43,11 @@ export default function AcaoRouboPage() {
   }, [])
 
   useEffect(() => {
+    if (!ordemSorteada) return
     if (tempoRestante <= 0) return
     const timer = setInterval(() => setTempoRestante((prev) => prev - 1), 1000)
     return () => clearInterval(timer)
-  }, [tempoRestante])
+  }, [tempoRestante, ordemSorteada])
 
   async function carregarEvento() {
     const { data } = await supabase
@@ -61,6 +64,7 @@ export default function AcaoRouboPage() {
           .select('id, nome, logo_url')
           .in('id', data.ordem)
         setOrdem(times || [])
+        if (data.ordem.length > 0) setOrdemSorteada(true)
       }
       setRoubos(data.roubos || {})
       setLimitePerda(data.limite_perda || 5)
@@ -94,6 +98,7 @@ export default function AcaoRouboPage() {
       setOrdem(embaralhado)
       setVez(0)
       setTempoRestante(240)
+      setOrdemSorteada(true)
     }
   }
 
@@ -110,6 +115,9 @@ export default function AcaoRouboPage() {
   }
 
   async function roubarJogador(jogador: Jogador) {
+    if (bloqueioBotao) return
+    setBloqueioBotao(true)
+
     await supabase
       .from('elenco')
       .update({ id_time: idTime })
@@ -180,7 +188,7 @@ export default function AcaoRouboPage() {
   }
 
   return (
-    <div className="p-6 text-white max-w-2xl mx-auto">
+    <div className="p-6 text-white max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-4 text-center">⚔️ Fase de Ação - Evento de Roubo</h1>
 
       {loading ? (
@@ -189,90 +197,97 @@ export default function AcaoRouboPage() {
         <>
           <button
             onClick={sortearOrdem}
-            className="w-full bg-yellow-500 py-2 rounded mb-4"
+            className="w-full bg-yellow-500 py-2 rounded mb-4 hover:bg-yellow-600 transition"
           >
             🎲 Sortear Ordem dos Times
           </button>
 
           <button
             onClick={finalizarEvento}
-            className="w-full bg-red-700 py-2 rounded mb-4"
+            className="w-full bg-red-700 py-2 rounded mb-4 hover:bg-red-800 transition"
           >
             🛑 Finalizar Evento
           </button>
 
-          <div className="bg-gray-800 p-4 rounded mb-4 text-center">
-            <p className="text-xl font-bold">🎯 Time da vez:</p>
-            {ordem[vez] && (
-              <div className="flex items-center justify-center gap-2">
-                <img src={ordem[vez].logo_url} alt="Logo" className="h-8 w-8" />
-                <p className="text-green-400 text-xl mb-2">{ordem[vez].nome}</p>
-              </div>
-            )}
-            <p>⏳ Tempo restante: <strong>{tempoRestante}s</strong></p>
-          </div>
-
-          {idTime === ordem[vez]?.id && (
+          {ordemSorteada ? (
             <>
-              <select
-                value={alvoSelecionado}
-                onChange={(e) => setAlvoSelecionado(e.target.value)}
-                className="w-full p-2 rounded mb-2 text-black"
-              >
-                <option value="">🎯 Selecione um time para roubar</option>
-                {ordem.filter(t => t.id !== idTime && podeRoubar(t.id)).map((time, idx) => (
-                  <option key={idx} value={time.id}>{time.nome}</option>
-                ))}
-              </select>
+              <div className="bg-gray-800 p-4 rounded mb-4 text-center">
+                <p className="text-xl font-bold">🎯 Time da vez:</p>
+                {ordem[vez] && (
+                  <div className="flex items-center justify-center gap-2">
+                    <img src={ordem[vez].logo_url} alt="Logo" className="h-8 w-8" />
+                    <p className="text-green-400 text-xl mb-2">{ordem[vez].nome}</p>
+                  </div>
+                )}
+                <p>⏳ Tempo restante: <strong>{tempoRestante}s</strong></p>
+              </div>
+
+              {idTime === ordem[vez]?.id && (
+                <>
+                  <select
+                    value={alvoSelecionado}
+                    onChange={(e) => setAlvoSelecionado(e.target.value)}
+                    className="w-full p-2 rounded mb-2 text-black"
+                  >
+                    <option value="">🎯 Selecione um time para roubar</option>
+                    {ordem.filter(t => t.id !== idTime && podeRoubar(t.id)).map((time, idx) => (
+                      <option key={idx} value={time.id}>{time.nome}</option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={carregarJogadoresDoAlvo}
+                    className="w-full bg-blue-600 py-2 rounded mb-2 hover:bg-blue-700 transition"
+                  >
+                    🔎 Ver Jogadores Disponíveis
+                  </button>
+
+                  {mostrarJogadores && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {jogadoresAlvo.map(j => (
+                        <div key={j.id} className="bg-gray-700 p-2 rounded flex flex-col justify-between hover:bg-gray-600 transition">
+                          <div className="text-center">
+                            <p className="font-bold text-sm">{j.nome}</p>
+                            <p className="text-xs">{j.posicao}</p>
+                            <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
+                          </div>
+                          <button
+                            onClick={() => roubarJogador(j)}
+                            className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition"
+                          >
+                            ✅ Roubar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
 
               <button
-                onClick={carregarJogadoresDoAlvo}
-                className="w-full bg-blue-600 py-2 rounded mb-2"
+                onClick={passarVez}
+                className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition"
               >
-                🔎 Ver Jogadores Disponíveis
+                ⏭️ Passar para Próximo Time
               </button>
 
-              {mostrarJogadores && (
-                <div className="grid grid-cols-1 gap-2">
-                  {jogadoresAlvo.map(j => (
-                    <div key={j.id} className="bg-gray-700 p-2 rounded flex justify-between items-center">
-                      <div>
-                        <p className="font-bold">{j.nome}</p>
-                        <p className="text-sm">{j.posicao} - R$ {j.valor.toLocaleString('pt-BR')}</p>
+              <div className="mt-6 bg-gray-800 p-4 rounded">
+                <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
+                <ol className="list-decimal ml-4">
+                  {ordem.map((t, idx) => (
+                    <li key={idx} className={idx === vez ? 'text-green-400 font-bold' : ''}>
+                      <div className="flex items-center gap-2">
+                        <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
+                        {t.nome}
                       </div>
-                      <button
-                        onClick={() => roubarJogador(j)}
-                        className="bg-green-600 px-2 py-1 rounded text-xs"
-                      >
-                        ✅ Roubar
-                      </button>
-                    </div>
+                    </li>
                   ))}
-                </div>
-              )}
+                </ol>
+              </div>
             </>
+          ) : (
+            <p className="text-center text-yellow-300 font-bold">⚠️ Sorteie a ordem para iniciar o evento!</p>
           )}
-
-          <button
-            onClick={passarVez}
-            className="w-full bg-red-600 py-2 rounded mt-4"
-          >
-            ⏭️ Passar para Próximo Time
-          </button>
-
-          <div className="mt-6 bg-gray-800 p-4 rounded">
-            <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
-            <ol className="list-decimal ml-4">
-              {ordem.map((t, idx) => (
-                <li key={idx} className={idx === vez ? 'text-green-400 font-bold' : ''}>
-                  <div className="flex items-center gap-2">
-                    <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
-                    {t.nome}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
         </>
       )}
     </div>
