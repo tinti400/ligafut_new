@@ -154,6 +154,9 @@ export default function Sidebar() {
                 <Link href="/evento_roubo/acao" className="block hover:text-green-400">
                   ⚔️ Ação
                 </Link>
+                <Link href="/evento_roubo/relatorio" className="block hover:text-green-400">
+                  📋 Relatório
+                </Link>
               </div>
             )}
           </div>
