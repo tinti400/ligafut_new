@@ -136,7 +136,7 @@ export default function ElencoPage() {
             z-index: 9999;
             box-shadow: 0 4px 8px rgba(0,0,0,0.3);
           ">
-            🚫 Este jogador tem menos de 3 jogos e não pode ser vendido.
+            🚫 O seu jogador não completou 3 jogos e não pode ser vendido.
           </div>
         `
         document.body.appendChild(div)
