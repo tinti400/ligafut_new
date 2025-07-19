@@ -11,6 +11,7 @@ export default function Sidebar() {
   const [abrirElenco, setAbrirElenco] = useState(false)
   const [abrirAdmin, setAbrirAdmin] = useState(false)
   const [abrirRoubo, setAbrirRoubo] = useState(false)
+  const [abrirCopa, setAbrirCopa] = useState(false)
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
   const [saldoTime, setSaldoTime] = useState('0')
@@ -184,6 +185,42 @@ export default function Sidebar() {
             )}
           </div>
 
+          {/* Copa */}
+          <div>
+            <button
+              onClick={() => setAbrirCopa(!abrirCopa)}
+              className="w-full text-left hover:text-green-400"
+            >
+              🏆 {isOpen && `Copa ${abrirCopa ? '▲' : '▼'}`}
+            </button>
+
+            {abrirCopa && isOpen && (
+              <div className="ml-4 mt-2 space-y-2 text-sm">
+                <Link href="/copa/fase_liga" className="block hover:text-green-400">
+                  📊 Fase Liga
+                </Link>
+                <Link href="/copa/playoff" className="block hover:text-green-400">
+                  🎯 Playoff
+                </Link>
+                <Link href="/copa/oitavas" className="block hover:text-green-400">
+                  🥇 Oitavas de Final
+                </Link>
+                <Link href="/copa/quartas" className="block hover:text-green-400">
+                  🥈 Quartas de Final
+                </Link>
+                <Link href="/copa/semi" className="block hover:text-green-400">
+                  🥉 Semifinal
+                </Link>
+                <Link href="/copa/final" className="block hover:text-green-400">
+                  🏅 Final
+                </Link>
+                <Link href="/copa/admin" className="block hover:text-green-400">
+                  🛠️ Administração da Copa
+                </Link>
+              </div>
+            )}
+          </div>
+
           {/* Administração */}
           <div>
             <button
@@ -247,5 +284,6 @@ export default function Sidebar() {
     </aside>
   )
 }
+
 
 
