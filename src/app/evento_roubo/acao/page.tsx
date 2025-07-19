@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAdmin } from '@/hooks/useAdmin'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -23,6 +24,7 @@ interface Jogador {
 }
 
 export default function AcaoRouboPage() {
+  const { isAdmin, loading: loadingAdmin } = useAdmin()
   const [vez, setVez] = useState<number>(0)
   const [ordem, setOrdem] = useState<Time[]>([])
   const [tempoRestante, setTempoRestante] = useState<number>(240)
@@ -191,23 +193,27 @@ export default function AcaoRouboPage() {
     <div className="p-6 text-white max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-4 text-center">⚔️ Fase de Ação - Evento de Roubo</h1>
 
-      {loading ? (
+      {loading || loadingAdmin ? (
         <p className="text-center">Carregando...</p>
       ) : (
         <>
-          <button
-            onClick={sortearOrdem}
-            className="w-full bg-yellow-500 py-2 rounded mb-4 hover:bg-yellow-600 transition"
-          >
-            🎲 Sortear Ordem dos Times
-          </button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={sortearOrdem}
+                className="w-full bg-yellow-500 py-2 rounded mb-4 hover:bg-yellow-600 transition"
+              >
+                🎲 Sortear Ordem dos Times
+              </button>
 
-          <button
-            onClick={finalizarEvento}
-            className="w-full bg-red-700 py-2 rounded mb-4 hover:bg-red-800 transition"
-          >
-            🛑 Finalizar Evento
-          </button>
+              <button
+                onClick={finalizarEvento}
+                className="w-full bg-red-700 py-2 rounded mb-4 hover:bg-red-800 transition"
+              >
+                🛑 Finalizar Evento
+              </button>
+            </>
+          )}
 
           {ordemSorteada ? (
             <>
@@ -271,18 +277,19 @@ export default function AcaoRouboPage() {
                 ⏭️ Passar para Próximo Time
               </button>
 
-              <div className="mt-6 bg-gray-800 p-4 rounded">
+              <div className="mt-6 bg-gray-800 p-4 rounded overflow-x-auto">
                 <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
-                <ol className="list-decimal ml-4">
+                <div className="flex gap-2">
                   {ordem.map((t, idx) => (
-                    <li key={idx} className={idx === vez ? 'text-green-400 font-bold' : ''}>
-                      <div className="flex items-center gap-2">
-                        <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
-                        {t.nome}
-                      </div>
-                    </li>
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-2 bg-gray-700 p-2 rounded ${idx === vez ? 'border-2 border-green-400' : ''}`}
+                    >
+                      <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
+                      <span className="text-xs">{t.nome}</span>
+                    </div>
                   ))}
-                </ol>
+                </div>
               </div>
             </>
           ) : (
