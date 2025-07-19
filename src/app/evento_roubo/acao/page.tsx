@@ -279,7 +279,7 @@ export default function AcaoRouboPage() {
 
               <div className="mt-6 bg-gray-800 p-4 rounded overflow-x-auto">
                 <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   {ordem.map((t, idx) => (
                     <div
                       key={idx}
