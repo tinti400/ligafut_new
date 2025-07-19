@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import CampoTatico from '@/components/CampoTatico'
+import Image from 'next/image'
 import ListaJogadores from '@/components/ListaJogadores'
 
 const supabase = createClient(
@@ -10,18 +10,33 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const formacao442 = [
-  ['ATA', 'ATA'],
-  ['MEI', 'MEI', 'MEI', 'MEI'],
-  ['LAT', 'ZAG', 'ZAG', 'LAT'],
-  ['GOL'],
-]
+const formacoes: Record<string, string[][]> = {
+  '4-4-2': [
+    ['ATA', 'ATA'],
+    ['MEI', 'MEI', 'MEI', 'MEI'],
+    ['LAT', 'ZAG', 'ZAG', 'LAT'],
+    ['GOL'],
+  ],
+  '4-3-3': [
+    ['ATA', 'ATA', 'ATA'],
+    ['MEI', 'MEI', 'MEI'],
+    ['LAT', 'ZAG', 'ZAG', 'LAT'],
+    ['GOL'],
+  ],
+  '3-5-2': [
+    ['ATA', 'ATA'],
+    ['MEI', 'MEI', 'MEI', 'MEI', 'MEI'],
+    ['ZAG', 'ZAG', 'ZAG'],
+    ['GOL'],
+  ],
+}
 
 export default function PainelTaticoPage() {
   const [escala, setEscala] = useState<Record<string, any>>({})
   const [jogadorSelecionado, setJogadorSelecionado] = useState<any>(null)
   const [jogadoresDisponiveis, setJogadoresDisponiveis] = useState<any[]>([])
   const [salvando, setSalvando] = useState(false)
+  const [formacaoSelecionada, setFormacaoSelecionada] = useState<string>('4-4-2')
 
   useEffect(() => {
     const fetchElenco = async () => {
@@ -64,7 +79,7 @@ export default function PainelTaticoPage() {
         .from('taticos')
         .upsert({
           id_time,
-          formacao: '4-4-2',
+          formacao: formacaoSelecionada,
           escalação: escala,
           created_at: new Date().toISOString(),
         }, { onConflict: 'id_time' })
@@ -79,9 +94,66 @@ export default function PainelTaticoPage() {
     }
   }
 
+  const renderCampo = () => (
+    <div className="relative w-full max-w-md mx-auto bg-green-700 rounded-lg py-6 px-2 border-4 border-green-900">
+      {formacoes[formacaoSelecionada].map((linha, linhaIdx) => (
+        <div key={linhaIdx} className="flex justify-center gap-4 my-4">
+          {linha.map((pos, posIdx) => {
+            const jogador = escala[pos]
+            return (
+              <div
+                key={posIdx}
+                onClick={() => handleEscalar(pos)}
+                className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
+              >
+                <div className="w-16 h-16 rounded-full bg-white overflow-hidden border-2 border-gray-300">
+                  {jogador?.imagem_url ? (
+                    <Image
+                      src={jogador.imagem_url}
+                      alt={jogador.nome}
+                      width={64}
+                      height={64}
+                      className="object-cover"
+                    />
+                  ) : (
+                    <Image
+                      src="/mnt/data/fccf7495-b787-4e64-a0c9-d6f2d95b86c4.png"
+                      alt="Sem imagem"
+                      width={64}
+                      height={64}
+                      className="object-cover"
+                    />
+                  )}
+                </div>
+                <span className="text-xs text-white mt-1 text-center">{jogador?.nome || pos}</span>
+              </div>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <div className="p-6 text-white bg-gray-900 min-h-screen">
-      <h1 className="text-3xl font-bold text-center text-green-400 mb-4">🎯 Painel Tático - 4-4-2</h1>
+      <h1 className="text-3xl font-bold text-center text-green-400 mb-4">🎯 Painel Tático</h1>
+
+      <div className="text-center mb-4">
+        <select
+          value={formacaoSelecionada}
+          onChange={(e) => {
+            setFormacaoSelecionada(e.target.value)
+            setEscala({})
+          }}
+          className="bg-gray-800 text-white border px-3 py-2 rounded"
+        >
+          {Object.keys(formacoes).map((form) => (
+            <option key={form} value={form}>
+              {form}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <ListaJogadores jogadores={jogadoresDisponiveis} onSelecionar={setJogadorSelecionado} />
 
@@ -91,9 +163,7 @@ export default function PainelTaticoPage() {
         </p>
       )}
 
-      <div className="mt-6">
-        <CampoTatico formacao={formacao442} escalação={escala} onEscalar={handleEscalar} />
-      </div>
+      <div className="mt-6">{renderCampo()}</div>
 
       <div className="text-center mt-6">
         <button
@@ -107,3 +177,4 @@ export default function PainelTaticoPage() {
     </div>
   )
 }
+
