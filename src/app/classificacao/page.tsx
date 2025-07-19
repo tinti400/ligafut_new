@@ -31,11 +31,11 @@ export default function ClassificacaoPage() {
     const fetchDados = async () => {
       try {
         const res = await fetch('/api/classificacao')
-        if (!res.ok) throw new Error(Erro HTTP: ${res.status})
+        if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
         const data = await res.json()
         setClassificacao(data)
       } catch (err: any) {
-        setErro(Erro ao buscar dados: ${err.message})
+        setErro(`Erro ao buscar dados: ${err.message}`)
       }
     }
     fetchDados()
@@ -61,7 +61,7 @@ export default function ClassificacaoPage() {
 
   const editarClassificacao = (item: ClassificacaoItem) => {
     if (!isAdmin) return
-    alert(📝 Editar classificação do time: ${item.times.nome})
+    alert(`📝 Editar classificação do time: ${item.times.nome}`)
   }
 
   if (erro) return <div className="text-red-500 p-4">{erro}</div>
@@ -75,11 +75,11 @@ export default function ClassificacaoPage() {
           <button
             key={div}
             onClick={() => setDivisaoSelecionada(div)}
-            className={px-4 py-2 rounded-lg border text-sm ${
+            className={`px-4 py-2 rounded-lg border text-sm ${
               divisaoSelecionada === div
                 ? 'bg-green-600 text-white border-green-600'
                 : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
-            }}
+            }`}
           >
             Divisão {div}
           </button>
