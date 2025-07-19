@@ -35,23 +35,21 @@ export default function ClassificacaoPage() {
   useEffect(() => {
     const fetchDados = async () => {
       try {
-        const res = await fetch('/api/classificacao')
+        const res = await fetch(`/api/classificacao?temporada=${temporadaSelecionada}&divisao=${divisaoSelecionada}`)
         if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
         const data = await res.json()
-        setClassificacao(data)
+        setClassificacao(
+          (data || []).map((item: ClassificacaoItem) => ({
+            ...item,
+            saldo_gols: item.gols_pro - item.gols_contra,
+          }))
+        )
       } catch (err: any) {
         setErro(`Erro ao buscar dados: ${err.message}`)
       }
     }
     fetchDados()
-  }, [])
-
-  const timesFiltrados = classificacao
-    .filter((item) => item.divisao === divisaoSelecionada && item.temporada === temporadaSelecionada)
-    .map((item) => ({
-      ...item,
-      saldo_gols: item.gols_pro - item.gols_contra,
-    }))
+  }, [temporadaSelecionada, divisaoSelecionada])
 
   const editarClassificacao = (item: ClassificacaoItem) => {
     if (!isAdmin) return
@@ -98,7 +96,7 @@ export default function ClassificacaoPage() {
 
       {loading ? (
         <p className="text-center text-gray-400">🔄 Verificando permissões...</p>
-      ) : timesFiltrados.length > 0 ? (
+      ) : classificacao.length > 0 ? (
         <div>
           <h2 className="text-2xl font-semibold mb-4">
             Divisão {divisaoSelecionada} — Temporada {temporadaSelecionada}
@@ -120,7 +118,7 @@ export default function ClassificacaoPage() {
                 </tr>
               </thead>
               <tbody>
-                {timesFiltrados
+                {classificacao
                   .sort((a, b) => b.pontos - a.pontos || b.saldo_gols! - a.saldo_gols!)
                   .map((item, index) => (
                     <tr key={item.id_time} className="border-b border-gray-700 hover:bg-gray-700">
