@@ -83,8 +83,47 @@ export default function ElencoPage() {
   const totalSalarios = elenco.reduce((total, j) => total + (j.salario || 0), 0)
 
   const venderJogador = async (jogador: any) => {
-    if (!confirm(`💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`)) return
     try {
+      const { data: config, error: errorConfig } = await supabase
+        .from('configuracoes')
+        .select('mercado_aberto')
+        .single()
+
+      if (errorConfig) {
+        alert('❌ Erro ao verificar o status do mercado.')
+        return
+      }
+
+      if (!config?.mercado_aberto) {
+        const div = document.createElement('div')
+        div.innerHTML = `
+          <div style="
+            background-color: #ff4d4f;
+            color: white;
+            padding: 16px;
+            border-radius: 8px;
+            font-weight: bold;
+            text-align: center;
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          ">
+            🚫 O mercado de transferências está fechado. Não é possível vender jogadores agora.
+          </div>
+        `
+        document.body.appendChild(div)
+        setTimeout(() => div.remove(), 3000)
+        return
+      }
+
+      const confirmar = confirm(
+        `💸 Deseja vender ${jogador.nome} por R$ ${Number(jogador.valor).toLocaleString('pt-BR')}?\nO clube receberá 70% deste valor.`
+      )
+      if (!confirmar) return
+
       await supabase.from('mercado_transferencias').insert({
         jogador_id: jogador.id,
         nome: jogador.nome,
@@ -197,3 +236,4 @@ export default function ElencoPage() {
     </div>
   )
 }
+
