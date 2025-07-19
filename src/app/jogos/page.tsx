@@ -91,28 +91,29 @@ export default function Jogos() {
     await supabase.from('rodadas').delete().eq('temporada', temporada).eq('divisao', divisao);
 
     const { data: times } = await supabase.from('times').select('id').eq('divisao', divisao);
-    if (!times) return;
+    if (!times || times.length < 2) return;
 
     const ids = times.map((t) => t.id);
-    const jogos: { mandante: string; visitante: string }[] = [];
+    const jogosTurno: Jogo[] = [];
+    const jogosReturno: Jogo[] = [];
 
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
-        jogos.push({ mandante: ids[i], visitante: ids[j] });  // turno
-        jogos.push({ mandante: ids[j], visitante: ids[i] });  // returno
+        jogosTurno.push({ mandante: ids[i], visitante: ids[j] });
+        jogosReturno.push({ mandante: ids[j], visitante: ids[i] });
       }
     }
 
-    const embaralhados = jogos.sort(() => Math.random() - 0.5);
+    const todosJogos = [...jogosTurno, ...jogosReturno].sort(() => Math.random() - 0.5);
     const jogosPorRodada = Math.floor(ids.length / 2) || 1;
 
     let rodadaNum = 1;
-    for (let i = 0; i < embaralhados.length; i += jogosPorRodada) {
+    for (let i = 0; i < todosJogos.length; i += jogosPorRodada) {
       await supabase.from('rodadas').insert({
         numero: rodadaNum++,
         temporada,
         divisao,
-        jogos: embaralhados.slice(i, i + jogosPorRodada),
+        jogos: todosJogos.slice(i, i + jogosPorRodada),
       });
     }
   };
@@ -166,7 +167,7 @@ export default function Jogos() {
         <div className="mb-4">
           <button
             onClick={async () => {
-              if (!confirm('⚠️ Tem certeza que deseja gerar rodadas para TODAS as divisões desta temporada?')) return;
+              if (!confirm('⚠️ Gerar rodadas para TODAS divisões desta temporada?')) return;
               for (const div of divisoesDisponiveis) {
                 await gerarRodadas(temporada, div);
               }
@@ -175,7 +176,7 @@ export default function Jogos() {
             }}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
           >
-            ➕ Gerar Rodadas Automáticas
+            ➕ Gerar Rodadas Automáticas (Todas)
           </button>
         </div>
       )}
@@ -209,7 +210,9 @@ export default function Jogos() {
                   className="flex items-center justify-between bg-zinc-700 text-white px-4 py-2 rounded-lg"
                 >
                   <div className="flex items-center w-1/3 justify-end gap-2">
-                    {mandante?.logo_url && <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />}
+                    {mandante?.logo_url && (
+                      <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
+                    )}
                     <span className="font-medium text-right">{mandante?.nome || '???'}</span>
                   </div>
 
