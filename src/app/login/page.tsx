@@ -106,10 +106,18 @@ export default function LoginPage() {
         return
       }
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('usuarios')
         .update({ senha: novaSenha })
-        .eq('id', userData.id)
+        .eq('usuario', usuario)
+        .eq('senha', senha)
+
+      if (updateError) {
+        console.error('Erro ao atualizar senha:', updateError)
+        alert('❌ Erro ao atualizar a senha. Tente novamente.')
+        setLoading(false)
+        return
+      }
 
       alert('✅ Senha atualizada com sucesso! Faça login novamente.')
       setTela('login')
