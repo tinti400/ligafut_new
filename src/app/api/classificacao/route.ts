@@ -30,15 +30,20 @@ export async function GET(req: NextRequest) {
       let gols_contra = 0
       let jogos = 0
 
-      const { data: rodadasData } = await supabase
+      const { data: rodadasData, error: errorRodadas } = await supabase
         .from('rodadas')
         .select('jogos')
         .eq('temporada', temporada)
         .eq('divisao', time.divisao)
 
+      if (errorRodadas) {
+        console.error('Erro ao buscar rodadas:', errorRodadas)
+        continue
+      }
+
       for (const rodada of rodadasData || []) {
         for (const jogo of rodada.jogos || []) {
-          if (jogo.gols_mandante === undefined || jogo.gols_visitante === undefined) continue
+          if (jogo.gols_mandante == null || jogo.gols_visitante == null) continue
 
           if (jogo.mandante === time.id) {
             gols_pro += jogo.gols_mandante
@@ -62,19 +67,22 @@ export async function GET(req: NextRequest) {
 
       await supabase
         .from('classificacao')
-        .upsert({
-          id_time: time.id,
-          temporada,
-          divisao: time.divisao,
-          pontos,
-          jogos,
-          vitorias,
-          empates,
-          derrotas,
-          gols_pro,
-          gols_contra,
-          saldo: gols_pro - gols_contra,
-        }, { onConflict: 'id_time,temporada,divisao' })
+        .upsert(
+          {
+            id_time: time.id,
+            temporada,
+            divisao: time.divisao,
+            pontos,
+            vitorias,
+            empates,
+            derrotas,
+            gols_pro,
+            gols_contra,
+            jogos,
+            saldo: gols_pro - gols_contra,
+          },
+          { onConflict: 'id_time,temporada,divisao' }
+        )
     }
 
     const { data: classificacaoData, error: errorClass } = await supabase
