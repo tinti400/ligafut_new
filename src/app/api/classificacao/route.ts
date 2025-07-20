@@ -1,3 +1,5 @@
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -11,7 +13,7 @@ export async function GET(req: NextRequest) {
   const temporada = Number(searchParams.get('temporada') || '1')
 
   try {
-    // Buscar todos os times da temporada (usando divisões cadastradas)
+    // Buscar todos os times cadastrados para a temporada
     const { data: timesData, error: errorTimes } = await supabase
       .from('times')
       .select('id, divisao')
@@ -22,6 +24,7 @@ export async function GET(req: NextRequest) {
 
     if (!timesData) return NextResponse.json([], { status: 200 })
 
+    // Recalcular classificação de cada time
     for (const time of timesData) {
       let pontos = 0
       let vitorias = 0
@@ -72,7 +75,7 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // Buscar a classificação atualizada já com join dos times
+    // Buscar classificação atualizada com join dos times
     const { data: classificacaoData, error: errorClass } = await supabase
       .from('classificacao')
       .select('*, times:times(id, nome, logo_url)')
