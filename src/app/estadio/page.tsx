@@ -9,7 +9,7 @@ import {
   limitesPrecos,
   calcularPublicoSetor,
   calcularMelhoriaEstadio,
-  mensagemDesempenho,
+  mensagemDesempenho
 } from '@/utils/estadioUtils'
 
 const supabase = createClient(
@@ -23,7 +23,7 @@ export default function EstadioPage() {
   const [publicoTotal, setPublicoTotal] = useState(0)
   const [rendaTotal, setRendaTotal] = useState(0)
   const [saldo, setSaldo] = useState(0)
-  const [desempenho, setDesempenho] = useState<'bom' | 'medio' | 'ruim'>('medio')
+  const [desempenho, setDesempenho] = useState(0)
 
   const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') : ''
   const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : ''
@@ -37,7 +37,6 @@ export default function EstadioPage() {
 
   const buscarEstadio = async () => {
     const { data } = await supabase.from('estadios').select('*').eq('id_time', idTime).single()
-
     if (!data) {
       const novo = {
         id_time: idTime,
@@ -51,14 +50,9 @@ export default function EstadioPage() {
       setPrecos(precosPadrao)
     } else {
       setEstadio(data)
-      setPrecos(
-        Object.fromEntries(
-          Object.keys(setoresBase).map((s) => [
-            s,
-            data[`preco_${s}`] || precosPadrao[s as keyof typeof precosPadrao]
-          ])
-        )
-      )
+      setPrecos(Object.fromEntries(
+        Object.keys(setoresBase).map((s) => [s, data[`preco_${s}`] || precosPadrao[s as keyof typeof precosPadrao]])
+      ))
     }
   }
 
@@ -69,11 +63,7 @@ export default function EstadioPage() {
 
   const buscarDesempenho = async () => {
     const { data } = await supabase.from('classificacao').select('pontos').eq('id_time', idTime).single()
-    if (data) {
-      if (data.pontos >= 30) setDesempenho('bom')
-      else if (data.pontos >= 15) setDesempenho('medio')
-      else setDesempenho('ruim')
-    }
+    if (data?.pontos) setDesempenho(data.pontos)
   }
 
   const atualizarPreco = async (setor: string, novoPreco: number) => {
@@ -90,7 +80,7 @@ export default function EstadioPage() {
     Object.entries(setoresBase).forEach(([setor, proporcao]) => {
       const lugares = Math.floor(capacidade * proporcao)
       const preco = precos[setor] || precosPadrao[setor as keyof typeof precosPadrao]
-      const { publicoEstimado, renda } = calcularPublicoSetor(lugares, preco, 10, 5, 2, 1, desempenho)
+      const { publicoEstimado, renda } = calcularPublicoSetor(lugares, preco, desempenho, 5, 2, 1)
       totalPublico += publicoEstimado
       totalRenda += renda
     })
@@ -109,31 +99,27 @@ export default function EstadioPage() {
       alert('💸 Saldo insuficiente para melhorar o estádio!')
       return
     }
-    await supabase
-      .from('estadios')
-      .update({ nivel: estadio.nivel + 1, capacidade: capacidadePorNivel[estadio.nivel + 1] })
-      .eq('id_time', idTime)
+    await supabase.from('estadios').update({ nivel: estadio.nivel + 1, capacidade: capacidadePorNivel[estadio.nivel + 1] }).eq('id_time', idTime)
     await supabase.from('times').update({ saldo: saldo - custo }).eq('id', idTime)
     alert('✅ Estádio melhorado com sucesso!')
     buscarEstadio()
     buscarSaldo()
   }
 
-  if (!estadio)
-    return <div className="p-4 text-white">🔄 Carregando informações do estádio...</div>
+  if (!estadio) return <div className="p-4 text-white">🔄 Carregando informações do estádio...</div>
 
   return (
     <div className="p-4 max-w-2xl mx-auto text-white">
-      <div className="bg-yellow-500 text-black text-center rounded p-2 mb-4 font-bold border border-yellow-300">
-        {mensagemDesempenho[desempenho]}
-      </div>
-
       <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
         <h1 className="text-2xl font-bold text-center mb-2">🏟️ {estadio.nome}</h1>
         <p className="text-center text-gray-300">
-          <strong>Nível:</strong> {estadio.nivel} | <strong>Capacidade:</strong>{' '}
-          {estadio.capacidade.toLocaleString()} lugares
+          <strong>Nível:</strong> {estadio.nivel} | <strong>Capacidade:</strong> {estadio.capacidade.toLocaleString()} lugares
         </p>
+      </div>
+
+      <div className="bg-gray-900 rounded p-4 text-center mb-4 border border-yellow-400">
+        <h2 className="text-lg font-bold mb-2 text-yellow-300">📣 Aviso Importante</h2>
+        <p>{mensagemDesempenho(desempenho)}</p>
       </div>
 
       <div className="bg-gray-800 rounded p-4 text-center mb-4 border border-gray-700">
@@ -141,7 +127,9 @@ export default function EstadioPage() {
         <div className="grid grid-cols-10 gap-1 justify-center">
           {[...Array(100)].map((_, idx) => {
             const ocupado = idx < Math.round((publicoTotal / estadio.capacidade) * 100)
-            return <div key={idx} className={`w-4 h-4 rounded ${ocupado ? 'bg-red-500' : 'bg-gray-500'}`}></div>
+            return (
+              <div key={idx} className={`w-4 h-4 rounded ${ocupado ? 'bg-red-500' : 'bg-gray-500'}`}></div>
+            )
           })}
         </div>
         <p className="text-xs text-gray-400 mt-2">
@@ -153,7 +141,7 @@ export default function EstadioPage() {
         <h2 className="text-lg font-bold mb-2 text-center">💵 Preços dos Setores</h2>
         <div className="grid grid-cols-2 gap-2">
           {Object.entries(setoresBase).map(([setor, _]) => {
-            const limite = limitesPrecos[estadio.nivel][setor as keyof typeof limitesPrecos[1]] || 5000
+            const limite = limitesPrecos[estadio.nivel][setor] || 5000
             return (
               <div key={setor} className="flex flex-col border border-gray-700 rounded p-2 bg-gray-900">
                 <span className="font-semibold capitalize text-sm">{setor}</span>
