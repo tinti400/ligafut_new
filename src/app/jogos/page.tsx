@@ -42,6 +42,7 @@ export default function Jogos() {
   const [editandoIndex, setEditandoIndex] = useState<number | null>(null);
   const [golsMandante, setGolsMandante] = useState<number>(0);
   const [golsVisitante, setGolsVisitante] = useState<number>(0);
+  const [isSalvando, setIsSalvando] = useState(false);
 
   const temporadasDisponiveis = [1, 2];
   const divisoesDisponiveis = [1, 2, 3];
@@ -69,7 +70,10 @@ export default function Jogos() {
   }, [temporada, divisao]);
 
   const atualizarClassificacao = async () => {
-    const { data: timesData } = await supabase.from('times').select('id, divisao');
+    const { data: timesData } = await supabase
+      .from('times')
+      .select('id, divisao')
+      .eq('divisao', divisao);
 
     for (const time of timesData || []) {
       let pontos = 0;
@@ -83,7 +87,7 @@ export default function Jogos() {
         .from('rodadas')
         .select('jogos')
         .eq('temporada', temporada)
-        .eq('divisao', time.divisao);
+        .eq('divisao', divisao);
 
       (rodadasData || []).forEach((r) => {
         (r.jogos || []).forEach((jogo: any) => {
@@ -110,7 +114,7 @@ export default function Jogos() {
       await supabase.from('classificacao').upsert({
         id_time: time.id,
         temporada,
-        divisao: time.divisao,
+        divisao,
         pontos,
         vitorias,
         empates,
@@ -123,10 +127,14 @@ export default function Jogos() {
   };
 
   const salvarResultado = async () => {
-    if (editandoRodada === null || editandoIndex === null) return;
+    if (isSalvando || editandoRodada === null || editandoIndex === null) return;
+    setIsSalvando(true);
 
     const rodada = rodadas.find((r) => r.id === editandoRodada);
-    if (!rodada) return;
+    if (!rodada) {
+      setIsSalvando(false);
+      return;
+    }
 
     const novaLista = [...rodada.jogos];
     novaLista[editandoIndex] = {
@@ -138,8 +146,10 @@ export default function Jogos() {
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id);
     await carregarDados();
     await atualizarClassificacao();
+
     setEditandoRodada(null);
     setEditandoIndex(null);
+    setIsSalvando(false);
   };
 
   const gerarRodadasRoundRobin = async (temporada: number, divisoes: number[]) => {
@@ -335,12 +345,24 @@ export default function Jogos() {
                     )}
 
                     {isAdmin && estaEditando && (
-                      <button
-                        onClick={salvarResultado}
-                        className="ml-2 text-sm text-green-400 font-semibold"
-                      >
-                        💾 Salvar
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={salvarResultado}
+                          disabled={isSalvando}
+                          className="text-sm text-green-400 font-semibold"
+                        >
+                          💾 Salvar
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditandoRodada(null);
+                            setEditandoIndex(null);
+                          }}
+                          className="text-sm text-red-400 font-semibold"
+                        >
+                          ❌ Cancelar
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -352,3 +374,4 @@ export default function Jogos() {
     </div>
   );
 }
+
