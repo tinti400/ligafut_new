@@ -16,6 +16,7 @@ interface ClassificacaoItem {
   derrotas: number
   gols_pro: number
   gols_contra: number
+  jogos: number
   saldo_gols?: number
   divisao: number
   times: Time
@@ -139,6 +140,7 @@ export default function ClassificacaoPage() {
                     <th className="py-2 px-4 text-left">Posição</th>
                     <th className="py-2 px-4 text-left">Time</th>
                     <th className="py-2 px-4 text-center">Pts</th>
+                    <th className="py-2 px-4 text-center">J</th>
                     <th className="py-2 px-4 text-center">VIT</th>
                     <th className="py-2 px-4 text-center">E</th>
                     <th className="py-2 px-4 text-center">DER</th>
@@ -159,6 +161,7 @@ export default function ClassificacaoPage() {
                           {item.times.nome}
                         </td>
                         <td className="py-2 px-4 text-center">{item.pontos}</td>
+                        <td className="py-2 px-4 text-center">{item.jogos}</td>
                         <td className="py-2 px-4 text-center">{item.vitorias}</td>
                         <td className="py-2 px-4 text-center">{item.empates}</td>
                         <td className="py-2 px-4 text-center">{item.derrotas}</td>
