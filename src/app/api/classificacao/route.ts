@@ -1,3 +1,5 @@
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -59,18 +61,21 @@ export async function GET(req: NextRequest) {
 
       await supabase
         .from('classificacao')
-        .upsert({
-          id_time: time.id,
-          temporada,
-          divisao: time.divisao,
-          pontos,
-          vitorias,
-          empates,
-          derrotas,
-          gols_pro,
-          gols_contra,
-          saldo_gols: gols_pro - gols_contra,
-        }, { onConflict: 'id_time,temporada,divisao' })  // <- ESSA LINHA GARANTE O UPSERT CERTO
+        .upsert(
+          {
+            id_time: time.id,
+            temporada,
+            divisao: time.divisao,
+            pontos,
+            vitorias,
+            empates,
+            derrotas,
+            gols_pro,
+            gols_contra,
+            saldo_gols: gols_pro - gols_contra,
+          },
+          { onConflict: 'id_time,temporada,divisao' }
+        )
     }
 
     const { data: classificacaoData, error: errorClass } = await supabase
@@ -87,3 +92,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ erro: err.message }, { status: 500 })
   }
 }
+
