@@ -87,34 +87,55 @@ export default function Jogos() {
     setEditandoIndex(null);
   };
 
-  const gerarRodadas = async (temporada: number, divisao: number) => {
-    await supabase.from('rodadas').delete().eq('temporada', temporada).eq('divisao', divisao);
+  const gerarRodadasRoundRobin = async (temporada: number, divisoes: number[]) => {
+    for (const divisao of divisoes) {
+      await supabase.from('rodadas').delete().eq('temporada', temporada).eq('divisao', divisao);
 
-    const { data: times } = await supabase.from('times').select('id').eq('divisao', divisao);
-    if (!times || times.length < 2) return;
+      const { data: times } = await supabase.from('times').select('id').eq('divisao', divisao);
+      if (!times || times.length < 2) continue;
 
-    const ids = times.map((t) => t.id);
-    const jogosTurno: Jogo[] = [];
-    const jogosReturno: Jogo[] = [];
+      let ids = times.map((t) => t.id);
 
-    for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        jogosTurno.push({ mandante: ids[i], visitante: ids[j] });
-        jogosReturno.push({ mandante: ids[j], visitante: ids[i] });
+      if (ids.length % 2 !== 0) ids.push('folga');
+
+      const totalRodadas = ids.length - 1;
+      const jogosPorRodada = ids.length / 2;
+      const rodadasGeradas: Jogo[][] = [];
+
+      for (let rodada = 0; rodada < totalRodadas; rodada++) {
+        const jogos: Jogo[] = [];
+        for (let i = 0; i < jogosPorRodada; i++) {
+          const mandante = ids[i];
+          const visitante = ids[ids.length - 1 - i];
+          if (mandante !== 'folga' && visitante !== 'folga') {
+            jogos.push({ mandante, visitante });
+          }
+        }
+        ids.splice(1, 0, ids.pop() as string);
+        rodadasGeradas.push(jogos);
       }
-    }
 
-    const todosJogos = [...jogosTurno, ...jogosReturno].sort(() => Math.random() - 0.5);
-    const jogosPorRodada = Math.floor(ids.length / 2) || 1;
+      for (let i = 0; i < rodadasGeradas.length; i++) {
+        await supabase.from('rodadas').insert({
+          numero: i + 1,
+          temporada,
+          divisao,
+          jogos: rodadasGeradas[i],
+        });
+      }
 
-    let rodadaNum = 1;
-    for (let i = 0; i < todosJogos.length; i += jogosPorRodada) {
-      await supabase.from('rodadas').insert({
-        numero: rodadaNum++,
-        temporada,
-        divisao,
-        jogos: todosJogos.slice(i, i + jogosPorRodada),
-      });
+      for (let i = 0; i < rodadasGeradas.length; i++) {
+        const invertidos = rodadasGeradas[i].map((j) => ({
+          mandante: j.visitante,
+          visitante: j.mandante,
+        }));
+        await supabase.from('rodadas').insert({
+          numero: rodadasGeradas.length + i + 1,
+          temporada,
+          divisao,
+          jogos: invertidos,
+        });
+      }
     }
   };
 
@@ -167,16 +188,14 @@ export default function Jogos() {
         <div className="mb-4">
           <button
             onClick={async () => {
-              if (!confirm('⚠️ Gerar rodadas para TODAS divisões desta temporada?')) return;
-              for (const div of divisoesDisponiveis) {
-                await gerarRodadas(temporada, div);
-              }
+              if (!confirm('⚠️ Gerar rodadas para TODAS as divisões desta temporada?')) return;
+              await gerarRodadasRoundRobin(temporada, divisoesDisponiveis);
               await carregarDados();
               alert('✅ Rodadas geradas para todas as divisões!');
             }}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
           >
-            ➕ Gerar Rodadas Automáticas (Todas)
+            ➕ Gerar Rodadas Automáticas (Round-Robin)
           </button>
         </div>
       )}
@@ -233,7 +252,8 @@ export default function Jogos() {
                           className="w-10 text-black text-center rounded"
                         />
                       </div>
-                    ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
+                    ) :
+                    jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
                       `${jogo.gols_mandante} x ${jogo.gols_visitante}`
                     ) : (
                       '🆚'
