@@ -56,3 +56,11 @@ export function calcularMelhoriaEstadio(nivel: number, percentualDesconto: numbe
   const custoBase = 250_000_000 + nivel * 120_000_000
   return Math.floor(custoBase * (1 - percentualDesconto / 100))
 }
+
+export function mensagemDesempenho(desempenho: number): string {
+  if (desempenho >= 85) return '🔥 Seu time está em excelente fase! Expectativa de lotação máxima.'
+  if (desempenho >= 70) return '😊 Boa fase! Ótima chance de público elevado.'
+  if (desempenho >= 50) return '😐 Fase regular. Público razoável esperado.'
+  if (desempenho >= 30) return '⚠️ Fase ruim. Público abaixo do esperado. Considere baixar os preços.'
+  return '🚨 Pessima fase! Muito difícil atrair público. Baixe o preço urgente!'
+}
