@@ -1,5 +1,3 @@
-export const runtime = 'nodejs'
-
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -13,7 +11,6 @@ export async function GET(req: NextRequest) {
   const temporada = Number(searchParams.get('temporada') || '1')
 
   try {
-    // Buscar todos os times cadastrados para a temporada
     const { data: timesData, error: errorTimes } = await supabase
       .from('times')
       .select('id, divisao')
@@ -24,7 +21,6 @@ export async function GET(req: NextRequest) {
 
     if (!timesData) return NextResponse.json([], { status: 200 })
 
-    // Recalcular classificação de cada time
     for (const time of timesData) {
       let pontos = 0
       let vitorias = 0
@@ -61,21 +57,22 @@ export async function GET(req: NextRequest) {
 
       pontos = vitorias * 3 + empates
 
-      await supabase.from('classificacao').upsert({
-        id_time: time.id,
-        temporada,
-        divisao: time.divisao,
-        pontos,
-        vitorias,
-        empates,
-        derrotas,
-        gols_pro,
-        gols_contra,
-        saldo_gols: gols_pro - gols_contra
-      })
+      await supabase
+        .from('classificacao')
+        .upsert({
+          id_time: time.id,
+          temporada,
+          divisao: time.divisao,
+          pontos,
+          vitorias,
+          empates,
+          derrotas,
+          gols_pro,
+          gols_contra,
+          saldo_gols: gols_pro - gols_contra,
+        }, { onConflict: 'id_time,temporada,divisao' })  // <- ESSA LINHA GARANTE O UPSERT CERTO
     }
 
-    // Buscar classificação atualizada com join dos times
     const { data: classificacaoData, error: errorClass } = await supabase
       .from('classificacao')
       .select('*, times:times(id, nome, logo_url)')
