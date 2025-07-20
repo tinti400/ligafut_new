@@ -1,5 +1,3 @@
-export const runtime = 'nodejs'
-
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -31,11 +29,18 @@ export async function GET(req: NextRequest) {
       let gols_pro = 0
       let gols_contra = 0
 
-      const { data: rodadasData } = await supabase
+      const { data: rodadasData, error: errorRodadas } = await supabase
         .from('rodadas')
-        .select('jogos')
+        .select('id, numero, jogos')
         .eq('temporada', temporada)
         .eq('divisao', time.divisao)
+
+      if (errorRodadas) {
+        console.error('Erro ao buscar rodadas:', errorRodadas)
+        continue
+      }
+
+      console.log(`Rodadas da divisão ${time.divisao}:`, JSON.stringify(rodadasData, null, 2))
 
       for (const rodada of rodadasData || []) {
         for (const jogo of rodada.jogos || []) {
@@ -59,23 +64,21 @@ export async function GET(req: NextRequest) {
 
       pontos = vitorias * 3 + empates
 
-      await supabase
-        .from('classificacao')
-        .upsert(
-          {
-            id_time: time.id,
-            temporada,
-            divisao: time.divisao,
-            pontos,
-            vitorias,
-            empates,
-            derrotas,
-            gols_pro,
-            gols_contra,
-            saldo_gols: gols_pro - gols_contra,
-          },
-          { onConflict: 'id_time,temporada,divisao' }
-        )
+      await supabase.from('classificacao').upsert(
+        {
+          id_time: time.id,
+          temporada,
+          divisao: time.divisao,
+          pontos,
+          vitorias,
+          empates,
+          derrotas,
+          gols_pro,
+          gols_contra,
+          saldo_gols: gols_pro - gols_contra,
+        },
+        { onConflict: 'id_time,temporada,divisao' }
+      )
     }
 
     const { data: classificacaoData, error: errorClass } = await supabase
