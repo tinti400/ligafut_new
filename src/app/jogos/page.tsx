@@ -1,208 +1,101 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { useAdmin } from '@/hooks/useAdmin';
+import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
+import { useAdmin } from '@/hooks/useAdmin'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+)
 
 type Jogo = {
-  mandante: string;
-  visitante: string;
-  gols_mandante?: number;
-  gols_visitante?: number;
-};
+  mandante: string
+  visitante: string
+  gols_mandante?: number
+  gols_visitante?: number
+}
 
 type Rodada = {
-  id: string;
-  numero: number;
-  temporada: number;
-  divisao: number;
-  jogos: Jogo[];
-};
+  id: string
+  numero: number
+  temporada: number
+  divisao: number
+  jogos: Jogo[]
+}
 
 type Time = {
-  id: string;
-  nome: string;
-  logo_url: string;
-};
+  id: string
+  nome: string
+  logo_url: string
+}
 
 export default function Jogos() {
-  const { isAdmin, loading } = useAdmin();
-  const [rodadas, setRodadas] = useState<Rodada[]>([]);
-  const [timesMap, setTimesMap] = useState<Record<string, Time>>({});
-  const [temporada, setTemporada] = useState(1);
-  const [divisao, setDivisao] = useState(1);
-  const [timeSelecionado, setTimeSelecionado] = useState<string>('');
+  const { isAdmin, loading } = useAdmin()
+  const [rodadas, setRodadas] = useState<Rodada[]>([])
+  const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
+  const [temporada, setTemporada] = useState(1)
+  const [divisao, setDivisao] = useState(1)
+  const [timeSelecionado, setTimeSelecionado] = useState<string>('')
 
-  const [editandoRodada, setEditandoRodada] = useState<string | null>(null);
-  const [editandoIndex, setEditandoIndex] = useState<number | null>(null);
-  const [golsMandante, setGolsMandante] = useState<number>(0);
-  const [golsVisitante, setGolsVisitante] = useState<number>(0);
-  const [isSalvando, setIsSalvando] = useState(false);
+  const [editandoRodada, setEditandoRodada] = useState<string | null>(null)
+  const [editandoIndex, setEditandoIndex] = useState<number | null>(null)
+  const [golsMandante, setGolsMandante] = useState<number>(0)
+  const [golsVisitante, setGolsVisitante] = useState<number>(0)
+  const [isSalvando, setIsSalvando] = useState(false)
 
-  const temporadasDisponiveis = [1, 2];
-  const divisoesDisponiveis = [1, 2, 3];
+  const temporadasDisponiveis = [1, 2]
+  const divisoesDisponiveis = [1, 2, 3]
 
   const carregarDados = async () => {
-    const { data: times } = await supabase.from('times').select('id, nome, logo_url');
-    const map: Record<string, Time> = {};
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url')
+    const map: Record<string, Time> = {}
     times?.forEach((t) => {
-      map[t.id] = { ...t, logo_url: t.logo_url || '' };
-    });
-    setTimesMap(map);
+      map[t.id] = { ...t, logo_url: t.logo_url || '' }
+    })
+    setTimesMap(map)
 
     const { data: rodadasData } = await supabase
       .from('rodadas')
       .select('*')
       .eq('temporada', temporada)
       .eq('divisao', divisao)
-      .order('numero', { ascending: true });
+      .order('numero', { ascending: true })
 
-    setRodadas((rodadasData || []) as Rodada[]);
-  };
+    setRodadas((rodadasData || []) as Rodada[])
+  }
 
   useEffect(() => {
-    carregarDados();
-  }, [temporada, divisao]);
-
-  const atualizarClassificacao = async () => {
-    const { data: timesData } = await supabase
-      .from('times')
-      .select('id, divisao')
-      .eq('divisao', divisao);
-
-    for (const time of timesData || []) {
-      let pontos = 0;
-      let vitorias = 0;
-      let empates = 0;
-      let derrotas = 0;
-      let gols_pro = 0;
-      let gols_contra = 0;
-
-      const { data: rodadasData } = await supabase
-        .from('rodadas')
-        .select('jogos')
-        .eq('temporada', temporada)
-        .eq('divisao', divisao);
-
-      (rodadasData || []).forEach((r) => {
-        (r.jogos || []).forEach((jogo: any) => {
-          if (jogo.gols_mandante === undefined || jogo.gols_visitante === undefined) return;
-
-          if (jogo.mandante === time.id) {
-            gols_pro += jogo.gols_mandante;
-            gols_contra += jogo.gols_visitante;
-            if (jogo.gols_mandante > jogo.gols_visitante) vitorias++;
-            else if (jogo.gols_mandante === jogo.gols_visitante) empates++;
-            else derrotas++;
-          } else if (jogo.visitante === time.id) {
-            gols_pro += jogo.gols_visitante;
-            gols_contra += jogo.gols_mandante;
-            if (jogo.gols_visitante > jogo.gols_mandante) vitorias++;
-            else if (jogo.gols_visitante === jogo.gols_mandante) empates++;
-            else derrotas++;
-          }
-        });
-      });
-
-      pontos = vitorias * 3 + empates;
-
-      await supabase.from('classificacao').upsert({
-        id_time: time.id,
-        temporada,
-        divisao,
-        pontos,
-        vitorias,
-        empates,
-        derrotas,
-        gols_pro,
-        gols_contra,
-        saldo_gols: gols_pro - gols_contra,
-      });
-    }
-  };
+    carregarDados()
+  }, [temporada, divisao])
 
   const salvarResultado = async () => {
-    if (isSalvando || editandoRodada === null || editandoIndex === null) return;
-    setIsSalvando(true);
+    if (isSalvando || editandoRodada === null || editandoIndex === null) return
+    setIsSalvando(true)
 
-    const rodada = rodadas.find((r) => r.id === editandoRodada);
+    const rodada = rodadas.find((r) => r.id === editandoRodada)
     if (!rodada) {
-      setIsSalvando(false);
-      return;
+      setIsSalvando(false)
+      return
     }
 
-    const novaLista = [...rodada.jogos];
+    const novaLista = [...rodada.jogos]
     novaLista[editandoIndex] = {
       ...novaLista[editandoIndex],
       gols_mandante: golsMandante,
-      gols_visitante: golsVisitante,
-    };
-
-    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id);
-    await carregarDados();
-    await atualizarClassificacao();
-
-    setEditandoRodada(null);
-    setEditandoIndex(null);
-    setIsSalvando(false);
-  };
-
-  const gerarRodadasRoundRobin = async (temporada: number, divisoes: number[]) => {
-    for (const divisao of divisoes) {
-      await supabase.from('rodadas').delete().eq('temporada', temporada).eq('divisao', divisao);
-
-      const { data: times } = await supabase.from('times').select('id').eq('divisao', divisao);
-      if (!times || times.length < 2) continue;
-
-      let ids = times.map((t) => t.id);
-
-      if (ids.length % 2 !== 0) ids.push('folga');
-
-      const totalRodadas = ids.length - 1;
-      const jogosPorRodada = ids.length / 2;
-      const rodadasGeradas: Jogo[][] = [];
-
-      for (let rodada = 0; rodada < totalRodadas; rodada++) {
-        const jogos: Jogo[] = [];
-        for (let i = 0; i < jogosPorRodada; i++) {
-          const mandante = ids[i];
-          const visitante = ids[ids.length - 1 - i];
-          if (mandante !== 'folga' && visitante !== 'folga') {
-            jogos.push({ mandante, visitante });
-          }
-        }
-        ids.splice(1, 0, ids.pop() as string);
-        rodadasGeradas.push(jogos);
-      }
-
-      for (let i = 0; i < rodadasGeradas.length; i++) {
-        await supabase.from('rodadas').insert({
-          numero: i + 1,
-          temporada,
-          divisao,
-          jogos: rodadasGeradas[i],
-        });
-      }
-
-      for (let i = 0; i < rodadasGeradas.length; i++) {
-        const invertidos = rodadasGeradas[i].map((j) => ({
-          mandante: j.visitante,
-          visitante: j.mandante,
-        }));
-        await supabase.from('rodadas').insert({
-          numero: rodadasGeradas.length + i + 1,
-          temporada,
-          divisao,
-          jogos: invertidos,
-        });
-      }
+      gols_visitante: golsVisitante
     }
-  };
+
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
+    await carregarDados()
+
+    // Chama a API de classificação para atualizar o backend
+    await fetch(`/api/classificacao?temporada=${temporada}`)
+
+    setEditandoRodada(null)
+    setEditandoIndex(null)
+    setIsSalvando(false)
+  }
 
   const rodadasFiltradas = !timeSelecionado
     ? rodadas
@@ -211,11 +104,11 @@ export default function Jogos() {
           ...rodada,
           jogos: rodada.jogos.filter(
             (jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado
-          ),
+          )
         }))
-        .filter((rodada) => rodada.jogos.length > 0);
+        .filter((rodada) => rodada.jogos.length > 0)
 
-  if (loading) return <p className="text-center text-white">🔄 Verificando permissões...</p>;
+  if (loading) return <p className="text-center text-white">🔄 Verificando permissões...</p>
 
   return (
     <div className="p-6">
@@ -249,22 +142,6 @@ export default function Jogos() {
         ))}
       </div>
 
-      {isAdmin && (
-        <div className="mb-4">
-          <button
-            onClick={async () => {
-              if (!confirm('⚠️ Gerar rodadas para TODAS as divisões desta temporada?')) return;
-              await gerarRodadasRoundRobin(temporada, divisoesDisponiveis);
-              await carregarDados();
-              alert('✅ Rodadas geradas para todas as divisões!');
-            }}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
-          >
-            ➕ Gerar Rodadas Automáticas (Round-Robin)
-          </button>
-        </div>
-      )}
-
       <select
         className="mb-6 p-2 bg-zinc-800 text-white rounded-lg"
         onChange={(e) => setTimeSelecionado(e.target.value)}
@@ -284,9 +161,9 @@ export default function Jogos() {
 
           <div className="space-y-2">
             {rodada.jogos.map((jogo, index) => {
-              const mandante = timesMap[jogo.mandante];
-              const visitante = timesMap[jogo.visitante];
-              const estaEditando = editandoRodada === rodada.id && editandoIndex === index;
+              const mandante = timesMap[jogo.mandante]
+              const visitante = timesMap[jogo.visitante]
+              const estaEditando = editandoRodada === rodada.id && editandoIndex === index
 
               return (
                 <div
@@ -333,10 +210,10 @@ export default function Jogos() {
                     {isAdmin && !estaEditando && (
                       <button
                         onClick={() => {
-                          setEditandoRodada(rodada.id);
-                          setEditandoIndex(index);
-                          setGolsMandante(jogo.gols_mandante ?? 0);
-                          setGolsVisitante(jogo.gols_visitante ?? 0);
+                          setEditandoRodada(rodada.id)
+                          setEditandoIndex(index)
+                          setGolsMandante(jogo.gols_mandante ?? 0)
+                          setGolsVisitante(jogo.gols_visitante ?? 0)
                         }}
                         className="ml-2 text-sm text-yellow-300"
                       >
@@ -355,8 +232,8 @@ export default function Jogos() {
                         </button>
                         <button
                           onClick={() => {
-                            setEditandoRodada(null);
-                            setEditandoIndex(null);
+                            setEditandoRodada(null)
+                            setEditandoIndex(null)
                           }}
                           className="text-sm text-red-400 font-semibold"
                         >
@@ -366,12 +243,11 @@ export default function Jogos() {
                     )}
                   </div>
                 </div>
-              );
+              )
             })}
           </div>
         </div>
       ))}
     </div>
-  );
+  )
 }
-
