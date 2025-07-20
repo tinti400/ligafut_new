@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
       const { data: rodadasData, error: errorRodadas } = await supabase
         .from('rodadas')
-        .select('jogos')
+        .select('id, jogos, temporada, divisao')
         .eq('temporada', temporada)
         .eq('divisao', time.divisao)
 
@@ -40,6 +40,8 @@ export async function GET(req: NextRequest) {
         console.error('Erro ao buscar rodadas:', errorRodadas)
         continue
       }
+
+      console.log(`Time ${time.id} | Divisão ${time.divisao} | Rodadas:`, rodadasData)
 
       for (const rodada of rodadasData || []) {
         for (const jogo of rodada.jogos || []) {
@@ -83,6 +85,10 @@ export async function GET(req: NextRequest) {
           },
           { onConflict: 'id_time,temporada,divisao' }
         )
+
+      console.log(`Classificação atualizada para time ${time.id}:`, {
+        pontos, vitorias, empates, derrotas, gols_pro, gols_contra, jogos
+      })
     }
 
     const { data: classificacaoData, error: errorClass } = await supabase
