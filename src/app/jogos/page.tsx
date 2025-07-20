@@ -68,6 +68,60 @@ export default function Jogos() {
     carregarDados();
   }, [temporada, divisao]);
 
+  const atualizarClassificacao = async () => {
+    const { data: timesData } = await supabase.from('times').select('id, divisao');
+
+    for (const time of timesData || []) {
+      let pontos = 0;
+      let vitorias = 0;
+      let empates = 0;
+      let derrotas = 0;
+      let gols_pro = 0;
+      let gols_contra = 0;
+
+      const { data: rodadasData } = await supabase
+        .from('rodadas')
+        .select('jogos')
+        .eq('temporada', temporada)
+        .eq('divisao', time.divisao);
+
+      (rodadasData || []).forEach((r) => {
+        (r.jogos || []).forEach((jogo: any) => {
+          if (jogo.gols_mandante === undefined || jogo.gols_visitante === undefined) return;
+
+          if (jogo.mandante === time.id) {
+            gols_pro += jogo.gols_mandante;
+            gols_contra += jogo.gols_visitante;
+            if (jogo.gols_mandante > jogo.gols_visitante) vitorias++;
+            else if (jogo.gols_mandante === jogo.gols_visitante) empates++;
+            else derrotas++;
+          } else if (jogo.visitante === time.id) {
+            gols_pro += jogo.gols_visitante;
+            gols_contra += jogo.gols_mandante;
+            if (jogo.gols_visitante > jogo.gols_mandante) vitorias++;
+            else if (jogo.gols_visitante === jogo.gols_mandante) empates++;
+            else derrotas++;
+          }
+        });
+      });
+
+      pontos = vitorias * 3 + empates;
+
+      await supabase.from('classificacao').upsert({
+        id_time: time.id,
+        temporada,
+        divisao: time.divisao,
+        pontos,
+        vitorias,
+        empates,
+        derrotas,
+        gols_pro,
+        gols_contra,
+        saldo_gols: gols_pro - gols_contra,
+      });
+    }
+  };
+
   const salvarResultado = async () => {
     if (editandoRodada === null || editandoIndex === null) return;
 
@@ -83,6 +137,7 @@ export default function Jogos() {
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id);
     await carregarDados();
+    await atualizarClassificacao();
     setEditandoRodada(null);
     setEditandoIndex(null);
   };
@@ -252,8 +307,7 @@ export default function Jogos() {
                           className="w-10 text-black text-center rounded"
                         />
                       </div>
-                    ) :
-                    jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
+                    ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
                       `${jogo.gols_mandante} x ${jogo.gols_visitante}`
                     ) : (
                       '🆚'
