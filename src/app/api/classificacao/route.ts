@@ -1,23 +1,30 @@
-// pages/api/recalcular-classificacao.ts
+// /app/api/recalcular-classificacao/route.ts
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export async function POST(req: NextRequest) {
   const { temporada, divisao } = await req.json()
 
   try {
-    const { data: rodadasData } = await supabase
+    const { data: rodadasData, error: errorRodadas } = await supabase
       .from('rodadas')
       .select('jogos')
       .eq('temporada', temporada)
       .eq('divisao', divisao)
 
+    if (errorRodadas) {
+      return NextResponse.json({ error: errorRodadas.message }, { status: 500 })
+    }
+
     if (!rodadasData) return NextResponse.json({ ok: true })
 
-    const classificacao = {}
+    const classificacao: Record<string, any> = {}
 
     for (const rodada of rodadasData) {
       for (const jogo of rodada.jogos || []) {
@@ -69,6 +76,7 @@ export async function POST(req: NextRequest) {
     }
 
     await supabase.from('classificacao').delete().eq('temporada', temporada).eq('divisao', divisao)
+
     if (Object.keys(classificacao).length > 0) {
       await supabase.from('classificacao').insert(Object.values(classificacao))
     }
