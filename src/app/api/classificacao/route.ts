@@ -19,86 +19,72 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ erro: errorTimes.message }, { status: 500 })
     }
 
-    if (!timesData || timesData.length === 0) return NextResponse.json([], { status: 200 })
-
-    const { data: rodadasData, error: errorRodadas } = await supabase
-      .from('rodadas')
-      .select('jogos, divisao')
-      .eq('temporada', temporada)
-
-    if (errorRodadas) {
-      return NextResponse.json({ erro: errorRodadas.message }, { status: 500 })
-    }
-
-    const classificacaoMap: Record<string, any> = {}
+    if (!timesData) return NextResponse.json([], { status: 200 })
 
     for (const time of timesData) {
-      classificacaoMap[time.id] = {
-        id_time: time.id,
-        temporada,
-        divisao: time.divisao,
-        pontos: 0,
-        vitorias: 0,
-        empates: 0,
-        derrotas: 0,
-        gols_pro: 0,
-        gols_contra: 0,
-        jogos: 0,
-        saldo: 0,
+      let pontos = 0
+      let vitorias = 0
+      let empates = 0
+      let derrotas = 0
+      let gols_pro = 0
+      let gols_contra = 0
+      let jogos = 0
+
+      const { data: rodadasData, error: errorRodadas } = await supabase
+        .from('rodadas')
+        .select('jogos')
+        .eq('temporada', temporada)
+        .eq('divisao', time.divisao)
+
+      if (errorRodadas) {
+        console.error('Erro ao buscar rodadas:', errorRodadas)
+        continue
       }
-    }
 
-    for (const rodada of rodadasData || []) {
-      for (const jogo of rodada.jogos || []) {
-        const { mandante, visitante, gols_mandante, gols_visitante } = jogo
-        if (gols_mandante == null || gols_visitante == null) continue
+      for (const rodada of rodadasData || []) {
+        for (const jogo of rodada.jogos || []) {
+          if (jogo.gols_mandante == null || jogo.gols_visitante == null) continue
 
-        if (classificacaoMap[mandante]) {
-          classificacaoMap[mandante].jogos++
-          classificacaoMap[mandante].gols_pro += gols_mandante
-          classificacaoMap[mandante].gols_contra += gols_visitante
-
-          if (gols_mandante > gols_visitante) {
-            classificacaoMap[mandante].vitorias++
-            classificacaoMap[mandante].pontos += 3
-          } else if (gols_mandante === gols_visitante) {
-            classificacaoMap[mandante].empates++
-            classificacaoMap[mandante].pontos += 1
-          } else {
-            classificacaoMap[mandante].derrotas++
-          }
-        }
-
-        if (classificacaoMap[visitante]) {
-          classificacaoMap[visitante].jogos++
-          classificacaoMap[visitante].gols_pro += gols_visitante
-          classificacaoMap[visitante].gols_contra += gols_mandante
-
-          if (gols_visitante > gols_mandante) {
-            classificacaoMap[visitante].vitorias++
-            classificacaoMap[visitante].pontos += 3
-          } else if (gols_visitante === gols_mandante) {
-            classificacaoMap[visitante].empates++
-            classificacaoMap[visitante].pontos += 1
-          } else {
-            classificacaoMap[visitante].derrotas++
+          if (jogo.mandante === time.id) {
+            gols_pro += jogo.gols_mandante
+            gols_contra += jogo.gols_visitante
+            jogos++
+            if (jogo.gols_mandante > jogo.gols_visitante) vitorias++
+            else if (jogo.gols_mandante === jogo.gols_visitante) empates++
+            else derrotas++
+          } else if (jogo.visitante === time.id) {
+            gols_pro += jogo.gols_visitante
+            gols_contra += jogo.gols_mandante
+            jogos++
+            if (jogo.gols_visitante > jogo.gols_mandante) vitorias++
+            else if (jogo.gols_visitante === jogo.gols_mandante) empates++
+            else derrotas++
           }
         }
       }
+
+      pontos = vitorias * 3 + empates
+
+      await supabase
+        .from('classificacao')
+        .upsert(
+          {
+            id_time: time.id,
+            temporada,
+            divisao: time.divisao,
+            pontos,
+            vitorias,
+            empates,
+            derrotas,
+            gols_pro,
+            gols_contra,
+            jogos,
+            saldo: gols_pro - gols_contra,
+          },
+          { onConflict: 'id_time,temporada,divisao' }
+        )
     }
 
-    // Atualiza saldo
-    Object.values(classificacaoMap).forEach((c: any) => {
-      c.saldo = c.gols_pro - c.gols_contra
-    })
-
-    // Apagar classificação anterior
-    await supabase.from('classificacao').delete().eq('temporada', temporada)
-
-    // Inserir a nova classificação
-    await supabase.from('classificacao').insert(Object.values(classificacaoMap))
-
-    // Retornar a classificação completa com JOIN dos times
     const { data: classificacaoData, error: errorClass } = await supabase
       .from('classificacao')
       .select('*, times:times(id, nome, logo_url)')
