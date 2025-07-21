@@ -15,11 +15,10 @@ export async function GET(req: NextRequest) {
       .from('times')
       .select('id, divisao')
 
-    if (errorTimes) {
-      return NextResponse.json({ erro: errorTimes.message }, { status: 500 })
-    }
-
+    if (errorTimes) return NextResponse.json({ erro: errorTimes.message }, { status: 500 })
     if (!timesData) return NextResponse.json([], { status: 200 })
+
+    const updates = []
 
     for (const time of timesData) {
       let pontos = 0
@@ -30,16 +29,11 @@ export async function GET(req: NextRequest) {
       let gols_contra = 0
       let jogos = 0
 
-      const { data: rodadasData, error: errorRodadas } = await supabase
+      const { data: rodadasData } = await supabase
         .from('rodadas')
         .select('jogos')
         .eq('temporada', temporada)
         .eq('divisao', time.divisao)
-
-      if (errorRodadas) {
-        console.error('Erro ao buscar rodadas:', errorRodadas)
-        continue
-      }
 
       for (const rodada of rodadasData || []) {
         for (const jogo of rodada.jogos || []) {
@@ -65,38 +59,37 @@ export async function GET(req: NextRequest) {
 
       pontos = vitorias * 3 + empates
 
-      await supabase
-        .from('classificacao')
-        .upsert(
-          {
-            id_time: time.id,
-            temporada,
-            divisao: time.divisao,
-            pontos,
-            vitorias,
-            empates,
-            derrotas,
-            gols_pro,
-            gols_contra,
-            jogos,
-            saldo: gols_pro - gols_contra,
-          },
-          { onConflict: 'id_time,temporada,divisao' }
-        )
+      updates.push({
+        id_time: time.id,
+        temporada,
+        divisao: time.divisao,
+        pontos,
+        vitorias,
+        empates,
+        derrotas,
+        gols_pro,
+        gols_contra,
+        jogos,
+        saldo: gols_pro - gols_contra,
+      })
+    }
+
+    if (updates.length > 0) {
+      await supabase.from('classificacao').upsert(updates, { onConflict: 'id_time,temporada,divisao' })
     }
 
     const { data: classificacaoData, error: errorClass } = await supabase
       .from('classificacao')
       .select('*, times:times(id, nome, logo_url)')
       .eq('temporada', temporada)
+      .order('pontos', { ascending: false })
+      .order('saldo', { ascending: false })
+      .order('gols_pro', { ascending: false })
 
-    if (errorClass) {
-      return NextResponse.json({ erro: errorClass.message }, { status: 500 })
-    }
+    if (errorClass) return NextResponse.json({ erro: errorClass.message }, { status: 500 })
 
     return NextResponse.json(classificacaoData)
   } catch (err: any) {
     return NextResponse.json({ erro: err.message }, { status: 500 })
   }
 }
-
