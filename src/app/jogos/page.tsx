@@ -15,6 +15,8 @@ type Jogo = {
   visitante: string
   gols_mandante?: number
   gols_visitante?: number
+  renda?: number
+  publico?: number
 }
 
 type Rodada = {
@@ -70,42 +72,57 @@ export default function Jogos() {
     carregarDados()
   }, [temporada, divisao])
 
-  const calcularRendaEPagamento = async (mandanteId: string, visitanteId: string) => {
-    const publico = Math.floor(Math.random() * 50000) + 10000 // Exemplo
-    const precoMedio = 80 // Exemplo
-    const renda = publico * precoMedio
-
-    await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: renda * 0.95 })
-    await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: renda * 0.05 })
-
-    toast.success(`💰 Renda: R$ ${renda.toLocaleString()} | Público: ${publico.toLocaleString()}`)
-  }
-
   const salvarResultado = async () => {
     if (isSalvando || editandoRodada === null || editandoIndex === null) return
 
-    const confirmacao = confirm('Deseja salvar o resultado e calcular a renda?')
-    if (!confirmacao) return
+    const confirmar = confirm('Deseja salvar o resultado e calcular a renda?')
+    if (!confirmar) return
 
     setIsSalvando(true)
 
     const rodada = rodadas.find((r) => r.id === editandoRodada)
-    if (!rodada) {
-      setIsSalvando(false)
-      return
-    }
+    if (!rodada) return
 
     const novaLista = [...rodada.jogos]
+
+    // Calcular renda e público
+    const publico = Math.floor(Math.random() * 30000) + 10000
+    const precoMedio = 80
+    const renda = publico * precoMedio
+    const mandanteId = novaLista[editandoIndex].mandante
+    const visitanteId = novaLista[editandoIndex].visitante
+
+    // Atualizar saldo (função RPC no Supabase)
+    await supabase.rpc('atualizar_saldo', {
+      id_time: mandanteId,
+      valor: renda * 0.95
+    })
+    await supabase.rpc('atualizar_saldo', {
+      id_time: visitanteId,
+      valor: renda * 0.05
+    })
+
     novaLista[editandoIndex] = {
       ...novaLista[editandoIndex],
       gols_mandante: golsMandante,
-      gols_visitante: golsVisitante
+      gols_visitante: golsVisitante,
+      renda,
+      publico
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
     await fetch(`/api/classificacao?temporada=${temporada}`)
-    await calcularRendaEPagamento(novaLista[editandoIndex].mandante, novaLista[editandoIndex].visitante)
     await carregarDados()
+
+    const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
+    const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
+
+    toast.success(
+      `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()} 
+💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()}
+💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()}`,
+      { duration: 8000 }
+    )
 
     setEditandoRodada(null)
     setEditandoIndex(null)
@@ -122,7 +139,9 @@ export default function Jogos() {
     novaLista[index] = {
       ...novaLista[index],
       gols_mandante: undefined,
-      gols_visitante: undefined
+      gols_visitante: undefined,
+      renda: undefined,
+      publico: undefined
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
@@ -201,90 +220,99 @@ export default function Jogos() {
               return (
                 <div
                   key={index}
-                  className="flex items-center justify-between bg-zinc-700 text-white px-4 py-2 rounded-lg"
+                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg"
                 >
-                  <div className="flex items-center w-1/3 justify-end gap-2">
-                    {mandante?.logo_url && (
-                      <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
-                    )}
-                    <span className="font-medium text-right">{mandante?.nome || '???'}</span>
-                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center w-1/3 justify-end gap-2">
+                      {mandante?.logo_url && (
+                        <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
+                      )}
+                      <span className="font-medium text-right">{mandante?.nome || '???'}</span>
+                    </div>
 
-                  <div className="w-1/3 text-center text-zinc-300 font-bold">
-                    {estaEditando ? (
-                      <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="number"
-                          value={golsMandante}
-                          onChange={(e) => setGolsMandante(Number(e.target.value))}
-                          className="w-10 text-black text-center rounded"
-                        />
-                        <span>x</span>
-                        <input
-                          type="number"
-                          value={golsVisitante}
-                          onChange={(e) => setGolsVisitante(Number(e.target.value))}
-                          className="w-10 text-black text-center rounded"
-                        />
-                      </div>
-                    ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
-                      `${jogo.gols_mandante} x ${jogo.gols_visitante}`
-                    ) : (
-                      '🆚'
-                    )}
-                  </div>
+                    <div className="w-1/3 text-center text-zinc-300 font-bold">
+                      {estaEditando ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <input
+                            type="number"
+                            value={golsMandante}
+                            onChange={(e) => setGolsMandante(Number(e.target.value))}
+                            className="w-10 text-black text-center rounded"
+                          />
+                          <span>x</span>
+                          <input
+                            type="number"
+                            value={golsVisitante}
+                            onChange={(e) => setGolsVisitante(Number(e.target.value))}
+                            className="w-10 text-black text-center rounded"
+                          />
+                        </div>
+                      ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
+                        `${jogo.gols_mandante} x ${jogo.gols_visitante}`
+                      ) : (
+                        '🆚'
+                      )}
+                    </div>
 
-                  <div className="flex items-center w-1/3 justify-start gap-2">
-                    <span className="font-medium text-left">{visitante?.nome || '???'}</span>
-                    {visitante?.logo_url && (
-                      <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
-                    )}
+                    <div className="flex items-center w-1/3 justify-start gap-2">
+                      <span className="font-medium text-left">{visitante?.nome || '???'}</span>
+                      {visitante?.logo_url && (
+                        <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
+                      )}
 
-                    {isAdmin && !estaEditando && (
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => {
-                            setEditandoRodada(rodada.id)
-                            setEditandoIndex(index)
-                            setGolsMandante(jogo.gols_mandante ?? 0)
-                            setGolsVisitante(jogo.gols_visitante ?? 0)
-                          }}
-                          className="text-sm text-yellow-300"
-                        >
-                          📝
-                        </button>
-                        {jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined && (
+                      {isAdmin && !estaEditando && (
+                        <div className="flex gap-1">
                           <button
-                            onClick={() => excluirResultado(rodada.id, index)}
-                            className="text-sm text-red-400"
+                            onClick={() => {
+                              setEditandoRodada(rodada.id)
+                              setEditandoIndex(index)
+                              setGolsMandante(jogo.gols_mandante ?? 0)
+                              setGolsVisitante(jogo.gols_visitante ?? 0)
+                            }}
+                            className="text-sm text-yellow-300"
                           >
-                            🗑️
+                            📝
                           </button>
-                        )}
-                      </div>
-                    )}
+                          {jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined && (
+                            <button
+                              onClick={() => excluirResultado(rodada.id, index)}
+                              className="text-sm text-red-400"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
+                      )}
 
-                    {isAdmin && estaEditando && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={salvarResultado}
-                          disabled={isSalvando}
-                          className="text-sm text-green-400 font-semibold"
-                        >
-                          💾
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEditandoRodada(null)
-                            setEditandoIndex(null)
-                          }}
-                          className="text-sm text-red-400 font-semibold"
-                        >
-                          ❌
-                        </button>
-                      </div>
-                    )}
+                      {isAdmin && estaEditando && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={salvarResultado}
+                            disabled={isSalvando}
+                            className="text-sm text-green-400 font-semibold"
+                          >
+                            💾
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditandoRodada(null)
+                              setEditandoIndex(null)
+                            }}
+                            className="text-sm text-red-400 font-semibold"
+                          >
+                            ❌
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Renda e público exibidos abaixo do mandante */}
+                  {jogo.renda && jogo.publico && (
+                    <div className="text-sm text-zinc-400 text-right mt-1 mr-10">
+                      🎟️ Público: {jogo.publico.toLocaleString()} | 💰 Renda: R$ {jogo.renda.toLocaleString()}
+                    </div>
+                  )}
                 </div>
               )
             })}
