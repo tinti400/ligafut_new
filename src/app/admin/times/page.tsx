@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { FaCoins, FaPlus, FaPen, FaFloppyDisk, FaCheck } from 'react-icons/fa6'
+import { FaCoins, FaPlus, FaPen, FaFloppyDisk, FaCheck } from 'react-icons/fa'
 import toast from 'react-hot-toast'
 
 const supabase = createClient(
@@ -10,10 +10,16 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function AdminSaldoPage() {
-  const [times, setTimes] = useState<any[]>([])
-  const [timeSelecionado, setTimeSelecionado] = useState<any>(null)
-  const [valorAdicionar, setValorAdicionar] = useState<number>(1000000)
+interface Time {
+  id: string
+  nome: string
+  saldo: number
+}
+
+export default function AdminTimesPage() {
+  const [times, setTimes] = useState<Time[]>([])
+  const [timeSelecionado, setTimeSelecionado] = useState<Time | null>(null)
+  const [valorAdicional, setValorAdicional] = useState<number>(1000000)
   const [novoSaldo, setNovoSaldo] = useState<number>(0)
 
   useEffect(() => {
@@ -21,34 +27,26 @@ export default function AdminSaldoPage() {
   }, [])
 
   async function buscarTimes() {
-    const { data, error } = await supabase
-      .from('times')
-      .select('id, nome, saldo')
-      .order('nome', { ascending: true })
-
-    if (data) setTimes(data)
-    if (error) console.log('Erro ao buscar times:', error)
+    const { data, error } = await supabase.from('times').select('*').order('nome', { ascending: true })
+    if (error) {
+      toast.error('Erro ao buscar times.')
+    } else {
+      setTimes(data || [])
+    }
   }
 
-  async function registrarNoBID(tipo: string, descricao: string, id_time: string, valor: number) {
-    await supabase.from('bid').insert({
-      tipo_evento: tipo,
-      descricao,
-      id_time1: id_time,
-      data_evento: new Date().toISOString(),
-      valor
-    })
-  }
+  const formatar = (valor: number) => new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  }).format(valor)
 
   async function adicionarSaldo() {
     if (!timeSelecionado) return
 
-    if (!confirm(`Deseja adicionar R$ ${valorAdicionar.toLocaleString('pt-BR')} ao saldo de ${timeSelecionado.nome}?`)) {
-      return
-    }
+    const confirm = window.confirm(`Tem certeza que deseja adicionar ${formatar(valorAdicional)} ao time ${timeSelecionado.nome}?`)
+    if (!confirm) return
 
-    const saldoAtual = timeSelecionado.saldo || 0
-    const novo = saldoAtual + valorAdicionar
+    const novo = timeSelecionado.saldo + valorAdicional
 
     const { error } = await supabase
       .from('times')
@@ -56,28 +54,19 @@ export default function AdminSaldoPage() {
       .eq('id', timeSelecionado.id)
 
     if (error) {
-      toast.error('Erro ao adicionar saldo')
-      return
+      toast.error('Erro ao adicionar saldo.')
+    } else {
+      await registrarBID('adicao', valorAdicional, novo)
+      toast.success('Saldo adicionado com sucesso!')
+      buscarTimes()
     }
-
-    await registrarNoBID(
-      'Crédito',
-      `Saldo aumentado em R$ ${valorAdicionar.toLocaleString('pt-BR')} para o time ${timeSelecionado.nome}`,
-      timeSelecionado.id,
-      valorAdicionar
-    )
-
-    toast.success('Saldo adicionado com sucesso!')
-    setTimeSelecionado({ ...timeSelecionado, saldo: novo })
-    setNovoSaldo(novo)
   }
 
-  async function atualizarSaldoManual() {
+  async function atualizarSaldo() {
     if (!timeSelecionado) return
 
-    if (!confirm(`Deseja atualizar o saldo de ${timeSelecionado.nome} para R$ ${novoSaldo.toLocaleString('pt-BR')}?`)) {
-      return
-    }
+    const confirm = window.confirm(`Tem certeza que deseja definir o saldo de ${timeSelecionado.nome} para ${formatar(novoSaldo)}?`)
+    if (!confirm) return
 
     const { error } = await supabase
       .from('times')
@@ -85,42 +74,44 @@ export default function AdminSaldoPage() {
       .eq('id', timeSelecionado.id)
 
     if (error) {
-      toast.error('Erro ao atualizar saldo')
-      return
+      toast.error('Erro ao atualizar saldo.')
+    } else {
+      const diferenca = novoSaldo - timeSelecionado.saldo
+      await registrarBID('atualizacao', diferenca, novoSaldo)
+      toast.success('Saldo atualizado com sucesso!')
+      buscarTimes()
     }
+  }
 
-    const diferenca = novoSaldo - (timeSelecionado.saldo || 0)
-    await registrarNoBID(
-      'Atualização',
-      `Saldo alterado manualmente em R$ ${diferenca.toLocaleString('pt-BR')} para o time ${timeSelecionado.nome}`,
-      timeSelecionado.id,
-      novoSaldo
-    )
+  async function registrarBID(tipo_evento: string, valor: number, saldoFinal: number) {
+    if (!timeSelecionado) return
 
-    toast.success('Saldo atualizado com sucesso!')
-    setTimeSelecionado({ ...timeSelecionado, saldo: novoSaldo })
+    await supabase.from('bid').insert({
+      tipo_evento,
+      descricao: `Saldo do time ${timeSelecionado.nome} ${tipo_evento === 'adicao' ? 'aumentado' : 'atualizado'} para ${formatar(saldoFinal)}`,
+      id_time1: timeSelecionado.id,
+      valor: valor,
+      data_evento: new Date().toISOString()
+    })
   }
 
   return (
-    <div className="p-6 bg-zinc-900 min-h-screen text-white">
+    <div className="min-h-screen bg-zinc-900 text-white p-6">
       <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
-        <FaCoins className="text-yellow-400" /> Admin • Saldo dos Times
+        <FaCoins /> Gerenciar Saldo dos Times
       </h1>
 
-      <label className="block mb-2 text-white text-lg font-medium">
-        <span className="mr-2">🟢 Selecione um time:</span>
-      </label>
+      <label className="block mb-2">🔄 Selecione um time:</label>
       <select
-        value={timeSelecionado?.id || ''}
+        className="w-full bg-zinc-800 text-white p-2 rounded border"
         onChange={(e) => {
-          const time = times.find((t) => t.id === e.target.value)
+          const time = times.find(t => t.id === e.target.value)
           setTimeSelecionado(time || null)
           setNovoSaldo(time?.saldo || 0)
         }}
-        className="w-full p-3 rounded bg-zinc-800 text-white text-lg"
       >
-        <option value="" disabled>Selecione um time</option>
-        {times.map((time) => (
+        <option value="">Selecione...</option>
+        {times.map(time => (
           <option key={time.id} value={time.id}>
             {time.nome} — ID: {time.id}
           </option>
@@ -128,53 +119,46 @@ export default function AdminSaldoPage() {
       </select>
 
       {timeSelecionado && (
-        <div className="mt-6 bg-zinc-800 p-6 rounded-lg shadow-md border border-zinc-700">
-          <h2 className="text-xl font-bold text-yellow-400 flex items-center gap-2">
-            🏷️ {timeSelecionado.nome}
+        <div className="bg-zinc-800 p-5 mt-6 rounded shadow-md space-y-5">
+          <h2 className="text-xl font-semibold text-yellow-400 flex items-center gap-2">
+            <FaCoins /> {timeSelecionado.nome}
           </h2>
 
-          <p className="mt-2 text-lg">
-            <span className="text-yellow-300 mr-2">🪙 Saldo atual:</span>
-            <span className="text-green-400 font-semibold">
-              R$ {Number(timeSelecionado.saldo || 0).toLocaleString('pt-BR')}
-            </span>
+          <p className="text-lg">
+            💰 Saldo atual: <span className="text-green-400">{formatar(timeSelecionado.saldo)}</span>
           </p>
 
-          <div className="mt-4">
-            <label className="text-white flex items-center gap-2 mb-1">
-              <FaPlus /> Adicionar saldo
-            </label>
+          <div>
+            <label className="block mb-1 flex items-center gap-2"><FaPlus /> Adicionar saldo</label>
             <input
               type="number"
-              value={valorAdicionar}
-              onChange={(e) => setValorAdicionar(Number(e.target.value))}
-              className="w-full p-2 rounded bg-zinc-700 text-white"
+              className="w-full bg-zinc-700 text-white p-2 rounded mb-2"
+              value={valorAdicional}
+              onChange={(e) => setValorAdicional(Number(e.target.value))}
             />
             <button
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded flex items-center justify-center gap-2"
               onClick={adicionarSaldo}
-              className="mt-2 bg-green-600 hover:bg-green-700 w-full py-2 rounded text-white font-semibold flex items-center justify-center gap-2"
             >
-              <FaCheck /> Adicionar R$ {valorAdicionar.toLocaleString('pt-BR')}
+              <FaCheck /> Adicionar {formatar(valorAdicional)}
             </button>
           </div>
 
-          <hr className="my-4 border-zinc-600" />
+          <hr className="border-zinc-600" />
 
-          <div className="mt-2">
-            <label className="text-white flex items-center gap-2 mb-1">
-              <FaPen /> Atualizar saldo manualmente
-            </label>
+          <div>
+            <label className="block mb-1 flex items-center gap-2"><FaPen /> Atualizar saldo manualmente</label>
             <input
               type="number"
+              className="w-full bg-zinc-700 text-white p-2 rounded mb-2"
               value={novoSaldo}
               onChange={(e) => setNovoSaldo(Number(e.target.value))}
-              className="w-full p-2 rounded bg-zinc-700 text-white"
             />
             <button
-              onClick={atualizarSaldoManual}
-              className="mt-2 bg-blue-600 hover:bg-blue-700 w-full py-2 rounded text-white font-semibold flex items-center justify-center gap-2"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center justify-center gap-2"
+              onClick={atualizarSaldo}
             >
-              <FaFloppyDisk /> Atualizar para R$ {novoSaldo.toLocaleString('pt-BR')}
+              <FaFloppyDisk /> Atualizar para {formatar(novoSaldo)}
             </button>
           </div>
         </div>
