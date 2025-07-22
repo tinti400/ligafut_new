@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
+import toast from 'react-hot-toast'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,8 +70,23 @@ export default function Jogos() {
     carregarDados()
   }, [temporada, divisao])
 
+  const calcularRendaEPagamento = async (mandanteId: string, visitanteId: string) => {
+    const publico = Math.floor(Math.random() * 50000) + 10000 // Exemplo
+    const precoMedio = 80 // Exemplo
+    const renda = publico * precoMedio
+
+    await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: renda * 0.95 })
+    await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: renda * 0.05 })
+
+    toast.success(`💰 Renda: R$ ${renda.toLocaleString()} | Público: ${publico.toLocaleString()}`)
+  }
+
   const salvarResultado = async () => {
     if (isSalvando || editandoRodada === null || editandoIndex === null) return
+
+    const confirmacao = confirm('Deseja salvar o resultado e calcular a renda?')
+    if (!confirmacao) return
+
     setIsSalvando(true)
 
     const rodada = rodadas.find((r) => r.id === editandoRodada)
@@ -87,14 +103,31 @@ export default function Jogos() {
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
-    await carregarDados()
-
-    // Chama a API de classificação para atualizar o backend
     await fetch(`/api/classificacao?temporada=${temporada}`)
+    await calcularRendaEPagamento(novaLista[editandoIndex].mandante, novaLista[editandoIndex].visitante)
+    await carregarDados()
 
     setEditandoRodada(null)
     setEditandoIndex(null)
     setIsSalvando(false)
+  }
+
+  const excluirResultado = async (rodadaId: string, index: number) => {
+    if (!confirm('Deseja excluir o resultado deste jogo?')) return
+
+    const rodada = rodadas.find((r) => r.id === rodadaId)
+    if (!rodada) return
+
+    const novaLista = [...rodada.jogos]
+    novaLista[index] = {
+      ...novaLista[index],
+      gols_mandante: undefined,
+      gols_visitante: undefined
+    }
+
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+    await fetch(`/api/classificacao?temporada=${temporada}`)
+    await carregarDados()
   }
 
   const rodadasFiltradas = !timeSelecionado
@@ -114,7 +147,7 @@ export default function Jogos() {
     <div className="p-6">
       <h1 className="text-3xl font-bold mb-4 text-white">📅 Jogos da LigaFut</h1>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex gap-2 mb-4">
         {temporadasDisponiveis.map((temp) => (
           <button
             key={temp}
@@ -128,7 +161,7 @@ export default function Jogos() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex gap-2 mb-4">
         {divisoesDisponiveis.map((div) => (
           <button
             key={div}
@@ -208,17 +241,27 @@ export default function Jogos() {
                     )}
 
                     {isAdmin && !estaEditando && (
-                      <button
-                        onClick={() => {
-                          setEditandoRodada(rodada.id)
-                          setEditandoIndex(index)
-                          setGolsMandante(jogo.gols_mandante ?? 0)
-                          setGolsVisitante(jogo.gols_visitante ?? 0)
-                        }}
-                        className="ml-2 text-sm text-yellow-300"
-                      >
-                        📝
-                      </button>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            setEditandoRodada(rodada.id)
+                            setEditandoIndex(index)
+                            setGolsMandante(jogo.gols_mandante ?? 0)
+                            setGolsVisitante(jogo.gols_visitante ?? 0)
+                          }}
+                          className="text-sm text-yellow-300"
+                        >
+                          📝
+                        </button>
+                        {jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined && (
+                          <button
+                            onClick={() => excluirResultado(rodada.id, index)}
+                            className="text-sm text-red-400"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {isAdmin && estaEditando && (
@@ -228,7 +271,7 @@ export default function Jogos() {
                           disabled={isSalvando}
                           className="text-sm text-green-400 font-semibold"
                         >
-                          💾 Salvar
+                          💾
                         </button>
                         <button
                           onClick={() => {
@@ -237,7 +280,7 @@ export default function Jogos() {
                           }}
                           className="text-sm text-red-400 font-semibold"
                         >
-                          ❌ Cancelar
+                          ❌
                         </button>
                       </div>
                     )}
