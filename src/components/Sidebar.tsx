@@ -12,6 +12,8 @@ export default function Sidebar() {
   const [abrirAdmin, setAbrirAdmin] = useState(false)
   const [abrirRoubo, setAbrirRoubo] = useState(false)
   const [abrirCopa, setAbrirCopa] = useState(false)
+  const [abrirOutros, setAbrirOutros] = useState(false)
+
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
   const [saldoTime, setSaldoTime] = useState('0')
@@ -61,10 +63,7 @@ export default function Sidebar() {
       }`}
     >
       <div>
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="text-white mb-4 focus:outline-none"
-        >
+        <button onClick={() => setIsOpen(!isOpen)} className="text-white mb-4 focus:outline-none">
           {isOpen ? '←' : '☰'}
         </button>
 
@@ -76,9 +75,7 @@ export default function Sidebar() {
               logado ? 'bg-green-700 text-green-200' : 'bg-red-700 text-red-200'
             } font-semibold text-sm text-center`}
           >
-            {logado
-              ? `✅ ${nomeTime || 'Usuário Logado'}`
-              : '❌ Você não está logado'}
+            {logado ? `✅ ${nomeTime || 'Usuário Logado'}` : '❌ Você não está logado'}
           </div>
         )}
 
@@ -113,12 +110,9 @@ export default function Sidebar() {
             📅 {isOpen && 'Jogos'}
           </Link>
 
-          {/* Elenco + Submenu */}
+          {/* Elenco */}
           <div>
-            <button
-              onClick={() => setAbrirElenco(!abrirElenco)}
-              className="w-full text-left hover:text-green-400"
-            >
+            <button onClick={() => setAbrirElenco(!abrirElenco)} className="w-full text-left hover:text-green-400">
               👥 {isOpen && `Elenco ${abrirElenco ? '▲' : '▼'}`}
             </button>
 
@@ -145,10 +139,7 @@ export default function Sidebar() {
 
           {/* Evento de Roubo */}
           <div>
-            <button
-              onClick={() => setAbrirRoubo(!abrirRoubo)}
-              className="w-full text-left hover:text-green-400"
-            >
+            <button onClick={() => setAbrirRoubo(!abrirRoubo)} className="w-full text-left hover:text-green-400">
               🕵️ {isOpen && `Evento de Roubo ${abrirRoubo ? '▲' : '▼'}`}
             </button>
 
@@ -169,10 +160,7 @@ export default function Sidebar() {
 
           {/* Leilão */}
           <div>
-            <button
-              onClick={() => setAbrirLeilao(!abrirLeilao)}
-              className="w-full text-left hover:text-green-400"
-            >
+            <button onClick={() => setAbrirLeilao(!abrirLeilao)} className="w-full text-left hover:text-green-400">
               📢 {isOpen && `Leilão ${abrirLeilao ? '▲' : '▼'}`}
             </button>
 
@@ -187,10 +175,7 @@ export default function Sidebar() {
 
           {/* Copa */}
           <div>
-            <button
-              onClick={() => setAbrirCopa(!abrirCopa)}
-              className="w-full text-left hover:text-green-400"
-            >
+            <button onClick={() => setAbrirCopa(!abrirCopa)} className="w-full text-left hover:text-green-400">
               🏆 {isOpen && `Copa ${abrirCopa ? '▲' : '▼'}`}
             </button>
 
@@ -223,10 +208,7 @@ export default function Sidebar() {
 
           {/* Administração */}
           <div>
-            <button
-              onClick={() => setAbrirAdmin(!abrirAdmin)}
-              className="w-full text-left hover:text-green-400"
-            >
+            <button onClick={() => setAbrirAdmin(!abrirAdmin)} className="w-full text-left hover:text-green-400">
               🛠️ {isOpen && `Admin ${abrirAdmin ? '▲' : '▼'}`}
             </button>
 
@@ -241,6 +223,9 @@ export default function Sidebar() {
                 <Link href="/admin/painel_times" className="block hover:text-green-400">
                   📋 Painel de Times
                 </Link>
+                <Link href="/admin/times" className="block hover:text-green-400">
+                  📝 Administração de Times
+                </Link>
                 <Link href="/admin/evento_roubo_admin" className="block hover:text-green-400">
                   🕵️ Evento de Roubo (Admin)
                 </Link>
@@ -251,25 +236,32 @@ export default function Sidebar() {
             )}
           </div>
 
-          <Link href="/BID" className="block hover:text-green-400">
-            📰 {isOpen && 'BID'}
-          </Link>
+          {/* Outros */}
+          <div>
+            <button onClick={() => setAbrirOutros(!abrirOutros)} className="w-full text-left hover:text-green-400">
+              🗂️ {isOpen && `Outros ${abrirOutros ? '▲' : '▼'}`}
+            </button>
 
-          <Link href="/mercado" className="block hover:text-green-400">
-            💸 {isOpen && 'Mercado'}
-          </Link>
-
-          <Link href="/estadio" className="block hover:text-green-400">
-            🏟️ {isOpen && 'Estádio'}
-          </Link>
-
-          <Link href="/banco" className="block hover:text-green-400">
-            🏦 {isOpen && 'Banco'}
-          </Link>
-
-          <Link href="/financeiro" className="block hover:text-green-400">
-            💰 {isOpen && 'Painel Financeiro'}
-          </Link>
+            {abrirOutros && isOpen && (
+              <div className="ml-4 mt-2 space-y-2 text-sm">
+                <Link href="/BID" className="block hover:text-green-400">
+                  📰 BID
+                </Link>
+                <Link href="/mercado" className="block hover:text-green-400">
+                  💸 Mercado
+                </Link>
+                <Link href="/estadio" className="block hover:text-green-400">
+                  🏟️ Estádio
+                </Link>
+                <Link href="/banco" className="block hover:text-green-400">
+                  🏦 Banco
+                </Link>
+                <Link href="/financeiro" className="block hover:text-green-400">
+                  💰 Painel Financeiro
+                </Link>
+              </div>
+            )}
+          </div>
         </nav>
       </div>
 
@@ -284,6 +276,3 @@ export default function Sidebar() {
     </aside>
   )
 }
-
-
-
