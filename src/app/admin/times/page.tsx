@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { useSession } from '@/hooks/useSession'
+import useSession from '@/hooks/useSession' // ✅ CORRIGIDO AQUI
 import toast from 'react-hot-toast'
 
 const supabase = createClient(
@@ -91,46 +91,44 @@ export default function AdminTimesPage() {
       </div>
 
       {timeSelecionado && (
-        <>
-          <div className="mb-4 p-4 bg-zinc-800 rounded">
-            <h2 className="text-xl font-semibold mb-2">💼 {timeSelecionado.nome}</h2>
-            <p className="mb-2">Saldo atual: <strong>R$ {timeSelecionado.saldo.toLocaleString()}</strong></p>
+        <div className="mb-4 p-4 bg-zinc-800 rounded">
+          <h2 className="text-xl font-semibold mb-2">💼 {timeSelecionado.nome}</h2>
+          <p className="mb-2">Saldo atual: <strong>R$ {timeSelecionado.saldo.toLocaleString()}</strong></p>
 
-            <div className="mb-2">
-              <label className="block mb-1">➕ Adicionar saldo:</label>
-              <input
-                type="number"
-                value={valorAdicionar}
-                onChange={(e) => setValorAdicionar(Number(e.target.value))}
-                className="w-full p-2 rounded text-black mb-2"
-              />
-              <button
-                onClick={adicionarSaldo}
-                className="bg-green-600 px-4 py-2 rounded text-white font-semibold hover:bg-green-700"
-              >
-                ✅ Adicionar saldo
-              </button>
-            </div>
-
-            <hr className="my-3 border-zinc-600" />
-
-            <div>
-              <label className="block mb-1">✏️ Atualizar saldo manualmente:</label>
-              <input
-                type="number"
-                value={novoSaldo}
-                onChange={(e) => setNovoSaldo(Number(e.target.value))}
-                className="w-full p-2 rounded text-black mb-2"
-              />
-              <button
-                onClick={atualizarSaldo}
-                className="bg-blue-600 px-4 py-2 rounded text-white font-semibold hover:bg-blue-700"
-              >
-                ✏️ Atualizar saldo
-              </button>
-            </div>
+          <div className="mb-2">
+            <label className="block mb-1">➕ Adicionar saldo:</label>
+            <input
+              type="number"
+              value={valorAdicionar}
+              onChange={(e) => setValorAdicionar(Number(e.target.value))}
+              className="w-full p-2 rounded text-black mb-2"
+            />
+            <button
+              onClick={adicionarSaldo}
+              className="bg-green-600 px-4 py-2 rounded text-white font-semibold hover:bg-green-700"
+            >
+              ✅ Adicionar saldo
+            </button>
           </div>
-        </>
+
+          <hr className="my-3 border-zinc-600" />
+
+          <div>
+            <label className="block mb-1">✏️ Atualizar saldo manualmente:</label>
+            <input
+              type="number"
+              value={novoSaldo}
+              onChange={(e) => setNovoSaldo(Number(e.target.value))}
+              className="w-full p-2 rounded text-black mb-2"
+            />
+            <button
+              onClick={atualizarSaldo}
+              className="bg-blue-600 px-4 py-2 rounded text-white font-semibold hover:bg-blue-700"
+            >
+              ✏️ Atualizar saldo
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
