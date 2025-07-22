@@ -1,11 +1,9 @@
 'use client'
 
-'use client'
-
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
-
+import useSession from '@/hooks/useSession' // ✅ Correto agora!
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +21,7 @@ export default function TimesAdminPage() {
   const [times, setTimes] = useState<Time[]>([])
   const [novoTime, setNovoTime] = useState('')
   const [loading, setLoading] = useState(false)
-  const { isAdmin } = useAdmin()
+  const { isAdmin } = useSession() // ✅ Correto agora!
 
   useEffect(() => {
     if (isAdmin) buscarTimes()
