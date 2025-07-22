@@ -10,28 +10,40 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export function useSession() {
-  const [user, setUser] = useState<any>(null)
+export function useAdmin() {
   const [isAdmin, setIsAdmin] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user')
-    if (userStr) {
+    const verificarAdmin = async () => {
+      setLoading(true)
+
+      const userStr = localStorage.getItem('user')
+      if (!userStr) {
+        setLoading(false)
+        return
+      }
+
       const userObj = JSON.parse(userStr)
-      setUser(userObj)
-      verificarAdmin(userObj?.email)
+      const usuario = userObj?.usuario // <-- agora busca o campo correto
+
+      if (!usuario) {
+        setLoading(false)
+        return
+      }
+
+      const { data } = await supabase
+        .from('admins')
+        .select('email')
+        .eq('email', usuario)
+        .single()
+
+      setIsAdmin(!!data)
+      setLoading(false)
     }
+
+    verificarAdmin()
   }, [])
 
-  const verificarAdmin = async (email: string) => {
-    if (!email) return
-    const { data, error } = await supabase
-      .from('admins')
-      .select('email')
-      .eq('email', email)
-      .single()
-    setIsAdmin(!!data && !error)
-  }
-
-  return { user, isAdmin }
+  return { isAdmin, loading }
 }
