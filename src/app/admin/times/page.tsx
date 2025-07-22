@@ -15,33 +15,24 @@ type Time = {
   saldo: number
 }
 
-type Session = {
-  usuario_id: number
-  id_time: string
-  nome_time: string
-  usuario: string
-  isAdmin: boolean
-} | null
-
 export default function AdminTimesPage() {
-  const [user, setUser] = useState<Session>(null)
-  const [loading, setLoading] = useState(true)
   const [times, setTimes] = useState<Time[]>([])
   const [timeSelecionado, setTimeSelecionado] = useState<Time | null>(null)
   const [valorAdicionar, setValorAdicionar] = useState<number>(1000000)
   const [novoSaldo, setNovoSaldo] = useState<number>(0)
 
-  useEffect(() => {
-    const stored = localStorage.getItem('user')
-    if (stored) {
-      setUser(JSON.parse(stored))
-    }
-    setLoading(false)
-  }, [])
+  const [logado, setLogado] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
-    if (user?.isAdmin) carregarTimes()
-  }, [user])
+    const userStr = localStorage.getItem('user')
+    if (userStr) {
+      const user = JSON.parse(userStr)
+      setLogado(true)
+      setIsAdmin(user.isAdmin === true)
+      if (user.isAdmin) carregarTimes()
+    }
+  }, [])
 
   const carregarTimes = async () => {
     const { data, error } = await supabase.from('times').select('id, nome, saldo')
@@ -79,15 +70,75 @@ export default function AdminTimesPage() {
     }
   }
 
-  if (loading) return <p className="text-center mt-10 text-white">🔄 Carregando sessão...</p>
-  if (!user) return <p className="text-center mt-10 text-white">🔒 Faça login para acessar.</p>
-  if (!user.isAdmin) return <p className="text-center mt-10 text-red-400">❌ Acesso restrito a administradores.</p>
+  if (!logado) return <p className="text-center mt-10 text-white">🔒 Faça login para acessar.</p>
+  if (!isAdmin) return <p className="text-center mt-10 text-red-400">❌ Acesso restrito a administradores.</p>
 
   return (
     <div className="p-6 max-w-2xl mx-auto text-white">
-      <h1 className="text-2xl font-bold mb-4">⚙️ Administração de Caixas dos Times</h1>
+      <h1 className="text-2xl font-bold mb-4">⚙️ Administração de Times</h1>
 
       <div className="mb-4">
         <label className="block mb-1 font-semibold">Selecione um time:</label>
         <select
-          value={time
+          value={timeSelecionado?.id || ''}
+          onChange={(e) => {
+            const time = times.find((t) => t.id === e.target.value)
+            setTimeSelecionado(time || null)
+            setNovoSaldo(time?.saldo || 0)
+          }}
+          className="w-full p-2 rounded text-black"
+        >
+          <option value="">Selecione...</option>
+          {times.map((time) => (
+            <option key={time.id} value={time.id}>
+              {time.nome} (ID: {time.id})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {timeSelecionado && (
+        <>
+          <div className="mb-4 p-4 bg-zinc-800 rounded">
+            <h2 className="text-xl font-semibold mb-2">💼 {timeSelecionado.nome}</h2>
+            <p className="mb-2">Saldo atual: <strong>R$ {timeSelecionado.saldo.toLocaleString()}</strong></p>
+
+            <div className="mb-2">
+              <label className="block mb-1">➕ Adicionar saldo:</label>
+              <input
+                type="number"
+                value={valorAdicionar}
+                onChange={(e) => setValorAdicionar(Number(e.target.value))}
+                className="w-full p-2 rounded text-black mb-2"
+              />
+              <button
+                onClick={adicionarSaldo}
+                className="bg-green-600 px-4 py-2 rounded text-white font-semibold hover:bg-green-700"
+              >
+                ✅ Adicionar saldo
+              </button>
+            </div>
+
+            <hr className="my-3 border-zinc-600" />
+
+            <div>
+              <label className="block mb-1">✏️ Atualizar saldo manualmente:</label>
+              <input
+                type="number"
+                value={novoSaldo}
+                onChange={(e) => setNovoSaldo(Number(e.target.value))}
+                className="w-full p-2 rounded text-black mb-2"
+              />
+              <button
+                onClick={atualizarSaldo}
+                className="bg-blue-600 px-4 py-2 rounded text-white font-semibold hover:bg-blue-700"
+              >
+                ✏️ Atualizar saldo
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
