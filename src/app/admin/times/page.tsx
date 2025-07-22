@@ -81,7 +81,7 @@ export default function AdminTimesPage() {
         <h1 className="text-3xl font-bold mb-6 text-center text-green-400">⚙️ Painel de Administração</h1>
 
         <div className="mb-6">
-          <label className="block mb-2 text-lg">🧩 Selecione um time:</label>
+          <label className="block mb-2 text-white text-lg">🧩 Selecione um time:</label>
           <select
             value={timeSelecionado?.id || ''}
             onChange={(e) => {
@@ -101,14 +101,14 @@ export default function AdminTimesPage() {
         </div>
 
         {timeSelecionado && (
-          <div className="bg-zinc-700 p-5 rounded-lg">
+          <div className="bg-zinc-700 p-5 rounded-lg text-white">
             <h2 className="text-xl font-bold text-yellow-400 mb-2">🏷️ {timeSelecionado.nome}</h2>
-            <p className="mb-4 text-lg">
+            <p className="mb-4 text-lg text-white">
               💰 Saldo atual: <strong className="text-green-400">R$ {timeSelecionado.saldo.toLocaleString()}</strong>
             </p>
 
             <div className="mb-6">
-              <label className="block mb-1">➕ Adicionar saldo</label>
+              <label className="block mb-1 text-white">➕ Adicionar saldo</label>
               <input
                 type="number"
                 value={valorAdicionar}
@@ -117,7 +117,7 @@ export default function AdminTimesPage() {
               />
               <button
                 onClick={adicionarSaldo}
-                className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded w-full font-semibold"
+                className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded w-full font-semibold text-white"
               >
                 ✅ Adicionar R$ {valorAdicionar.toLocaleString()}
               </button>
@@ -126,7 +126,7 @@ export default function AdminTimesPage() {
             <hr className="border-zinc-500 my-4" />
 
             <div>
-              <label className="block mb-1">✏️ Atualizar saldo manualmente</label>
+              <label className="block mb-1 text-white">✏️ Atualizar saldo manualmente</label>
               <input
                 type="number"
                 value={novoSaldo}
@@ -135,7 +135,7 @@ export default function AdminTimesPage() {
               />
               <button
                 onClick={atualizarSaldo}
-                className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded w-full font-semibold"
+                className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded w-full font-semibold text-white"
               >
                 💾 Atualizar para R$ {novoSaldo.toLocaleString()}
               </button>
