@@ -20,20 +20,18 @@ export async function GET(req: NextRequest) {
 
     const updates = []
 
-    for (const time of timesData) {
-      let pontos = 0
-      let vitorias = 0
-      let empates = 0
-      let derrotas = 0
-      let gols_pro = 0
-      let gols_contra = 0
-      let jogos = 0
+    const timesValidos = timesData.filter(t => t.divisao && !isNaN(t.divisao))
 
-      const { data: rodadasData } = await supabase
+    for (const time of timesValidos) {
+      let pontos = 0, vitorias = 0, empates = 0, derrotas = 0, gols_pro = 0, gols_contra = 0, jogos = 0
+
+      const { data: rodadasData, error: errorRodadas } = await supabase
         .from('rodadas')
         .select('jogos')
         .eq('temporada', temporada)
         .eq('divisao', time.divisao)
+
+      if (errorRodadas) continue
 
       for (const rodada of rodadasData || []) {
         for (const jogo of rodada.jogos || []) {
@@ -75,7 +73,11 @@ export async function GET(req: NextRequest) {
     }
 
     if (updates.length > 0) {
-      await supabase.from('classificacao').upsert(updates, { onConflict: 'id_time,temporada,divisao' })
+      const { error: errorInsert } = await supabase
+        .from('classificacao')
+        .upsert(updates, { onConflict: 'id_time,temporada,divisao' })
+
+      if (errorInsert) return NextResponse.json({ erro: errorInsert.message }, { status: 500 })
     }
 
     const { data: classificacaoData, error: errorClass } = await supabase
