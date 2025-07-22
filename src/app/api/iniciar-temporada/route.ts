@@ -8,9 +8,10 @@ const supabase = createClient(
 
 export async function POST() {
   try {
-    const { data: times } = await supabase.from('times').select('id, divisao')
+    const { data: times, error } = await supabase.from('times').select('id, divisao')
 
-    if (!times) return NextResponse.json({ erro: 'Nenhum time encontrado' }, { status: 400 })
+    if (error) return NextResponse.json({ erro: error.message }, { status: 400 })
+    if (!times || times.length === 0) return NextResponse.json({ erro: 'Nenhum time encontrado' }, { status: 400 })
 
     const dados = times.map((t) => ({
       id_time: t.id,
@@ -26,7 +27,11 @@ export async function POST() {
       saldo: 0,
     }))
 
-    await supabase.from('classificacao').upsert(dados, { onConflict: 'id_time,temporada,divisao' })
+    const { error: errorInsert } = await supabase
+      .from('classificacao')
+      .upsert(dados, { onConflict: 'id_time,temporada,divisao' })
+
+    if (errorInsert) return NextResponse.json({ erro: errorInsert.message }, { status: 500 })
 
     return NextResponse.json({ ok: true, mensagem: 'Temporada iniciada com sucesso' })
   } catch (err: any) {
