@@ -108,64 +108,74 @@ export default function Jogos() {
   }, [temporada, divisao])
 
   const salvarResultado = async () => {
-    if (isSalvando || editandoRodada === null || editandoIndex === null) return
+  if (isSalvando || editandoRodada === null || editandoIndex === null) return
 
-    const confirmar = confirm('Deseja salvar o resultado e calcular a renda?')
-    if (!confirmar) return
+  const confirmar = confirm('Deseja salvar o resultado e calcular a renda?')
+  if (!confirmar) return
 
-    setIsSalvando(true)
+  setIsSalvando(true)
 
-    const rodada = rodadas.find((r) => r.id === editandoRodada)
-    if (!rodada) return
+  const rodada = rodadas.find((r) => r.id === editandoRodada)
+  if (!rodada) return
 
-    const novaLista = [...rodada.jogos]
+  const novaLista = [...rodada.jogos]
 
-    const publico = Math.floor(Math.random() * 30000) + 10000
-    const precoMedio = 80
-    const renda = publico * precoMedio
-    const mandanteId = novaLista[editandoIndex].mandante
-    const visitanteId = novaLista[editandoIndex].visitante
+  const publico = Math.floor(Math.random() * 30000) + 10000
+  const precoMedio = 80
+  const renda = publico * precoMedio
 
-    await supabase.rpc('atualizar_saldo', {
-      id_time: mandanteId,
-      valor: renda * 0.95
-    })
-    await supabase.rpc('atualizar_saldo', {
-      id_time: visitanteId,
-      valor: renda * 0.05
-    })
+  const mandanteId = novaLista[editandoIndex].mandante
+  const visitanteId = novaLista[editandoIndex].visitante
 
-    // 🟡 Desconta salários dos jogadores dos dois times
-    await descontarSalariosDosTimes(mandanteId, visitanteId)
+  // 💰 Atualiza saldo dos clubes com base na renda
+  await supabase.rpc('atualizar_saldo', {
+    id_time: mandanteId,
+    valor: renda * 0.95
+  })
+  await supabase.rpc('atualizar_saldo', {
+    id_time: visitanteId,
+    valor: renda * 0.05
+  })
 
-    novaLista[editandoIndex] = {
-      ...novaLista[editandoIndex],
-      gols_mandante: golsMandante,
-      gols_visitante: golsVisitante,
-      renda,
-      publico
-    }
+  // 💸 Descontar salários do elenco dos dois times
+  await descontarSalariosDosTimes(mandanteId, visitanteId)
 
-    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
-    await fetch(`/api/classificacao?temporada=${temporada}`)
-    await fetch('/api/atualizar-moral')
+  // 🏆 Premiar por desempenho da rodada
+  await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
+  await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
 
-    await carregarDados()
+  // Atualiza o resultado do jogo
+  novaLista[editandoIndex] = {
+    ...novaLista[editandoIndex],
+    gols_mandante: golsMandante,
+    gols_visitante: golsVisitante,
+    renda,
+    publico
+  }
 
-    const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
-    const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
+  // Salva no banco
+  await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
+  await fetch(`/api/classificacao?temporada=${temporada}`)
+  await fetch('/api/atualizar-moral')
 
-    toast.success(
-      `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
+  await carregarDados()
+
+  // Mostra aviso
+  const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
+  const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
+
+  toast.success(
+    `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
 💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()}
 💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()}`,
-      { duration: 8000 }
-    )
+    { duration: 8000 }
+  )
 
-    setEditandoRodada(null)
-    setEditandoIndex(null)
-    setIsSalvando(false)
-  }
+  // Limpa estados de edição
+  setEditandoRodada(null)
+  setEditandoIndex(null)
+  setIsSalvando(false)
+}
 
   const excluirResultado = async (rodadaId: string, index: number) => {
     if (!confirm('Deseja excluir o resultado deste jogo?')) return
