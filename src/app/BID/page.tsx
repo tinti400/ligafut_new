@@ -63,6 +63,17 @@ export default function BIDPage() {
     return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : ''
   }
 
+  function calcularEstrelas(valor: number | null | undefined): number {
+    if (!valor || valor <= 0) return 0
+    const estrelas = Math.ceil(valor / 50_000_000)
+    return Math.min(estrelas, 10)
+  }
+
+  function renderEstrelas(qtd: number) {
+    const total = 10
+    return '★'.repeat(qtd) + '☆'.repeat(total - qtd)
+  }
+
   return (
     <main className="min-h-screen bg-gray-900 text-white p-6">
       <div className="max-w-3xl mx-auto">
@@ -110,9 +121,14 @@ export default function BIDPage() {
                   <p>🟢 Time principal: <strong>{nomeTime1}</strong></p>
                   {nomeTime2 && <p>🔴 Time adversário: <strong>{nomeTime2}</strong></p>}
                   {evento.valor !== null && evento.valor !== undefined && (
-                    <p className="text-yellow-400 font-semibold">
-                      💰 {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </p>
+                    <>
+                      <p className="text-yellow-400 font-semibold">
+                        💰 {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </p>
+                      <p className="text-sm text-white">
+                        ⭐ Classificação: <span className="text-green-300">{renderEstrelas(calcularEstrelas(evento.valor))}</span>
+                      </p>
+                    </>
                   )}
                 </div>
               </div>
