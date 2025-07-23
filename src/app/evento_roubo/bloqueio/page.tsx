@@ -17,6 +17,7 @@ interface Jogador {
 export default function BloqueioPage() {
   const [jogadores, setJogadores] = useState<Jogador[]>([])
   const [bloqueados, setBloqueados] = useState<Jogador[]>([])
+  const [bloqueadosAnteriores, setBloqueadosAnteriores] = useState<Jogador[]>([])
   const [selecionados, setSelecionados] = useState<string[]>([])
   const [limiteBloqueios, setLimiteBloqueios] = useState(3)
   const [loading, setLoading] = useState(true)
@@ -39,10 +40,18 @@ export default function BloqueioPage() {
 
     if (data) {
       setLimiteBloqueios(data.limite_bloqueios || 3)
+
+      // Bloqueios da rodada atual
       if (idTime && data.bloqueios?.[idTime]) {
         setBloqueados(data.bloqueios[idTime])
       }
+
+      // Bloqueios de rodadas anteriores
+      if (idTime && data.bloqueios_anteriores?.[idTime]) {
+        setBloqueadosAnteriores(data.bloqueios_anteriores[idTime])
+      }
     }
+
     setLoading(false)
   }
 
@@ -86,8 +95,11 @@ export default function BloqueioPage() {
     window.location.reload()
   }
 
+  const jogadoresJaBloqueadosAntes = new Set(bloqueadosAnteriores.map(j => j.nome))
+  const jogadoresJaBloqueadosAgora = new Set(bloqueados.map(j => j.nome))
+
   const jogadoresDisponiveis = jogadores.filter(
-    j => !bloqueados.some(b => b.nome === j.nome)
+    j => !jogadoresJaBloqueadosAntes.has(j.nome) && !jogadoresJaBloqueadosAgora.has(j.nome)
   )
 
   const toggleSelecionado = (nome: string) => {
@@ -113,9 +125,9 @@ export default function BloqueioPage() {
               Você pode bloquear até <strong>{limiteBloqueios}</strong> jogadores.
             </p>
 
-            {bloqueados.length > 0 ? (
+            {bloqueados.length > 0 && (
               <div className="bg-gray-800 p-3 rounded mb-2">
-                <p className="font-semibold mb-2 text-green-400">🔒 Já bloqueados:</p>
+                <p className="font-semibold mb-2 text-green-400">🔒 Já bloqueados nesta rodada:</p>
                 <ul className="flex flex-wrap gap-2 justify-center">
                   {bloqueados.map((j, idx) => (
                     <li key={idx} className="bg-green-700 px-2 py-1 rounded text-xs">
@@ -124,8 +136,19 @@ export default function BloqueioPage() {
                   ))}
                 </ul>
               </div>
-            ) : (
-              <p className="mb-2">Nenhum jogador bloqueado ainda.</p>
+            )}
+
+            {bloqueadosAnteriores.length > 0 && (
+              <div className="bg-gray-900 p-3 rounded mb-2 border border-yellow-600">
+                <p className="font-semibold mb-2 text-yellow-400">⚠️ Jogadores protegidos no evento anterior:</p>
+                <ul className="flex flex-wrap gap-2 justify-center">
+                  {bloqueadosAnteriores.map((j, idx) => (
+                    <li key={idx} className="bg-yellow-700 px-2 py-1 rounded text-xs">
+                      {j.nome} ({j.posicao})
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
@@ -166,4 +189,3 @@ export default function BloqueioPage() {
     </div>
   )
 }
-
