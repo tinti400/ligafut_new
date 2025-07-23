@@ -109,7 +109,8 @@ export default function Jogos() {
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
-    await fetch(/api/classificacao?temporada=${temporada})
+    await fetch(`/api/classificacao?temporada=${temporada}`)
+
     await carregarDados()
 
     // ✅ Atualiza moral técnico e torcida
@@ -119,11 +120,12 @@ export default function Jogos() {
     const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
     toast.success(
-      🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
+  `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
 💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()}
-💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()},
-      { duration: 8000 }
-    )
+💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()}`,
+  { duration: 8000 }
+)
+
 
     setEditandoRodada(null)
     setEditandoIndex(null)
@@ -146,7 +148,8 @@ export default function Jogos() {
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
-    await fetch(/api/classificacao?temporada=${temporada})
+    await fetch(`/api/classificacao?temporada=${temporada}`)
+
     await carregarDados()
   }
 
