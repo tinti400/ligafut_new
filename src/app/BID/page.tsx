@@ -121,14 +121,17 @@ export default function BIDPage() {
                   <p>🟢 Time principal: <strong>{nomeTime1}</strong></p>
                   {nomeTime2 && <p>🔴 Time adversário: <strong>{nomeTime2}</strong></p>}
                   {evento.valor !== null && evento.valor !== undefined && (
-                    <>
+                    <div className="space-y-1">
                       <p className="text-yellow-400 font-semibold">
                         💰 {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </p>
                       <p className="text-sm text-white">
-                        ⭐ Classificação: <span className="text-green-300">{renderEstrelas(calcularEstrelas(evento.valor))}</span>
+                        ⭐ Classificação:{' '}
+                        <span className="text-green-300 font-bold">
+                          {renderEstrelas(calcularEstrelas(evento.valor))}
+                        </span>
                       </p>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
