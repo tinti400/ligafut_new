@@ -33,6 +33,41 @@ type Time = {
   logo_url: string
 }
 
+async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string) {
+  const ids = [mandanteId, visitanteId]
+
+  for (const timeId of ids) {
+    const { data: elenco, error } = await supabase
+      .from('elenco')
+      .select('salario')
+      .eq('time_id', timeId)
+
+    if (error || !elenco) continue
+
+    const totalSalarios = elenco.reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
+
+    const { data: time, error: erroSaldo } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', timeId)
+      .single()
+
+    if (erroSaldo || !time) continue
+
+    const novoSaldo = time.saldo - totalSalarios
+
+    await supabase.from('times').update({ saldo: novoSaldo }).eq('id', timeId)
+
+    await supabase.from('movimentacoes').insert({
+      time_id: timeId,
+      tipo: 'salario',
+      valor: totalSalarios,
+      descricao: 'Desconto de salários após partida',
+      data: new Date().toISOString(),
+    })
+  }
+}
+
 export default function Jogos() {
   const { isAdmin, loading } = useAdmin()
   const [rodadas, setRodadas] = useState<Rodada[]>([])
@@ -99,6 +134,9 @@ export default function Jogos() {
       id_time: visitanteId,
       valor: renda * 0.05
     })
+
+    // 🟡 Desconta salários dos jogadores dos dois times
+    await descontarSalariosDosTimes(mandanteId, visitanteId)
 
     novaLista[editandoIndex] = {
       ...novaLista[editandoIndex],
@@ -219,10 +257,7 @@ export default function Jogos() {
               const estaEditando = editandoRodada === rodada.id && editandoIndex === index
 
               return (
-                <div
-                  key={index}
-                  className="bg-zinc-700 text-white px-4 py-2 rounded-lg"
-                >
+                <div key={index} className="bg-zinc-700 text-white px-4 py-2 rounded-lg">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center w-1/3 justify-end gap-2">
                       {mandante?.logo_url && (
