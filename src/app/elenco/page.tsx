@@ -114,9 +114,10 @@ export default function ElencoPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
-      <h1 className="text-3xl font-bold text-center text-green-400 mb-2">
+      <h1 className="text-3xl font-bold text-center text-green-400 mb-1">
         👥 Elenco do {nomeTime} ({elenco.length} atletas)
       </h1>
+      <p className="text-center text-sm text-gray-300 mb-4">💰 Caixa: <span className="text-green-400 font-semibold">R$ {saldo.toLocaleString()}</span></p>
 
       <div className="text-center mb-4">
         <button onClick={fetchElenco} className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full">
@@ -167,7 +168,18 @@ export default function ElencoPage() {
               <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
 
-              <button onClick={() => venderJogador(jogador)} className="mt-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm w-full">
+              {jogador.link_sofifa && (
+                <a
+                  href={jogador.link_sofifa}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 text-xs underline block mt-1"
+                >
+                  🔗 Ver no SoFIFA
+                </a>
+              )}
+
+              <button onClick={() => venderJogador(jogador)} className="mt-3 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full text-sm w-full">
                 💸 Vender
               </button>
             </div>
