@@ -24,6 +24,8 @@ export default function EstadioPage() {
   const [rendaTotal, setRendaTotal] = useState(0)
   const [saldo, setSaldo] = useState(0)
   const [desempenho, setDesempenho] = useState(0)
+  const [moralTecnico, setMoralTecnico] = useState(5)
+  const [moralTorcida, setMoralTorcida] = useState(50)
 
   const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') : ''
   const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : ''
@@ -33,6 +35,7 @@ export default function EstadioPage() {
     buscarEstadio()
     buscarSaldo()
     buscarDesempenho()
+    buscarMoral()
   }, [idTime])
 
   const buscarEstadio = async () => {
@@ -64,6 +67,14 @@ export default function EstadioPage() {
   const buscarDesempenho = async () => {
     const { data } = await supabase.from('classificacao').select('pontos').eq('id_time', idTime).single()
     if (data?.pontos) setDesempenho(data.pontos)
+  }
+
+  const buscarMoral = async () => {
+    const { data } = await supabase.from('times').select('moral_tecnico, moral_torcida').eq('id', idTime).single()
+    if (data) {
+      setMoralTecnico(data.moral_tecnico || 5)
+      setMoralTorcida(data.moral_torcida || 50)
+    }
   }
 
   const atualizarPreco = async (setor: string, novoPreco: number) => {
@@ -120,6 +131,32 @@ export default function EstadioPage() {
       <div className="bg-gray-900 rounded p-4 text-center mb-4 border border-yellow-400">
         <h2 className="text-lg font-bold mb-2 text-yellow-300">📣 Aviso Importante</h2>
         <p>{mensagemDesempenho(desempenho)}</p>
+      </div>
+
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2 text-center text-green-300">🔥 Moral do Clube</h2>
+
+        <div className="mb-3">
+          <p className="text-sm text-gray-300 mb-1">🎯 Técnico</p>
+          <div className="w-full h-5 bg-gray-700 rounded">
+            <div
+              className="h-5 bg-green-600 rounded transition-all duration-300"
+              style={{ width: `${(moralTecnico / 10) * 100}%` }}
+            ></div>
+          </div>
+          <p className="text-xs text-right text-gray-400 mt-1">{moralTecnico.toFixed(1)}/10</p>
+        </div>
+
+        <div>
+          <p className="text-sm text-gray-300 mb-1">🙌 Torcida</p>
+          <div className="w-full h-5 bg-gray-700 rounded">
+            <div
+              className="h-5 bg-green-400 rounded transition-all duration-300"
+              style={{ width: `${moralTorcida}%` }}
+            ></div>
+          </div>
+          <p className="text-xs text-right text-gray-400 mt-1">{moralTorcida.toFixed(0)}%</p>
+        </div>
       </div>
 
       <div className="bg-gray-800 rounded p-4 text-center mb-4 border border-gray-700">
