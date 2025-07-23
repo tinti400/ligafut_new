@@ -74,7 +74,8 @@ export default function Jogos() {
 
   const salvarResultado = async () => {
     if (isSalvando || editandoRodada === null || editandoIndex === null) return
-    const confirmar = confirm('Deseja salvar o resultado e calcular a renda e premiações?')
+
+    const confirmar = confirm('Deseja salvar o resultado e calcular a renda?')
     if (!confirmar) return
 
     setIsSalvando(true)
@@ -83,16 +84,13 @@ export default function Jogos() {
     if (!rodada) return
 
     const novaLista = [...rodada.jogos]
+
     const publico = Math.floor(Math.random() * 30000) + 10000
     const precoMedio = 80
     const renda = publico * precoMedio
-
     const mandanteId = novaLista[editandoIndex].mandante
     const visitanteId = novaLista[editandoIndex].visitante
-    const golsMand = golsMandante
-    const golsVisit = golsVisitante
 
-    // Renda de bilheteria
     await supabase.rpc('atualizar_saldo', {
       id_time: mandanteId,
       valor: renda * 0.95
@@ -102,121 +100,35 @@ export default function Jogos() {
       valor: renda * 0.05
     })
 
-    // Premiação por resultado (por divisão)
-    const premiacaoPorDivisao = {
-      1: { vitoria: 6000000, empate: 3000000, derrota: 2000000, porGol: 500000, porGolSofrido: -80000 },
-      2: { vitoria: 4000000, empate: 2000000, derrota: 1000000, porGol: 400000, porGolSofrido: -60000 },
-      3: { vitoria: 2500000, empate: 1000000, derrota: 500000, porGol: 300000, porGolSofrido: -50000 },
-    }
-
-    const premio = premiacaoPorDivisao[divisao]
-
-    // Mandante
-    const saldoMand = (golsMand > golsVisit ? premio.vitoria : golsMand === golsVisit ? premio.empate : premio.derrota) +
-      golsMand * premio.porGol +
-      golsVisit * premio.porGolSofrido
-
-    await supabase.rpc('atualizar_saldo', {
-      id_time: mandanteId,
-      valor: saldoMand
-    })
-
-    // Visitante
-    const saldoVisit = (golsVisit > golsMand ? premio.vitoria : golsMand === golsVisit ? premio.empate : premio.derrota) +
-      golsVisit * premio.porGol +
-      golsMand * premio.porGolSofrido
-
-    await supabase.rpc('atualizar_saldo', {
-      id_time: visitanteId,
-      valor: saldoVisit
-    })
-
-    // Verifica 5 vitórias seguidas (exemplo simplificado)
-    const vitoriasConsecutivas = async (id: string) => {
-      const { data } = await supabase
-        .from('rodadas')
-        .select('jogos')
-        .eq('temporada', temporada)
-        .eq('divisao', divisao)
-        .order('numero', { ascending: false })
-        .limit(5)
-
-      let count = 0
-      for (const rodada of data || []) {
-        for (const jogo of rodada.jogos) {
-          if (jogo.gols_mandante != null && jogo.gols_visitante != null) {
-            if (jogo.mandante === id && jogo.gols_mandante > jogo.gols_visitante) count++
-            else if (jogo.visitante === id && jogo.gols_visitante > jogo.gols_mandante) count++
-          }
-        }
-      }
-      return count >= 5
-    }
-
-    if (await vitoriasConsecutivas(mandanteId)) {
-      await supabase.rpc('atualizar_saldo', {
-        id_time: mandanteId,
-        valor: 3000000
-      })
-    }
-
-    if (await vitoriasConsecutivas(visitanteId)) {
-      await supabase.rpc('atualizar_saldo', {
-        id_time: visitanteId,
-        valor: 3000000
-      })
-    }
-
-    // Cobrança de salários
-    const cobrarSalarios = async (id_time: string) => {
-      const { data } = await supabase
-        .from('elenco')
-        .select('salario')
-        .eq('id_time', id_time)
-
-      const total = data?.reduce((acc, cur) => acc + (cur.salario || 0), 0) || 0
-
-      await supabase.rpc('atualizar_saldo', {
-        id_time,
-        valor: -total
-      })
-    }
-
-    await cobrarSalarios(mandanteId)
-    await cobrarSalarios(visitanteId)
-
-    // Atualiza rodada
     novaLista[editandoIndex] = {
       ...novaLista[editandoIndex],
-      gols_mandante: golsMand,
-      gols_visitante: golsVisit,
+      gols_mandante: golsMandante,
+      gols_visitante: golsVisitante,
       renda,
       publico
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
-    await fetch(`/api/classificacao?temporada=${temporada}`)
+    await fetch(/api/classificacao?temporada=${temporada})
     await carregarDados()
+
+    // ✅ Atualiza moral técnico e torcida
     await fetch('/api/atualizar-moral')
 
-    toast.success(`💵 Prêmios e salários processados com sucesso!`, { duration: 6000 })
+    const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
+    const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
+
+    toast.success(
+      🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
+💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()}
+💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()},
+      { duration: 8000 }
+    )
 
     setEditandoRodada(null)
     setEditandoIndex(null)
     setIsSalvando(false)
   }
-
-  // ⚠️ Aqui vem o seu return visual — você já tem ele pronto e funcionando, pode colar após esse ponto.
-
-  return (
-    <div className="p-4 text-white">
-      <h1 className="text-2xl font-bold mb-4">📅 Jogos da LigaFut</h1>
-      {/* Botões de filtro de temporada e divisão + exibição das rodadas */}
-      {/* Mantenha seu JSX visual aqui normalmente */}
-    </div>
-  )
-}
-
 
   const excluirResultado = async (rodadaId: string, index: number) => {
     if (!confirm('Deseja excluir o resultado deste jogo?')) return
@@ -234,7 +146,7 @@ export default function Jogos() {
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
-    await fetch(`/api/classificacao?temporada=${temporada}`)
+    await fetch(/api/classificacao?temporada=${temporada})
     await carregarDados()
   }
 
@@ -260,9 +172,9 @@ export default function Jogos() {
           <button
             key={temp}
             onClick={() => setTemporada(temp)}
-            className={`px-4 py-2 rounded-lg font-semibold ${
+            className={px-4 py-2 rounded-lg font-semibold ${
               temporada === temp ? 'bg-green-600 text-white' : 'bg-zinc-700 text-gray-300'
-            }`}
+            }}
           >
             Temporada {temp}
           </button>
@@ -274,9 +186,9 @@ export default function Jogos() {
           <button
             key={div}
             onClick={() => setDivisao(div)}
-            className={`px-4 py-2 rounded-lg font-semibold ${
+            className={px-4 py-2 rounded-lg font-semibold ${
               divisao === div ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-gray-300'
-            }`}
+            }}
           >
             Divisão {div}
           </button>
@@ -337,7 +249,7 @@ export default function Jogos() {
                           />
                         </div>
                       ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
-                        `${jogo.gols_mandante} x ${jogo.gols_visitante}`
+                        ${jogo.gols_mandante} x ${jogo.gols_visitante}
                       ) : (
                         '🆚'
                       )}
