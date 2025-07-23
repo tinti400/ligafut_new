@@ -21,19 +21,25 @@ export async function GET() {
   for (const time of times) {
     const id = time.id
 
+    // Buscar últimos 5 jogos onde o time participou
     const { data: jogos } = await supabase
       .from('jogos')
       .select('*')
       .or(`id_time_mandante.eq.${id},id_time_visitante.eq.${id}`)
       .order('data_jogo', { ascending: false })
-      .limit(5)
+      .limit(10) // pode ter jogos incompletos, então busca até 10
+
+    // Filtrar apenas jogos com resultado preenchido
+    const jogosValidos = (jogos ?? []).filter(j =>
+      j.gols_mandante !== null && j.gols_visitante !== null
+    ).slice(0, 5) // pega os 5 mais recentes válidos
 
     let vitorias = 0
     let empates = 0
     let derrotas = 0
     let derrotasGoleada = 0
 
-    for (const jogo of jogos || []) {
+    for (const jogo of jogosValidos) {
       const ehMandante = jogo.id_time_mandante === id
       const golsPro = ehMandante ? jogo.gols_mandante : jogo.gols_visitante
       const golsContra = ehMandante ? jogo.gols_visitante : jogo.gols_mandante
@@ -42,30 +48,36 @@ export async function GET() {
       else if (golsPro === golsContra) empates++
       else {
         derrotas++
-        if (golsContra - golsPro >= 3) derrotasGoleada++
+        if ((golsContra - golsPro) >= 3) derrotasGoleada++
       }
     }
 
+    // Moral do técnico
     let moralTecnico = vitorias * 2 + empates
-    if (jogos && jogos[0]) {
-      const jogo = jogos[0]
-      const ehMandante = jogo.id_time_mandante === id
-      const perdeuUltimo = (ehMandante && jogo.gols_mandante < jogo.gols_visitante) ||
-                           (!ehMandante && jogo.gols_visitante < jogo.gols_mandante)
+    const ultimoJogo = jogosValidos[0]
+    if (ultimoJogo) {
+      const ehMandante = ultimoJogo.id_time_mandante === id
+      const perdeuUltimo =
+        (ehMandante && ultimoJogo.gols_mandante < ultimoJogo.gols_visitante) ||
+        (!ehMandante && ultimoJogo.gols_visitante < ultimoJogo.gols_mandante)
       if (perdeuUltimo) moralTecnico -= 1
     }
-
     moralTecnico = Math.max(0, Math.min(10, moralTecnico))
 
+    // Moral da torcida com base em classificação e aproveitamento
     const index = classificacao?.findIndex((t) => t.id_time === id) ?? -1
     const posicao = index >= 0 ? index + 1 : 20
     const pontos = classificacao?.[index]?.pontos || 0
+    const totalJogos = jogosValidos.length
 
-    const aproveitamento = Math.min(100, Math.round((pontos / (jogos.length * 3)) * 100)) || 0
+    const aproveitamento = totalJogos > 0
+      ? Math.min(100, Math.round((pontos / (totalJogos * 3)) * 100))
+      : 0
 
     let moralTorcida = 30 + (aproveitamento * 0.3) + (10 - posicao) * 2 - derrotas * 5
     moralTorcida = Math.max(0, Math.min(100, moralTorcida))
 
+    // Atualizar valores no banco
     await supabase
       .from('times')
       .update({
