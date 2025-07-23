@@ -113,7 +113,7 @@ export default function ElencoPage() {
   if (loading) return <p className="text-center text-white">⏳ Carregando elenco...</p>
 
   return (
-    <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
       <h1 className="text-3xl font-bold text-center text-green-400 mb-1">
         👥 Elenco do {nomeTime} ({elenco.length} atletas)
       </h1>
@@ -125,7 +125,7 @@ export default function ElencoPage() {
         </button>
       </div>
 
-      <div className="flex flex-wrap justify-center gap-2 mb-4">
+      <div className="flex gap-2 mb-4 overflow-x-auto whitespace-nowrap px-1 sm:px-0">
         {Object.entries(contar('nacionalidade')).map(([nac, count]) => (
           <button key={nac} onClick={() => setFiltroNacionalidade(nac)} className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm ${filtroNacionalidade === nac ? 'bg-green-600' : 'bg-gray-700'} hover:bg-green-700`}>
             {getFlagUrl(nac) && <img src={getFlagUrl(nac)} alt={nac} className="w-5 h-3" />} {nac} ({count})
@@ -134,7 +134,7 @@ export default function ElencoPage() {
         {filtroNacionalidade && <button onClick={() => setFiltroNacionalidade(null)} className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-700 text-sm">❌ Limpar Nacionalidade</button>}
       </div>
 
-      <div className="flex flex-wrap justify-center gap-2 mb-4">
+      <div className="flex gap-2 mb-4 overflow-x-auto whitespace-nowrap px-1 sm:px-0">
         {Object.entries(contar('posicao')).map(([pos, count]) => (
           <button key={pos} onClick={() => setFiltroPosicao(pos)} className={`px-3 py-1 rounded-full text-sm ${filtroPosicao === pos ? 'bg-green-600' : 'bg-gray-700'} hover:bg-green-700`}>
             {pos} ({count})
@@ -143,10 +143,10 @@ export default function ElencoPage() {
         {filtroPosicao && <button onClick={() => setFiltroPosicao(null)} className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-700 text-sm">❌ Limpar Posição</button>}
       </div>
 
-      <div className="flex justify-center items-center gap-2 mb-4 flex-wrap">
-        <input type="text" placeholder="🔎 Filtrar por nome" value={filtroNome} onChange={(e) => setFiltroNome(e.target.value)} className="px-3 py-1 rounded text-black" />
-        <input type="number" placeholder="🔢 Overall mínimo" value={filtroOverall} onChange={(e) => setFiltroOverall(Number(e.target.value))} className="px-3 py-1 rounded text-black w-32" />
-        {(filtroNome || filtroOverall > 0) && <button onClick={() => { setFiltroNome(''); setFiltroOverall(0); }} className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-700 text-sm">❌ Limpar Busca</button>}
+      <div className="flex justify-center items-center gap-2 mb-4 flex-wrap sm:flex-nowrap">
+        <input type="text" placeholder="🔎 Filtrar por nome" value={filtroNome} onChange={(e) => setFiltroNome(e.target.value)} className="px-3 py-1 rounded text-black w-full sm:w-auto" />
+        <input type="number" placeholder="🔢 Overall mínimo" value={filtroOverall} onChange={(e) => setFiltroOverall(Number(e.target.value))} className="px-3 py-1 rounded text-black w-full sm:w-32" />
+        {(filtroNome || filtroOverall > 0) && <button onClick={() => { setFiltroNome(''); setFiltroOverall(0); }} className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-700 text-sm w-full sm:w-auto">❌ Limpar Busca</button>}
       </div>
 
       {elencoFiltrado.length === 0 ? <p className="text-center text-gray-400">Nenhum jogador encontrado.</p> : (
