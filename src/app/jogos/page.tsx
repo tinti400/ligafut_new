@@ -110,22 +110,19 @@ export default function Jogos() {
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
     await fetch(`/api/classificacao?temporada=${temporada}`)
+    await fetch('/api/atualizar-moral')
 
     await carregarDados()
-
-    // ✅ Atualiza moral técnico e torcida
-    await fetch('/api/atualizar-moral')
 
     const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
     const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
     toast.success(
-  `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
+      `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
 💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()}
 💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()}`,
-  { duration: 8000 }
-)
-
+      { duration: 8000 }
+    )
 
     setEditandoRodada(null)
     setEditandoIndex(null)
@@ -175,9 +172,9 @@ export default function Jogos() {
           <button
             key={temp}
             onClick={() => setTemporada(temp)}
-            className={px-4 py-2 rounded-lg font-semibold ${
+            className={`px-4 py-2 rounded-lg font-semibold ${
               temporada === temp ? 'bg-green-600 text-white' : 'bg-zinc-700 text-gray-300'
-            }}
+            }`}
           >
             Temporada {temp}
           </button>
@@ -189,9 +186,9 @@ export default function Jogos() {
           <button
             key={div}
             onClick={() => setDivisao(div)}
-            className={px-4 py-2 rounded-lg font-semibold ${
+            className={`px-4 py-2 rounded-lg font-semibold ${
               divisao === div ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-gray-300'
-            }}
+            }`}
           >
             Divisão {div}
           </button>
@@ -252,7 +249,7 @@ export default function Jogos() {
                           />
                         </div>
                       ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
-                        ${jogo.gols_mandante} x ${jogo.gols_visitante}
+                        <>{jogo.gols_mandante} x {jogo.gols_visitante}</>
                       ) : (
                         '🆚'
                       )}
