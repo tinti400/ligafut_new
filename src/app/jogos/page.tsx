@@ -157,7 +157,7 @@ export default function Jogos() {
   toast.success(
     `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
 💵 ${mandanteNome}: R$ ${(renda * 0.95 + premioMandante).toLocale
-
+}
     novaLista[editandoIndex] = {
       ...novaLista[editandoIndex],
       gols_mandante: golsMandante,
