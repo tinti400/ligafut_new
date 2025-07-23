@@ -85,14 +85,12 @@ export default function Jogos() {
 
     const novaLista = [...rodada.jogos]
 
-    // Calcular renda e público
     const publico = Math.floor(Math.random() * 30000) + 10000
     const precoMedio = 80
     const renda = publico * precoMedio
     const mandanteId = novaLista[editandoIndex].mandante
     const visitanteId = novaLista[editandoIndex].visitante
 
-    // Atualizar saldo (função RPC no Supabase)
     await supabase.rpc('atualizar_saldo', {
       id_time: mandanteId,
       valor: renda * 0.95
@@ -114,11 +112,14 @@ export default function Jogos() {
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await carregarDados()
 
+    // ✅ Atualiza moral técnico e torcida
+    await fetch('/api/atualizar-moral')
+
     const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
     const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
     toast.success(
-      `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()} 
+      `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
 💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()}
 💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()}`,
       { duration: 8000 }
@@ -307,7 +308,6 @@ export default function Jogos() {
                     </div>
                   </div>
 
-                  {/* Renda e público exibidos abaixo do mandante */}
                   {jogo.renda && jogo.publico && (
                     <div className="text-sm text-zinc-400 text-right mt-1 mr-10">
                       🎟️ Público: {jogo.publico.toLocaleString()} | 💰 Renda: R$ {jogo.renda.toLocaleString()}
