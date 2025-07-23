@@ -12,7 +12,6 @@ export default function Sidebar() {
   const [abrirAdmin, setAbrirAdmin] = useState(false)
   const [abrirRoubo, setAbrirRoubo] = useState(false)
   const [abrirCopa, setAbrirCopa] = useState(false)
-  const [abrirOutros, setAbrirOutros] = useState(false)
 
   const [logado, setLogado] = useState(false)
   const [nomeTime, setNomeTime] = useState('')
@@ -84,7 +83,6 @@ export default function Sidebar() {
             <div className="mb-2 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
               💰 Caixa: <span className="text-green-400">R$ {parseInt(saldoTime).toLocaleString('pt-BR')}</span>
             </div>
-
             <div className="mb-6 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
               🧩 Salários: <span className="text-yellow-400">R$ {parseInt(totalSalarios).toLocaleString('pt-BR')}</span>
             </div>
@@ -110,29 +108,28 @@ export default function Sidebar() {
             📅 {isOpen && 'Jogos'}
           </Link>
 
+          <Link href="/mercado" className="block hover:text-green-400">
+            💸 {isOpen && 'Mercado'}
+          </Link>
+
+          <Link href="/BID" className="block hover:text-green-400">
+            📰 {isOpen && 'BID'}
+          </Link>
+
           {/* Elenco */}
           <div>
             <button onClick={() => setAbrirElenco(!abrirElenco)} className="w-full text-left hover:text-green-400">
               👥 {isOpen && `Elenco ${abrirElenco ? '▲' : '▼'}`}
             </button>
-
             {abrirElenco && isOpen && (
               <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/elenco" className="block hover:text-green-400">
-                  👥 Meu Elenco
-                </Link>
-                <Link href="/elenco/tatico" className="block hover:text-green-400">
-                  🎯 Painel Tático
-                </Link>
-                <Link href="/negociacoes" className="block hover:text-green-400">
-                  🤝 Negociações
-                </Link>
-                <Link href="/propostas_recebidas" className="block hover:text-green-400">
-                  📥 Propostas Recebidas
-                </Link>
-                <Link href="/propostas_enviadas" className="block hover:text-green-400">
-                  📤 Propostas Enviadas
-                </Link>
+                <Link href="/elenco" className="block hover:text-green-400">👥 Meu Elenco</Link>
+                <Link href="/elenco/tatico" className="block hover:text-green-400">🎯 Painel Tático</Link>
+                <Link href="/negociacoes" className="block hover:text-green-400">🤝 Negociações</Link>
+                <Link href="/propostas_recebidas" className="block hover:text-green-400">📥 Propostas Recebidas</Link>
+                <Link href="/propostas_enviadas" className="block hover:text-green-400">📤 Propostas Enviadas</Link>
+                <Link href="/estadio" className="block hover:text-green-400">🏟️ Estádio</Link>
+                <Link href="/banco" className="block hover:text-green-400">🏦 Banco</Link>
               </div>
             )}
           </div>
@@ -142,18 +139,11 @@ export default function Sidebar() {
             <button onClick={() => setAbrirRoubo(!abrirRoubo)} className="w-full text-left hover:text-green-400">
               🕵️ {isOpen && `Evento de Roubo ${abrirRoubo ? '▲' : '▼'}`}
             </button>
-
             {abrirRoubo && isOpen && (
               <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/evento_roubo/bloqueio" className="block hover:text-green-400">
-                  🔒 Bloqueio
-                </Link>
-                <Link href="/evento_roubo/acao" className="block hover:text-green-400">
-                  ⚔️ Ação
-                </Link>
-                <Link href="/evento_roubo/relatorio" className="block hover:text-green-400">
-                  📋 Relatório
-                </Link>
+                <Link href="/evento_roubo/bloqueio" className="block hover:text-green-400">🔒 Bloqueio</Link>
+                <Link href="/evento_roubo/acao" className="block hover:text-green-400">⚔️ Ação</Link>
+                <Link href="/evento_roubo/relatorio" className="block hover:text-green-400">📋 Relatório</Link>
               </div>
             )}
           </div>
@@ -163,12 +153,9 @@ export default function Sidebar() {
             <button onClick={() => setAbrirLeilao(!abrirLeilao)} className="w-full text-left hover:text-green-400">
               📢 {isOpen && `Leilão ${abrirLeilao ? '▲' : '▼'}`}
             </button>
-
             {abrirLeilao && isOpen && (
               <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/admin/leilao_sistema" className="block hover:text-green-400">
-                  ⚙️ Leilão Sistema
-                </Link>
+                <Link href="/admin/leilao_sistema" className="block hover:text-green-400">⚙️ Leilão Sistema</Link>
               </div>
             )}
           </div>
@@ -178,30 +165,15 @@ export default function Sidebar() {
             <button onClick={() => setAbrirCopa(!abrirCopa)} className="w-full text-left hover:text-green-400">
               🏆 {isOpen && `Copa ${abrirCopa ? '▲' : '▼'}`}
             </button>
-
             {abrirCopa && isOpen && (
               <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/copa/fase_liga" className="block hover:text-green-400">
-                  📊 Fase Liga
-                </Link>
-                <Link href="/copa/playoff" className="block hover:text-green-400">
-                  🎯 Playoff
-                </Link>
-                <Link href="/copa/oitavas" className="block hover:text-green-400">
-                  🥇 Oitavas de Final
-                </Link>
-                <Link href="/copa/quartas" className="block hover:text-green-400">
-                  🥈 Quartas de Final
-                </Link>
-                <Link href="/copa/semi" className="block hover:text-green-400">
-                  🥉 Semifinal
-                </Link>
-                <Link href="/copa/final" className="block hover:text-green-400">
-                  🏅 Final
-                </Link>
-                <Link href="/copa/admin" className="block hover:text-green-400">
-                  🛠️ Administração da Copa
-                </Link>
+                <Link href="/copa/fase_liga" className="block hover:text-green-400">📊 Fase Liga</Link>
+                <Link href="/copa/playoff" className="block hover:text-green-400">🎯 Playoff</Link>
+                <Link href="/copa/oitavas" className="block hover:text-green-400">🥇 Oitavas</Link>
+                <Link href="/copa/quartas" className="block hover:text-green-400">🥈 Quartas</Link>
+                <Link href="/copa/semi" className="block hover:text-green-400">🥉 Semifinal</Link>
+                <Link href="/copa/final" className="block hover:text-green-400">🏅 Final</Link>
+                <Link href="/copa/admin" className="block hover:text-green-400">🛠️ Admin Copa</Link>
               </div>
             )}
           </div>
@@ -211,54 +183,14 @@ export default function Sidebar() {
             <button onClick={() => setAbrirAdmin(!abrirAdmin)} className="w-full text-left hover:text-green-400">
               🛠️ {isOpen && `Admin ${abrirAdmin ? '▲' : '▼'}`}
             </button>
-
             {abrirAdmin && isOpen && (
               <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/admin/leilao" className="block hover:text-green-400">
-                  🎯 Leilão
-                </Link>
-                <Link href="/admin/leiloes_finalizados" className="block hover:text-green-400">
-                  📜 Leilões Finalizados
-                </Link>
-                <Link href="/admin/painel_times" className="block hover:text-green-400">
-                  📋 Painel de Times
-                </Link>
-                <Link href="/admin/times" className="block hover:text-green-400">
-                  📝 Administração de Times
-                </Link>
-                <Link href="/admin/evento_roubo_admin" className="block hover:text-green-400">
-                  🕵️ Evento de Roubo (Admin)
-                </Link>
-                <Link href="/admin" className="block hover:text-green-400">
-                  🗂️ Administração Geral
-                </Link>
-              </div>
-            )}
-          </div>
-
-          {/* Outros */}
-          <div>
-            <button onClick={() => setAbrirOutros(!abrirOutros)} className="w-full text-left hover:text-green-400">
-              🗂️ {isOpen && `Outros ${abrirOutros ? '▲' : '▼'}`}
-            </button>
-
-            {abrirOutros && isOpen && (
-              <div className="ml-4 mt-2 space-y-2 text-sm">
-                <Link href="/BID" className="block hover:text-green-400">
-                  📰 BID
-                </Link>
-                <Link href="/mercado" className="block hover:text-green-400">
-                  💸 Mercado
-                </Link>
-                <Link href="/estadio" className="block hover:text-green-400">
-                  🏟️ Estádio
-                </Link>
-                <Link href="/banco" className="block hover:text-green-400">
-                  🏦 Banco
-                </Link>
-                <Link href="/financeiro" className="block hover:text-green-400">
-                  💰 Painel Financeiro
-                </Link>
+                <Link href="/admin/leilao" className="block hover:text-green-400">🎯 Leilão</Link>
+                <Link href="/admin/leiloes_finalizados" className="block hover:text-green-400">📜 Leilões Finalizados</Link>
+                <Link href="/admin/painel_times" className="block hover:text-green-400">📋 Painel Times</Link>
+                <Link href="/admin/times" className="block hover:text-green-400">📝 Admin Times</Link>
+                <Link href="/admin/evento_roubo_admin" className="block hover:text-green-400">🕵️ Evento Roubo (Admin)</Link>
+                <Link href="/admin" className="block hover:text-green-400">🗂️ Administração Geral</Link>
               </div>
             )}
           </div>
