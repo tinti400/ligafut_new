@@ -33,6 +33,43 @@ type Time = {
   logo_url: string
 }
 
+type HistoricoJogo = {
+  gols_pro: number
+  gols_contra: number
+  resultado: 'vitoria' | 'empate' | 'derrota'
+}
+
+type TimeDados = {
+  id: string
+  divisao: number
+  historico: HistoricoJogo[]
+}
+
+function calcularPremiacao(time: TimeDados): number {
+  const { divisao, historico } = time
+  const ultimaPartida = historico[historico.length - 1]
+
+  const regras = {
+    1: { vitoria: 6_000_000, gol: 500_000, gol_sofrido: 80_000 },
+    2: { vitoria: 4_500_000, gol: 375_000, gol_sofrido: 60_000 },
+    3: { vitoria: 3_000_000, gol: 250_000, gol_sofrido: 40_000 },
+  }
+
+  const { vitoria, gol, gol_sofrido } = regras[divisao as 1 | 2 | 3] || { vitoria: 0, gol: 0, gol_sofrido: 0 }
+
+  let premiacao = 0
+
+  if (ultimaPartida.resultado === 'vitoria') premiacao += vitoria
+  premiacao += ultimaPartida.gols_pro * gol
+  premiacao -= ultimaPartida.gols_contra * gol_sofrido
+
+  const ultimos5 = historico.slice(-5)
+  const venceuTodas = ultimos5.length === 5 && ultimos5.every((j) => j.resultado === 'vitoria')
+  if (venceuTodas) premiacao += 5_000_000
+
+  return premiacao
+}
+
 async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string) {
   const ids = [mandanteId, visitanteId]
 
@@ -67,6 +104,66 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
     })
   }
 }
+
+async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number) {
+  const { data: timeData, error: errorTime } = await supabase
+    .from('times')
+    .select('divisao')
+    .eq('id', timeId)
+    .single()
+  if (errorTime || !timeData) return
+
+  const divisao = timeData.divisao
+
+  const { data: partidas } = await supabase
+    .from('rodadas')
+    .select('jogos')
+    .contains('jogos', [{ mandante: timeId }, { visitante: timeId }])
+
+  let historico: HistoricoJogo[] = []
+
+  partidas?.forEach((rodada) => {
+    rodada.jogos.forEach((jogo: any) => {
+      if (
+        (jogo.mandante === timeId || jogo.visitante === timeId) &&
+        jogo.gols_mandante !== undefined &&
+        jogo.gols_visitante !== undefined
+      ) {
+        const isMandante = jogo.mandante === timeId
+        const g_pro = isMandante ? jogo.gols_mandante : jogo.gols_visitante
+        const g_contra = isMandante ? jogo.gols_visitante : jogo.gols_mandante
+
+        let resultado: 'vitoria' | 'empate' | 'derrota' = 'empate'
+        if (g_pro > g_contra) resultado = 'vitoria'
+        if (g_pro < g_contra) resultado = 'derrota'
+
+        historico.push({ gols_pro: g_pro, gols_contra: g_contra, resultado })
+      }
+    })
+  })
+
+  const resultadoAtual =
+    gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
+  historico.push({ gols_pro, gols_contra, resultado: resultadoAtual })
+
+  const time: TimeDados = { id: timeId, divisao, historico }
+  const valor = calcularPremiacao(time)
+  if (valor <= 0) return
+
+  await supabase.rpc('atualizar_saldo', {
+    id_time: timeId,
+    valor
+  })
+
+  await supabase.from('movimentacoes').insert({
+    time_id: timeId,
+    tipo: 'premiacao',
+    valor,
+    descricao: 'Premiação por desempenho na rodada',
+    data: new Date().toISOString()
+  })
+}
+
 
 export default function Jogos() {
   const { isAdmin, loading } = useAdmin()
