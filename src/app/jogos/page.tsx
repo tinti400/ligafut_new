@@ -73,91 +73,33 @@ export default function Jogos() {
   }, [temporada, divisao])
 
   const salvarResultado = async () => {
-  if (isSalvando || editandoRodada === null || editandoIndex === null) return
+    if (isSalvando || editandoRodada === null || editandoIndex === null) return
 
-  const confirmar = confirm('Deseja salvar o resultado e calcular a renda e premiação?')
-  if (!confirmar) return
+    const confirmar = confirm('Deseja salvar o resultado e calcular a renda?')
+    if (!confirmar) return
 
-  setIsSalvando(true)
+    setIsSalvando(true)
 
-  const rodada = rodadas.find((r) => r.id === editandoRodada)
-  if (!rodada) return
+    const rodada = rodadas.find((r) => r.id === editandoRodada)
+    if (!rodada) return
 
-  const novaLista = [...rodada.jogos]
-  const jogo = novaLista[editandoIndex]
+    const novaLista = [...rodada.jogos]
 
-  const publico = Math.floor(Math.random() * 30000) + 10000
-  const precoMedio = 80
-  const renda = publico * precoMedio
+    const publico = Math.floor(Math.random() * 30000) + 10000
+    const precoMedio = 80
+    const renda = publico * precoMedio
+    const mandanteId = novaLista[editandoIndex].mandante
+    const visitanteId = novaLista[editandoIndex].visitante
 
-  const mandanteId = jogo.mandante
-  const visitanteId = jogo.visitante
+    await supabase.rpc('atualizar_saldo', {
+      id_time: mandanteId,
+      valor: renda * 0.95
+    })
+    await supabase.rpc('atualizar_saldo', {
+      id_time: visitanteId,
+      valor: renda * 0.05
+    })
 
-  const { data: mandanteData } = await supabase.from('times').select('divisao').eq('id', mandanteId).single()
-  const { data: visitanteData } = await supabase.from('times').select('divisao').eq('id', visitanteId).single()
-
-  const divisaoMandante = mandanteData?.divisao || 1
-  const divisaoVisitante = visitanteData?.divisao || 1
-
-  const regras = {
-    1: { vitoria: 6_000_000, empate: 3_000_000, derrota: 2_000_000, gol: 500_000, gol_sofrido: 80_000 },
-    2: { vitoria: 4_500_000, empate: 2_250_000, derrota: 1_500_000, gol: 375_000, gol_sofrido: 60_000 },
-    3: { vitoria: 3_000_000, empate: 1_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
-  }
-
-  const rM = regras[divisaoMandante as 1 | 2 | 3]
-  const rV = regras[divisaoVisitante as 1 | 2 | 3]
-
-  // 🧠 Define resultado
-  let resultadoM: 'vitoria' | 'empate' | 'derrota' = 'empate'
-  let resultadoV: 'vitoria' | 'empate' | 'derrota' = 'empate'
-
-  if (golsMandante > golsVisitante) {
-    resultadoM = 'vitoria'
-    resultadoV = 'derrota'
-  } else if (golsMandante < golsVisitante) {
-    resultadoM = 'derrota'
-    resultadoV = 'vitoria'
-  }
-
-  // 💰 Calcula premiação
-  const premioMandante =
-    rM[resultadoM] + golsMandante * rM.gol - golsVisitante * rM.gol_sofrido
-  const premioVisitante =
-    rV[resultadoV] + golsVisitante * rV.gol - golsMandante * rV.gol_sofrido
-
-  // 🏦 Atualiza saldo dos dois times
-  await supabase.rpc('atualizar_saldo', {
-    id_time: mandanteId,
-    valor: renda * 0.95 + premioMandante
-  })
-
-  await supabase.rpc('atualizar_saldo', {
-    id_time: visitanteId,
-    valor: renda * 0.05 + premioVisitante
-  })
-
-  // 📝 Atualiza o jogo na rodada
-  novaLista[editandoIndex] = {
-    ...jogo,
-    gols_mandante: golsMandante,
-    gols_visitante: golsVisitante,
-    renda,
-    publico
-  }
-
-  await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
-  await fetch(`/api/classificacao?temporada=${temporada}`)
-  await carregarDados()
-  await fetch('/api/atualizar-moral')
-
-  const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
-  const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
-
-  toast.success(
-    `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${(renda * 0.95 + premioMandante).toLocale
-}
     novaLista[editandoIndex] = {
       ...novaLista[editandoIndex],
       gols_mandante: golsMandante,
