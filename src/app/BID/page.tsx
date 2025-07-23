@@ -71,7 +71,16 @@ export default function BIDPage() {
 
   function renderEstrelas(qtd: number) {
     const total = 10
-    return '★'.repeat(qtd) + '☆'.repeat(total - qtd)
+    const estrelas = '★'.repeat(qtd) + '☆'.repeat(total - qtd)
+
+    let cor = 'text-gray-400'
+    if (qtd <= 2) cor = 'text-red-400'
+    else if (qtd <= 4) cor = 'text-yellow-400'
+    else if (qtd <= 7) cor = 'text-blue-400'
+    else if (qtd <= 9) cor = 'text-purple-400'
+    else if (qtd === 10) cor = 'text-emerald-400'
+
+    return <span className={`font-bold ${cor}`}>{estrelas}</span>
   }
 
   return (
@@ -126,10 +135,7 @@ export default function BIDPage() {
                         💰 {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </p>
                       <p className="text-sm text-white">
-                        ⭐ Classificação:{' '}
-                        <span className="text-green-300 font-bold">
-                          {renderEstrelas(calcularEstrelas(evento.valor))}
-                        </span>
+                        ⭐ Classificação: {renderEstrelas(calcularEstrelas(evento.valor))}
                       </p>
                     </div>
                   )}
