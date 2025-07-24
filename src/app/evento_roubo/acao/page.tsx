@@ -21,6 +21,7 @@ interface Jogador {
   posicao: string
   valor: number
   id_time: string
+  bloqueado?: boolean
 }
 
 export default function AcaoRouboPage() {
@@ -62,7 +63,7 @@ export default function AcaoRouboPage() {
 
   useEffect(() => {
     if (!ordemSorteada || tempoRestante <= 0) return
-    const timer = setInterval(() => setTempoRestante((prev) => prev - 1), 1000)
+    const timer = setInterval(() => setTempoRestante(prev => prev - 1), 1000)
     return () => clearInterval(timer)
   }, [tempoRestante, ordemSorteada])
 
@@ -98,9 +99,7 @@ export default function AcaoRouboPage() {
   }
 
   async function sortearOrdem() {
-    const { data: times } = await supabase
-      .from('times')
-      .select('id, nome, logo_url')
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url')
 
     if (times) {
       const embaralhado = [...times]
@@ -151,10 +150,12 @@ export default function AcaoRouboPage() {
     if (!alvoSelecionado) return
     const { data } = await supabase
       .from('elenco')
-      .select('id, nome, posicao, valor, id_time')
+      .select('id, nome, posicao, valor, id_time, bloqueado')
       .eq('id_time', alvoSelecionado)
+
     if (data) {
-      setJogadoresAlvo(data)
+      const desbloqueados = data.filter(j => !j.bloqueado)
+      setJogadoresAlvo(desbloqueados)
       setMostrarJogadores(true)
     }
   }
