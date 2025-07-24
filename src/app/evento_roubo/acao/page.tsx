@@ -120,9 +120,7 @@ export default function AcaoRouboPage() {
 
     const valorPago = Math.floor(jogador.valor * 0.5)
 
-    await supabase.from('elenco')
-      .update({ id_time: idTime })
-      .eq('id', jogador.id)
+    await supabase.from('elenco').update({ id_time }).eq('id', jogador.id)
 
     const { data: timeRoubado } = await supabase
       .from('times')
@@ -136,13 +134,8 @@ export default function AcaoRouboPage() {
       .eq('id', idTime)
       .single()
 
-    await supabase.from('times')
-      .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
-      .eq('id', jogador.id_time)
-
-    await supabase.from('times')
-      .update({ saldo: (meuTime?.saldo || 0) - valorPago })
-      .eq('id', idTime)
+    await supabase.from('times').update({ saldo: (timeRoubado?.saldo || 0) + valorPago }).eq('id', jogador.id_time)
+    await supabase.from('times').update({ saldo: (meuTime?.saldo || 0) - valorPago }).eq('id', idTime)
 
     const atualizado = { ...roubos }
     if (!atualizado[idTime]) atualizado[idTime] = {}
@@ -168,10 +161,7 @@ export default function AcaoRouboPage() {
   }
 
   async function sortearOrdem() {
-    const { data: times } = await supabase
-      .from('times')
-      .select('id, nome, logo_url')
-
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url')
     if (times) {
       const embaralhado = [...times]
         .map(t => ({ ...t, rand: Math.random() }))
@@ -180,8 +170,7 @@ export default function AcaoRouboPage() {
 
       const idsSorteados = embaralhado.map(t => t.id)
 
-      await supabase
-        .from('configuracoes')
+      await supabase.from('configuracoes')
         .update({ ordem: idsSorteados, vez: '0' })
         .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
 
@@ -206,8 +195,7 @@ export default function AcaoRouboPage() {
   }
 
   async function limparSorteio() {
-    await supabase
-      .from('configuracoes')
+    await supabase.from('configuracoes')
       .update({ ordem: null, vez: '0' })
       .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
     setOrdem([])
@@ -238,6 +226,20 @@ export default function AcaoRouboPage() {
         <p className="text-center">Carregando...</p>
       ) : (
         <>
+          {/* Fila da ordem dos times */}
+          {ordemSorteada && (
+            <div className="mb-6 text-center">
+              <h2 className="text-lg mb-2 font-bold">📋 Ordem dos Times</h2>
+              <div className="flex flex-wrap justify-center gap-2">
+                {ordem.map((time, idx) => (
+                  <div key={time.id} className={`px-3 py-1 rounded text-sm font-medium ${idx === vez ? 'bg-green-600' : 'bg-gray-700'}`}>
+                    {idx + 1}. {time.nome}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {isAdmin && (
             <>
               <button onClick={sortearOrdem} className="w-full bg-yellow-500 py-2 rounded mb-2 hover:bg-yellow-600 transition">🎲 Sortear Ordem dos Times</button>
