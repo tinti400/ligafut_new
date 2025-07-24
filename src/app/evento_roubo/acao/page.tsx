@@ -45,7 +45,12 @@ export default function AcaoRouboPage() {
 
     const canal = supabase
       .channel('evento-roubo')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes', filter: 'id=eq.56f3af29-a4ac-4a76-aeb3-35400aa2a773' }, () => {
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'configuracoes',
+        filter: 'id=eq.56f3af29-a4ac-4a76-aeb3-35400aa2a773'
+      }, () => {
         carregarEvento()
       })
       .subscribe()
@@ -56,8 +61,7 @@ export default function AcaoRouboPage() {
   }, [])
 
   useEffect(() => {
-    if (!ordemSorteada) return
-    if (tempoRestante <= 0) return
+    if (!ordemSorteada || tempoRestante <= 0) return
     const timer = setInterval(() => setTempoRestante((prev) => prev - 1), 1000)
     return () => clearInterval(timer)
   }, [tempoRestante, ordemSorteada])
@@ -71,17 +75,22 @@ export default function AcaoRouboPage() {
 
     if (data) {
       setVez(parseInt(data.vez) || 0)
-      if (data.ordem) {
+      if (data.ordem?.length) {
         const { data: times } = await supabase
           .from('times')
           .select('id, nome, logo_url')
           .in('id', data.ordem)
+
         const ordemCompleta = data.ordem.map((id: string) =>
-          times.find((t: Time) => t.id === id)
+          times?.find((t: Time) => t.id === id)
         ).filter(Boolean)
-        setOrdem(ordemCompleta || [])
-        setOrdemSorteada(data.ordem.length > 0)
+        setOrdem(ordemCompleta)
+        setOrdemSorteada(true)
+      } else {
+        setOrdem([])
+        setOrdemSorteada(false)
       }
+
       setRoubos(data.roubos || {})
       setLimitePerda(data.limite_perda || 5)
     }
@@ -94,10 +103,16 @@ export default function AcaoRouboPage() {
       .select('id, nome, logo_url')
 
     if (times) {
-      const embaralhado = [...times].sort(() => Math.random() - 0.5)
+      const embaralhado = [...times]
+        .map(t => ({ ...t, rand: Math.random() }))
+        .sort((a, b) => a.rand - b.rand)
+        .map(({ rand, ...rest }) => rest)
+
+      const idsSorteados = embaralhado.map(t => t.id)
+
       await supabase
         .from('configuracoes')
-        .update({ ordem: embaralhado.map(t => t.id), vez: '0' })
+        .update({ ordem: idsSorteados, vez: '0' })
         .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
 
       setOrdem(embaralhado)
