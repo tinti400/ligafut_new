@@ -200,7 +200,7 @@ export default function AcaoRouboPage() {
 
     await supabase.from('bid').insert({
       tipo_evento: 'roubo',
-      descricao: `${jogador.nome} foi roubado por ${idTime}`,
+      descricao: ${jogador.nome} foi roubado por ${idTime},
       id_time1: idTime,
       id_time2: jogador.id_time,
       valor: valorPago,
@@ -295,7 +295,7 @@ export default function AcaoRouboPage() {
                 <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
                 <div className="flex gap-2 flex-wrap">
                   {ordem.map((t, idx) => (
-                    <div key={idx} className={`flex items-center gap-2 bg-gray-700 p-2 rounded ${idx === vez ? 'border-2 border-green-400' : ''}`}>
+                    <div key={idx} className={flex items-center gap-2 bg-gray-700 p-2 rounded ${idx === vez ? 'border-2 border-green-400' : ''}}>
                       <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
                       <span className="text-xs">{t.nome}</span>
                     </div>
