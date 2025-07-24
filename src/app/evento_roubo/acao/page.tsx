@@ -108,8 +108,7 @@ export default function AcaoRouboPage() {
       .eq('id_time', alvoSelecionado)
 
     if (data) {
-      const filtrados = data.filter(j => !bloqueados.includes(j.id))
-      setJogadoresAlvo(filtrados)
+      setJogadoresAlvo(data)
       setMostrarJogadores(true)
     }
   }
@@ -121,7 +120,7 @@ export default function AcaoRouboPage() {
     const valorPago = Math.floor(jogador.valor * 0.5)
 
     await supabase.from('elenco')
-      .update({ id_time: idTime })  // <- Correção aqui!
+      .update({ id_time: idTime })
       .eq('id', jogador.id)
 
     const { data: timeRoubado } = await supabase
@@ -233,7 +232,6 @@ export default function AcaoRouboPage() {
         <p className="text-center">Carregando...</p>
       ) : (
         <>
-          {/* Fila da ordem dos times */}
           {ordemSorteada && (
             <div className="mb-6 text-center">
               <h2 className="text-lg mb-2 font-bold">📋 Ordem dos Times</h2>
@@ -290,16 +288,35 @@ export default function AcaoRouboPage() {
 
                   {mostrarJogadores && (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {jogadoresAlvo.map(j => (
-                        <div key={j.id} className="bg-gray-700 p-2 rounded flex flex-col justify-between hover:bg-gray-600 transition">
-                          <div className="text-center">
-                            <p className="font-bold text-sm">{j.nome}</p>
-                            <p className="text-xs">{j.posicao}</p>
-                            <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
+                      {jogadoresAlvo.map(j => {
+                        const estaBloqueado = bloqueados.includes(j.id)
+                        return (
+                          <div
+                            key={j.id}
+                            className={`bg-gray-700 p-2 rounded flex flex-col justify-between transition ${
+                              estaBloqueado ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-600'
+                            }`}
+                          >
+                            <div className="text-center">
+                              <p className="font-bold text-sm">{j.nome}</p>
+                              <p className="text-xs">{j.posicao}</p>
+                              <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
+                              {estaBloqueado && <p className="text-xs text-red-300 mt-1">🔒 Bloqueado</p>}
+                            </div>
+                            <button
+                              disabled={estaBloqueado}
+                              onClick={() => roubarJogador(j)}
+                              className={`mt-2 px-2 py-1 rounded text-xs transition ${
+                                estaBloqueado
+                                  ? 'bg-gray-500 text-white cursor-not-allowed'
+                                  : 'bg-green-600 hover:bg-green-700'
+                              }`}
+                            >
+                              {estaBloqueado ? 'Indisponível' : '✅ Roubar'}
+                            </button>
                           </div>
-                          <button onClick={() => roubarJogador(j)} className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition">✅ Roubar</button>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </>
