@@ -45,7 +45,7 @@ export default function AcaoRouboPage() {
 
     const canal = supabase
       .channel('evento-roubo')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'configuracoes', filter: 'id=eq.56f3af29-a4ac-4a76-aeb3-35400aa2a773' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes', filter: 'id=eq.56f3af29-a4ac-4a76-aeb3-35400aa2a773' }, () => {
         carregarEvento()
       })
       .subscribe()
@@ -76,13 +76,35 @@ export default function AcaoRouboPage() {
           .from('times')
           .select('id, nome, logo_url')
           .in('id', data.ordem)
-        setOrdem(times || [])
-        if (data.ordem.length > 0) setOrdemSorteada(true)
+        const ordemCompleta = data.ordem.map((id: string) =>
+          times.find((t: Time) => t.id === id)
+        ).filter(Boolean)
+        setOrdem(ordemCompleta || [])
+        setOrdemSorteada(data.ordem.length > 0)
       }
       setRoubos(data.roubos || {})
       setLimitePerda(data.limite_perda || 5)
     }
     setLoading(false)
+  }
+
+  async function sortearOrdem() {
+    const { data: times } = await supabase
+      .from('times')
+      .select('id, nome, logo_url')
+
+    if (times) {
+      const embaralhado = [...times].sort(() => Math.random() - 0.5)
+      await supabase
+        .from('configuracoes')
+        .update({ ordem: embaralhado.map(t => t.id), vez: '0' })
+        .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+
+      setOrdem(embaralhado)
+      setVez(0)
+      setTempoRestante(240)
+      setOrdemSorteada(true)
+    }
   }
 
   async function passarVez() {
@@ -96,23 +118,6 @@ export default function AcaoRouboPage() {
     setAlvoSelecionado('')
     setJogadoresAlvo([])
     setMostrarJogadores(false)
-  }
-
-  async function sortearOrdem() {
-    const { data: times } = await supabase
-      .from('times')
-      .select('id, nome, logo_url')
-    if (times) {
-      const embaralhado = times.sort(() => Math.random() - 0.5)
-      await supabase
-        .from('configuracoes')
-        .update({ ordem: embaralhado.map(t => t.id), vez: '0' })
-        .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
-      setOrdem(embaralhado)
-      setVez(0)
-      setTempoRestante(240)
-      setOrdemSorteada(true)
-    }
   }
 
   async function limparSorteio() {
@@ -143,12 +148,11 @@ export default function AcaoRouboPage() {
     if (bloqueioBotao) return
     setBloqueioBotao(true)
 
-    await supabase
-      .from('elenco')
+    const valorPago = Math.floor(jogador.valor * 0.5)
+
+    await supabase.from('elenco')
       .update({ id_time: idTime })
       .eq('id', jogador.id)
-
-    const valorPago = Math.floor(jogador.valor * 0.5)
 
     const { data: timeRoubado } = await supabase
       .from('times')
@@ -162,13 +166,11 @@ export default function AcaoRouboPage() {
       .eq('id', idTime)
       .single()
 
-    await supabase
-      .from('times')
+    await supabase.from('times')
       .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
       .eq('id', jogador.id_time)
 
-    await supabase
-      .from('times')
+    await supabase.from('times')
       .update({ saldo: (meuTime?.saldo || 0) - valorPago })
       .eq('id', idTime)
 
@@ -177,21 +179,18 @@ export default function AcaoRouboPage() {
     if (!atualizado[idTime][alvoSelecionado]) atualizado[idTime][alvoSelecionado] = 0
     atualizado[idTime][alvoSelecionado]++
 
-    await supabase
-      .from('configuracoes')
+    await supabase.from('configuracoes')
       .update({ roubos: atualizado })
       .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
 
-    await supabase
-      .from('bid')
-      .insert({
-        tipo_evento: 'roubo',
-        descricao: `${jogador.nome} foi roubado por ${idTime}`,
-        id_time1: idTime,
-        id_time2: jogador.id_time,
-        valor: valorPago,
-        data_evento: new Date().toISOString()
-      })
+    await supabase.from('bid').insert({
+      tipo_evento: 'roubo',
+      descricao: `${jogador.nome} foi roubado por ${idTime}`,
+      id_time1: idTime,
+      id_time2: jogador.id_time,
+      valor: valorPago,
+      data_evento: new Date().toISOString()
+    })
 
     setMostrarJogadores(false)
     setJogadoresAlvo(jogadoresAlvo.filter(j => j.id !== jogador.id))
@@ -199,15 +198,14 @@ export default function AcaoRouboPage() {
   }
 
   async function finalizarEvento() {
-    await supabase
-      .from('configuracoes')
+    await supabase.from('configuracoes')
       .update({ ativo: false, fase: 'finalizado' })
       .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
     alert('✅ Evento finalizado!')
   }
 
   const podeRoubar = (alvoId: string) => {
-    const roubosDoAlvo = Object.values(roubos).map((r: any) => r[alvoId] || 0).reduce((a: any, b: any) => a + b, 0)
+    const roubosDoAlvo = Object.values(roubos).map((r: any) => r[alvoId] || 0).reduce((a: number, b: number) => a + b, 0)
     const meusRoubos = roubos[idTime]?.[alvoId] || 0
     return roubosDoAlvo < limitePerda && meusRoubos < 2
   }
@@ -222,43 +220,15 @@ export default function AcaoRouboPage() {
         <>
           {isAdmin && (
             <>
-              <button
-                onClick={sortearOrdem}
-                className="w-full bg-yellow-500 py-2 rounded mb-2 hover:bg-yellow-600 transition"
-              >
-                🎲 Sortear Ordem dos Times
-              </button>
-
-              <button
-                onClick={limparSorteio}
-                className="w-full bg-gray-600 py-2 rounded mb-2 hover:bg-gray-700 transition"
-              >
-                🧹 Limpar Sorteio
-              </button>
-
-              <button
-                onClick={finalizarEvento}
-                className="w-full bg-red-700 py-2 rounded mb-2 hover:bg-red-800 transition"
-              >
-                🛑 Finalizar Evento
-              </button>
-
-              <button
-                onClick={passarVez}
-                className="w-full bg-red-600 py-2 rounded mt-2 hover:bg-red-700 transition"
-              >
-                ⏭️ Passar para Próximo Time
-              </button>
+              <button onClick={sortearOrdem} className="w-full bg-yellow-500 py-2 rounded mb-2 hover:bg-yellow-600 transition">🎲 Sortear Ordem dos Times</button>
+              <button onClick={limparSorteio} className="w-full bg-gray-600 py-2 rounded mb-2 hover:bg-gray-700 transition">🧹 Limpar Sorteio</button>
+              <button onClick={finalizarEvento} className="w-full bg-red-700 py-2 rounded mb-2 hover:bg-red-800 transition">🛑 Finalizar Evento</button>
+              <button onClick={passarVez} className="w-full bg-red-600 py-2 rounded mt-2 hover:bg-red-700 transition">⏭️ Passar para Próximo Time</button>
             </>
           )}
 
           {idTime === ordem[vez]?.id && !isAdmin && (
-            <button
-              onClick={passarVez}
-              className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition"
-            >
-              ⏭️ Encerrar Minha Vez
-            </button>
+            <button onClick={passarVez} className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition">⏭️ Encerrar Minha Vez</button>
           )}
 
           {ordemSorteada ? (
@@ -287,12 +257,7 @@ export default function AcaoRouboPage() {
                     ))}
                   </select>
 
-                  <button
-                    onClick={carregarJogadoresDoAlvo}
-                    className="w-full bg-blue-600 py-2 rounded mb-2 hover:bg-blue-700 transition"
-                  >
-                    🔎 Ver Jogadores Disponíveis
-                  </button>
+                  <button onClick={carregarJogadoresDoAlvo} className="w-full bg-blue-600 py-2 rounded mb-2 hover:bg-blue-700 transition">🔎 Ver Jogadores Disponíveis</button>
 
                   {mostrarJogadores && (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -303,12 +268,7 @@ export default function AcaoRouboPage() {
                             <p className="text-xs">{j.posicao}</p>
                             <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
                           </div>
-                          <button
-                            onClick={() => roubarJogador(j)}
-                            className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition"
-                          >
-                            ✅ Roubar
-                          </button>
+                          <button onClick={() => roubarJogador(j)} className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition">✅ Roubar</button>
                         </div>
                       ))}
                     </div>
@@ -320,10 +280,7 @@ export default function AcaoRouboPage() {
                 <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
                 <div className="flex gap-2 flex-wrap">
                   {ordem.map((t, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex items-center gap-2 bg-gray-700 p-2 rounded ${idx === vez ? 'border-2 border-green-400' : ''}`}
-                    >
+                    <div key={idx} className={`flex items-center gap-2 bg-gray-700 p-2 rounded ${idx === vez ? 'border-2 border-green-400' : ''}`}>
                       <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
                       <span className="text-xs">{t.nome}</span>
                     </div>
