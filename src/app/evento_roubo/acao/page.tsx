@@ -15,7 +15,6 @@ interface Time {
   id: string
   nome: string
   logo_url: string
-  saldo?: number
 }
 
 interface Jogador {
@@ -34,7 +33,8 @@ export default function AcaoRouboPage() {
   const [jogadoresAlvo, setJogadoresAlvo] = useState<Jogador[]>([])
   const [idTime, setIdTime] = useState<string>('')
   const [bloqueios, setBloqueios] = useState<Record<string, { nome: string }[]>>({})
-  const [timeComprador, setTimeComprador] = useState<Time | null>(null)
+  const [roubosPorTime, setRoubosPorTime] = useState<Record<string, number>>({})
+  const [roubosNaVez, setRoubosNaVez] = useState<number>(0)
 
   useEffect(() => {
     const storedId = localStorage.getItem('id_time')
@@ -42,47 +42,33 @@ export default function AcaoRouboPage() {
   }, [])
 
   useEffect(() => {
-    const buscarOrdemEBloqueios = async () => {
-      const { data: ordemData } = await supabase.from('evento_multa').select('ordem').single()
-      if (ordemData?.ordem) setOrdem(ordemData.ordem)
-
-      const { data: bloqueiosData } = await supabase
-        .from('configuracoes')
-        .select('bloqueios')
-        .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
-        .single()
-      if (bloqueiosData?.bloqueios) setBloqueios(bloqueiosData.bloqueios)
-    }
-
-    buscarOrdemEBloqueios()
+    buscarOrdem()
+    buscarBloqueios()
+    buscarRoubos()
   }, [])
 
   useEffect(() => {
-    if (!idTime) return
-    const buscarTime = async () => {
-      const { data } = await supabase.from('times').select('*').eq('id', idTime).single()
-      if (data) setTimeComprador(data)
-    }
-    buscarTime()
-  }, [idTime])
-
-  useEffect(() => {
-    if (ordem.length === 0) return
-    const timeAlvo = ordem[vez]
+    if (ordem.length === 0 || vez >= ordem.length) return
+    const timeAtual = ordem[vez]
 
     const buscarElenco = async () => {
-      const { data } = await supabase.from('elenco').select('*').eq('id_time', timeAlvo.id)
+      const { data } = await supabase
+        .from('elenco')
+        .select('*')
+        .eq('id_time', timeAtual.id)
+
       if (data) setJogadoresAlvo(data)
     }
 
     buscarElenco()
     setTempoRestante(240)
+    setRoubosNaVez(0)
 
     const intervalo = setInterval(() => {
       setTempoRestante((prev) => {
         if (prev <= 1) {
           clearInterval(intervalo)
-          if (vez < ordem.length - 1) setVez((v) => v + 1)
+          proximaVez()
           return 0
         }
         return prev - 1
@@ -92,81 +78,130 @@ export default function AcaoRouboPage() {
     return () => clearInterval(intervalo)
   }, [vez, ordem])
 
+  const buscarOrdem = async () => {
+    const { data } = await supabase.from('evento_multa').select('ordem').single()
+    if (data?.ordem) setOrdem(data.ordem)
+  }
+
+  const buscarBloqueios = async () => {
+    const { data } = await supabase
+      .from('configuracoes')
+      .select('bloqueios')
+      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+      .single()
+
+    if (data?.bloqueios) setBloqueios(data.bloqueios)
+  }
+
+  const buscarRoubos = async () => {
+    const { data } = await supabase.from('bid').select('id_time_origem')
+    const contagem: Record<string, number> = {}
+
+    data?.forEach((r) => {
+      contagem[r.id_time_origem] = (contagem[r.id_time_origem] || 0) + 1
+    })
+
+    setRoubosPorTime(contagem)
+  }
+
+  const proximaVez = () => {
+    if (vez < ordem.length - 1) setVez((v) => v + 1)
+  }
+
+  const handleSortearOrdem = async () => {
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url')
+    if (!times) return
+
+    const sorteada = times.sort(() => 0.5 - Math.random())
+    await supabase.from('evento_multa').upsert({ id: 1, ordem: sorteada })
+
+    toast.success('Ordem sorteada')
+    setOrdem(sorteada)
+    setVez(0)
+  }
+
   const handleRoubar = async (jogador: Jogador) => {
-    const confirmacao = confirm(`Deseja realmente roubar ${jogador.nome}?`)
-    if (!confirmacao || !timeComprador) return
-
     const timeAlvo = ordem[vez]
-    const metadeValor = jogador.valor * 0.5
+    const bloqueado = bloqueios?.[timeAlvo.id]?.some((j) => j.nome === jogador.nome)
+    const totalRoubos = roubosPorTime[timeAlvo.id] || 0
 
-    // Atualiza saldo comprador
-    const novoSaldoComprador = (timeComprador.saldo || 0) - metadeValor
-    await supabase.from('times').update({ saldo: novoSaldoComprador }).eq('id', timeComprador.id)
+    if (bloqueado || totalRoubos >= 3 || roubosNaVez >= 2) {
+      toast.error('Não é possível roubar esse jogador.')
+      return
+    }
 
-    // Atualiza saldo time alvo
-    const { data: alvoData } = await supabase.from('times').select('saldo').eq('id', timeAlvo.id).single()
-    const novoSaldoAlvo = (alvoData?.saldo || 0) + metadeValor
-    await supabase.from('times').update({ saldo: novoSaldoAlvo }).eq('id', timeAlvo.id)
+    const confirmacao = confirm(`Deseja realmente roubar ${jogador.nome}?`)
+    if (!confirmacao) return
 
-    // Remove do elenco original
-    await supabase.from('elenco').delete().eq('id', jogador.id)
+    const valorRoubo = jogador.valor * 0.5
 
-    // Adiciona ao elenco do time que roubou
-    await supabase.from('elenco').insert([
-      {
-        nome: jogador.nome,
-        posicao: jogador.posicao,
-        valor: jogador.valor,
-        id_time: timeComprador.id
-      }
-    ])
+    const { error: erroRemover } = await supabase.from('elenco').delete().eq('id', jogador.id)
+    const { error: erroAdicionar } = await supabase.from('elenco').insert({
+      nome: jogador.nome,
+      posicao: jogador.posicao,
+      valor: jogador.valor,
+      id_time: idTime
+    })
 
-    // Publica no BID
-    await supabase.from('bid').insert([
-      {
-        nome: jogador.nome,
-        posicao: jogador.posicao,
-        valor: jogador.valor,
-        origem: timeAlvo.nome,
-        destino: timeComprador.nome,
-        data: new Date()
-      }
-    ])
+    await supabase.from('times')
+      .update({ saldo: supabase.rpc('incrementar_saldo', { time_id: timeAlvo.id, valor: valorRoubo }) })
+      .eq('id', timeAlvo.id)
 
-    // Registra movimentação
-    await supabase.from('movimentacoes').insert([
-      {
-        id_time: timeComprador.id,
-        tipo: 'Compra por Roubo',
-        descricao: `Comprou ${jogador.nome} do ${timeAlvo.nome} por R$ ${metadeValor.toLocaleString('pt-BR')}`,
-        valor: metadeValor * -1,
-        data: new Date()
-      },
-      {
-        id_time: timeAlvo.id,
-        tipo: 'Venda por Roubo',
-        descricao: `Perdeu ${jogador.nome} para ${timeComprador.nome} e recebeu R$ ${metadeValor.toLocaleString('pt-BR')}`,
-        valor: metadeValor,
-        data: new Date()
-      }
-    ])
+    await supabase.from('times')
+      .update({ saldo: supabase.rpc('decrementar_saldo', { time_id: idTime, valor: valorRoubo }) })
+      .eq('id', idTime)
 
-    toast.success(`${jogador.nome} roubado com sucesso!`)
+    await supabase.from('bid').insert({
+      nome: jogador.nome,
+      posicao: jogador.posicao,
+      valor: jogador.valor,
+      id_time_origem: timeAlvo.id,
+      id_time_destino: idTime,
+      tipo: 'roubo'
+    })
+
+    toast.success(`${jogador.nome} foi roubado com sucesso!`)
+
+    setRoubosPorTime((prev) => ({
+      ...prev,
+      [timeAlvo.id]: (prev[timeAlvo.id] || 0) + 1
+    }))
+    setRoubosNaVez((r) => r + 1)
+    setJogadoresAlvo((prev) => prev.filter((j) => j.id !== jogador.id))
   }
 
   const timeAlvo = ordem[vez]
 
+  if (!timeAlvo) return <p>Evento finalizado.</p>
+
+  const totalRoubos = roubosPorTime[timeAlvo.id] || 0
+  const exibirTime = totalRoubos < 3
+
   return (
     <div style={{ padding: 20 }}>
-      <h2>⏱️ Tempo restante: {tempoRestante}s</h2>
-      <h3>🎯 Time alvo: {timeAlvo?.nome}</h3>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-        {jogadoresAlvo.map((jogador) => {
-          const bloqueado = bloqueios?.[timeAlvo?.id]?.some((j) => j.nome === jogador.nome)
-          return (
-            <div
-              key={jogador.id}
-              style={{
+      <h2>⏱ Tempo restante: {tempoRestante}s</h2>
+      <h3>🎯 Time alvo: {timeAlvo.nome}</h3>
+      <h4>🔢 Roubos do time: {totalRoubos}/3 | Roubos nesta vez: {roubosNaVez}/2</h4>
+
+      {isAdmin && (
+        <div style={{ marginBottom: 20 }}>
+          <button onClick={handleSortearOrdem}>🎲 Sortear Ordem</button>
+          <button onClick={proximaVez} style={{ marginLeft: 10 }}>⏭ Passar Vez</button>
+        </div>
+      )}
+
+      {!isAdmin && (
+        <div style={{ marginBottom: 20 }}>
+          <button onClick={proximaVez}>✅ Finalizar minha vez</button>
+        </div>
+      )}
+
+      {exibirTime && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+          {jogadoresAlvo.map((jogador) => {
+            const bloqueado = bloqueios?.[timeAlvo.id]?.some((j) => j.nome === jogador.nome)
+            return (
+              <div key={jogador.id} style={{
                 border: '1px solid #ccc',
                 padding: 10,
                 borderRadius: 8,
@@ -174,37 +209,32 @@ export default function AcaoRouboPage() {
                 backgroundColor: '#f9f9f9',
                 opacity: bloqueado ? 0.5 : 1,
                 position: 'relative'
-              }}
-            >
-              <strong>{jogador.nome}</strong>{' '}
-              {bloqueado && (
-                <FiLock
-                  title="Jogador bloqueado"
-                  style={{ color: 'red', marginLeft: 6 }}
-                />
-              )}
-              <p>{jogador.posicao}</p>
-              <p>R$ {jogador.valor.toLocaleString('pt-BR')}</p>
-              <button
-                onClick={() => handleRoubar(jogador)}
-                disabled={bloqueado}
-                style={{
-                  marginTop: 8,
-                  width: '100%',
-                  padding: '6px 0',
-                  backgroundColor: bloqueado ? '#ccc' : '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 4,
-                  cursor: bloqueado ? 'not-allowed' : 'pointer'
-                }}
-              >
-                Roubar
-              </button>
-            </div>
-          )
-        })}
-      </div>
+              }}>
+                <strong>{jogador.nome}</strong>{' '}
+                {bloqueado && <FiLock title="Jogador bloqueado" style={{ color: 'red', marginLeft: 6 }} />}
+                <p>{jogador.posicao}</p>
+                <p>R$ {jogador.valor.toLocaleString('pt-BR')}</p>
+                <button
+                  onClick={() => handleRoubar(jogador)}
+                  disabled={bloqueado || totalRoubos >= 3 || roubosNaVez >= 2}
+                  style={{
+                    marginTop: 8,
+                    width: '100%',
+                    padding: '6px 0',
+                    backgroundColor: bloqueado ? '#ccc' : '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: bloqueado ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  Roubar
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
