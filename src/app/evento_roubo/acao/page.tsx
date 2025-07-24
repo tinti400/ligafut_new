@@ -115,6 +115,18 @@ export default function AcaoRouboPage() {
     }
   }
 
+  async function limparSorteio() {
+    await supabase
+      .from('configuracoes')
+      .update({ ordem: null, vez: '0' })
+      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+    setOrdem([])
+    setOrdemSorteada(false)
+    setVez(0)
+    setTempoRestante(240)
+    alert('🧹 Sorteio da ordem dos times foi limpo com sucesso!')
+  }
+
   async function carregarJogadoresDoAlvo() {
     if (!alvoSelecionado) return
     const { data } = await supabase
@@ -212,21 +224,28 @@ export default function AcaoRouboPage() {
             <>
               <button
                 onClick={sortearOrdem}
-                className="w-full bg-yellow-500 py-2 rounded mb-4 hover:bg-yellow-600 transition"
+                className="w-full bg-yellow-500 py-2 rounded mb-2 hover:bg-yellow-600 transition"
               >
                 🎲 Sortear Ordem dos Times
               </button>
 
               <button
+                onClick={limparSorteio}
+                className="w-full bg-gray-600 py-2 rounded mb-2 hover:bg-gray-700 transition"
+              >
+                🧹 Limpar Sorteio
+              </button>
+
+              <button
                 onClick={finalizarEvento}
-                className="w-full bg-red-700 py-2 rounded mb-4 hover:bg-red-800 transition"
+                className="w-full bg-red-700 py-2 rounded mb-2 hover:bg-red-800 transition"
               >
                 🛑 Finalizar Evento
               </button>
 
               <button
                 onClick={passarVez}
-                className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition"
+                className="w-full bg-red-600 py-2 rounded mt-2 hover:bg-red-700 transition"
               >
                 ⏭️ Passar para Próximo Time
               </button>
