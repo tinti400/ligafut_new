@@ -37,6 +37,7 @@ export default function AcaoRouboPage() {
   const [mostrarJogadores, setMostrarJogadores] = useState(false)
   const [ordemSorteada, setOrdemSorteada] = useState(false)
   const [bloqueioBotao, setBloqueioBotao] = useState(false)
+  const [bloqueados, setBloqueados] = useState<string[]>([])
 
   useEffect(() => {
     const id = localStorage.getItem('id_time')
@@ -75,6 +76,10 @@ export default function AcaoRouboPage() {
 
     if (data) {
       setVez(parseInt(data.vez) || 0)
+      setRoubos(data.roubos || {})
+      setLimitePerda(data.limite_perda || 5)
+      setBloqueados(data.jogadores_bloqueados || [])
+
       if (data.ordem?.length) {
         const { data: times } = await supabase
           .from('times')
@@ -84,17 +89,82 @@ export default function AcaoRouboPage() {
         const ordemCompleta = data.ordem.map((id: string) =>
           times?.find((t: Time) => t.id === id)
         ).filter(Boolean)
+
         setOrdem(ordemCompleta)
         setOrdemSorteada(true)
       } else {
         setOrdem([])
         setOrdemSorteada(false)
       }
-
-      setRoubos(data.roubos || {})
-      setLimitePerda(data.limite_perda || 5)
     }
     setLoading(false)
+  }
+
+  async function carregarJogadoresDoAlvo() {
+    if (!alvoSelecionado) return
+    const { data } = await supabase
+      .from('elenco')
+      .select('id, nome, posicao, valor, id_time')
+      .eq('id_time', alvoSelecionado)
+
+    if (data) {
+      const filtrados = data.filter(j => !bloqueados.includes(j.id))
+      setJogadoresAlvo(filtrados)
+      setMostrarJogadores(true)
+    }
+  }
+
+  async function roubarJogador(jogador: Jogador) {
+    if (bloqueioBotao) return
+    setBloqueioBotao(true)
+
+    const valorPago = Math.floor(jogador.valor * 0.5)
+
+    await supabase.from('elenco')
+      .update({ id_time: idTime })
+      .eq('id', jogador.id)
+
+    const { data: timeRoubado } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', jogador.id_time)
+      .single()
+
+    const { data: meuTime } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', idTime)
+      .single()
+
+    await supabase.from('times')
+      .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
+      .eq('id', jogador.id_time)
+
+    await supabase.from('times')
+      .update({ saldo: (meuTime?.saldo || 0) - valorPago })
+      .eq('id', idTime)
+
+    const atualizado = { ...roubos }
+    if (!atualizado[idTime]) atualizado[idTime] = {}
+    if (!atualizado[idTime][alvoSelecionado]) atualizado[idTime][alvoSelecionado] = 0
+    atualizado[idTime][alvoSelecionado]++
+
+    await supabase.from('configuracoes')
+      .update({ roubos: atualizado })
+      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+
+    await supabase.from('bid').insert({
+      tipo_evento: 'roubo',
+      descricao: `${jogador.nome} foi roubado por ${idTime}`,
+      id_time1: idTime,
+      id_time2: jogador.id_time,
+      valor: valorPago,
+      data_evento: new Date().toISOString()
+    })
+
+    setMostrarJogadores(false)
+    setJogadoresAlvo(jogadoresAlvo.filter(j => j.id !== jogador.id))
+    setBloqueioBotao(false)
   }
 
   async function sortearOrdem() {
@@ -147,71 +217,6 @@ export default function AcaoRouboPage() {
     alert('🧹 Sorteio da ordem dos times foi limpo com sucesso!')
   }
 
-  async function carregarJogadoresDoAlvo() {
-    if (!alvoSelecionado) return
-    const { data } = await supabase
-      .from('elenco')
-      .select('id, nome, posicao, valor, id_time')
-      .eq('id_time', alvoSelecionado)
-    if (data) {
-      setJogadoresAlvo(data)
-      setMostrarJogadores(true)
-    }
-  }
-
-  async function roubarJogador(jogador: Jogador) {
-    if (bloqueioBotao) return
-    setBloqueioBotao(true)
-
-    const valorPago = Math.floor(jogador.valor * 0.5)
-
-    await supabase.from('elenco')
-      .update({ id_time: idTime })
-      .eq('id', jogador.id)
-
-    const { data: timeRoubado } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', jogador.id_time)
-      .single()
-
-    const { data: meuTime } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', idTime)
-      .single()
-
-    await supabase.from('times')
-      .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
-      .eq('id', jogador.id_time)
-
-    await supabase.from('times')
-      .update({ saldo: (meuTime?.saldo || 0) - valorPago })
-      .eq('id', idTime)
-
-    const atualizado = { ...roubos }
-    if (!atualizado[idTime]) atualizado[idTime] = {}
-    if (!atualizado[idTime][alvoSelecionado]) atualizado[idTime][alvoSelecionado] = 0
-    atualizado[idTime][alvoSelecionado]++
-
-    await supabase.from('configuracoes')
-      .update({ roubos: atualizado })
-      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
-
-    await supabase.from('bid').insert({
-      tipo_evento: 'roubo',
-      descricao: ${jogador.nome} foi roubado por ${idTime},
-      id_time1: idTime,
-      id_time2: jogador.id_time,
-      valor: valorPago,
-      data_evento: new Date().toISOString()
-    })
-
-    setMostrarJogadores(false)
-    setJogadoresAlvo(jogadoresAlvo.filter(j => j.id !== jogador.id))
-    setBloqueioBotao(false)
-  }
-
   async function finalizarEvento() {
     await supabase.from('configuracoes')
       .update({ ativo: false, fase: 'finalizado' })
@@ -222,7 +227,7 @@ export default function AcaoRouboPage() {
   const podeRoubar = (alvoId: string) => {
     const roubosDoAlvo = Object.values(roubos).map((r: any) => r[alvoId] || 0).reduce((a: number, b: number) => a + b, 0)
     const meusRoubos = roubos[idTime]?.[alvoId] || 0
-    return roubosDoAlvo < limitePerda && meusRoubos < 2
+    return roubosDoAlvo < 3 && meusRoubos < 2
   }
 
   return (
@@ -290,18 +295,6 @@ export default function AcaoRouboPage() {
                   )}
                 </>
               )}
-
-              <div className="mt-6 bg-gray-800 p-4 rounded overflow-x-auto">
-                <h2 className="text-xl font-bold mb-2">📋 Fila de Times:</h2>
-                <div className="flex gap-2 flex-wrap">
-                  {ordem.map((t, idx) => (
-                    <div key={idx} className={flex items-center gap-2 bg-gray-700 p-2 rounded ${idx === vez ? 'border-2 border-green-400' : ''}}>
-                      <img src={t.logo_url} alt="Logo" className="h-5 w-5" />
-                      <span className="text-xs">{t.nome}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </>
           ) : (
             <p className="text-center text-yellow-300 font-bold">⚠️ Sorteie a ordem para iniciar o evento!</p>
