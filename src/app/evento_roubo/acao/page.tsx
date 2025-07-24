@@ -120,7 +120,9 @@ export default function AcaoRouboPage() {
 
     const valorPago = Math.floor(jogador.valor * 0.5)
 
-    await supabase.from('elenco').update({ id_time }).eq('id', jogador.id)
+    await supabase.from('elenco')
+      .update({ id_time: idTime })  // <- Correção aqui!
+      .eq('id', jogador.id)
 
     const { data: timeRoubado } = await supabase
       .from('times')
@@ -134,8 +136,13 @@ export default function AcaoRouboPage() {
       .eq('id', idTime)
       .single()
 
-    await supabase.from('times').update({ saldo: (timeRoubado?.saldo || 0) + valorPago }).eq('id', jogador.id_time)
-    await supabase.from('times').update({ saldo: (meuTime?.saldo || 0) - valorPago }).eq('id', idTime)
+    await supabase.from('times')
+      .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
+      .eq('id', jogador.id_time)
+
+    await supabase.from('times')
+      .update({ saldo: (meuTime?.saldo || 0) - valorPago })
+      .eq('id', idTime)
 
     const atualizado = { ...roubos }
     if (!atualizado[idTime]) atualizado[idTime] = {}
