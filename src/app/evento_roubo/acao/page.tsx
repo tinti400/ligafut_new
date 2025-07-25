@@ -188,7 +188,7 @@ async function roubarJogador(jogador: Jogador) {
 
   await supabase.from('bid').insert({
     tipo_evento: 'roubo',
-    descricao: `${jogador.nome} foi roubado por ${idTime}`,
+    descricao: ${jogador.nome} foi roubado por ${idTime},
     id_time1: idTime,
     id_time2: jogador.id_time,
     valor: valorPago,
@@ -278,56 +278,76 @@ async function roubarJogador(jogador: Jogador) {
 }
 
   return (
-  <div className="p-6 text-white max-w-4xl mx-auto">
-    <h1 className="text-3xl font-bold mb-4 text-center">⚔️ Fase de Ação - Evento de Roubo</h1>
+    <div className="p-6 text-white max-w-4xl mx-auto">
+      <h1 className="text-3xl font-bold mb-4 text-center">⚔️ Fase de Ação - Evento de Roubo</h1>
 
-    {loading || loadingAdmin ? (
-      <p className="text-center">Carregando...</p>
-    ) : (
-      <>
-        <select value={alvoSelecionado} onChange={(e) => setAlvoSelecionado(e.target.value)} className="w-full bg-gray-800 text-white py-2 px-3 rounded mb-2">
-          <option value="">🎯 Selecione um time para roubar</option>
-          {ordem
-            .filter(t => t.id !== idTime)
-            .filter(t => {
-              const totalPerdas = Object.values(roubos)
-                .map((r: any) => r[t.id] || 0)
-                .reduce((a: number, b: number) => a + b, 0)
-              return totalPerdas < 3
-            })
-            .map((time, idx) => (
-              <option key={idx} value={time.id}>{time.nome}</option>
-            ))}
-        </select>
+      {loading || loadingAdmin ? (
+        <p className="text-center">Carregando...</p>
+      ) : (
+        <>
+          {isAdmin && (
+            <>
+              <button onClick={sortearOrdem} className="w-full bg-yellow-500 py-2 rounded mb-2 hover:bg-yellow-600 transition">🎲 Sortear Ordem dos Times</button>
+              <button onClick={limparSorteio} className="w-full bg-gray-600 py-2 rounded mb-2 hover:bg-gray-700 transition">🧹 Limpar Sorteio</button>
+              <button onClick={finalizarEvento} className="w-full bg-red-700 py-2 rounded mb-2 hover:bg-red-800 transition">🛑 Finalizar Evento</button>
+              <button onClick={passarVez} className="w-full bg-red-600 py-2 rounded mt-2 hover:bg-red-700 transition">⏭️ Passar para Próximo Time</button>
+            </>
+          )}
 
-        <button
-          onClick={carregarJogadoresDoAlvo}
-          className="w-full bg-blue-600 py-2 rounded mb-2 hover:bg-blue-700 transition"
-        >
-          🔎 Ver Jogadores Disponíveis
-        </button>
+          {idTime === ordem[vez]?.id && !isAdmin && (
+            <button onClick={passarVez} className="w-full bg-red-600 py-2 rounded mt-4 hover:bg-red-700 transition">⏭️ Encerrar Minha Vez</button>
+          )}
 
-        {mostrarJogadores && (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {jogadoresAlvo.map(j => (
-              <div key={j.id} className="bg-gray-700 p-2 rounded flex flex-col justify-between hover:bg-gray-600 transition">
-                <div className="text-center">
-                  <p className="font-bold text-sm">{j.nome}</p>
-                  <p className="text-xs">{j.posicao}</p>
-                  <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
-                </div>
-                <button
-                  onClick={() => roubarJogador(j)}
-                  className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition"
-                >
-                  ✅ Roubar
-                </button>
+          {ordemSorteada ? (
+            <>
+              <div className="bg-gray-800 p-4 rounded mb-4 text-center">
+                <p className="text-xl font-bold">🎯 Time da vez:</p>
+                {ordem[vez] && (
+                  <div className="flex items-center justify-center gap-2">
+                    <img src={ordem[vez].logo_url} alt="Logo" className="h-8 w-8" />
+                    <p className="text-green-400 text-xl mb-2">{ordem[vez].nome}</p>
+                  </div>
+                )}
+                <p>⏳ Tempo restante: <strong>{tempoRestante}s</strong></p>
               </div>
-            ))}
-          </div>
-        )}
-      </>
-    )}
-  </div>
-)
+
+              {idTime === ordem[vez]?.id && (
+                <>
+                  <select
+                    value={alvoSelecionado}
+                    onChange={(e) => setAlvoSelecionado(e.target.value)}
+                    className="w-full p-2 rounded mb-2 text-white bg-gray-800"
+                  >
+                    <option value="">🎯 Selecione um time para roubar</option>
+                    {ordem.filter(t => t.id !== idTime && podeRoubar(t.id)).map((time, idx) => (
+                      <option key={idx} value={time.id}>{time.nome}</option>
+                    ))}
+                  </select>
+
+                  <button onClick={carregarJogadoresDoAlvo} className="w-full bg-blue-600 py-2 rounded mb-2 hover:bg-blue-700 transition">🔎 Ver Jogadores Disponíveis</button>
+
+                  {mostrarJogadores && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {jogadoresAlvo.map(j => (
+                        <div key={j.id} className="bg-gray-700 p-2 rounded flex flex-col justify-between hover:bg-gray-600 transition">
+                          <div className="text-center">
+                            <p className="font-bold text-sm">{j.nome}</p>
+                            <p className="text-xs">{j.posicao}</p>
+                            <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
+                          </div>
+                          <button onClick={() => roubarJogador(j)} className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition">✅ Roubar</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <p className="text-center text-yellow-300 font-bold">⚠️ Sorteie a ordem para iniciar o evento!</p>
+          )}
+        </>
+      )}
+    </div>
+  )
 }
