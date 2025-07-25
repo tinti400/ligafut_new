@@ -77,8 +77,8 @@ export default function AcaoRouboPage() {
     if (data) {
       setVez(parseInt(data.vez) || 0)
       setRoubos(data.roubos || {})
-      setLimitePerda(data.limite_perda || 5)
-      setBloqueados(data.jogadores_bloqueados || [])
+      setLimitePerda(data.limite_perda || 3)
+      setBloqueados(data.bloqueios || [])
 
       if (data.ordem?.length) {
         const { data: times } = await supabase
