@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+importbloque { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 
@@ -37,7 +37,12 @@ export default function AcaoRouboPage() {
   const [mostrarJogadores, setMostrarJogadores] = useState(false)
   const [ordemSorteada, setOrdemSorteada] = useState(false)
   const [bloqueioBotao, setBloqueioBotao] = useState(false)
-  const [bloqueados, setBloqueados] = useState<string[]>([])
+  interface JogadorBloqueado {
+  nome: string
+  posicao: string
+}
+
+const [bloqueados, setBloqueados] = useState<Record<string, JogadorBloqueado[]>>({})
 
   useEffect(() => {
     const id = localStorage.getItem('id_time')
