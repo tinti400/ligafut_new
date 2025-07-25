@@ -109,7 +109,8 @@ export default function AcaoRouboPage() {
       .eq('id_time', alvoSelecionado)
 
     if (data) {
-      const filtrados = data.filter(j => !bloqueados.includes(j.id))
+      const jogadoresBloqueadosDoAlvo = (bloqueados[alvoSelecionado] || []).map(j => j.nome)
+const filtrados = data.filter(j => !jogadoresBloqueadosDoAlvo.includes(j.nome))
       setJogadoresAlvo(filtrados)
       setMostrarJogadores(true)
     }
