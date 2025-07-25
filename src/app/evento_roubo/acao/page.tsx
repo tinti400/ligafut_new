@@ -129,21 +129,23 @@ async function roubarJogador(jogador: Jogador) {
 
   const valorPago = Math.floor(jogador.valor * 0.5)
 
-  // VERIFICAÇÕES DAS REGRAS:
-
-  // Regra 1: impedir que o time já tenha roubado 2 jogadores do mesmo time
+  // Verifica quantos jogadores o meu time já roubou deste time alvo
   const roubosDoMeuTime = roubos[idTime] || {}
   const qtdRoubosDesseTime = roubosDoMeuTime[jogador.id_time] || 0
+
   if (qtdRoubosDesseTime >= 2) {
     alert('❌ Você já roubou 2 jogadores deste time.')
     setBloqueioBotao(false)
     return
   }
 
-  // Regra 2: impedir que o time alvo já tenha perdido 3 jogadores no total
-  const totalPerdasDoAlvo = Object.values(roubos)
-    .map((r: any) => r[jogador.id_time] || 0)
-    .reduce((acc, curr) => acc + curr, 0)
+  // Verifica quantos jogadores esse time já perdeu no total (de todos os times)
+  let totalPerdasDoAlvo = 0
+  for (const timeRoubador in roubos) {
+    if (roubos[timeRoubador][jogador.id_time]) {
+      totalPerdasDoAlvo += roubos[timeRoubador][jogador.id_time]
+    }
+  }
 
   if (totalPerdasDoAlvo >= 3) {
     alert('❌ Esse time já perdeu 3 jogadores no evento e não pode ser mais roubado.')
@@ -151,6 +153,12 @@ async function roubarJogador(jogador: Jogador) {
     return
   }
 
+  // Se passou nas verificações, segue com o roubo...
+  // (aqui entra o restante da lógica de transferência, débito, atualização, etc.)
+
+  // Exemplo de log:
+  console.log(`✅ Roubando ${jogador.nome} do time ${jogador.id_time} para o time ${idTime}`)
+}
   // CONTINUAÇÃO DO PROCESSO:
   await supabase.from('elenco')
     .update({ id_time: idTime })
