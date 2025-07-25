@@ -102,19 +102,20 @@ export default function AcaoRouboPage() {
   }
 
   async function carregarJogadoresDoAlvo() {
-    if (!alvoSelecionado) return
-    const { data } = await supabase
-      .from('elenco')
-      .select('id, nome, posicao, valor, id_time')
-      .eq('id_time', alvoSelecionado)
+  if (!alvoSelecionado) return
 
-    if (data) {
-      const jogadoresBloqueadosDoAlvo = (bloqueados[alvoSelecionado] || []).map(j => j.nome)
-const filtrados = data.filter(j => !jogadoresBloqueadosDoAlvo.includes(j.nome))
-      setJogadoresAlvo(filtrados)
-      setMostrarJogadores(true)
-    }
+  const { data } = await supabase
+    .from('elenco')
+    .select('id, nome, posicao, valor, id_time')
+    .eq('id_time', alvoSelecionado)
+
+  if (data) {
+    const jogadoresBloqueadosDoAlvo = (bloqueados[alvoSelecionado] || []).map(j => j.nome)
+    const filtrados = data.filter(j => !jogadoresBloqueadosDoAlvo.includes(j.nome))
+    setJogadoresAlvo(filtrados)
+    setMostrarJogadores(true)
   }
+}
 
   async function roubarJogador(jogador: Jogador) {
     if (bloqueioBotao) return
