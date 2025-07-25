@@ -233,10 +233,20 @@ const [bloqueados, setBloqueados] = useState<Record<string, JogadorBloqueado[]>>
   }
 
   const podeRoubar = (alvoId: string) => {
-    const roubosDoAlvo = Object.values(roubos).map((r: any) => r[alvoId] || 0).reduce((a: number, b: number) => a + b, 0)
-    const meusRoubos = roubos[idTime]?.[alvoId] || 0
-    return roubosDoAlvo < 3 && meusRoubos < 2
-  }
+  // Verifica se o alvo já perdeu 3 jogadores no total
+  const roubosRecebidos = Object.values(roubos)
+    .map((r: any) => r[alvoId] || 0)
+    .reduce((a: number, b: number) => a + b, 0)
+
+  // Verifica se o time da vez já roubou 2 do mesmo alvo
+  const roubosDoMeuTimeContraAlvo = roubos[idTime]?.[alvoId] || 0
+
+  // Aplica as duas regras
+  const alvoPodeSerRoubado = roubosRecebidos < limitePerda
+  const possoRoubarEsseAlvo = roubosDoMeuTimeContraAlvo < 2
+
+  return alvoPodeSerRoubado && possoRoubarEsseAlvo
+}
 
   return (
     <div className="p-6 text-white max-w-4xl mx-auto">
