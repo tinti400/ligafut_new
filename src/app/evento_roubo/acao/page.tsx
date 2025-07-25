@@ -1,3 +1,4 @@
+Você disse:
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -154,13 +155,13 @@ export default function AcaoRouboPage() {
       .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
 
     await supabase.from('bid').insert({
-      tipo_evento: 'roubo',
-      descricao: ${jogador.nome} foi roubado por ${idTime},
-      id_time1: idTime,
-      id_time2: jogador.id_time,
-      valor: valorPago,
-      data_evento: new Date().toISOString()
-    })
+  tipo_evento: 'roubo',
+  descricao: `${jogador.nome} foi roubado por ${idTime}`,
+  id_time1: idTime,
+  id_time2: jogador.id_time,
+  valor: valorPago,
+  data_evento: new Date().toISOString()
+})
 
     setMostrarJogadores(false)
     setJogadoresAlvo(jogadoresAlvo.filter(j => j.id !== jogador.id))
