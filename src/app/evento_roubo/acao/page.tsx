@@ -122,58 +122,84 @@ const [bloqueados, setBloqueados] = useState<Record<string, JogadorBloqueado[]>>
   }
 }
 
-  async function roubarJogador(jogador: Jogador) {
-    if (bloqueioBotao) return
-    setBloqueioBotao(true)
+async function roubarJogador(jogador: Jogador) {
+  if (bloqueioBotao) return
+  setBloqueioBotao(true)
 
-    const valorPago = Math.floor(jogador.valor * 0.5)
+  const valorPago = Math.floor(jogador.valor * 0.5)
 
-    await supabase.from('elenco')
-      .update({ id_time: idTime })
-      .eq('id', jogador.id)
+  // VERIFICAÇÕES DAS REGRAS:
 
-    const { data: timeRoubado } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', jogador.id_time)
-      .single()
-
-    const { data: meuTime } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', idTime)
-      .single()
-
-    await supabase.from('times')
-      .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
-      .eq('id', jogador.id_time)
-
-    await supabase.from('times')
-      .update({ saldo: (meuTime?.saldo || 0) - valorPago })
-      .eq('id', idTime)
-
-    const atualizado = { ...roubos }
-    if (!atualizado[idTime]) atualizado[idTime] = {}
-    if (!atualizado[idTime][alvoSelecionado]) atualizado[idTime][alvoSelecionado] = 0
-    atualizado[idTime][alvoSelecionado]++
-
-    await supabase.from('configuracoes')
-      .update({ roubos: atualizado })
-      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
-
-    await supabase.from('bid').insert({
-  tipo_evento: 'roubo',
-  descricao: `${jogador.nome} foi roubado por ${idTime}`,
-  id_time1: idTime,
-  id_time2: jogador.id_time,
-  valor: valorPago,
-  data_evento: new Date().toISOString()
-})
-
-    setMostrarJogadores(false)
-    setJogadoresAlvo(jogadoresAlvo.filter(j => j.id !== jogador.id))
+  // Regra 1: impedir que o time já tenha roubado 2 jogadores do mesmo time
+  const roubosDoMeuTime = roubos[idTime] || {}
+  const qtdRoubosDesseTime = roubosDoMeuTime[jogador.id_time] || 0
+  if (qtdRoubosDesseTime >= 2) {
+    alert('❌ Você já roubou 2 jogadores deste time.')
     setBloqueioBotao(false)
+    return
   }
+
+  // Regra 2: impedir que o time alvo já tenha perdido 3 jogadores no total
+  const totalPerdasDoAlvo = Object.values(roubos)
+    .map((r: any) => r[jogador.id_time] || 0)
+    .reduce((acc, curr) => acc + curr, 0)
+
+  if (totalPerdasDoAlvo >= 3) {
+    alert('❌ Esse time já perdeu 3 jogadores no evento e não pode ser mais roubado.')
+    setBloqueioBotao(false)
+    return
+  }
+
+  // CONTINUAÇÃO DO PROCESSO:
+  await supabase.from('elenco')
+    .update({ id_time: idTime })
+    .eq('id', jogador.id)
+
+  const { data: timeRoubado } = await supabase
+    .from('times')
+    .select('saldo')
+    .eq('id', jogador.id_time)
+    .single()
+
+  const { data: meuTime } = await supabase
+    .from('times')
+    .select('saldo')
+    .eq('id', idTime)
+    .single()
+
+  await supabase.from('times')
+    .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
+    .eq('id', jogador.id_time)
+
+  await supabase.from('times')
+    .update({ saldo: (meuTime?.saldo || 0) - valorPago })
+    .eq('id', idTime)
+
+  // Atualiza o controle de roubos
+  const atualizado = { ...roubos }
+  if (!atualizado[idTime]) atualizado[idTime] = {}
+  if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
+  atualizado[idTime][jogador.id_time]++
+
+  await supabase.from('configuracoes')
+    .update({ roubos: atualizado })
+    .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+
+  await supabase.from('bid').insert({
+    tipo_evento: 'roubo',
+    descricao: `${jogador.nome} foi roubado por ${idTime}`,
+    id_time1: idTime,
+    id_time2: jogador.id_time,
+    valor: valorPago,
+    data_evento: new Date().toISOString()
+  })
+
+  setRoubos(atualizado)
+  toast.success('✅ Jogador roubado com sucesso!')
+  setMostrarJogadores(false)
+  setBloqueioBotao(false)
+}
+
 
   async function sortearOrdem() {
     const { data: times } = await supabase
