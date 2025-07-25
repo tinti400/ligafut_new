@@ -285,6 +285,22 @@ async function roubarJogador(jogador: Jogador) {
 
   return (
     <div className="p-6 text-white max-w-4xl mx-auto">
+    {/* ORDEM DOS TIMES - ACIMA DO TÍTULO */}
+    {ordem.length > 0 && (
+      <div className="mb-6 text-center">
+        <p className="text-lg font-bold text-yellow-400">
+          🎯 Ordem da Vez:
+        </p>
+        <p className="text-md text-green-400 mt-1">
+          🟢 Agora: {ordem[vez]?.nome}
+        </p>
+        {vez + 1 < ordem.length && (
+          <p className="text-sm mt-1 text-gray-300">
+            🔜 Próximos: {ordem.slice(vez + 1).map((time) => time.nome).join(', ')}
+          </p>
+        )}
+      </div>
+    )}
       <h1 className="text-3xl font-bold mb-4 text-center">⚔️ Fase de Ação - Evento de Roubo</h1>
 
       {loading || loadingAdmin ? (
