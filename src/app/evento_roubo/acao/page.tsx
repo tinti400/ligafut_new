@@ -1,6 +1,6 @@
 'use client'
 
-importbloque { useEffect, useState } from 'react'
+import{ useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 
