@@ -1,4 +1,3 @@
-Você disse:
 'use client'
 
 import { useEffect, useState } from 'react'
