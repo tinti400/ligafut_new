@@ -153,33 +153,31 @@ async function roubarJogador(jogador: Jogador) {
     return
   }
 
-  // Se passou nas verificações, segue com o roubo...
-  // (aqui entra o restante da lógica de transferência, débito, atualização, etc.)
-
-  // Exemplo de log:
-  console.log(`✅ Roubando ${jogador.nome} do time ${jogador.id_time} para o time ${idTime}`)
-}
-  // CONTINUAÇÃO DO PROCESSO:
+  // Transferência do jogador para o time que está roubando
   await supabase.from('elenco')
     .update({ id_time: idTime })
     .eq('id', jogador.id)
 
+  // Buscar saldo do time que perdeu o jogador
   const { data: timeRoubado } = await supabase
     .from('times')
     .select('saldo')
     .eq('id', jogador.id_time)
     .single()
 
+  // Buscar saldo do time que está roubando
   const { data: meuTime } = await supabase
     .from('times')
     .select('saldo')
     .eq('id', idTime)
     .single()
 
+  // Adiciona o valor ao time que perdeu
   await supabase.from('times')
     .update({ saldo: (timeRoubado?.saldo || 0) + valorPago })
     .eq('id', jogador.id_time)
 
+  // Subtrai o valor do time que roubou
   await supabase.from('times')
     .update({ saldo: (meuTime?.saldo || 0) - valorPago })
     .eq('id', idTime)
@@ -194,20 +192,21 @@ async function roubarJogador(jogador: Jogador) {
     .update({ roubos: atualizado })
     .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
 
+  // Insere no BID
   await supabase.from('bid').insert({
-  tipo_evento: 'roubo',
-  descricao: `${jogador.nome} foi roubado por ${idTime}`,
-  id_time1: idTime,
-  id_time2: jogador.id_time,
-  valor: valorPago,
-})
+    tipo_evento: 'roubo',
+    descricao: `${jogador.nome} foi roubado por ${idTime}`,
+    id_time1: idTime,
+    id_time2: jogador.id_time,
+    valor: valorPago,
+  })
 
+  // Atualiza o estado local
   setRoubos(atualizado)
   toast.success('✅ Jogador roubado com sucesso!')
   setMostrarJogadores(false)
   setBloqueioBotao(false)
 }
-
 
   async function sortearOrdem() {
     const { data: times } = await supabase
