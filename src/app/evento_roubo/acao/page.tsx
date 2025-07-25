@@ -260,19 +260,21 @@ async function roubarJogador(jogador: Jogador) {
   }
 
   const podeRoubar = (alvoId: string) => {
-  // Verifica se o alvo já perdeu 3 jogadores no total
+  // Verifica quantos jogadores esse alvo já perdeu no total
   const roubosRecebidos = Object.values(roubos)
     .map((r: any) => r[alvoId] || 0)
     .reduce((a: number, b: number) => a + b, 0)
 
-  // Verifica se o time da vez já roubou 2 do mesmo alvo
-  const roubosDoMeuTimeContraAlvo = roubos[idTime]?.[alvoId] || 0
+  // Verifica quantas vezes o time atual já roubou desse alvo
+  const jaRoubouDesseTime = roubos[idTime]?.[alvoId] || 0
 
-  // Aplica as duas regras
-  const alvoPodeSerRoubado = roubosRecebidos < limitePerda
-  const possoRoubarEsseAlvo = roubosDoMeuTimeContraAlvo < 2
+  // Regra 1: time alvo pode perder no máximo 3 jogadores
+  const alvoAindaPodePerder = roubosRecebidos < 3
 
-  return alvoPodeSerRoubado && possoRoubarEsseAlvo
+  // Regra 2: o time da vez pode roubar no máximo 2 jogadores do mesmo alvo
+  const aindaPossoRoubarDesse = jaRoubouDesseTime < 2
+
+  return alvoAindaPodePerder && aindaPossoRoubarDesse
 }
 
   return (
@@ -317,35 +319,47 @@ async function roubarJogador(jogador: Jogador) {
                     className="w-full p-2 rounded mb-2 text-white bg-gray-800"
                   >
                     <option value="">🎯 Selecione um time para roubar</option>
-                    {ordem.filter(t => t.id !== idTime && podeRoubar(t.id)).map((time, idx) => (
-                      <option key={idx} value={time.id}>{time.nome}</option>
-                    ))}
-                  </select>
+{ordem
+  .filter(t => t.id !== idTime) // remove o próprio time
+  .filter(t => {
+    // calcula quantos jogadores o time já perdeu no total
+    const totalPerdas = Object.values(roubos)
+      .map((r: any) => r[t.id] || 0)
+      .reduce((a: number, b: number) => a + b, 0)
+    return totalPerdas < 3 // só mostra times que perderam menos de 3
+  })
+  .map((time, idx) => (
+    <option key={idx} value={time.id}>{time.nome}</option>
+))}
+</select>
 
-                  <button onClick={carregarJogadoresDoAlvo} className="w-full bg-blue-600 py-2 rounded mb-2 hover:bg-blue-700 transition">🔎 Ver Jogadores Disponíveis</button>
+<button
+  onClick={carregarJogadoresDoAlvo}
+  className="w-full bg-blue-600 py-2 rounded mb-2 hover:bg-blue-700 transition"
+>
+  🔎 Ver Jogadores Disponíveis
+</button>
 
-                  {mostrarJogadores && (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {jogadoresAlvo.map(j => (
-                        <div key={j.id} className="bg-gray-700 p-2 rounded flex flex-col justify-between hover:bg-gray-600 transition">
-                          <div className="text-center">
-                            <p className="font-bold text-sm">{j.nome}</p>
-                            <p className="text-xs">{j.posicao}</p>
-                            <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
-                          </div>
-                          <button onClick={() => roubarJogador(j)} className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition">✅ Roubar</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            <p className="text-center text-yellow-300 font-bold">⚠️ Sorteie a ordem para iniciar o evento!</p>
-          )}
-        </>
-      )}
-    </div>
-  )
+{mostrarJogadores && (
+  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+    {jogadoresAlvo.map(j => (
+      <div
+        key={j.id}
+        className="bg-gray-700 p-2 rounded flex flex-col justify-between hover:bg-gray-600 transition"
+      >
+        <div className="text-center">
+          <p className="font-bold text-sm">{j.nome}</p>
+          <p className="text-xs">{j.posicao}</p>
+          <p className="text-xs">R$ {j.valor.toLocaleString('pt-BR')}</p>
+        </div>
+        <button
+          onClick={() => roubarJogador(j)}
+          className="bg-green-600 mt-2 px-2 py-1 rounded text-xs hover:bg-green-700 transition"
+        >
+          ✅ Roubar
+        </button>
+      </div>
+    ))}
+  </div>
+)}
 }
