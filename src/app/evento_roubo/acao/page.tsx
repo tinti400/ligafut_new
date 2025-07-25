@@ -153,6 +153,20 @@ async function roubarJogador(jogador: Jogador) {
     return
   }
 
+// NOVA LÓGICA: verifica se o meu time já roubou 4 no total
+  let totalRoubosDoMeuTime = 0
+  if (roubos[idTime]) {
+    for (const alvo in roubos[idTime]) {
+      totalRoubosDoMeuTime += roubos[idTime][alvo]
+    }
+  }
+
+  if (totalRoubosDoMeuTime >= 3) {
+    alert('❌ Você já atingiu o limite de 3 jogadores roubados neste evento.')
+    setBloqueioBotao(false)
+    return
+  }
+
   // Transferência do jogador para o time que está roubando
   await supabase.from('elenco')
     .update({ id_time: idTime })
