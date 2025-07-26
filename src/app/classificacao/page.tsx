@@ -31,7 +31,7 @@ export default function ClassificacaoPage() {
 
   const fetchDados = async (temporada: number) => {
     try {
-      const res = await fetch(`/api/classificacao?temporada=${temporada}`)
+      const res = await fetch(`/api/classificacao-liga?temporada=${temporada}`)
       if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
       const data = await res.json()
       setClassificacao(data)
