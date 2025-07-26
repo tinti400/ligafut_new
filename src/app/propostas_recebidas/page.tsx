@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -143,6 +144,21 @@ export default function PropostasRecebidasPage() {
         titulo: '✅ Proposta aceita!',
         mensagem: `Sua proposta pelo jogador ${jogador?.nome || 'Desconhecido'} foi aceita.`,
       })
+
+      await registrarMovimentacao({
+  id_time: proposta.id_time_origem,
+  tipo: 'saida',
+  valor: proposta.valor_oferecido,
+  descricao: `Compra de ${jogador?.nome || 'Jogador'} via proposta`,
+})
+
+await registrarMovimentacao({
+  id_time: proposta.id_time_alvo,
+  tipo: 'entrada',
+  valor: proposta.valor_oferecido,
+  descricao: `Venda de ${jogador?.nome || 'Jogador'} via proposta`,
+})
+
 
       await supabase.from('bid').insert({
         tipo_evento: 'transferencia',
