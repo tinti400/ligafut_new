@@ -1,28 +1,86 @@
-import { NextRequest, NextResponse } from 'next/server'
-import prisma from '@/lib/prisma'
+import { NextApiRequest, NextApiResponse } from 'next'
+import { createClient } from '@supabase/supabase-js'
 
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url)
-    const temporada = Number(searchParams.get('temporada'))
-    const divisao = Number(searchParams.get('divisao'))
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
-    if (!temporada || !divisao) {
-      return NextResponse.json({ error: 'Temporada e divisão são obrigatórios.' }, { status: 400 })
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const temporada = Number(req.query.temporada || 1)
+
+  const { data: rodadas, error: errorRodadas } = await supabase
+    .from('rodadas')
+    .select('*')
+    .eq('temporada', temporada)
+
+  if (errorRodadas || !rodadas) return res.status(500).json({ erro: 'Erro ao buscar rodadas' })
+
+  const { data: times, error: errorTimes } = await supabase
+    .from('times')
+    .select('id, nome, logo_url, divisao')
+
+  if (errorTimes || !times) return res.status(500).json({ erro: 'Erro ao buscar times' })
+
+  const mapa: Record<string, any> = {}
+
+  for (const time of times) {
+    mapa[time.id] = {
+      id_time: time.id,
+      pontos: 0,
+      vitorias: 0,
+      empates: 0,
+      derrotas: 0,
+      gols_pro: 0,
+      gols_contra: 0,
+      jogos: 0,
+      divisao: time.divisao,
+      times: {
+        nome: time.nome,
+        logo_url: time.logo_url
+      }
     }
-
-    const classificacao = await prisma.classificacao.findMany({
-      where: {
-        temporada: temporada,
-        divisao: divisao
-      },
-      include: { times: true },
-      orderBy: [{ pontos: 'desc' }, { saldo_gols: 'desc' }]
-    })
-
-    return NextResponse.json(classificacao)
-  } catch (error) {
-    console.error('Erro ao buscar classificação:', error)
-    return NextResponse.json({ error: 'Erro interno no servidor.' }, { status: 500 })
   }
+
+  for (const rodada of rodadas) {
+    if (!rodada.jogos) continue
+
+    for (const jogo of rodada.jogos) {
+      const { mandante, visitante, gols_mandante, gols_visitante } = jogo
+
+      if (
+        gols_mandante === null ||
+        gols_visitante === null ||
+        !mapa[mandante] ||
+        !mapa[visitante]
+      )
+        continue
+
+      mapa[mandante].gols_pro += gols_mandante
+      mapa[mandante].gols_contra += gols_visitante
+      mapa[mandante].jogos += 1
+
+      mapa[visitante].gols_pro += gols_visitante
+      mapa[visitante].gols_contra += gols_mandante
+      mapa[visitante].jogos += 1
+
+      if (gols_mandante > gols_visitante) {
+        mapa[mandante].vitorias += 1
+        mapa[mandante].pontos += 3
+        mapa[visitante].derrotas += 1
+      } else if (gols_mandante < gols_visitante) {
+        mapa[visitante].vitorias += 1
+        mapa[visitante].pontos += 3
+        mapa[mandante].derrotas += 1
+      } else {
+        mapa[mandante].empates += 1
+        mapa[visitante].empates += 1
+        mapa[mandante].pontos += 1
+        mapa[visitante].pontos += 1
+      }
+    }
+  }
+
+  const classificacao = Object.values(mapa)
+  res.status(200).json(classificacao)
 }
