@@ -11,6 +11,7 @@ interface SessionData {
 
 export default function useSession() {
   const [session, setSession] = useState<SessionData | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -25,7 +26,9 @@ export default function useSession() {
     } else {
       setSession(null)
     }
+
+    setLoading(false)
   }, [])
 
-  return session
+  return { session, loading }
 }

@@ -1,8 +1,8 @@
 export default function Loading() {
   return (
-    <div className="w-full text-center py-10">
-      <div className="animate-spin inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-      <p className="mt-2 text-sm text-gray-600">Carregando...</p>
+    <div className="flex flex-col items-center justify-center h-[80vh] text-center">
+      <div className="animate-spin w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+      <p className="mt-4 text-sm text-gray-400">Carregando...</p>
     </div>
   )
 }
