@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import classNames from 'classnames'
 
+// Hook de autenticação do usuário
+import { useUser } from '@/hooks/useUser' // ajuste o caminho se necessário
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -27,14 +30,17 @@ interface TimeInfo {
 }
 
 export default function ClassificacaoCopaPage() {
+  const { user, loading: loadingUser } = useUser()
   const [classificacao, setClassificacao] = useState<LinhaClassificacao[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, TimeInfo>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    buscarClassificacao()
-    buscarTimes()
-  }, [])
+    if (user) {
+      buscarClassificacao()
+      buscarTimes()
+    }
+  }, [user])
 
   async function buscarClassificacao() {
     const { data } = await supabase.from('classificacao_copa').select('*')
@@ -62,6 +68,14 @@ export default function ClassificacaoCopaPage() {
     if (b.gols_pro !== a.gols_pro) return b.gols_pro - a.gols_pro
     return b.vitorias - a.vitorias
   })
+
+  if (!user && !loadingUser) {
+    return (
+      <div className="bg-zinc-900 text-white min-h-screen flex items-center justify-center p-6 text-center">
+        <p className="text-red-400 text-lg">⛔ Acesso restrito! Faça login para ver a classificação.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-zinc-900 text-white min-h-screen p-4 max-w-5xl mx-auto">
@@ -104,7 +118,13 @@ export default function ClassificacaoCopaPage() {
                     <td className="px-3 py-2 text-gray-300 font-bold">{posicao}</td>
                     <td className="px-3 py-2 flex items-center gap-2">
                       {escudo && (
-                        <img src={escudo} alt={linha.time} width={28} height={28} className="rounded-full border" />
+                        <img
+                          src={escudo}
+                          alt={linha.time}
+                          width={28}
+                          height={28}
+                          className="rounded-full border object-cover bg-white"
+                        />
                       )}
                       {linha.time}
                     </td>
