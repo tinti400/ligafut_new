@@ -41,7 +41,7 @@ export default function FaseLigaAdminPage() {
   }
 
   async function buscarLogos() {
-    const { data, error } = await supabase.from('times').select('nome, logo_url')
+    const { data } = await supabase.from('times').select('nome, logo_url')
     if (data) {
       const map: Record<string, { logo_url: string }> = {}
       data.forEach((t) => {
@@ -101,11 +101,8 @@ export default function FaseLigaAdminPage() {
     buscarJogos()
   }
 
-  // Agrupar jogos por rodada com filtro aplicado
   const jogosFiltrados = jogos.filter((jogo) =>
-    filtroTime === 'Todos' ||
-    jogo.time1 === filtroTime ||
-    jogo.time2 === filtroTime
+    filtroTime === 'Todos' || jogo.time1 === filtroTime || jogo.time2 === filtroTime
   )
 
   const jogosPorRodada: Record<number, any[]> = {}
@@ -116,11 +113,15 @@ export default function FaseLigaAdminPage() {
     jogosPorRodada[jogo.rodada].push(jogo)
   })
 
-  const nomesDosTimes = Array.from(new Set(jogos.map((j) => j.time1).concat(jogos.map((j) => j.time2)))).sort()
+  const nomesDosTimes = Array.from(
+    new Set(jogos.map((j) => j.time1).concat(jogos.map((j) => j.time2)))
+  ).sort()
 
   return (
     <div className="p-4 max-w-5xl mx-auto bg-zinc-900 min-h-screen text-white">
-      <h1 className="text-3xl font-extrabold mb-6 text-center text-yellow-400">🏆 Administração – Fase Liga</h1>
+      <h1 className="text-3xl font-extrabold mb-6 text-center text-yellow-400">
+        🏆 Administração – Fase Liga
+      </h1>
 
       {/* Filtro por time */}
       <div className="mb-6 text-center">
@@ -132,7 +133,9 @@ export default function FaseLigaAdminPage() {
         >
           <option value="Todos">Todos</option>
           {nomesDosTimes.map((nome) => (
-            <option key={nome} value={nome}>{nome}</option>
+            <option key={nome} value={nome}>
+              {nome}
+            </option>
           ))}
         </select>
       </div>
@@ -169,7 +172,9 @@ export default function FaseLigaAdminPage() {
                       onChange={(e) => {
                         const valor = parseInt(e.target.value || '0')
                         setJogos((prev) =>
-                          prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: valor } : j)
+                          prev.map((j) =>
+                            j.id === jogo.id ? { ...j, gols_time1: valor } : j
+                          )
                         )
                       }}
                       disabled={!isAdmin}
@@ -183,7 +188,9 @@ export default function FaseLigaAdminPage() {
                       onChange={(e) => {
                         const valor = parseInt(e.target.value || '0')
                         setJogos((prev) =>
-                          prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: valor } : j)
+                          prev.map((j) =>
+                            j.id === jogo.id ? { ...j, gols_time2: valor } : j
+                          )
                         )
                       }}
                       disabled={!isAdmin}
