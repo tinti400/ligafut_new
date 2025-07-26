@@ -10,7 +10,7 @@ const supabase = createClient(
 )
 
 interface LinhaClassificacao {
-  time: string
+  id_time: string
   pontos: number
   vitorias: number
   empates: number
@@ -22,6 +22,7 @@ interface LinhaClassificacao {
 }
 
 interface TimeInfo {
+  nome: string
   logo_url?: string
   logo?: string
 }
@@ -43,11 +44,12 @@ export default function ClassificacaoCopaPage() {
   }
 
   async function buscarTimes() {
-    const { data } = await supabase.from('times').select('nome, logo_url, logo')
+    const { data } = await supabase.from('times').select('id, nome, logo_url, logo')
     if (data) {
       const map: Record<string, TimeInfo> = {}
       data.forEach((t) => {
-        map[t.nome] = {
+        map[t.id] = {
+          nome: t.nome,
           logo_url: t.logo_url,
           logo: t.logo
         }
@@ -89,8 +91,9 @@ export default function ClassificacaoCopaPage() {
             <tbody>
               {classificacaoOrdenada.map((linha, index) => {
                 const posicao = index + 1
-                const timeData = timesMap[linha.time]
+                const timeData = timesMap[linha.id_time]
                 const escudo = timeData?.logo_url || timeData?.logo
+                const nome = timeData?.nome || 'Desconhecido'
 
                 const bgClass = classNames({
                   'bg-green-900': posicao <= 16,
@@ -100,13 +103,13 @@ export default function ClassificacaoCopaPage() {
                 })
 
                 return (
-                  <tr key={linha.time} className={`${bgClass} border-b border-zinc-700`}>
+                  <tr key={linha.id_time} className={`${bgClass} border-b border-zinc-700`}>
                     <td className="px-3 py-2 text-gray-300 font-bold">{posicao}</td>
                     <td className="px-3 py-2 flex items-center gap-2">
                       {escudo && (
-                        <img src={escudo} alt={linha.time} width={28} height={28} className="rounded-full border" />
+                        <img src={escudo} alt={nome} width={28} height={28} className="rounded-full border" />
                       )}
-                      {linha.time}
+                      {nome}
                     </td>
                     <td className="px-3 py-2 text-center">{linha.jogos}</td>
                     <td className="px-3 py-2 text-center font-bold text-white">{linha.pontos}</td>
