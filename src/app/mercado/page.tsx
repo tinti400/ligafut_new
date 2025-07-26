@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import ImagemComFallback from '@/components/ImagemComFallback'
 import { useAdmin } from '@/hooks/useAdmin'
+import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
+
 
 import * as XLSX from 'xlsx'
 import toast, { Toaster } from 'react-hot-toast'
@@ -367,6 +369,14 @@ export default function MercadoPage() {
       jogos: 0,
       link_sofifa: jogador.link_sofifa || '',
     })
+    
+    await registrarMovimentacao({
+  id_time: id_time_usuario,
+  tipo: 'saida',
+  valor: jogador.valor,
+  descricao: `Compra de ${jogador.nome} no mercado`
+
+})
 
     if (errorInsert) throw errorInsert
 
