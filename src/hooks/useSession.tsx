@@ -14,23 +14,31 @@ export default function useSession() {
   const [loading, setLoading] = useState<boolean>(true)
 
   useEffect(() => {
-    // Executa apenas no lado do cliente
-    if (typeof window !== 'undefined') {
-      const usuario = localStorage.getItem('usuario') || ''
-      const idTime = localStorage.getItem('id_time') || ''
-      const nomeTime = localStorage.getItem('nome_time') || ''
-      const isAdmin = localStorage.getItem('admin') === 'true'
+    if (typeof window === 'undefined') return
 
-      if (usuario && idTime) {
-        setSession({ usuario, idTime, nomeTime, isAdmin })
-      } else {
+    const userStr = localStorage.getItem('user') // chave usada no login
+
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr)
+        setSession({
+          usuario: user.usuario,
+          idTime: user.id_time,
+          nomeTime: user.nome_time,
+          isAdmin: user.isAdmin || false
+        })
+      } catch (error) {
+        console.error('Erro ao interpretar dados da sessão:', error)
         setSession(null)
       }
-
-      setLoading(false)
+    } else {
+      setSession(null)
     }
+
+    setLoading(false)
   }, [])
 
   return { session, loading }
 }
+
 
