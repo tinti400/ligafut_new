@@ -19,15 +19,19 @@ interface Movimentacao {
 }
 
 export default function FinanceiroPage() {
-  const { usuario, idTime, isAdmin, nomeTime } = useSession()
+  const session = useSession()
+  const { usuario, idTime, isAdmin, nomeTime } = session || {}
+
   const [movs, setMovs] = useState<Movimentacao[]>([])
   const [saldoAtual, setSaldoAtual] = useState<number>(0)
   const [loading, setLoading] = useState(true)
-
   const [totalLeiloes, setTotalLeiloes] = useState(0)
 
+  // Aguarda carregar sessão com idTime válido
+  if (!idTime) return <Loading />
+
   useEffect(() => {
-    if (idTime) carregarDados()
+    carregarDados()
   }, [idTime])
 
   async function carregarDados() {
@@ -49,7 +53,6 @@ export default function FinanceiroPage() {
 
     setMovs(movimentacoes || [])
 
-    // Calcular leilões à parte
     const { data: leiloes } = await supabase
       .from('movimentacoes')
       .select('valor')

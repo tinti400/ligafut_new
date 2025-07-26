@@ -2,19 +2,28 @@
 
 import { useEffect, useState } from 'react'
 
+interface SessionData {
+  usuario: string
+  idTime: string
+  nomeTime: string
+  isAdmin: boolean
+}
+
 export default function useSession() {
-  const [session, setSession] = useState<any>(null)
+  const [session, setSession] = useState<SessionData | null>(null)
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
-    if (userStr) {
-      try {
-        const user = JSON.parse(userStr)
-        setSession(user)
-      } catch (error) {
-        console.error('Erro ao interpretar JSON do usuário:', error)
-        setSession(null)
-      }
+    if (typeof window === 'undefined') return
+
+    const usuario = localStorage.getItem('usuario') || ''
+    const idTime = localStorage.getItem('id_time') || ''
+    const nomeTime = localStorage.getItem('nome_time') || ''
+    const isAdmin = localStorage.getItem('admin') === 'true'
+
+    if (usuario && idTime) {
+      setSession({ usuario, idTime, nomeTime, isAdmin })
+    } else {
+      setSession(null)
     }
   }, [])
 
