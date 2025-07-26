@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { registrarMovimentacao } from '@/utils/utils'
+
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,6 +139,14 @@ export default function LeiloesFinalizadosPage() {
       .from('times')
       .update({ saldo: novoSaldo })
       .eq('id', leilao.id_time_vencedor)
+
+    await registrarMovimentacao({
+  id_time: leilao.id_time_vencedor,
+  tipo: 'saida',
+  valor: leilao.valor_atual,
+  descricao: `Compra de ${leilao.nome} via leilão`,
+})
+
 
     // Registrar no BID a movimentação
     await registrarNoBID({
