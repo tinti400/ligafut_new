@@ -7,10 +7,8 @@ const supabase = createClient(
 )
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url)
-  const temporada = Number(searchParams.get('temporada') || '1')
-
   try {
+    // Busca todos os times com divisão válida
     const { data: timesData, error: errorTimes } = await supabase
       .from('times')
       .select('id, divisao')
@@ -26,9 +24,8 @@ export async function GET(req: NextRequest) {
       let pontos = 0, vitorias = 0, empates = 0, derrotas = 0, gols_pro = 0, gols_contra = 0, jogos = 0
 
       const { data: rodadasData, error: errorRodadas } = await supabase
-        .from('rodadas')
+        .from('rodadas_copa')
         .select('jogos')
-        .eq('temporada', temporada)
         .eq('divisao', time.divisao)
 
       if (!errorRodadas && rodadasData) {
@@ -59,7 +56,6 @@ export async function GET(req: NextRequest) {
 
       updates.push({
         id_time: time.id,
-        temporada,
         divisao: time.divisao,
         pontos,
         vitorias,
@@ -72,19 +68,19 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // Grava todos (inclusive zerados)
+    // Atualiza a tabela classificacao_copa com os dados calculados
     if (updates.length > 0) {
       const { error: errorInsert } = await supabase
-        .from('classificacao')
-        .upsert(updates, { onConflict: 'id_time,temporada,divisao' })
+        .from('classificacao_copa')
+        .upsert(updates, { onConflict: 'id_time' })
 
       if (errorInsert) return NextResponse.json({ erro: errorInsert.message }, { status: 500 })
     }
 
+    // Retorna a classificação com os dados dos times
     const { data: classificacaoData, error: errorClass } = await supabase
-      .from('classificacao')
+      .from('classificacao_copa')
       .select('*, times:times(id, nome, logo_url)')
-      .eq('temporada', temporada)
       .order('pontos', { ascending: false })
       .order('saldo', { ascending: false })
       .order('gols_pro', { ascending: false })
