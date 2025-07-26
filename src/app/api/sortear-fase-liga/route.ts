@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       jogosPorTime[b.nome]++
     }
 
-    if (jogos.length >= 90) break
+    if (jogos.length >= 120) break
   }
 
   // Limpa jogos anteriores (opcional)
