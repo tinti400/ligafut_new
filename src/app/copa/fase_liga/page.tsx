@@ -29,6 +29,7 @@ export default function FaseLigaAdminPage() {
     const { data, error } = await supabase
       .from('copa_fase_liga')
       .select('*')
+      .order('rodada', { ascending: true })
       .order('id', { ascending: true })
 
     if (error) {
@@ -71,81 +72,95 @@ export default function FaseLigaAdminPage() {
     setSalvandoId(null)
   }
 
-  if (!isAdmin) return <div className="p-4 text-red-600">⛔ Acesso restrito!</div>
+  if (!isAdmin) return <div className="p-4 text-red-400 bg-zinc-900 min-h-screen">⛔ Acesso restrito!</div>
+
+  // Agrupar os jogos por rodada
+  const jogosPorRodada: Record<number, any[]> = {}
+  jogos.forEach((jogo) => {
+    if (!jogosPorRodada[jogo.rodada]) {
+      jogosPorRodada[jogo.rodada] = []
+    }
+    jogosPorRodada[jogo.rodada].push(jogo)
+  })
 
   return (
-    <div className="p-4 max-w-4xl mx-auto">
+    <div className="p-4 max-w-5xl mx-auto bg-zinc-900 min-h-screen text-white">
       <h1 className="text-3xl font-extrabold mb-6 text-center text-yellow-400">🏆 Administração – Fase Liga</h1>
 
       {loading ? (
-        <div className="text-center text-white">🔄 Carregando jogos...</div>
+        <div className="text-center text-gray-300">🔄 Carregando jogos...</div>
       ) : (
-        <div className="space-y-4">
-          {jogos.map((jogo) => (
-            <div
-              key={jogo.id}
-              className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-white p-4 rounded-lg shadow border"
-            >
-              {/* Time 1 */}
-              <div className="flex items-center gap-2 w-40">
-                <img
-                  src={timesMap[jogo.time1]?.logo_url || '/default.png'}
-                  alt={jogo.time1}
-                  className="w-8 h-8 rounded-full border object-cover"
-                />
-                <span className="font-semibold">{jogo.time1}</span>
-              </div>
+        Object.entries(jogosPorRodada).map(([rodada, jogos]) => (
+          <div key={rodada} className="mb-8">
+            <h2 className="text-xl font-bold mb-3 text-green-400">📅 Rodada {rodada}</h2>
+            <div className="space-y-3">
+              {jogos.map((jogo) => (
+                <div
+                  key={jogo.id}
+                  className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-zinc-800 p-4 rounded-lg shadow border border-zinc-700"
+                >
+                  {/* Time 1 */}
+                  <div className="flex items-center gap-2 w-40">
+                    <img
+                      src={timesMap[jogo.time1]?.logo_url || '/default.png'}
+                      alt={jogo.time1}
+                      className="w-8 h-8 rounded-full border object-cover bg-white"
+                    />
+                    <span className="font-semibold text-white">{jogo.time1}</span>
+                  </div>
 
-              {/* Placar */}
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  className="w-14 border rounded text-center"
-                  placeholder="0"
-                  value={jogo.gols_time1 ?? ''}
-                  onChange={(e) => {
-                    const valor = parseInt(e.target.value || '0')
-                    setJogos((prev) =>
-                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: valor } : j)
-                    )
-                  }}
-                />
-                <span className="font-bold text-gray-700">x</span>
-                <input
-                  type="number"
-                  className="w-14 border rounded text-center"
-                  placeholder="0"
-                  value={jogo.gols_time2 ?? ''}
-                  onChange={(e) => {
-                    const valor = parseInt(e.target.value || '0')
-                    setJogos((prev) =>
-                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: valor } : j)
-                    )
-                  }}
-                />
-              </div>
+                  {/* Placar */}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      className="w-14 border rounded text-center bg-zinc-900 text-white border-zinc-600"
+                      placeholder="0"
+                      value={jogo.gols_time1 ?? ''}
+                      onChange={(e) => {
+                        const valor = parseInt(e.target.value || '0')
+                        setJogos((prev) =>
+                          prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: valor } : j)
+                        )
+                      }}
+                    />
+                    <span className="font-bold text-white">x</span>
+                    <input
+                      type="number"
+                      className="w-14 border rounded text-center bg-zinc-900 text-white border-zinc-600"
+                      placeholder="0"
+                      value={jogo.gols_time2 ?? ''}
+                      onChange={(e) => {
+                        const valor = parseInt(e.target.value || '0')
+                        setJogos((prev) =>
+                          prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: valor } : j)
+                        )
+                      }}
+                    />
+                  </div>
 
-              {/* Time 2 */}
-              <div className="flex items-center gap-2 w-40 justify-end">
-                <span className="font-semibold">{jogo.time2}</span>
-                <img
-                  src={timesMap[jogo.time2]?.logo_url || '/default.png'}
-                  alt={jogo.time2}
-                  className="w-8 h-8 rounded-full border object-cover"
-                />
-              </div>
+                  {/* Time 2 */}
+                  <div className="flex items-center gap-2 w-40 justify-end">
+                    <span className="font-semibold text-white">{jogo.time2}</span>
+                    <img
+                      src={timesMap[jogo.time2]?.logo_url || '/default.png'}
+                      alt={jogo.time2}
+                      className="w-8 h-8 rounded-full border object-cover bg-white"
+                    />
+                  </div>
 
-              {/* Botão */}
-              <button
-                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded disabled:opacity-50"
-                onClick={() => salvarPlacar(jogo)}
-                disabled={salvandoId === jogo.id}
-              >
-                {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
-              </button>
+                  {/* Botão */}
+                  <button
+                    className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded disabled:opacity-50"
+                    onClick={() => salvarPlacar(jogo)}
+                    disabled={salvandoId === jogo.id}
+                  >
+                    {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))
       )}
     </div>
   )
