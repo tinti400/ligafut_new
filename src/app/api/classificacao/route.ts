@@ -31,26 +31,26 @@ export async function GET(req: NextRequest) {
         .eq('temporada', temporada)
         .eq('divisao', time.divisao)
 
-      if (errorRodadas) continue
+      if (!errorRodadas && rodadasData) {
+        for (const rodada of rodadasData) {
+          for (const jogo of rodada.jogos || []) {
+            if (jogo.gols_mandante == null || jogo.gols_visitante == null) continue
 
-      for (const rodada of rodadasData || []) {
-        for (const jogo of rodada.jogos || []) {
-          if (jogo.gols_mandante == null || jogo.gols_visitante == null) continue
-
-          if (jogo.mandante === time.id) {
-            gols_pro += jogo.gols_mandante
-            gols_contra += jogo.gols_visitante
-            jogos++
-            if (jogo.gols_mandante > jogo.gols_visitante) vitorias++
-            else if (jogo.gols_mandante === jogo.gols_visitante) empates++
-            else derrotas++
-          } else if (jogo.visitante === time.id) {
-            gols_pro += jogo.gols_visitante
-            gols_contra += jogo.gols_mandante
-            jogos++
-            if (jogo.gols_visitante > jogo.gols_mandante) vitorias++
-            else if (jogo.gols_visitante === jogo.gols_mandante) empates++
-            else derrotas++
+            if (jogo.mandante === time.id) {
+              gols_pro += jogo.gols_mandante
+              gols_contra += jogo.gols_visitante
+              jogos++
+              if (jogo.gols_mandante > jogo.gols_visitante) vitorias++
+              else if (jogo.gols_mandante === jogo.gols_visitante) empates++
+              else derrotas++
+            } else if (jogo.visitante === time.id) {
+              gols_pro += jogo.gols_visitante
+              gols_contra += jogo.gols_mandante
+              jogos++
+              if (jogo.gols_visitante > jogo.gols_mandante) vitorias++
+              else if (jogo.gols_visitante === jogo.gols_mandante) empates++
+              else derrotas++
+            }
           }
         }
       }
@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
       })
     }
 
+    // Grava todos (inclusive zerados)
     if (updates.length > 0) {
       const { error: errorInsert } = await supabase
         .from('classificacao')
