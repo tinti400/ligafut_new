@@ -52,6 +52,13 @@ export default function FaseLigaAdminPage() {
     }
   }
 
+  async function atualizarClassificacao() {
+    const { error } = await supabase.rpc('atualizar_classificacao_copa')
+    if (error) {
+      toast.error('Erro ao atualizar classificação!')
+    }
+  }
+
   async function salvarPlacar(jogo: any) {
     setSalvandoId(jogo.id)
 
@@ -66,10 +73,33 @@ export default function FaseLigaAdminPage() {
     if (error) {
       toast.error('Erro ao salvar placar!')
     } else {
+      await atualizarClassificacao()
       toast.success('✅ Placar salvo com sucesso!')
     }
 
     setSalvandoId(null)
+  }
+
+  async function excluirPlacar(jogo: any) {
+    setSalvandoId(jogo.id)
+
+    const { error } = await supabase
+      .from('copa_fase_liga')
+      .update({
+        gols_time1: null,
+        gols_time2: null,
+      })
+      .eq('id', jogo.id)
+
+    if (error) {
+      toast.error('Erro ao excluir resultado!')
+    } else {
+      await atualizarClassificacao()
+      toast.success('🗑️ Resultado excluído com sucesso!')
+    }
+
+    setSalvandoId(null)
+    buscarJogos()
   }
 
   if (!isAdmin) return <div className="p-4 text-red-400 bg-zinc-900 min-h-screen">⛔ Acesso restrito!</div>
@@ -148,14 +178,23 @@ export default function FaseLigaAdminPage() {
                     />
                   </div>
 
-                  {/* Botão */}
-                  <button
-                    className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded disabled:opacity-50"
-                    onClick={() => salvarPlacar(jogo)}
-                    disabled={salvandoId === jogo.id}
-                  >
-                    {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
-                  </button>
+                  {/* Botões */}
+                  <div className="flex gap-2">
+                    <button
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded disabled:opacity-50"
+                      onClick={() => salvarPlacar(jogo)}
+                      disabled={salvandoId === jogo.id}
+                    >
+                      {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
+                    </button>
+                    <button
+                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded disabled:opacity-50"
+                      onClick={() => excluirPlacar(jogo)}
+                      disabled={salvandoId === jogo.id}
+                    >
+                      {salvandoId === jogo.id ? 'Excluindo...' : 'Excluir'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
