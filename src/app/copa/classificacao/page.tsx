@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import Image from 'next/image'
 import classNames from 'classnames'
 
 const supabase = createClient(
@@ -24,6 +23,7 @@ interface LinhaClassificacao {
 
 interface TimeInfo {
   logo_url?: string
+  logo?: string
 }
 
 export default function ClassificacaoCopaPage() {
@@ -37,26 +37,20 @@ export default function ClassificacaoCopaPage() {
   }, [])
 
   async function buscarClassificacao() {
-    const { data, error } = await supabase.from('classificacao_copa').select('*')
-    if (data) {
-      const ordenado = [...data].sort((a, b) => {
-        if (b.pontos !== a.pontos) return b.pontos - a.pontos
-        const saldoA = a.gols_pro - a.gols_contra
-        const saldoB = b.gols_pro - b.gols_contra
-        if (saldoB !== saldoA) return saldoB - saldoA
-        return b.gols_pro - a.gols_pro
-      })
-      setClassificacao(ordenado)
-    }
+    const { data } = await supabase.from('classificacao_copa').select('*')
+    if (data) setClassificacao(data)
     setLoading(false)
   }
 
   async function buscarTimes() {
-    const { data } = await supabase.from('times').select('nome, logo_url')
+    const { data } = await supabase.from('times').select('nome, logo_url, logo')
     if (data) {
       const map: Record<string, TimeInfo> = {}
       data.forEach((t) => {
-        map[t.nome] = { logo_url: t.logo_url }
+        map[t.nome] = {
+          logo_url: t.logo_url,
+          logo: t.logo
+        }
       })
       setTimesMap(map)
     }
@@ -88,7 +82,8 @@ export default function ClassificacaoCopaPage() {
             <tbody>
               {classificacao.map((linha, index) => {
                 const posicao = index + 1
-                const escudo = timesMap[linha.time]?.logo_url
+                const timeData = timesMap[linha.time]
+                const escudo = timeData?.logo_url || timeData?.logo
 
                 const bgClass = classNames({
                   'bg-green-900': posicao <= 16,
@@ -102,13 +97,7 @@ export default function ClassificacaoCopaPage() {
                     <td className="px-3 py-2 text-gray-300 font-bold">{posicao}</td>
                     <td className="px-3 py-2 flex items-center gap-2">
                       {escudo && (
-                        <Image
-                          src={escudo}
-                          alt={linha.time}
-                          width={24}
-                          height={24}
-                          className="rounded-full border"
-                        />
+                        <img src={escudo} alt={linha.time} width={28} height={28} className="rounded-full border" />
                       )}
                       {linha.time}
                     </td>
