@@ -25,51 +25,52 @@ export default function FinanceiroPage() {
   const [loading, setLoading] = useState(true)
   const [totalLeiloes, setTotalLeiloes] = useState(0)
 
-  const idTime = session?.idTime
-  const nomeTime = session?.nomeTime
-
   useEffect(() => {
-    if (!carregandoSession && idTime) {
-      carregarDados()
+    if (!carregandoSession && session?.idTime) {
+      carregarDados(session.idTime)
     }
-  }, [idTime, carregandoSession])
+  }, [carregandoSession, session?.idTime])
 
-  async function carregarDados() {
+  async function carregarDados(idTime: string) {
     setLoading(true)
 
-    // Saldo atual
-    const { data: timeData } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', idTime)
-      .single()
+    try {
+      // Saldo atual
+      const { data: timeData } = await supabase
+        .from('times')
+        .select('saldo')
+        .eq('id', idTime)
+        .single()
 
-    setSaldoAtual(timeData?.saldo || 0)
+      setSaldoAtual(timeData?.saldo || 0)
 
-    // Movimentações financeiras
-    const { data: movimentacoes } = await supabase
-      .from('movimentacoes_financeiras')
-      .select('*')
-      .eq('id_time', idTime)
-      .order('data', { ascending: false })
+      // Movimentações financeiras
+      const { data: movimentacoes } = await supabase
+        .from('movimentacoes_financeiras')
+        .select('*')
+        .eq('id_time', idTime)
+        .order('data', { ascending: false })
 
-    setMovs(movimentacoes || [])
+      setMovs(movimentacoes || [])
 
-    // Total gasto em leilões
-    const { data: leiloes } = await supabase
-      .from('movimentacoes')
-      .select('valor')
-      .eq('id_time', idTime)
-      .eq('categoria', 'leilao')
-      .eq('tipo', 'compra')
+      // Total gasto em leilões
+      const { data: leiloes } = await supabase
+        .from('movimentacoes')
+        .select('valor')
+        .eq('id_time', idTime)
+        .eq('categoria', 'leilao')
+        .eq('tipo', 'compra')
 
-    const total = leiloes?.reduce((acc, item) => acc + Math.abs(item.valor || 0), 0) || 0
-    setTotalLeiloes(total)
+      const total = leiloes?.reduce((acc, item) => acc + Math.abs(item.valor || 0), 0) || 0
+      setTotalLeiloes(total)
+    } catch (error) {
+      console.error('Erro ao carregar dados financeiros:', error)
+    }
 
     setLoading(false)
   }
 
-  if (carregandoSession || loading || !idTime) return <Loading />
+  if (carregandoSession || loading || !session?.idTime) return <Loading />
 
   // Gerar extrato com saldo decrescente
   let saldo = saldoAtual
@@ -110,7 +111,7 @@ export default function FinanceiroPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto text-white">
-      <h1 className="text-2xl font-bold mb-4 text-center">📊 Extrato Financeiro - {nomeTime}</h1>
+      <h1 className="text-2xl font-bold mb-4 text-center">📊 Extrato Financeiro - {session.nomeTime}</h1>
 
       <div className="bg-zinc-900 p-4 rounded-lg shadow-md mb-6">
         <ul className="space-y-2 text-base">
@@ -159,4 +160,5 @@ export default function FinanceiroPage() {
     </div>
   )
 }
+
 
