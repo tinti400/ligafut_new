@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useSession } from '@/hooks/useSession'
+import { formatarValor } from '@/utils/formatarValor'
+import Loading from '@/components/Loading'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,101 +12,140 @@ const supabase = createClient(
 )
 
 interface Movimentacao {
-  id: string
-  id_time: string
-  tipo: 'entrada' | 'saida'
+  data: string
+  tipo: string
   descricao: string
   valor: number
-  data: string
 }
 
-interface EventoBID {
-  id: string
-  id_time1: string
-  id_time2: string | null
-  valor: number | null
-  tipo_evento: string
-  data_evento: string
-}
-
-export default function PainelFinanceiroPage() {
-  const [compras, setCompras] = useState<number>(0)
-  const [vendas, setVendas] = useState<number>(0)
-  const [saldo, setSaldo] = useState<number>(0)
-  const [idTime, setIdTime] = useState<string>('')
+export default function FinanceiroPage() {
+  const { usuario, idTime, isAdmin, nomeTime } = useSession()
+  const [movs, setMovs] = useState<Movimentacao[]>([])
+  const [saldoAtual, setSaldoAtual] = useState<number>(0)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const id_time = localStorage.getItem('id_time') || ''
-    setIdTime(id_time)
-    if (!id_time) return
+    if (idTime) carregarDados()
+  }, [idTime])
 
-    buscarBID(id_time)
-    buscarMovimentacoes(id_time)
-  }, [])
+  async function carregarDados() {
+    setLoading(true)
 
-  async function buscarBID(id_time: string) {
-    const { data, error } = await supabase
-      .from('BID')
+    // Saldo atual
+    const { data: timeData } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', idTime)
+      .single()
+    setSaldoAtual(timeData?.saldo || 0)
+
+    // Movimentações
+    const { data: movimentacoes } = await supabase
+      .from('movimentacoes_financeiras')
       .select('*')
-      .or(`id_time1.eq.${id_time},id_time2.eq.${id_time}`)
+      .eq('id_time', idTime)
+      .order('data', { ascending: false })
 
-    if (error) {
-      console.error('Erro ao buscar BID:', error)
-      return
-    }
-
-    const eventos = data as EventoBID[]
-
-    const totalCompras = eventos
-      .filter((e) => e.id_time1 === id_time && e.valor && e.tipo_evento === 'compra')
-      .reduce((acc, e) => acc + (e.valor || 0), 0)
-
-    const totalVendas = eventos
-      .filter((e) => e.id_time2 === id_time && e.valor && e.tipo_evento === 'venda')
-      .reduce((acc, e) => acc + (e.valor || 0), 0)
-
-    setCompras(totalCompras)
-    setVendas(totalVendas)
+    setMovs(movimentacoes || [])
+    setLoading(false)
   }
 
-  async function buscarMovimentacoes(id_time: string) {
-    const { data, error } = await supabase
+  if (loading) return <Loading />
+
+  let saldo = saldoAtual
+  const extrato = movs.map((mov) => {
+    const valor = mov.valor || 0
+    const anterior = saldo - (mov.tipo === 'entrada' ? valor : -valor)
+    const atual = saldo
+    saldo = anterior
+
+    return {
+      ...mov,
+      caixa_anterior: anterior,
+      caixa_atual: atual
+    }
+  })
+
+  const totais = {
+    compras: somar('compra de'),
+    vendas: somar('venda de'),
+    leiloes: somarPersonalizado('leilao', 'compra'),
+    salario: somar('pagamento de salário'),
+    bonus: somar('bônus de gols'),
+    premiacao: somar('premiação por resultado')
+  }
+
+  function somar(palavra: string) {
+    return movs
+      .filter((m) => m.descricao?.toLowerCase().includes(palavra))
+      .reduce((acc, m) => acc + (m.valor || 0), 0)
+  }
+
+  async function somarPersonalizado(categoria: string, tipo: string) {
+    const { data } = await supabase
       .from('movimentacoes')
-      .select('*')
-      .eq('id_time', id_time)
+      .select('valor')
+      .eq('id_time', idTime)
+      .eq('categoria', categoria)
+      .eq('tipo', tipo)
 
-    if (error) {
-      console.error('Erro ao buscar movimentações:', error)
-      return
-    }
-
-    const saldoAtual = (data as Movimentacao[]).reduce((acc: number, mov: Movimentacao) => {
-      return mov.tipo === 'entrada' ? acc + mov.valor : acc - mov.valor
-    }, 0)
-
-    setSaldo(saldoAtual)
+    return data?.reduce((acc: number, item: any) => acc + Math.abs(item.valor || 0), 0) || 0
   }
+
+  const totalGeral =
+    totais.vendas +
+    totais.bonus +
+    totais.premiacao -
+    totais.salario -
+    totais.compras -
+    totais.leiloes
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-6">💰 Painel Financeiro</h1>
+    <div className="p-6 max-w-5xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">📊 Extrato Financeiro - {nomeTime}</h1>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-red-200 p-4 rounded text-center">
-          <p className="text-lg font-semibold">Total Gasto em Compras</p>
-          <p className="text-2xl text-red-700 font-bold">- R$ {compras.toLocaleString('pt-BR')}</p>
-        </div>
-
-        <div className="bg-green-200 p-4 rounded text-center">
-          <p className="text-lg font-semibold">Total Recebido em Vendas</p>
-          <p className="text-2xl text-green-700 font-bold">+ R$ {vendas.toLocaleString('pt-BR')}</p>
-        </div>
-
-        <div className="bg-blue-200 p-4 rounded text-center">
-          <p className="text-lg font-semibold">Saldo Atual</p>
-          <p className="text-2xl text-blue-700 font-bold">R$ {saldo.toLocaleString('pt-BR')}</p>
-        </div>
+      <div className="bg-white p-4 rounded shadow-md mb-6">
+        <ul className="space-y-2 text-lg">
+          <li>🛒 Compras: <span className="text-red-500">{formatarValor(totais.compras, true)}</span></li>
+          <li>📤 Vendas: <span className="text-green-600">{formatarValor(totais.vendas)}</span></li>
+          <li>📣 Leilões: <span className="text-red-500">{formatarValor(totais.leiloes, true)}</span></li>
+          <li>🥅 Bônus: <span className="text-green-600">{formatarValor(totais.bonus)}</span></li>
+          <li>🏆 Premiações: <span className="text-green-600">{formatarValor(totais.premiacao)}</span></li>
+          <li>💼 Salários: <span className="text-red-500">{formatarValor(totais.salario, true)}</span></li>
+        </ul>
+        <p className="mt-4 text-xl">
+          💰 Total Geral:{" "}
+          <span className={totalGeral >= 0 ? 'text-green-600' : 'text-red-600'}>
+            {formatarValor(totalGeral, totalGeral < 0)}
+          </span>
+        </p>
+        <p className="text-sm text-gray-600">📦 Saldo atual: {formatarValor(saldoAtual)}</p>
       </div>
+
+      <table className="w-full table-auto text-sm border">
+        <thead className="bg-gray-200">
+          <tr>
+            <th className="p-2">📅 Data</th>
+            <th className="p-2">📌 Tipo</th>
+            <th className="p-2">📝 Descrição</th>
+            <th className="p-2">💸 Valor</th>
+            <th className="p-2">📦 Caixa Anterior</th>
+            <th className="p-2">💰 Caixa Atual</th>
+          </tr>
+        </thead>
+        <tbody>
+          {extrato.map((mov, idx) => (
+            <tr key={idx} className="border-t">
+              <td className="p-2">{new Date(mov.data).toLocaleString()}</td>
+              <td className="p-2">{mov.tipo}</td>
+              <td className="p-2">{mov.descricao}</td>
+              <td className="p-2">{formatarValor(mov.valor, mov.tipo === 'saida')}</td>
+              <td className="p-2">{formatarValor(mov.caixa_anterior)}</td>
+              <td className="p-2">{formatarValor(mov.caixa_atual)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
