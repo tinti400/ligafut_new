@@ -13,11 +13,15 @@ const supabase = createClient(
 export default function FaseLigaAdminPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<any[]>([])
+  const [timesMap, setTimesMap] = useState<Record<string, { logo_url: string }>>({})
   const [loading, setLoading] = useState(true)
   const [salvandoId, setSalvandoId] = useState<number | null>(null)
 
   useEffect(() => {
-    if (isAdmin) buscarJogos()
+    if (isAdmin) {
+      buscarJogos()
+      buscarLogos()
+    }
   }, [isAdmin])
 
   async function buscarJogos() {
@@ -34,6 +38,17 @@ export default function FaseLigaAdminPage() {
     }
 
     setLoading(false)
+  }
+
+  async function buscarLogos() {
+    const { data, error } = await supabase.from('times').select('nome, logo_url')
+    if (data) {
+      const map: Record<string, { logo_url: string }> = {}
+      data.forEach((t) => {
+        map[t.nome] = { logo_url: t.logo_url }
+      })
+      setTimesMap(map)
+    }
   }
 
   async function salvarPlacar(jogo: any) {
@@ -59,50 +74,68 @@ export default function FaseLigaAdminPage() {
   if (!isAdmin) return <div className="p-4 text-red-600">⛔ Acesso restrito!</div>
 
   return (
-    <div className="p-4 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">🏆 Administração – Fase Liga</h1>
+    <div className="p-4 max-w-4xl mx-auto">
+      <h1 className="text-3xl font-extrabold mb-6 text-center text-yellow-400">🏆 Administração – Fase Liga</h1>
 
       {loading ? (
-        <div className="text-center">🔄 Carregando jogos...</div>
+        <div className="text-center text-white">🔄 Carregando jogos...</div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {jogos.map((jogo) => (
             <div
               key={jogo.id}
-              className="flex flex-wrap sm:flex-nowrap items-center gap-3 bg-gray-100 p-3 rounded shadow"
+              className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-white p-4 rounded-lg shadow border"
             >
-              <span className="font-medium w-32 text-right">{jogo.time1}</span>
+              {/* Time 1 */}
+              <div className="flex items-center gap-2 w-40">
+                <img
+                  src={timesMap[jogo.time1]?.logo_url || '/default.png'}
+                  alt={jogo.time1}
+                  className="w-8 h-8 rounded-full border object-cover"
+                />
+                <span className="font-semibold">{jogo.time1}</span>
+              </div>
 
-              <input
-                type="number"
-                className="w-14 border rounded px-1 text-center"
-                placeholder="0"
-                value={jogo.gols_time1 ?? ''}
-                onChange={(e) => {
-                  const valor = parseInt(e.target.value || '0')
-                  setJogos((prev) =>
-                    prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: valor } : j)
-                  )
-                }}
-              />
+              {/* Placar */}
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  className="w-14 border rounded text-center"
+                  placeholder="0"
+                  value={jogo.gols_time1 ?? ''}
+                  onChange={(e) => {
+                    const valor = parseInt(e.target.value || '0')
+                    setJogos((prev) =>
+                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: valor } : j)
+                    )
+                  }}
+                />
+                <span className="font-bold text-gray-700">x</span>
+                <input
+                  type="number"
+                  className="w-14 border rounded text-center"
+                  placeholder="0"
+                  value={jogo.gols_time2 ?? ''}
+                  onChange={(e) => {
+                    const valor = parseInt(e.target.value || '0')
+                    setJogos((prev) =>
+                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: valor } : j)
+                    )
+                  }}
+                />
+              </div>
 
-              <span className="font-bold text-gray-600">x</span>
+              {/* Time 2 */}
+              <div className="flex items-center gap-2 w-40 justify-end">
+                <span className="font-semibold">{jogo.time2}</span>
+                <img
+                  src={timesMap[jogo.time2]?.logo_url || '/default.png'}
+                  alt={jogo.time2}
+                  className="w-8 h-8 rounded-full border object-cover"
+                />
+              </div>
 
-              <input
-                type="number"
-                className="w-14 border rounded px-1 text-center"
-                placeholder="0"
-                value={jogo.gols_time2 ?? ''}
-                onChange={(e) => {
-                  const valor = parseInt(e.target.value || '0')
-                  setJogos((prev) =>
-                    prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: valor } : j)
-                  )
-                }}
-              />
-
-              <span className="font-medium w-32">{jogo.time2}</span>
-
+              {/* Botão */}
               <button
                 className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded disabled:opacity-50"
                 onClick={() => salvarPlacar(jogo)}
