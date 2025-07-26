@@ -130,6 +130,7 @@ export default function Sidebar() {
                 <Link href="/propostas_enviadas" className="block hover:text-green-400">📤 Propostas Enviadas</Link>
                 <Link href="/estadio" className="block hover:text-green-400">🏟️ Estádio</Link>
                 <Link href="/banco" className="block hover:text-green-400">🏦 Banco</Link>
+                <Link href="/financeiro" className="block hover:text-green-400">📊 Financeiro</Link>
               </div>
             )}
           </div>
