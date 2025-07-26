@@ -71,7 +71,7 @@ export default function FinanceiroPage() {
 
   if (carregandoSession || loading || !idTime) return <Loading />
 
-  // Gerar extrato com saldo
+  // Gerar extrato com saldo decrescente
   let saldo = saldoAtual
   const extrato = movs.map((mov) => {
     const valor = mov.valor || 0
@@ -86,7 +86,6 @@ export default function FinanceiroPage() {
     }
   })
 
-  // Somar por tipo
   function somar(palavra: string) {
     return movs
       .filter((m) => m.descricao?.toLowerCase().includes(palavra))
@@ -160,3 +159,4 @@ export default function FinanceiroPage() {
     </div>
   )
 }
+
