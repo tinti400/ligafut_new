@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { useSession } from '@/hooks/useSession'
+import useSession from '@/hooks/useSession'
 import { formatarValor } from '@/utils/formatarValor'
 import Loading from '@/components/Loading'
 
@@ -24,6 +24,8 @@ export default function FinanceiroPage() {
   const [saldoAtual, setSaldoAtual] = useState<number>(0)
   const [loading, setLoading] = useState(true)
 
+  const [totalLeiloes, setTotalLeiloes] = useState(0)
+
   useEffect(() => {
     if (idTime) carregarDados()
   }, [idTime])
@@ -31,15 +33,14 @@ export default function FinanceiroPage() {
   async function carregarDados() {
     setLoading(true)
 
-    // Saldo atual
     const { data: timeData } = await supabase
       .from('times')
       .select('saldo')
       .eq('id', idTime)
       .single()
+
     setSaldoAtual(timeData?.saldo || 0)
 
-    // Movimentações
     const { data: movimentacoes } = await supabase
       .from('movimentacoes_financeiras')
       .select('*')
@@ -47,6 +48,18 @@ export default function FinanceiroPage() {
       .order('data', { ascending: false })
 
     setMovs(movimentacoes || [])
+
+    // Calcular leilões à parte
+    const { data: leiloes } = await supabase
+      .from('movimentacoes')
+      .select('valor')
+      .eq('id_time', idTime)
+      .eq('categoria', 'leilao')
+      .eq('tipo', 'compra')
+
+    const total = leiloes?.reduce((acc, item) => acc + Math.abs(item.valor || 0), 0) || 0
+    setTotalLeiloes(total)
+
     setLoading(false)
   }
 
@@ -66,30 +79,18 @@ export default function FinanceiroPage() {
     }
   })
 
-  const totais = {
-    compras: somar('compra de'),
-    vendas: somar('venda de'),
-    leiloes: somarPersonalizado('leilao', 'compra'),
-    salario: somar('pagamento de salário'),
-    bonus: somar('bônus de gols'),
-    premiacao: somar('premiação por resultado')
-  }
-
   function somar(palavra: string) {
     return movs
       .filter((m) => m.descricao?.toLowerCase().includes(palavra))
       .reduce((acc, m) => acc + (m.valor || 0), 0)
   }
 
-  async function somarPersonalizado(categoria: string, tipo: string) {
-    const { data } = await supabase
-      .from('movimentacoes')
-      .select('valor')
-      .eq('id_time', idTime)
-      .eq('categoria', categoria)
-      .eq('tipo', tipo)
-
-    return data?.reduce((acc: number, item: any) => acc + Math.abs(item.valor || 0), 0) || 0
+  const totais = {
+    compras: somar('compra de'),
+    vendas: somar('venda de'),
+    salario: somar('pagamento de salário'),
+    bonus: somar('bônus de gols'),
+    premiacao: somar('premiação por resultado')
   }
 
   const totalGeral =
@@ -98,7 +99,7 @@ export default function FinanceiroPage() {
     totais.premiacao -
     totais.salario -
     totais.compras -
-    totais.leiloes
+    totalLeiloes
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -108,13 +109,13 @@ export default function FinanceiroPage() {
         <ul className="space-y-2 text-lg">
           <li>🛒 Compras: <span className="text-red-500">{formatarValor(totais.compras, true)}</span></li>
           <li>📤 Vendas: <span className="text-green-600">{formatarValor(totais.vendas)}</span></li>
-          <li>📣 Leilões: <span className="text-red-500">{formatarValor(totais.leiloes, true)}</span></li>
+          <li>📣 Leilões: <span className="text-red-500">{formatarValor(totalLeiloes, true)}</span></li>
           <li>🥅 Bônus: <span className="text-green-600">{formatarValor(totais.bonus)}</span></li>
           <li>🏆 Premiações: <span className="text-green-600">{formatarValor(totais.premiacao)}</span></li>
           <li>💼 Salários: <span className="text-red-500">{formatarValor(totais.salario, true)}</span></li>
         </ul>
         <p className="mt-4 text-xl">
-          💰 Total Geral:{" "}
+          💰 Total Geral:{' '}
           <span className={totalGeral >= 0 ? 'text-green-600' : 'text-red-600'}>
             {formatarValor(totalGeral, totalGeral < 0)}
           </span>
