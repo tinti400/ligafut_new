@@ -154,7 +154,16 @@ export default function ClassificacaoPage() {
                   {timesDaDivisao
                     .sort((a, b) => b.pontos - a.pontos || b.saldo_gols! - a.saldo_gols!)
                     .map((item, index) => (
-                      <tr key={item.id_time} className="border-b border-gray-700 hover:bg-gray-700">
+                      <tr
+                        key={item.id_time}
+                        className={`border-b border-gray-700 ${
+                          index < 16
+                            ? 'bg-green-700 hover:bg-green-600'
+                            : index < 24
+                            ? 'bg-yellow-700 hover:bg-yellow-600'
+                            : 'bg-red-700 hover:bg-red-600'
+                        }`}
+                      >
                         <td className="py-2 px-4">{index + 1}º</td>
                         <td className="py-2 px-4 flex items-center gap-2">
                           <img src={item.times.logo_url} alt={item.times.nome} className="w-6 h-6" />
@@ -189,3 +198,4 @@ export default function ClassificacaoPage() {
     </div>
   )
 }
+
