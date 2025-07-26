@@ -14,15 +14,14 @@ export default function FaseLigaAdminPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<any[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, { logo_url: string }>>({})
+  const [filtroTime, setFiltroTime] = useState<string>('Todos')
   const [loading, setLoading] = useState(true)
   const [salvandoId, setSalvandoId] = useState<number | null>(null)
 
   useEffect(() => {
-    if (isAdmin) {
-      buscarJogos()
-      buscarLogos()
-    }
-  }, [isAdmin])
+    buscarJogos()
+    buscarLogos()
+  }, [])
 
   async function buscarJogos() {
     setLoading(true)
@@ -102,20 +101,41 @@ export default function FaseLigaAdminPage() {
     buscarJogos()
   }
 
-  if (!isAdmin) return <div className="p-4 text-red-400 bg-zinc-900 min-h-screen">⛔ Acesso restrito!</div>
+  // Agrupar jogos por rodada com filtro aplicado
+  const jogosFiltrados = jogos.filter((jogo) =>
+    filtroTime === 'Todos' ||
+    jogo.time1 === filtroTime ||
+    jogo.time2 === filtroTime
+  )
 
-  // Agrupar os jogos por rodada
   const jogosPorRodada: Record<number, any[]> = {}
-  jogos.forEach((jogo) => {
+  jogosFiltrados.forEach((jogo) => {
     if (!jogosPorRodada[jogo.rodada]) {
       jogosPorRodada[jogo.rodada] = []
     }
     jogosPorRodada[jogo.rodada].push(jogo)
   })
 
+  const nomesDosTimes = Array.from(new Set(jogos.map((j) => j.time1).concat(jogos.map((j) => j.time2)))).sort()
+
   return (
     <div className="p-4 max-w-5xl mx-auto bg-zinc-900 min-h-screen text-white">
       <h1 className="text-3xl font-extrabold mb-6 text-center text-yellow-400">🏆 Administração – Fase Liga</h1>
+
+      {/* Filtro por time */}
+      <div className="mb-6 text-center">
+        <label className="mr-2">Filtrar por time:</label>
+        <select
+          value={filtroTime}
+          onChange={(e) => setFiltroTime(e.target.value)}
+          className="bg-zinc-800 border border-zinc-600 text-white rounded px-2 py-1"
+        >
+          <option value="Todos">Todos</option>
+          {nomesDosTimes.map((nome) => (
+            <option key={nome} value={nome}>{nome}</option>
+          ))}
+        </select>
+      </div>
 
       {loading ? (
         <div className="text-center text-gray-300">🔄 Carregando jogos...</div>
@@ -152,6 +172,7 @@ export default function FaseLigaAdminPage() {
                           prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: valor } : j)
                         )
                       }}
+                      disabled={!isAdmin}
                     />
                     <span className="font-bold text-white">x</span>
                     <input
@@ -165,6 +186,7 @@ export default function FaseLigaAdminPage() {
                           prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: valor } : j)
                         )
                       }}
+                      disabled={!isAdmin}
                     />
                   </div>
 
@@ -178,23 +200,25 @@ export default function FaseLigaAdminPage() {
                     />
                   </div>
 
-                  {/* Botões */}
-                  <div className="flex gap-2">
-                    <button
-                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded disabled:opacity-50"
-                      onClick={() => salvarPlacar(jogo)}
-                      disabled={salvandoId === jogo.id}
-                    >
-                      {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
-                    </button>
-                    <button
-                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded disabled:opacity-50"
-                      onClick={() => excluirPlacar(jogo)}
-                      disabled={salvandoId === jogo.id}
-                    >
-                      {salvandoId === jogo.id ? 'Excluindo...' : 'Excluir'}
-                    </button>
-                  </div>
+                  {/* Botões (visíveis apenas para admin) */}
+                  {isAdmin && (
+                    <div className="flex gap-2">
+                      <button
+                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded disabled:opacity-50"
+                        onClick={() => salvarPlacar(jogo)}
+                        disabled={salvandoId === jogo.id}
+                      >
+                        {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
+                      </button>
+                      <button
+                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded disabled:opacity-50"
+                        onClick={() => excluirPlacar(jogo)}
+                        disabled={salvandoId === jogo.id}
+                      >
+                        {salvandoId === jogo.id ? 'Excluindo...' : 'Excluir'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
