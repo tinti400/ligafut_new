@@ -44,20 +44,28 @@ export async function GET(req: NextRequest) {
     if (jogos.length >= ((times.length * 8) / 2)) break
   }
 
+  // Limpa os jogos anteriores
   await supabase.from('copa_fase_liga').delete().neq('id', 0)
+
+  // Divide em rodadas (8 jogos por rodada = 15 rodadas)
+  const jogosComRodada = jogos.map((jogo, index) => ({
+    ...jogo,
+    gols_time1: null,
+    gols_time2: null,
+    rodada: Math.floor(index / 8) + 1
+  }))
 
   const { error: insertError } = await supabase
     .from('copa_fase_liga')
-    .insert(jogos.map(j => ({
-      time1: j.time1,
-      time2: j.time2,
-      gols_time1: null,
-      gols_time2: null,
-    })))
+    .insert(jogosComRodada)
 
   if (insertError) {
     return NextResponse.json({ erro: 'Erro ao inserir jogos', detalhes: insertError.message }, { status: 500 })
   }
 
-  return NextResponse.json({ mensagem: '✅ Jogos sorteados com sucesso!', total: jogos.length })
+  return NextResponse.json({
+    mensagem: '✅ Jogos sorteados com sucesso!',
+    total: jogos.length,
+    rodadas: Math.ceil(jogos.length / 8)
+  })
 }
