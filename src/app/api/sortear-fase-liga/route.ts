@@ -7,9 +7,11 @@ const supabase = createClient(
 )
 
 export async function GET(req: NextRequest) {
+  // Busca apenas os times com divisão preenchida
   const { data: times, error } = await supabase
     .from('times')
     .select('nome')
+    .not('divisao', 'is', null)
 
   if (error || !times) {
     return NextResponse.json({ erro: 'Erro ao buscar times', detalhes: error?.message }, { status: 500 })
@@ -23,7 +25,7 @@ export async function GET(req: NextRequest) {
   }
 
   while (true) {
-    const restantes = times.filter(t => jogosPorTime[t.nome] < 6)
+    const restantes = times.filter(t => jogosPorTime[t.nome] < 8)
     if (restantes.length < 2) break
 
     const embaralhados = [...restantes].sort(() => Math.random() - 0.5)
@@ -39,13 +41,11 @@ export async function GET(req: NextRequest) {
       jogosPorTime[b.nome]++
     }
 
-    if (jogos.length >= 120) break
+    if (jogos.length >= ((times.length * 8) / 2)) break
   }
 
-  // Limpa jogos anteriores (opcional)
   await supabase.from('copa_fase_liga').delete().neq('id', 0)
 
-  // Insere os jogos
   const { error: insertError } = await supabase
     .from('copa_fase_liga')
     .insert(jogos.map(j => ({
