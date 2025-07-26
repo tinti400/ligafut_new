@@ -19,23 +19,23 @@ interface Movimentacao {
 }
 
 export default function FinanceiroPage() {
-  const session = useSession()
-  const { usuario, idTime, isAdmin, nomeTime } = session || {}
+  const { session, loading } = useSession()
+
+  if (loading || !session?.idTime) return <Loading />
+
+  const { usuario, idTime, isAdmin, nomeTime } = session
 
   const [movs, setMovs] = useState<Movimentacao[]>([])
   const [saldoAtual, setSaldoAtual] = useState<number>(0)
-  const [loading, setLoading] = useState(true)
   const [totalLeiloes, setTotalLeiloes] = useState(0)
-
-  // Aguarda carregar sessão com idTime válido
-  if (!idTime) return <Loading />
+  const [loadingDados, setLoadingDados] = useState(true)
 
   useEffect(() => {
     carregarDados()
   }, [idTime])
 
   async function carregarDados() {
-    setLoading(true)
+    setLoadingDados(true)
 
     const { data: timeData } = await supabase
       .from('times')
@@ -63,10 +63,10 @@ export default function FinanceiroPage() {
     const total = leiloes?.reduce((acc, item) => acc + Math.abs(item.valor || 0), 0) || 0
     setTotalLeiloes(total)
 
-    setLoading(false)
+    setLoadingDados(false)
   }
 
-  if (loading) return <Loading />
+  if (loadingDados) return <Loading />
 
   let saldo = saldoAtual
   const extrato = movs.map((mov) => {
