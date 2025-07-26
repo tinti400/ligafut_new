@@ -14,27 +14,23 @@ export default function useSession() {
   const [loading, setLoading] = useState<boolean>(true)
 
   useEffect(() => {
-    // Evita execução no lado do servidor
-    if (typeof window === 'undefined') return
+    // Executa apenas no lado do cliente
+    if (typeof window !== 'undefined') {
+      const usuario = localStorage.getItem('usuario') || ''
+      const idTime = localStorage.getItem('id_time') || ''
+      const nomeTime = localStorage.getItem('nome_time') || ''
+      const isAdmin = localStorage.getItem('admin') === 'true'
 
-    const usuario = localStorage.getItem('usuario')
-    const idTime = localStorage.getItem('id_time')
-    const nomeTime = localStorage.getItem('nome_time')
-    const isAdmin = localStorage.getItem('admin') === 'true'
+      if (usuario && idTime) {
+        setSession({ usuario, idTime, nomeTime, isAdmin })
+      } else {
+        setSession(null)
+      }
 
-    if (usuario && idTime) {
-      setSession({
-        usuario,
-        idTime,
-        nomeTime: nomeTime || '',
-        isAdmin,
-      })
-    } else {
-      setSession(null)
+      setLoading(false)
     }
-
-    setLoading(false)
   }, [])
 
   return { session, loading }
 }
+
