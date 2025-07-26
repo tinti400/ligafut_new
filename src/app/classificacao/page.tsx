@@ -83,9 +83,9 @@ export default function ClassificacaoPage() {
 
   return (
     <div className="max-w-6xl mx-auto mt-10 px-4 text-white">
-      <h1 className="text-3xl font-bold mb-6">🏆 Classificação</h1>
+      <h1 className="text-3xl font-bold mb-6 text-center text-yellow-400">🏆 Classificação da Liga</h1>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex gap-2 justify-center">
         {[1, 2].map((temp) => (
           <button
             key={temp}
@@ -100,7 +100,7 @@ export default function ClassificacaoPage() {
       </div>
 
       {isAdmin && (
-        <div className="mb-4">
+        <div className="mb-6 text-center">
           <button
             onClick={iniciarNovaTemporada}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
@@ -110,7 +110,7 @@ export default function ClassificacaoPage() {
         </div>
       )}
 
-      <div className="mb-6 flex flex-wrap gap-3">
+      <div className="mb-6 flex flex-wrap justify-center gap-3">
         {divisoesDisponiveis.map((div) => (
           <button
             key={div}
@@ -132,63 +132,69 @@ export default function ClassificacaoPage() {
         divisaoSelecionada &&
         timesDaDivisao.length > 0 && (
           <div>
-            <h2 className="text-2xl font-semibold mb-4">Divisão {divisaoSelecionada}</h2>
+            <h2 className="text-2xl font-semibold mb-4 text-center">
+              📊 Divisão {divisaoSelecionada}
+            </h2>
             <div className="overflow-x-auto">
-              <table className="min-w-full bg-gray-800 rounded-lg shadow-md text-sm">
-                <thead className="bg-gray-700 text-gray-300">
+              <table className="min-w-full bg-gray-900 rounded-lg shadow-md text-sm">
+                <thead className="bg-black text-yellow-400 border-b border-gray-600">
                   <tr>
-                    <th className="py-2 px-4 text-left">Posição</th>
+                    <th className="py-2 px-4 text-left">#</th>
                     <th className="py-2 px-4 text-left">Time</th>
                     <th className="py-2 px-4 text-center">Pts</th>
                     <th className="py-2 px-4 text-center">J</th>
-                    <th className="py-2 px-4 text-center">VIT</th>
+                    <th className="py-2 px-4 text-center">V</th>
                     <th className="py-2 px-4 text-center">E</th>
-                    <th className="py-2 px-4 text-center">DER</th>
+                    <th className="py-2 px-4 text-center">D</th>
                     <th className="py-2 px-4 text-center">GP</th>
                     <th className="py-2 px-4 text-center">GC</th>
                     <th className="py-2 px-4 text-center">SG</th>
-                    {isAdmin && <th className="py-2 px-4 text-center">Editar</th>}
+                    {isAdmin && <th className="py-2 px-4 text-center">✏️</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {timesDaDivisao
                     .sort((a, b) => b.pontos - a.pontos || b.saldo_gols! - a.saldo_gols!)
-                    .map((item, index) => (
-                      <tr
-                        key={item.id_time}
-                        className={`border-b border-gray-700 ${
-                          index < 16
-                            ? 'bg-green-700 hover:bg-green-600'
-                            : index < 24
-                            ? 'bg-yellow-700 hover:bg-yellow-600'
-                            : 'bg-red-700 hover:bg-red-600'
-                        }`}
-                      >
-                        <td className="py-2 px-4">{index + 1}º</td>
-                        <td className="py-2 px-4 flex items-center gap-2">
-                          <img src={item.times.logo_url} alt={item.times.nome} className="w-6 h-6" />
-                          {item.times.nome}
-                        </td>
-                        <td className="py-2 px-4 text-center">{item.pontos}</td>
-                        <td className="py-2 px-4 text-center">{item.jogos}</td>
-                        <td className="py-2 px-4 text-center">{item.vitorias}</td>
-                        <td className="py-2 px-4 text-center">{item.empates}</td>
-                        <td className="py-2 px-4 text-center">{item.derrotas}</td>
-                        <td className="py-2 px-4 text-center">{item.gols_pro}</td>
-                        <td className="py-2 px-4 text-center">{item.gols_contra}</td>
-                        <td className="py-2 px-4 text-center">{item.saldo_gols}</td>
-                        {isAdmin && (
-                          <td className="py-2 px-4 text-center">
-                            <button
-                              onClick={() => editarClassificacao(item)}
-                              className="text-yellow-400 hover:text-yellow-500 text-xs"
-                            >
-                              ✏️
-                            </button>
+                    .map((item, index) => {
+                      const cor =
+                        index < 16
+                          ? 'bg-green-700 hover:bg-green-600'
+                          : index < 24
+                          ? 'bg-yellow-700 hover:bg-yellow-600'
+                          : 'bg-red-700 hover:bg-red-600'
+
+                      return (
+                        <tr key={item.id_time} className={`border-b border-gray-700 ${cor}`}>
+                          <td className="py-2 px-4">{index + 1}º</td>
+                          <td className="py-2 px-4 flex items-center gap-2">
+                            <img
+                              src={item.times.logo_url}
+                              alt={item.times.nome}
+                              className="w-6 h-6 rounded-full"
+                            />
+                            {item.times.nome}
                           </td>
-                        )}
-                      </tr>
-                    ))}
+                          <td className="py-2 px-4 text-center">{item.pontos}</td>
+                          <td className="py-2 px-4 text-center">{item.jogos}</td>
+                          <td className="py-2 px-4 text-center">{item.vitorias}</td>
+                          <td className="py-2 px-4 text-center">{item.empates}</td>
+                          <td className="py-2 px-4 text-center">{item.derrotas}</td>
+                          <td className="py-2 px-4 text-center">{item.gols_pro}</td>
+                          <td className="py-2 px-4 text-center">{item.gols_contra}</td>
+                          <td className="py-2 px-4 text-center">{item.saldo_gols}</td>
+                          {isAdmin && (
+                            <td className="py-2 px-4 text-center">
+                              <button
+                                onClick={() => editarClassificacao(item)}
+                                className="text-yellow-400 hover:text-yellow-500 text-xs"
+                              >
+                                ✏️
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>
@@ -198,4 +204,3 @@ export default function ClassificacaoPage() {
     </div>
   )
 }
-
