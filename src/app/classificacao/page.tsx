@@ -142,6 +142,7 @@ export default function ClassificacaoPage() {
                     <th className="py-2 px-4 text-left">#</th>
                     <th className="py-2 px-4 text-left">Time</th>
                     <th className="py-2 px-4 text-center">Pts</th>
+                    <th className="py-2 px-4 text-center">Aprove.</th>
                     <th className="py-2 px-4 text-center">J</th>
                     <th className="py-2 px-4 text-center">V</th>
                     <th className="py-2 px-4 text-center">E</th>
@@ -155,17 +156,35 @@ export default function ClassificacaoPage() {
                 <tbody>
                   {timesDaDivisao
                     .sort((a, b) => b.pontos - a.pontos || b.saldo_gols! - a.saldo_gols!)
-                    .map((item, index) => {
+                    .map((item, index, arr) => {
+                      const ultima = arr.length - 1
+                      const penultima = arr.length - 2
+                      const antepenultima = arr.length - 3
+
                       const cor =
-                        index < 16
+                        index === 0
                           ? 'bg-green-700 hover:bg-green-600'
-                          : index < 24
+                          : index === antepenultima
                           ? 'bg-yellow-700 hover:bg-yellow-600'
-                          : 'bg-red-700 hover:bg-red-600'
+                          : index === penultima || index === ultima
+                          ? 'bg-red-700 hover:bg-red-600'
+                          : 'hover:bg-gray-700'
+
+                      const aproveitamento =
+                        item.jogos > 0 ? Math.round((item.pontos / (item.jogos * 3)) * 100) : 0
+
+                      const icone =
+                        index === 0
+                          ? '🏆'
+                          : index === antepenultima
+                          ? '⚠️'
+                          : index === penultima || index === ultima
+                          ? '❌'
+                          : ''
 
                       return (
                         <tr key={item.id_time} className={`border-b border-gray-700 ${cor}`}>
-                          <td className="py-2 px-4">{index + 1}º</td>
+                          <td className="py-2 px-4">{index + 1}º {icone}</td>
                           <td className="py-2 px-4 flex items-center gap-2">
                             <img
                               src={item.times.logo_url}
@@ -175,6 +194,7 @@ export default function ClassificacaoPage() {
                             {item.times.nome}
                           </td>
                           <td className="py-2 px-4 text-center">{item.pontos}</td>
+                          <td className="py-2 px-4 text-center">{aproveitamento}%</td>
                           <td className="py-2 px-4 text-center">{item.jogos}</td>
                           <td className="py-2 px-4 text-center">{item.vitorias}</td>
                           <td className="py-2 px-4 text-center">{item.empates}</td>
