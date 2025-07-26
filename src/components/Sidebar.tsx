@@ -169,6 +169,7 @@ export default function Sidebar() {
             {abrirCopa && isOpen && (
               <div className="ml-4 mt-2 space-y-2 text-sm">
                 <Link href="/copa/fase_liga" className="block hover:text-green-400">📊 Fase Liga</Link>
+                <Link href="/copa/classificacao" className="block hover:text-green-400">📈 Classificação</Link>
                 <Link href="/copa/playoff" className="block hover:text-green-400">🎯 Playoff</Link>
                 <Link href="/copa/oitavas" className="block hover:text-green-400">🥇 Oitavas</Link>
                 <Link href="/copa/quartas" className="block hover:text-green-400">🥈 Quartas</Link>
