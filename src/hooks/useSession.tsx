@@ -11,18 +11,24 @@ interface SessionData {
 
 export default function useSession() {
   const [session, setSession] = useState<SessionData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState<boolean>(true)
 
   useEffect(() => {
+    // Evita execução no lado do servidor
     if (typeof window === 'undefined') return
 
-    const usuario = localStorage.getItem('usuario') || ''
-    const idTime = localStorage.getItem('id_time') || ''
-    const nomeTime = localStorage.getItem('nome_time') || ''
+    const usuario = localStorage.getItem('usuario')
+    const idTime = localStorage.getItem('id_time')
+    const nomeTime = localStorage.getItem('nome_time')
     const isAdmin = localStorage.getItem('admin') === 'true'
 
     if (usuario && idTime) {
-      setSession({ usuario, idTime, nomeTime, isAdmin })
+      setSession({
+        usuario,
+        idTime,
+        nomeTime: nomeTime || '',
+        isAdmin,
+      })
     } else {
       setSession(null)
     }
