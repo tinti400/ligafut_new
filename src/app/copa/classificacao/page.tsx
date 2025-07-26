@@ -56,6 +56,13 @@ export default function ClassificacaoCopaPage() {
     }
   }
 
+  const classificacaoOrdenada = [...classificacao].sort((a, b) => {
+    if (b.pontos !== a.pontos) return b.pontos - a.pontos
+    if (b.saldo !== a.saldo) return b.saldo - a.saldo
+    if (b.gols_pro !== a.gols_pro) return b.gols_pro - a.gols_pro
+    return b.vitorias - a.vitorias
+  })
+
   return (
     <div className="bg-zinc-900 text-white min-h-screen p-4 max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold text-center text-yellow-400 mb-6">🏆 Classificação – Fase Liga</h1>
@@ -70,17 +77,17 @@ export default function ClassificacaoCopaPage() {
                 <th className="px-3 py-2">#</th>
                 <th className="px-3 py-2">Time</th>
                 <th className="px-3 py-2 text-center">J</th>
+                <th className="px-3 py-2 text-center">Pts</th>
                 <th className="px-3 py-2 text-center">V</th>
                 <th className="px-3 py-2 text-center">E</th>
                 <th className="px-3 py-2 text-center">D</th>
                 <th className="px-3 py-2 text-center">GP</th>
                 <th className="px-3 py-2 text-center">GC</th>
                 <th className="px-3 py-2 text-center">SG</th>
-                <th className="px-3 py-2 text-center">Pts</th>
               </tr>
             </thead>
             <tbody>
-              {classificacao.map((linha, index) => {
+              {classificacaoOrdenada.map((linha, index) => {
                 const posicao = index + 1
                 const timeData = timesMap[linha.time]
                 const escudo = timeData?.logo_url || timeData?.logo
@@ -102,13 +109,13 @@ export default function ClassificacaoCopaPage() {
                       {linha.time}
                     </td>
                     <td className="px-3 py-2 text-center">{linha.jogos}</td>
+                    <td className="px-3 py-2 text-center font-bold text-white">{linha.pontos}</td>
                     <td className="px-3 py-2 text-center">{linha.vitorias}</td>
                     <td className="px-3 py-2 text-center">{linha.empates}</td>
                     <td className="px-3 py-2 text-center">{linha.derrotas}</td>
                     <td className="px-3 py-2 text-center">{linha.gols_pro}</td>
                     <td className="px-3 py-2 text-center">{linha.gols_contra}</td>
                     <td className="px-3 py-2 text-center">{linha.saldo}</td>
-                    <td className="px-3 py-2 text-center font-bold text-white">{linha.pontos}</td>
                   </tr>
                 )
               })}
