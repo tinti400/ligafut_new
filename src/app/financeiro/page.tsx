@@ -19,24 +19,25 @@ interface Movimentacao {
 }
 
 export default function FinanceiroPage() {
-  const { session, loading } = useSession()
-
-  if (loading || !session?.idTime) return <Loading />
-
-  const { usuario, idTime, isAdmin, nomeTime } = session
-
+  const { session, loading: carregandoSession } = useSession()
   const [movs, setMovs] = useState<Movimentacao[]>([])
   const [saldoAtual, setSaldoAtual] = useState<number>(0)
+  const [loading, setLoading] = useState(true)
   const [totalLeiloes, setTotalLeiloes] = useState(0)
-  const [loadingDados, setLoadingDados] = useState(true)
+
+  const idTime = session?.idTime
+  const nomeTime = session?.nomeTime
 
   useEffect(() => {
-    carregarDados()
-  }, [idTime])
+    if (!carregandoSession && idTime) {
+      carregarDados()
+    }
+  }, [idTime, carregandoSession])
 
   async function carregarDados() {
-    setLoadingDados(true)
+    setLoading(true)
 
+    // Saldo atual
     const { data: timeData } = await supabase
       .from('times')
       .select('saldo')
@@ -45,6 +46,7 @@ export default function FinanceiroPage() {
 
     setSaldoAtual(timeData?.saldo || 0)
 
+    // Movimentações financeiras
     const { data: movimentacoes } = await supabase
       .from('movimentacoes_financeiras')
       .select('*')
@@ -53,6 +55,7 @@ export default function FinanceiroPage() {
 
     setMovs(movimentacoes || [])
 
+    // Total gasto em leilões
     const { data: leiloes } = await supabase
       .from('movimentacoes')
       .select('valor')
@@ -63,11 +66,12 @@ export default function FinanceiroPage() {
     const total = leiloes?.reduce((acc, item) => acc + Math.abs(item.valor || 0), 0) || 0
     setTotalLeiloes(total)
 
-    setLoadingDados(false)
+    setLoading(false)
   }
 
-  if (loadingDados) return <Loading />
+  if (carregandoSession || loading || !idTime) return <Loading />
 
+  // Gerar extrato com saldo
   let saldo = saldoAtual
   const extrato = movs.map((mov) => {
     const valor = mov.valor || 0
@@ -82,6 +86,7 @@ export default function FinanceiroPage() {
     }
   })
 
+  // Somar por tipo
   function somar(palavra: string) {
     return movs
       .filter((m) => m.descricao?.toLowerCase().includes(palavra))
@@ -105,45 +110,47 @@ export default function FinanceiroPage() {
     totalLeiloes
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">📊 Extrato Financeiro - {nomeTime}</h1>
+    <div className="p-6 max-w-5xl mx-auto text-white">
+      <h1 className="text-2xl font-bold mb-4 text-center">📊 Extrato Financeiro - {nomeTime}</h1>
 
-      <div className="bg-white p-4 rounded shadow-md mb-6">
-        <ul className="space-y-2 text-lg">
+      <div className="bg-zinc-900 p-4 rounded-lg shadow-md mb-6">
+        <ul className="space-y-2 text-base">
           <li>🛒 Compras: <span className="text-red-500">{formatarValor(totais.compras, true)}</span></li>
-          <li>📤 Vendas: <span className="text-green-600">{formatarValor(totais.vendas)}</span></li>
+          <li>📤 Vendas: <span className="text-green-400">{formatarValor(totais.vendas)}</span></li>
           <li>📣 Leilões: <span className="text-red-500">{formatarValor(totalLeiloes, true)}</span></li>
-          <li>🥅 Bônus: <span className="text-green-600">{formatarValor(totais.bonus)}</span></li>
-          <li>🏆 Premiações: <span className="text-green-600">{formatarValor(totais.premiacao)}</span></li>
+          <li>🥅 Bônus: <span className="text-green-400">{formatarValor(totais.bonus)}</span></li>
+          <li>🏆 Premiações: <span className="text-green-400">{formatarValor(totais.premiacao)}</span></li>
           <li>💼 Salários: <span className="text-red-500">{formatarValor(totais.salario, true)}</span></li>
         </ul>
         <p className="mt-4 text-xl">
           💰 Total Geral:{' '}
-          <span className={totalGeral >= 0 ? 'text-green-600' : 'text-red-600'}>
+          <span className={totalGeral >= 0 ? 'text-green-400' : 'text-red-500'}>
             {formatarValor(totalGeral, totalGeral < 0)}
           </span>
         </p>
-        <p className="text-sm text-gray-600">📦 Saldo atual: {formatarValor(saldoAtual)}</p>
+        <p className="text-sm text-gray-400">📦 Saldo atual: {formatarValor(saldoAtual)}</p>
       </div>
 
-      <table className="w-full table-auto text-sm border">
-        <thead className="bg-gray-200">
+      <table className="w-full text-sm table-auto border-collapse border border-gray-700">
+        <thead className="bg-zinc-800">
           <tr>
-            <th className="p-2">📅 Data</th>
-            <th className="p-2">📌 Tipo</th>
-            <th className="p-2">📝 Descrição</th>
-            <th className="p-2">💸 Valor</th>
-            <th className="p-2">📦 Caixa Anterior</th>
-            <th className="p-2">💰 Caixa Atual</th>
+            <th className="p-2 border border-gray-700">📅 Data</th>
+            <th className="p-2 border border-gray-700">📌 Tipo</th>
+            <th className="p-2 border border-gray-700">📝 Descrição</th>
+            <th className="p-2 border border-gray-700">💸 Valor</th>
+            <th className="p-2 border border-gray-700">📦 Anterior</th>
+            <th className="p-2 border border-gray-700">💰 Atual</th>
           </tr>
         </thead>
         <tbody>
           {extrato.map((mov, idx) => (
-            <tr key={idx} className="border-t">
-              <td className="p-2">{new Date(mov.data).toLocaleString()}</td>
-              <td className="p-2">{mov.tipo}</td>
+            <tr key={idx} className="text-center border-t border-gray-800">
+              <td className="p-2">{new Date(mov.data).toLocaleString('pt-BR')}</td>
+              <td className="p-2 capitalize">{mov.tipo}</td>
               <td className="p-2">{mov.descricao}</td>
-              <td className="p-2">{formatarValor(mov.valor, mov.tipo === 'saida')}</td>
+              <td className={`p-2 ${mov.tipo === 'saida' ? 'text-red-500' : 'text-green-400'}`}>
+                {formatarValor(mov.valor, mov.tipo === 'saida')}
+              </td>
               <td className="p-2">{formatarValor(mov.caixa_anterior)}</td>
               <td className="p-2">{formatarValor(mov.caixa_atual)}</td>
             </tr>
