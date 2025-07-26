@@ -1,4 +1,4 @@
-import { NextApiRequest, NextApiResponse } from 'next'
+import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -6,21 +6,26 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const temporada = Number(req.query.temporada || 1)
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const temporada = Number(searchParams.get('temporada') || 1)
 
   const { data: rodadas, error: errorRodadas } = await supabase
     .from('rodadas')
     .select('*')
     .eq('temporada', temporada)
 
-  if (errorRodadas || !rodadas) return res.status(500).json({ erro: 'Erro ao buscar rodadas' })
+  if (errorRodadas || !rodadas) {
+    return Response.json({ erro: 'Erro ao buscar rodadas' }, { status: 500 })
+  }
 
   const { data: times, error: errorTimes } = await supabase
     .from('times')
     .select('id, nome, logo_url, divisao')
 
-  if (errorTimes || !times) return res.status(500).json({ erro: 'Erro ao buscar times' })
+  if (errorTimes || !times) {
+    return Response.json({ erro: 'Erro ao buscar times' }, { status: 500 })
+  }
 
   const mapa: Record<string, any> = {}
 
@@ -82,5 +87,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const classificacao = Object.values(mapa)
-  res.status(200).json(classificacao)
+  return Response.json(classificacao)
 }
