@@ -371,7 +371,7 @@ export default function MercadoPage() {
     })
     
     await registrarMovimentacao({
-  id_time: id_time: user.id_time,
+  id_time: user.id_time,
   tipo: 'saida',
   valor: jogador.valor,
   descricao: `Compra de ${jogador.nome} no mercado`
