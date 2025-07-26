@@ -38,7 +38,16 @@ export default function ClassificacaoCopaPage() {
 
   async function buscarClassificacao() {
     const { data, error } = await supabase.from('classificacao_copa').select('*')
-    if (data) setClassificacao(data)
+    if (data) {
+      const ordenado = [...data].sort((a, b) => {
+        if (b.pontos !== a.pontos) return b.pontos - a.pontos
+        const saldoA = a.gols_pro - a.gols_contra
+        const saldoB = b.gols_pro - b.gols_contra
+        if (saldoB !== saldoA) return saldoB - saldoA
+        return b.gols_pro - a.gols_pro
+      })
+      setClassificacao(ordenado)
+    }
     setLoading(false)
   }
 
@@ -93,7 +102,13 @@ export default function ClassificacaoCopaPage() {
                     <td className="px-3 py-2 text-gray-300 font-bold">{posicao}</td>
                     <td className="px-3 py-2 flex items-center gap-2">
                       {escudo && (
-                        <Image src={escudo} alt={linha.time} width={24} height={24} className="rounded-full border" />
+                        <Image
+                          src={escudo}
+                          alt={linha.time}
+                          width={24}
+                          height={24}
+                          className="rounded-full border"
+                        />
                       )}
                       {linha.time}
                     </td>
