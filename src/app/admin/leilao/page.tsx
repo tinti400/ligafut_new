@@ -17,8 +17,8 @@ export default function AdminLeilaoPage() {
   const [jogador, setJogador] = useState('')
   const [posicao, setPosicao] = useState('CA')
   const [overall, setOverall] = useState(80)
-  const [valorInicial, setValorInicial] = useState(2000000)
-  const [duracaoMin, setDuracaoMin] = useState(2)
+  const [valorInicial, setValorInicial] = useState(35000000)
+  const [duracaoMin, setDuracaoMin] = useState(1)
 
   const [leiloesAtivos, setLeiloesAtivos] = useState<any[]>([])
   const [fila, setFila] = useState<any[]>([])
@@ -88,7 +88,7 @@ export default function AdminLeilaoPage() {
         status: 'ativo',
         criado_em: agora,
         fim,
-        valor_atual: 2000000,
+        valor_atual: 35000000,
         id_time_vencedor: null,
         nome_time_vencedor: null
       })
@@ -117,16 +117,15 @@ export default function AdminLeilaoPage() {
       const json = XLSX.utils.sheet_to_json(sheet)
 
       for (const item of json as any[]) {
-        const { nome, posicao, overall, origem, nacionalidade, imagem_url, link_sofifa, valor_inicial, valor } = item
+        const { nome, posicao, overall, origem, nacionalidade, imagem_url, link_sofifa } = item
         const criado_em = new Date()
-        const fim = new Date(criado_em.getTime() + 2 * 60000)
-        const valorInicial = valor_inicial ?? valor ?? 2000000
+        const fim = new Date(criado_em.getTime() + 1 * 60000)
 
         const { error } = await supabase.from('leiloes_sistema').insert({
           nome,
           posicao,
           overall: Number(overall),
-          valor_atual: Number(valorInicial),
+          valor_atual: 35000000,
           origem: origem || '',
           nacionalidade: nacionalidade || '',
           imagem_url: imagem_url || '',
