@@ -4,6 +4,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
 import classNames from 'classnames'
+import { useAdmin } from '@/hooks/useAdmin'
+import toast from 'react-hot-toast'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,6 +28,7 @@ interface Time {
 }
 
 export default function BIDPage() {
+  const { isAdmin } = useAdmin()
   const [eventos, setEventos] = useState<EventoBID[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, string>>({})
   const [timesLista, setTimesLista] = useState<Time[]>([])
@@ -71,6 +74,20 @@ export default function BIDPage() {
     }
   }
 
+  async function excluirEvento(id: string) {
+    const confirm = window.confirm('Tem certeza que deseja excluir este evento do BID?')
+    if (!confirm) return
+
+    const { error } = await supabase.from('bid').delete().eq('id', id)
+    if (error) {
+      toast.error('Erro ao excluir evento')
+      return
+    }
+
+    setEventos((prev) => prev.filter((ev) => ev.id !== id))
+    toast.success('Evento excluído com sucesso!')
+  }
+
   function capitalizar(str: string) {
     return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : ''
   }
@@ -105,6 +122,8 @@ export default function BIDPage() {
     if (tipoMin.includes('emprést')) return '🤝'
     if (tipoMin.includes('rescis')) return '✂️'
     if (tipoMin.includes('compra')) return '🛒'
+    if (tipoMin.includes('salario')) return '📤'
+    if (tipoMin.includes('bonus')) return '🎁'
     return '📝'
   }
 
@@ -114,6 +133,8 @@ export default function BIDPage() {
     if (tipoMin.includes('emprést')) return 'bg-blue-700'
     if (tipoMin.includes('rescis')) return 'bg-red-700'
     if (tipoMin.includes('compra')) return 'bg-green-700'
+    if (tipoMin.includes('salario')) return 'bg-orange-800'
+    if (tipoMin.includes('bonus')) return 'bg-emerald-800'
     return 'bg-gray-700'
   }
 
@@ -192,11 +213,21 @@ export default function BIDPage() {
                     <div
                       key={evento.id}
                       className={classNames(
-                        'rounded-xl p-4 shadow transition border border-gray-700',
+                        'rounded-xl p-4 shadow transition border border-gray-700 relative',
                         'hover:scale-[1.01] transform duration-200',
                         corFundo(evento.tipo_evento)
                       )}
                     >
+                      {isAdmin && (
+                        <button
+                          onClick={() => excluirEvento(evento.id)}
+                          className="absolute top-2 right-2 text-red-400 hover:text-red-600 text-xl"
+                          title="Excluir evento"
+                        >
+                          🗑️
+                        </button>
+                      )}
+
                       <div className="flex justify-between items-center mb-1">
                         <p className="font-bold text-lg text-white flex items-center gap-2">
                           {iconeTipo(evento.tipo_evento)} {capitalizar(evento.tipo_evento)}
