@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
+import classNames from 'classnames'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,6 +16,7 @@ export default function LeilaoSistemaPage() {
   const [carregando, setCarregando] = useState(true)
   const [saldo, setSaldo] = useState<number | null>(null)
   const [podeDarLance, setPodeDarLance] = useState(true)
+  const [tremores, setTremores] = useState<Record<string, boolean>>({})
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
@@ -43,7 +45,6 @@ export default function LeilaoSistemaPage() {
       .limit(3)
 
     if (!error) {
-      // Som se perder liderança
       data?.forEach((leilao) => {
         if (leilao.nome_time_vencedor !== nome_time && leilao.anterior === nome_time) {
           audioRef.current?.play()
@@ -75,6 +76,7 @@ export default function LeilaoSistemaPage() {
     }
 
     setPodeDarLance(false)
+    setTremores((prev) => ({ ...prev, [leilaoId]: true }))
 
     try {
       const { error } = await supabase.rpc('dar_lance_no_leilao', {
@@ -92,6 +94,8 @@ export default function LeilaoSistemaPage() {
     } catch (err: any) {
       alert('Erro ao dar lance: ' + err.message)
       setPodeDarLance(true)
+    } finally {
+      setTimeout(() => setTremores((prev) => ({ ...prev, [leilaoId]: false })), 300)
     }
   }
 
@@ -103,9 +107,8 @@ export default function LeilaoSistemaPage() {
       .update({ status: 'leiloado' })
       .eq('id', leilaoId)
 
-    if (error) {
-      alert('Erro ao finalizar leilão: ' + error.message)
-    } else {
+    if (error) alert('Erro ao finalizar leilão: ' + error.message)
+    else {
       alert('Leilão finalizado!')
       router.refresh()
     }
@@ -115,6 +118,13 @@ export default function LeilaoSistemaPage() {
     const min = Math.floor(segundos / 60).toString().padStart(2, '0')
     const sec = (segundos % 60).toString().padStart(2, '0')
     return `${min}:${sec}`
+  }
+
+  const corBorda = (valor: number) => {
+    if (valor >= 360_000_000) return 'border-red-500'
+    if (valor >= 240_000_000) return 'border-purple-500'
+    if (valor >= 120_000_000) return 'border-blue-500'
+    return 'border-green-400'
   }
 
   if (carregando) return <div className="p-6 text-white">⏳ Carregando...</div>
@@ -136,10 +146,14 @@ export default function LeilaoSistemaPage() {
           if (tempoRestante < 0) tempoRestante = 0
 
           const isVencendo = leilao.nome_time_vencedor === nome_time
-          const borderClass = isVencendo ? 'border-2 border-green-400' : ''
+          const tremorClass = tremores[leilao.id] ? 'animate-pulse scale-105' : ''
+          const borderClass = classNames('border-2 rounded-xl', corBorda(leilao.valor_atual))
 
           return (
-            <div key={leilao.id} className={`bg-gray-800 rounded-xl shadow-2xl p-6 text-center ${borderClass}`}>
+            <div
+              key={leilao.id}
+              className={`bg-gray-800 ${borderClass} shadow-2xl p-6 text-center transition-transform duration-300 ${tremorClass}`}
+            >
               <h1 className="text-xl font-bold mb-4 text-green-400">⚔️ Leilão #{index + 1}</h1>
 
               {leilao.imagem_url && (
