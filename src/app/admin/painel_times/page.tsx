@@ -17,12 +17,13 @@ interface TimeInfo {
   recebido: number
   media_overall: number
   qtd_jogadores: number
+  salario_total: number
 }
 
 export default function PainelTimesAdmin() {
   const [times, setTimes] = useState<TimeInfo[]>([])
   const [filtroNome, setFiltroNome] = useState('')
-  const [ordenacao, setOrdenacao] = useState<'nome' | 'saldo'>('nome')
+  const [ordenacao, setOrdenacao] = useState<'nome' | 'saldo' | 'salario_total'>('nome')
 
   useEffect(() => {
     carregarDados()
@@ -38,13 +39,16 @@ export default function PainelTimesAdmin() {
     const timesComDados = await Promise.all(timesData.map(async (time) => {
       const { data: elenco } = await supabase
         .from('elenco')
-        .select('overall')
+        .select('overall, salario')
         .eq('id_time', time.id)
 
       const qtdJogadores = elenco?.length || 0
+
       const mediaOverall = elenco && elenco.length > 0
         ? elenco.reduce((acc, j) => acc + (j.overall || 0), 0) / elenco.length
         : 0
+
+      const salarioTotal = elenco?.reduce((acc, j) => acc + (j.salario || 0), 0) || 0
 
       const { data: movsCompra } = await supabase
         .from('movimentacoes')
@@ -70,7 +74,8 @@ export default function PainelTimesAdmin() {
         gasto,
         recebido,
         media_overall: Math.round(mediaOverall),
-        qtd_jogadores: qtdJogadores
+        qtd_jogadores: qtdJogadores,
+        salario_total: salarioTotal
       }
     }))
 
@@ -100,7 +105,9 @@ export default function PainelTimesAdmin() {
     .filter(t => t.nome.toLowerCase().includes(filtroNome.toLowerCase()))
     .sort((a, b) => {
       if (ordenacao === 'nome') return a.nome.localeCompare(b.nome)
-      return b.saldo - a.saldo
+      if (ordenacao === 'saldo') return b.saldo - a.saldo
+      if (ordenacao === 'salario_total') return b.salario_total - a.salario_total
+      return 0
     })
 
   return (
@@ -123,6 +130,7 @@ export default function PainelTimesAdmin() {
         >
           <option value="nome">Ordenar por Nome</option>
           <option value="saldo">Ordenar por Saldo</option>
+          <option value="salario_total">Ordenar por Salário Total</option>
         </select>
 
         <button
@@ -143,6 +151,7 @@ export default function PainelTimesAdmin() {
             <th className="border p-2">Recebido</th>
             <th className="border p-2">Média Overall</th>
             <th className="border p-2"># Jogadores</th>
+            <th className="border p-2">Salário Total</th>
           </tr>
         </thead>
         <tbody>
@@ -157,6 +166,7 @@ export default function PainelTimesAdmin() {
               <td className="border p-2">{formatarValor(time.recebido)}</td>
               <td className="border p-2">{time.media_overall}</td>
               <td className="border p-2">{time.qtd_jogadores}</td>
+              <td className="border p-2">{formatarValor(time.salario_total)}</td>
             </tr>
           ))}
         </tbody>
@@ -164,4 +174,3 @@ export default function PainelTimesAdmin() {
     </div>
   )
 }
-
