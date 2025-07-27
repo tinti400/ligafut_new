@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -12,7 +11,6 @@ const supabase = createClient(
 
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
-// Função para registrar no BID
 async function registrarNoBID({
   tipo_evento,
   descricao,
@@ -141,14 +139,12 @@ export default function LeiloesFinalizadosPage() {
       .eq('id', leilao.id_time_vencedor)
 
     await registrarMovimentacao({
-  id_time: leilao.id_time_vencedor,
-  tipo: 'saida',
-  valor: leilao.valor_atual,
-  descricao: `Compra de ${leilao.nome} via leilão`,
-})
+      id_time: leilao.id_time_vencedor,
+      tipo: 'saida',
+      valor: leilao.valor_atual,
+      descricao: `Compra de ${leilao.nome} via leilão`,
+    })
 
-
-    // Registrar no BID a movimentação
     await registrarNoBID({
       tipo_evento: 'compra',
       descricao: `Time comprou o jogador ${leilao.nome} no leilão por R$${leilao.valor_atual.toLocaleString()}`,
@@ -251,21 +247,22 @@ export default function LeiloesFinalizadosPage() {
                   </a>
                 )}
 
-                {leilao.id_time_vencedor ? (
-                  <button
-                    onClick={() => enviarParaElenco(leilao)}
-                    className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded"
-                  >
-                    ➕ Enviar para Elenco
-                  </button>
-                ) : (
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                  {leilao.id_time_vencedor && (
+                    <button
+                      onClick={() => enviarParaElenco(leilao)}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded"
+                    >
+                      ➕ Enviar para Elenco
+                    </button>
+                  )}
                   <button
                     onClick={() => excluirLeilao(leilao)}
-                    className="mt-3 w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded"
+                    className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded"
                   >
                     🗑️ Excluir Leilão
                   </button>
-                )}
+                </div>
               </div>
             ))}
           </div>
