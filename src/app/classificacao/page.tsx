@@ -132,9 +132,29 @@ export default function ClassificacaoPage() {
         divisaoSelecionada &&
         timesDaDivisao.length > 0 && (
           <div>
-            <h2 className="text-2xl font-semibold mb-4 text-center">
-              📊 Divisão {divisaoSelecionada}
-            </h2>
+            <div className="flex justify-between items-center mb-4 px-2">
+              <h2 className="text-2xl font-semibold">
+                📊 Divisão {divisaoSelecionada}
+              </h2>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(
+                  `📊 Classificação da Divisão ${divisaoSelecionada}:\n\n` +
+                    timesDaDivisao
+                      .sort((a, b) => b.pontos - a.pontos || b.saldo_gols! - a.saldo_gols!)
+                      .map(
+                        (item, i) =>
+                          `${i + 1}º ${item.times.nome} - ${item.pontos} pts (${item.vitorias}V ${item.empates}E ${item.derrotas}D)`
+                      )
+                      .join('\n')
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-1 rounded-lg"
+              >
+                📤 Compartilhar
+              </a>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="min-w-full bg-gray-900 rounded-lg shadow-md text-sm">
                 <thead className="bg-black text-yellow-400 border-b border-gray-600">
