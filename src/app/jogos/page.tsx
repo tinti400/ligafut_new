@@ -186,12 +186,10 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     valor,
     data_evento: new Date().toISOString(),
   })
+
 }
 
 export default function Jogos() {
-  // ...sua implementação de UI e chamadas para essas funções
-}
-
   const { isAdmin, loading } = useAdmin()
   const [rodadas, setRodadas] = useState<Rodada[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
