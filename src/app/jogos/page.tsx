@@ -98,28 +98,26 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
 
     const dataAgora = new Date().toISOString()
 
-await supabase.from('movimentacoes').insert({
-  time_id: timeId,
-  tipo: 'salario',
-  valor: totalSalarios,
-  descricao: 'Desconto de salários após partida',
-  data: dataAgora,
-})
+    await supabase.from('movimentacoes').insert({
+      time_id: timeId,
+      tipo: 'salario',
+      valor: totalSalarios,
+      descricao: 'Desconto de salários após partida',
+      data: dataAgora,
+    })
 
-// 🟠 REGISTRO NO BID
-await supabase.from('bid').insert({
-  tipo_evento: 'salario',
-  descricao: 'Desconto de salários após a partida',
-  id_time1: timeId,
-  valor: -totalSalarios,
-  data_evento: dataAgora,
-})
-
+    // 🟠 REGISTRO NO BID
+    await supabase.from('bid').insert({
+      tipo_evento: 'salario',
+      descricao: 'Desconto de salários após a partida',
+      id_time1: timeId,
+      valor: -totalSalarios,
+      data_evento: dataAgora,
+    })
   }
 }
 
 async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number) {
-  // ⛔️ Se ainda não há placar, sai da função
   if (gols_pro === undefined || gols_contra === undefined) return
 
   const { data: timeData, error: errorTime } = await supabase
@@ -169,27 +167,31 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
 
   await supabase.rpc('atualizar_saldo', {
     id_time: timeId,
-    valor
+    valor,
   })
 
   await supabase.from('movimentacoes').insert({
-  time_id: timeId,
-  tipo: 'premiacao',
-  valor,
-  descricao: 'Premiação por desempenho na rodada',
-  data: new Date().toISOString()
-})
+    time_id: timeId,
+    tipo: 'premiacao',
+    valor,
+    descricao: 'Premiação por desempenho na rodada',
+    data: new Date().toISOString(),
+  })
 
-// ✅ REGISTRO NO BID
-await supabase.from('bid').insert({
-  tipo_evento: 'bonus',
-  descricao: 'Bônus por desempenho na rodada',
-  id_time1: timeId,
-  valor,
-  data_evento: new Date().toISOString()
-}) 
+  // ✅ REGISTRO NO BID
+  await supabase.from('bid').insert({
+    tipo_evento: 'bonus',
+    descricao: 'Bônus por desempenho na rodada',
+    id_time1: timeId,
+    valor,
+    data_evento: new Date().toISOString(),
+  })
+}
 
 export default function Jogos() {
+  // ...sua implementação de UI e chamadas para essas funções
+}
+
   const { isAdmin, loading } = useAdmin()
   const [rodadas, setRodadas] = useState<Rodada[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
