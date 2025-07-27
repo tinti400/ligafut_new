@@ -120,7 +120,7 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
     const dataAgora = new Date().toISOString()
 
     const { error: erroMov } = await supabase.from('movimentacoes').insert({
-      time_id: timeId,
+      id_time: timeId,
       tipo: 'salario',
       valor: totalSalarios,
       descricao: 'Desconto de salários após partida',
@@ -201,7 +201,7 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
   })
 
   await supabase.from('movimentacoes').insert({
-    time_id: timeId,
+    id_time: timeId,
     tipo: 'premiacao',
     valor,
     descricao: 'Premiação por desempenho na rodada',
@@ -300,7 +300,7 @@ const atualizarJogosElenco = async (timeId: string) => {
   const { data: jogadores, error } = await supabase
     .from('elenco')
     .select('id, jogos')
-    .eq('time_id', timeId)
+    .eq('id_time', timeId)
 
   if (error || !jogadores) return
 
