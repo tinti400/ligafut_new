@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 
@@ -15,6 +15,7 @@ export default function LeilaoSistemaPage() {
   const [carregando, setCarregando] = useState(true)
   const [saldo, setSaldo] = useState<number | null>(null)
   const [podeDarLance, setPodeDarLance] = useState(true)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
@@ -41,8 +42,15 @@ export default function LeilaoSistemaPage() {
       .order('criado_em', { ascending: true })
       .limit(3)
 
-    if (!error) setLeiloes(data || [])
-    else console.error('Erro ao buscar leilões:', error)
+    if (!error) {
+      // Som se perder liderança
+      data?.forEach((leilao) => {
+        if (leilao.nome_time_vencedor !== nome_time && leilao.anterior === nome_time) {
+          audioRef.current?.play()
+        }
+      })
+      setLeiloes(data || [])
+    } else console.error('Erro ao buscar leilões:', error)
 
     setCarregando(false)
   }
@@ -57,7 +65,7 @@ export default function LeilaoSistemaPage() {
     return () => clearInterval(intervalo)
   }, [])
 
-  const darLance = async (leilaoId: string, valorAtual: number, incremento: number) => {
+  const darLance = async (leilaoId: string, valorAtual: number, incremento: number, tempoRestante: number) => {
     if (!id_time || !nome_time || !podeDarLance) return
 
     const novoValor = Number(valorAtual) + incremento
@@ -74,6 +82,7 @@ export default function LeilaoSistemaPage() {
         p_valor_novo: novoValor,
         p_id_time_vencedor: id_time,
         p_nome_time_vencedor: nome_time,
+        p_estender: tempoRestante < 15
       })
 
       if (error) throw error
@@ -113,6 +122,8 @@ export default function LeilaoSistemaPage() {
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center">
+      <audio ref={audioRef} src="/beep.mp3" preload="auto" />
+
       <div className="mb-6 text-lg font-semibold text-green-400">
         💳 Saldo atual do seu time: R$ {saldo !== null ? saldo.toLocaleString() : '...'}
       </div>
@@ -124,10 +135,11 @@ export default function LeilaoSistemaPage() {
           let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
           if (tempoRestante < 0) tempoRestante = 0
 
-          const baseIncremento = leilao?.valor_inicial ?? 2000000
+          const isVencendo = leilao.nome_time_vencedor === nome_time
+          const borderClass = isVencendo ? 'border-2 border-green-400' : ''
 
           return (
-            <div key={leilao.id} className="bg-gray-800 rounded-xl shadow-2xl p-6 text-center">
+            <div key={leilao.id} className={`bg-gray-800 rounded-xl shadow-2xl p-6 text-center ${borderClass}`}>
               <h1 className="text-xl font-bold mb-4 text-green-400">⚔️ Leilão #{index + 1}</h1>
 
               {leilao.imagem_url && (
@@ -157,9 +169,8 @@ export default function LeilaoSistemaPage() {
                 ⏱️ {formatarTempo(tempoRestante)}
               </div>
 
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                {[...Array(3)].map((_, i) => {
-                  const incremento = baseIncremento * Math.pow(2, i)
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {[4000000, 6000000, 8000000, 10000000, 15000000, 20000000].map((incremento) => {
                   const disabled =
                     tempoRestante === 0 ||
                     (saldo !== null && Number(leilao.valor_atual) + incremento > saldo) ||
@@ -167,8 +178,8 @@ export default function LeilaoSistemaPage() {
 
                   return (
                     <button
-                      key={i}
-                      onClick={() => darLance(leilao.id, leilao.valor_atual, incremento)}
+                      key={incremento}
+                      onClick={() => darLance(leilao.id, leilao.valor_atual, incremento, tempoRestante)}
                       disabled={disabled}
                       className="bg-green-600 hover:bg-green-700 text-white py-1 rounded text-xs font-bold transition disabled:opacity-50"
                     >
