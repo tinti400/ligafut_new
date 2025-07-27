@@ -239,8 +239,31 @@ export default function Jogos() {
   await descontarSalariosDosTimes(mandanteId, visitanteId)
 
   // 🏆 Premiar por desempenho da rodada
-  await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
-  await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
+await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
+await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
+
+// ✅ Atualiza o número de jogos dos jogadores do elenco dos dois times
+const atualizarJogosElenco = async (timeId: string) => {
+  const { data: jogadores, error } = await supabase
+    .from('elenco')
+    .select('id, jogos')
+    .eq('time_id', timeId)
+
+  if (error || !jogadores) return
+
+  const updates = jogadores.map((jogador) =>
+    supabase
+      .from('elenco')
+      .update({ jogos: (jogador.jogos || 0) + 1 })
+      .eq('id', jogador.id)
+  )
+
+  await Promise.all(updates)
+}
+
+await atualizarJogosElenco(mandanteId)
+await atualizarJogosElenco(visitanteId)
+
 
   // Atualiza o resultado do jogo
   novaLista[editandoIndex] = {
