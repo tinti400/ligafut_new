@@ -53,9 +53,10 @@ export async function GET(req: NextRequest) {
     for (const jogo of rodada.jogos) {
       const { mandante, visitante, gols_mandante, gols_visitante } = jogo
 
+      // ✅ Corrigido: ignora jogos sem placar definido
       if (
-        gols_mandante === null ||
-        gols_visitante === null ||
+        gols_mandante == null ||
+        gols_visitante == null ||
         !mapa[mandante] ||
         !mapa[visitante]
       )
