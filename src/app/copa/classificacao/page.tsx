@@ -65,8 +65,6 @@ export default function ClassificacaoCopaPage() {
     return b.vitorias - a.vitorias
   })
 
-  const totalTimes = classificacaoOrdenada.length
-
   return (
     <div className="bg-zinc-900 text-white min-h-screen p-4 max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold text-center text-yellow-400 mb-6">🏆 Classificação – Fase Liga</h1>
@@ -97,16 +95,10 @@ export default function ClassificacaoCopaPage() {
                 const escudo = timeData?.logo_url || timeData?.logo
                 const nome = timeData?.nome || 'Desconhecido'
 
-                const isPrimeiro = index === 0
-                const isAntepenultimo = index === totalTimes - 3
-                const isPenultimo = index === totalTimes - 2
-                const isUltimo = index === totalTimes - 1
-
                 const bgClass = classNames({
-                  'bg-green-900': isPrimeiro,
-                  'bg-yellow-900': isAntepenultimo,
-                  'bg-red-900': isPenultimo || isUltimo,
-                  'bg-zinc-900': !isPrimeiro && !isAntepenultimo && !isPenultimo && !isUltimo
+                  'bg-green-900': posicao >= 1 && posicao <= 16,
+                  'bg-yellow-900': posicao >= 17 && posicao <= 24,
+                  'bg-red-900': posicao >= 25,
                 })
 
                 return (
