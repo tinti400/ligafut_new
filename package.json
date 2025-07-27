@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@formkit/auto-animate": "^0.8.2",
     "@react-three/drei": "^10.5.1",
     "@react-three/fiber": "^9.2.0",
     "@supabase/supabase-js": "^2.50.5",
