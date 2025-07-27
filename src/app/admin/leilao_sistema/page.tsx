@@ -61,7 +61,7 @@ export default function LeilaoSistemaPage() {
     const intervalo = setInterval(() => {
       buscarLeiloesAtivos()
       buscarSaldo()
-    }, 2000)
+    }, 1000)
     return () => clearInterval(intervalo)
   }, [])
 
