@@ -75,12 +75,22 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
   const ids = [mandanteId, visitanteId]
 
   for (const timeId of ids) {
-    const { data: elenco, error } = await supabase
+    console.log(`🔎 Iniciando desconto de salários para time: ${timeId}`)
+
+    const { data: elenco, error: errorElenco } = await supabase
       .from('elenco')
       .select('salario')
       .eq('time_id', timeId)
 
-    if (error || !elenco) continue
+    if (errorElenco) {
+      console.error(`❌ Erro ao buscar elenco do time ${timeId}:`, errorElenco)
+      continue
+    }
+
+    if (!elenco || elenco.length === 0) {
+      console.warn(`⚠️ Elenco vazio para o time ${timeId}`)
+      continue
+    }
 
     const totalSalarios = elenco.reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
 
@@ -90,15 +100,26 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
       .eq('id', timeId)
       .single()
 
-    if (erroSaldo || !time) continue
+    if (erroSaldo || !time) {
+      console.error(`❌ Erro ao buscar saldo do time ${timeId}:`, erroSaldo)
+      continue
+    }
 
     const novoSaldo = time.saldo - totalSalarios
 
-    await supabase.from('times').update({ saldo: novoSaldo }).eq('id', timeId)
+    const { error: erroUpdate } = await supabase
+      .from('times')
+      .update({ saldo: novoSaldo })
+      .eq('id', timeId)
+
+    if (erroUpdate) {
+      console.error(`❌ Erro ao atualizar saldo do time ${timeId}:`, erroUpdate)
+      continue
+    }
 
     const dataAgora = new Date().toISOString()
 
-    await supabase.from('movimentacoes').insert({
+    const { error: erroMov } = await supabase.from('movimentacoes').insert({
       time_id: timeId,
       tipo: 'salario',
       valor: totalSalarios,
@@ -106,14 +127,23 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
       data: dataAgora,
     })
 
-    // 🟠 REGISTRO NO BID
-    await supabase.from('bid').insert({
+    if (erroMov) {
+      console.error(`❌ Erro ao registrar movimentação do time ${timeId}:`, erroMov)
+    }
+
+    const { error: erroBid } = await supabase.from('bid').insert({
       tipo_evento: 'salario',
       descricao: 'Desconto de salários após a partida',
       id_time1: timeId,
       valor: -totalSalarios,
       data_evento: dataAgora,
     })
+
+    if (erroBid) {
+      console.error(`❌ Erro ao registrar no BID do time ${timeId}:`, erroBid)
+    }
+
+    console.log(`✅ Salários descontados para o time ${timeId}: R$ ${totalSalarios.toLocaleString()}`)
   }
 }
 
