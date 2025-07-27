@@ -9,22 +9,16 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const DURACAO_INICIAL = 120 // 2 minutos
-const TEMPO_REINICIO = 15   // 15 segundos para reiniciar o cronômetro
-
 export default function LeilaoSistemaPage() {
   const router = useRouter()
-  const [leilao, setLeilao] = useState<any>(null)
+  const [leiloes, setLeiloes] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
-  const [tempoRestante, setTempoRestante] = useState<number | null>(null)
   const [saldo, setSaldo] = useState<number | null>(null)
-  const [finalizando, setFinalizando] = useState(false)
   const [podeDarLance, setPodeDarLance] = useState(true)
 
   const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
-  // Busca saldo do time
   const buscarSaldo = async () => {
     if (!id_time) return
     const { data, error } = await supabase
@@ -39,65 +33,44 @@ export default function LeilaoSistemaPage() {
     }
   }
 
-  // Busca leilão ativo
-  const buscarLeilaoAtivo = async () => {
+  const buscarLeiloesAtivos = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
       .select('*')
       .eq('status', 'ativo')
       .order('criado_em', { ascending: true })
-      .limit(1)
+      .limit(3)
 
-    if (!error) setLeilao(data?.[0] || null)
-    else console.error('Erro ao buscar leilão:', error)
+    if (!error) setLeiloes(data || [])
+    else console.error('Erro ao buscar leilões:', error)
 
     setCarregando(false)
   }
 
   useEffect(() => {
-    buscarLeilaoAtivo()
+    buscarLeiloesAtivos()
     buscarSaldo()
     const intervalo = setInterval(() => {
-      buscarLeilaoAtivo()
+      buscarLeiloesAtivos()
       buscarSaldo()
     }, 2000)
     return () => clearInterval(intervalo)
   }, [])
 
-  useEffect(() => {
-    if (!leilao) return
+  const darLance = async (leilaoId: string, valorAtual: number, incremento: number) => {
+    if (!id_time || !nome_time || !podeDarLance) return
 
-    const atualizarTempo = () => {
-      const agora = Date.now()
-      const fim = new Date(leilao.fim).getTime()
-      let restante = Math.floor((fim - agora) / 1000)
-      if (restante < 0) restante = 0
-      setTempoRestante(restante)
-    }
-
-    atualizarTempo()
-    const intervalo = setInterval(atualizarTempo, 1000)
-    return () => clearInterval(intervalo)
-  }, [leilao])
-
-  // Função para dar lance
-  const darLance = async (incremento: number) => {
-    if (!leilao || !id_time || !nome_time || tempoRestante === 0 || !podeDarLance || finalizando) return
-
-    setPodeDarLance(false)
-
-    const valorAtualBanco = leilao.valor_atual ?? 0
-    const novoValor = Number(valorAtualBanco) + incremento
-
+    const novoValor = Number(valorAtual) + incremento
     if (saldo !== null && novoValor > saldo) {
-      alert('❌ Você não tem saldo suficiente para esse lance.')
-      setPodeDarLance(true)
+      alert('❌ Você não tem saldo suficiente.')
       return
     }
 
+    setPodeDarLance(false)
+
     try {
       const { error } = await supabase.rpc('dar_lance_no_leilao', {
-        p_leilao_id: leilao.id,
+        p_leilao_id: leilaoId,
         p_valor_novo: novoValor,
         p_id_time_vencedor: id_time,
         p_nome_time_vencedor: nome_time,
@@ -105,47 +78,28 @@ export default function LeilaoSistemaPage() {
 
       if (error) throw error
 
-      setLeilao({
-        ...leilao,
-        valor_atual: novoValor,
-        id_time_vencedor: id_time,
-        nome_time_vencedor: nome_time,
-      })
-
-      setTimeout(() => {
-        setPodeDarLance(true)
-      }, 1000)
-
-      setTimeout(() => router.refresh(), 5000)
+      setTimeout(() => setPodeDarLance(true), 1000)
+      setTimeout(() => router.refresh(), 3000)
     } catch (err: any) {
-      console.error('Erro ao dar lance:', err)
       alert('Erro ao dar lance: ' + err.message)
       setPodeDarLance(true)
     }
   }
 
-  // Função para finalizar leilão manualmente
-  const finalizarLeilaoAgora = async () => {
-    if (!leilao) return
-    if (!confirm('Tem certeza que deseja finalizar o leilão agora?')) return
-
-    setFinalizando(true)
+  const finalizarLeilaoAgora = async (leilaoId: string) => {
+    if (!confirm('Deseja finalizar esse leilão agora?')) return
 
     const { error } = await supabase
       .from('leiloes_sistema')
       .update({ status: 'leiloado' })
-      .eq('id', leilao.id)
-
-    setFinalizando(false)
+      .eq('id', leilaoId)
 
     if (error) {
       alert('Erro ao finalizar leilão: ' + error.message)
-      return
+    } else {
+      alert('Leilão finalizado!')
+      router.refresh()
     }
-
-    setLeilao(null)
-    alert('Leilão finalizado com sucesso!')
-    router.refresh()
   }
 
   const formatarTempo = (segundos: number) => {
@@ -155,98 +109,98 @@ export default function LeilaoSistemaPage() {
   }
 
   if (carregando) return <div className="p-6 text-white">⏳ Carregando...</div>
-  if (!leilao) return <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
-
-  // Usa valor_inicial do leilao para base dos incrementos, se não tiver, usa 2 milhões como fallback
-  const baseIncremento = leilao?.valor_inicial ?? 2000000
+  if (!leiloes.length) return <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center justify-center">
+    <main className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center">
       <div className="mb-6 text-lg font-semibold text-green-400">
         💳 Saldo atual do seu time: R$ {saldo !== null ? saldo.toLocaleString() : '...'}
       </div>
 
-      <div className="w-full max-w-2xl bg-gray-800 rounded-xl shadow-2xl p-6 text-center">
-        <h1 className="text-3xl font-bold mb-6 text-green-400">⚔️ Leilão Ativo</h1>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-6xl">
+        {leiloes.map((leilao, index) => {
+          const tempoFinal = new Date(leilao.fim).getTime()
+          const agora = Date.now()
+          let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
+          if (tempoRestante < 0) tempoRestante = 0
 
-        {leilao.imagem_url && (
-          <img
-            src={leilao.imagem_url}
-            alt={leilao.nome}
-            className="w-40 h-40 object-cover rounded-full mx-auto mb-4 border-2 border-green-400"
-          />
-        )}
+          const baseIncremento = leilao?.valor_inicial ?? 2000000
 
-        <h2 className="text-2xl font-bold mb-2">
-          {leilao.nome} <span className="text-sm">({leilao.posicao})</span>
-        </h2>
-        <p className="mb-1">
-          ⭐ Overall: <span className="font-semibold">{leilao.overall}</span>
-        </p>
-        <p className="mb-1">
-          🌍 Nacionalidade: <span className="font-semibold">{leilao.nacionalidade}</span>
-        </p>
-        <p className="mb-2 text-green-400 text-xl font-bold">
-          💰 R$ {Number(leilao.valor_atual).toLocaleString()}
-        </p>
+          return (
+            <div key={leilao.id} className="bg-gray-800 rounded-xl shadow-2xl p-6 text-center">
+              <h1 className="text-xl font-bold mb-4 text-green-400">⚔️ Leilão #{index + 1}</h1>
 
-        {leilao.nome_time_vencedor && (
-          <p className="mb-4 text-sm text-gray-300">
-            👑 Último lance por: <strong>{leilao.nome_time_vencedor}</strong>
-          </p>
-        )}
+              {leilao.imagem_url && (
+                <img
+                  src={leilao.imagem_url}
+                  alt={leilao.nome}
+                  className="w-24 h-24 object-cover rounded-full mx-auto mb-2 border-2 border-green-400"
+                />
+              )}
 
-        {tempoRestante !== null && (
-          <div className="text-2xl font-mono bg-black text-white inline-block px-5 py-2 rounded-lg mb-6 shadow">
-            ⏱️ {formatarTempo(tempoRestante)}
-          </div>
-        )}
+              <h2 className="text-xl font-bold mb-1">
+                {leilao.nome} <span className="text-sm">({leilao.posicao})</span>
+              </h2>
+              <p className="mb-1">⭐ Overall: <strong>{leilao.overall}</strong></p>
+              <p className="mb-1">🌍 Nacionalidade: <strong>{leilao.nacionalidade}</strong></p>
+              <p className="mb-2 text-green-400 text-lg font-bold">
+                💰 R$ {Number(leilao.valor_atual).toLocaleString()}
+              </p>
 
-        {tempoRestante === 0 && (
-          <button
-            onClick={finalizarLeilaoAgora}
-            disabled={finalizando}
-            className="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded text-sm font-semibold mb-6"
-          >
-            {finalizando ? 'Finalizando...' : 'Finalizar Leilão'}
-          </button>
-        )}
+              {leilao.nome_time_vencedor && (
+                <p className="mb-3 text-sm text-gray-300">
+                  👑 Último lance: <strong>{leilao.nome_time_vencedor}</strong>
+                </p>
+              )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
-          {[...Array(5)].map((_, i) => {
-            const incremento = baseIncremento * Math.pow(2, i)
-            const disabled =
-              tempoRestante === 0 ||
-              (saldo !== null && Number(leilao.valor_atual) + incremento > saldo) ||
-              finalizando ||
-              !podeDarLance
+              <div className="text-lg font-mono bg-black text-white inline-block px-4 py-1 rounded-lg mb-3 shadow">
+                ⏱️ {formatarTempo(tempoRestante)}
+              </div>
 
-            return (
-              <button
-                key={i}
-                onClick={() => darLance(incremento)}
-                disabled={disabled}
-                className="bg-green-600 hover:bg-green-700 text-white py-2 rounded text-xs font-bold transition disabled:opacity-50"
-                title={disabled ? 'Saldo insuficiente, leilão finalizado ou aguarde 1s entre lances' : ''}
-              >
-                + R$ {(incremento / 1000000).toLocaleString()} mi
-              </button>
-            )
-          })}
-        </div>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {[...Array(3)].map((_, i) => {
+                  const incremento = baseIncremento * Math.pow(2, i)
+                  const disabled =
+                    tempoRestante === 0 ||
+                    (saldo !== null && Number(leilao.valor_atual) + incremento > saldo) ||
+                    !podeDarLance
 
-        {leilao.link_sofifa && (
-          <a
-            href={leilao.link_sofifa}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 underline text-sm hover:text-blue-300 transition"
-          >
-            🔗 Ver no Sofifa
-          </a>
-        )}
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => darLance(leilao.id, leilao.valor_atual, incremento)}
+                      disabled={disabled}
+                      className="bg-green-600 hover:bg-green-700 text-white py-1 rounded text-xs font-bold transition disabled:opacity-50"
+                    >
+                      + R$ {(incremento / 1000000).toLocaleString()} mi
+                    </button>
+                  )
+                })}
+              </div>
+
+              {leilao.link_sofifa && (
+                <a
+                  href={leilao.link_sofifa}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 underline text-sm hover:text-blue-300 transition"
+                >
+                  🔗 Ver no Sofifa
+                </a>
+              )}
+
+              {tempoRestante === 0 && (
+                <button
+                  onClick={() => finalizarLeilaoAgora(leilao.id)}
+                  className="mt-3 bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded text-sm"
+                >
+                  Finalizar Leilão
+                </button>
+              )}
+            </div>
+          )
+        })}
       </div>
     </main>
   )
 }
-
