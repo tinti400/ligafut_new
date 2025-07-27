@@ -80,7 +80,7 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
     const { data: elenco, error: errorElenco } = await supabase
       .from('elenco')
       .select('salario')
-      .eq('time_id', timeId)
+      .eq('id_time', timeId)
 
     if (errorElenco) {
       console.error(`❌ Erro ao buscar elenco do time ${timeId}:`, errorElenco)
