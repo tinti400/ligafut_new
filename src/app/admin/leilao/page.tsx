@@ -1,13 +1,9 @@
-'use client'
+''use client'
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
-import dayjs from 'dayjs'
-import duration from 'dayjs/plugin/duration'
-
-dayjs.extend(duration)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,16 +20,15 @@ export default function AdminLeilaoPage() {
   const [valorInicial, setValorInicial] = useState(2000000)
   const [duracaoMin, setDuracaoMin] = useState(2)
 
-  const [leilaoAtivo, setLeilaoAtivo] = useState<any>(null)
-  const [tempoRestante, setTempoRestante] = useState('')
+  const [leiloesAtivos, setLeiloesAtivos] = useState<any[]>([])
   const [fila, setFila] = useState<any[]>([])
   const [importando, setImportando] = useState(false)
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
     buscarFila()
-    buscarLeilaoAtual()
-    const intervalo = setInterval(buscarLeilaoAtual, 5000)
+    buscarLeiloesAtivos()
+    const intervalo = setInterval(buscarLeiloesAtivos, 5000)
     return () => clearInterval(intervalo)
   }, [])
 
@@ -48,32 +43,17 @@ export default function AdminLeilaoPage() {
     else console.error('Erro ao buscar fila:', error.message)
   }
 
-  const buscarLeilaoAtual = async () => {
+  const buscarLeiloesAtivos = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
       .select('*')
       .eq('status', 'ativo')
-      .order('fim', { ascending: false })
-      .limit(1)
+      .order('fim', { ascending: true })
+      .limit(3)
 
-    if (!error) {
-      if (data && data[0] && new Date(data[0].fim) > new Date()) setLeilaoAtivo(data[0])
-      else setLeilaoAtivo(null)
-    } else {
-      console.error('Erro ao buscar leilão ativo:', error.message)
-    }
+    if (!error) setLeiloesAtivos(data || [])
+    else console.error('Erro ao buscar leilões ativos:', error.message)
   }
-
-  useEffect(() => {
-    if (!leilaoAtivo) return
-    const intervalo = setInterval(() => {
-      const agora = dayjs()
-      const fim = dayjs(leilaoAtivo.fim)
-      const diff = fim.diff(agora)
-      setTempoRestante(diff <= 0 ? 'Finalizado' : `${dayjs.duration(diff).minutes()}m ${dayjs.duration(diff).seconds()}s`)
-    }, 1000)
-    return () => clearInterval(intervalo)
-  }, [leilaoAtivo])
 
   const criarLeilaoManual = async () => {
     const agora = new Date()
@@ -116,7 +96,7 @@ export default function AdminLeilaoPage() {
 
     if (!error) {
       buscarFila()
-      buscarLeilaoAtual()
+      buscarLeiloesAtivos()
     } else {
       console.error('Erro ao iniciar leilão da fila:', error.message)
     }
@@ -140,7 +120,6 @@ export default function AdminLeilaoPage() {
         const { nome, posicao, overall, origem, nacionalidade, imagem_url, link_sofifa, valor_inicial, valor } = item
         const criado_em = new Date()
         const fim = new Date(criado_em.getTime() + 2 * 60000)
-
         const valorInicial = valor_inicial ?? valor ?? 2000000
 
         const { error } = await supabase.from('leiloes_sistema').insert({
@@ -168,6 +147,16 @@ export default function AdminLeilaoPage() {
     reader.readAsArrayBuffer(file)
   }
 
+  const formatarTempo = (fim: string) => {
+    const tempoFinal = new Date(fim).getTime()
+    const agora = Date.now()
+    const diff = tempoFinal - agora
+    if (diff <= 0) return 'Finalizado'
+    const minutos = Math.floor(diff / 60000)
+    const segundos = Math.floor((diff % 60000) / 1000)
+    return `${minutos}m ${segundos}s`
+  }
+
   return (
     <main className="min-h-screen bg-gray-900 text-white p-4">
       <div className="max-w-5xl mx-auto bg-gray-800 shadow-md rounded-lg p-6">
@@ -185,11 +174,15 @@ export default function AdminLeilaoPage() {
           {msg && <p className="text-green-300 mt-2">{msg}</p>}
         </div>
 
-        {leilaoAtivo ? (
-          <div className="bg-yellow-800 border-l-4 border-yellow-400 p-4 rounded mb-6">
-            <p><strong>🎬 Em Leilão:</strong> {leilaoAtivo.nome} ({leilaoAtivo.posicao})</p>
-            <p><strong>⏱ Tempo restante:</strong> {tempoRestante}</p>
-            <p><strong>💰 Lance atual:</strong> R$ {Number(leilaoAtivo.valor_atual).toLocaleString()}</p>
+        {leiloesAtivos.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {leiloesAtivos.map((leilao) => (
+              <div key={leilao.id} className="bg-yellow-800 border-l-4 border-yellow-400 p-4 rounded">
+                <p><strong>🎬 Em Leilão:</strong> {leilao.nome} ({leilao.posicao})</p>
+                <p><strong>⏱ Tempo restante:</strong> {formatarTempo(leilao.fim)}</p>
+                <p><strong>💰 Lance atual:</strong> R$ {Number(leilao.valor_atual).toLocaleString()}</p>
+              </div>
+            ))}
           </div>
         ) : (
           <p className="text-center text-sm text-gray-400 italic mb-6">Nenhum leilão em andamento.</p>
