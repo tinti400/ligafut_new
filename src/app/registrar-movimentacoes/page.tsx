@@ -25,13 +25,35 @@ type Rodada = {
   jogos: Jogo[]
 }
 
+type Time = {
+  id: string
+  nome: string
+}
+
 export default function RegistrarMovimentacoesPage() {
   const [rodadas, setRodadas] = useState<Rodada[]>([])
+  const [timesMap, setTimesMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     buscarRodadas()
+    buscarTimes()
   }, [])
+
+  async function buscarTimes() {
+    const { data, error } = await supabase.from('times').select('id, nome')
+    if (error) {
+      toast.error('Erro ao buscar times')
+      return
+    }
+
+    const map: Record<string, string> = {}
+    data?.forEach((time: Time) => {
+      map[time.id] = time.nome
+    })
+
+    setTimesMap(map)
+  }
 
   async function buscarRodadas() {
     const { data, error } = await supabase
@@ -148,8 +170,9 @@ export default function RegistrarMovimentacoesPage() {
                 className="flex justify-between items-center border-b border-gray-700 py-2 px-2 hover:bg-gray-800 transition"
               >
                 <span className="text-sm">
-                  <strong>{jogo.mandante}</strong> {jogo.gols_mandante} x {jogo.gols_visitante}{' '}
-                  <strong>{jogo.visitante}</strong>
+                  <strong>{timesMap[jogo.mandante] || 'Desconhecido'}</strong>{' '}
+                  {jogo.gols_mandante} x {jogo.gols_visitante}{' '}
+                  <strong>{timesMap[jogo.visitante] || 'Desconhecido'}</strong>
                 </span>
                 <button
                   className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
