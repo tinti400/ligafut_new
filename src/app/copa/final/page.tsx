@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import Confetti from 'react-confetti'
 import { useAdmin } from '@/hooks/useAdmin'
+import confetti from 'canvas-confetti'
 import toast from 'react-hot-toast'
 
 const supabase = createClient(
@@ -13,42 +13,54 @@ const supabase = createClient(
 
 export default function FinalPage() {
   const { isAdmin } = useAdmin()
-  const [jogo, setJogo] = useState<any | null>(null)
-  const [campeao, setCampeao] = useState<any | null>(null)
-  const [width, setWidth] = useState<number>(0)
-  const [height, setHeight] = useState<number>(0)
+  const [jogo, setJogo] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [campeao, setCampeao] = useState<any>(null)
 
   useEffect(() => {
-    buscarJogo()
-    setWidth(window.innerWidth)
-    setHeight(window.innerHeight)
+    buscarFinal()
   }, [])
 
-  async function buscarJogo() {
-    const { data, error } = await supabase
-      .from('copa_final')
-      .select('*')
-      .single()
+  useEffect(() => {
+    if (campeao) {
+      confetti({
+        particleCount: 200,
+        spread: 120,
+        origin: { y: 0.6 }
+      })
+    }
+  }, [campeao])
 
-    if (error || !data) {
-      toast.error('Erro ao buscar final')
+  async function buscarFinal() {
+    setLoading(true)
+    const { data, error } = await supabase.from('copa_final').select('*').single()
+    if (error) {
+      toast.error('Erro ao buscar a final')
+      setLoading(false)
       return
     }
-
     setJogo(data)
-
+    setLoading(false)
     if (data.gols_time1 !== null && data.gols_time2 !== null) {
-      if (data.gols_time1 > data.gols_time2) {
-        setCampeao({ nome: data.time1, logo_url: data.logo1 })
-      } else if (data.gols_time2 > data.gols_time1) {
-        setCampeao({ nome: data.time2, logo_url: data.logo2 })
+      const vencedorId =
+        data.gols_time1 > data.gols_time2 ? data.id_time1 :
+        data.gols_time2 > data.gols_time1 ? data.id_time2 : null
+
+      if (vencedorId) {
+        const { data: time, error: errorTime } = await supabase
+          .from('times')
+          .select('nome')
+          .eq('id', vencedorId)
+          .single()
+
+        if (!errorTime && time) {
+          setCampeao(time)
+        }
       }
     }
   }
 
   async function salvarPlacar() {
-    if (!jogo) return
-
     const { error } = await supabase
       .from('copa_final')
       .update({
@@ -60,65 +72,51 @@ export default function FinalPage() {
     if (error) {
       toast.error('Erro ao salvar placar')
     } else {
-      toast.success('Placar salvo com sucesso')
-      buscarJogo()
+      toast.success('Placar salvo!')
+      buscarFinal()
     }
   }
 
-  if (!jogo) return <div className="p-4">🔄 Carregando final...</div>
+  if (loading) return <div className="p-4">🔄 Carregando...</div>
 
   return (
-    <div className="p-4 text-center">
-      <h1 className="text-2xl font-bold mb-4">🏅 Final da Copa</h1>
+    <div className="p-4">
+      <h1 className="text-xl font-bold mb-4">🏅 Final</h1>
 
-      <div className="flex justify-center items-center gap-2 mb-4">
-        <div className="flex flex-col items-center">
-          <p>{jogo.time1}</p>
-          <input
-            type="number"
-            value={jogo.gols_time1 || ''}
-            className="w-12 text-center border rounded px-1"
-            onChange={(e) => setJogo({ ...jogo, gols_time1: parseInt(e.target.value) })}
-          />
-        </div>
-        <span className="text-xl font-bold">x</span>
-        <div className="flex flex-col items-center">
-          <p>{jogo.time2}</p>
-          <input
-            type="number"
-            value={jogo.gols_time2 || ''}
-            className="w-12 text-center border rounded px-1"
-            onChange={(e) => setJogo({ ...jogo, gols_time2: parseInt(e.target.value) })}
-          />
-        </div>
-      </div>
-
-      {isAdmin && (
-        <button
-          className="bg-green-600 text-white px-4 py-2 rounded"
-          onClick={salvarPlacar}
-        >
-          Salvar Placar
-        </button>
-      )}
-
-      {campeao && (
-        <>
-          <Confetti width={width} height={height} />
-          <div className="mt-10 text-center">
-            <h2 className="text-3xl font-bold text-yellow-500">🏆 CAMPEÃO!</h2>
-            {campeao.logo_url && (
-              <img
-                src={campeao.logo_url}
-                alt={campeao.nome}
-                className="w-20 h-20 mx-auto mt-2 rounded-full border-4 border-yellow-400"
-              />
+      {jogo ? (
+        <div className="space-y-2">
+          <div className="flex gap-2 items-center">
+            <span className="font-semibold">{jogo.time1} vs {jogo.time2}</span>
+            <input
+              type="number"
+              className="w-12 border rounded px-1"
+              value={jogo.gols_time1 || ''}
+              onChange={(e) => setJogo({ ...jogo, gols_time1: parseInt(e.target.value) })}
+            />
+            <span>x</span>
+            <input
+              type="number"
+              className="w-12 border rounded px-1"
+              value={jogo.gols_time2 || ''}
+              onChange={(e) => setJogo({ ...jogo, gols_time2: parseInt(e.target.value) })}
+            />
+            {isAdmin && (
+              <button
+                className="bg-green-500 text-white px-2 py-1 rounded"
+                onClick={salvarPlacar}
+              >
+                Salvar
+              </button>
             )}
-            <p className="text-xl mt-2 font-semibold">{campeao.nome}</p>
           </div>
-        </>
-      )}
-    </div>
-  )
-}
 
+          {campeao && (
+            <div className="mt-6 text-center">
+              <h2 className="text-2xl font-bold text-green-600">
+                🏆 {campeao.nome} é o grande campeão!
+              </h2>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`🏆 O ${campeao.nome} é o grande campeão da LigaFut!\n\nParabéns ao time que brilhou na final e levantou a taça! 🥇⚽`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                class
