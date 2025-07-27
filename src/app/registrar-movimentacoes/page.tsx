@@ -3,39 +3,34 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
-import classNames from 'classnames'
+import toast from 'react-hot-toast'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-interface Jogo {
+type Jogo = {
   mandante: string
   visitante: string
   gols_mandante: number
   gols_visitante: number
 }
 
-interface Rodada {
+type Rodada = {
   id: string
   numero: number
+  temporada: number
+  divisao: number
   jogos: Jogo[]
-}
-
-interface Time {
-  id: string
-  nome: string
 }
 
 export default function RegistrarMovimentacoesPage() {
   const [rodadas, setRodadas] = useState<Rodada[]>([])
-  const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
-  const [status, setStatus] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     buscarRodadas()
-    buscarTimes()
   }, [])
 
   async function buscarRodadas() {
@@ -45,171 +40,137 @@ export default function RegistrarMovimentacoesPage() {
       .order('numero', { ascending: true })
 
     if (error) {
-      console.error('Erro ao buscar rodadas:', error)
+      toast.error('Erro ao buscar rodadas')
       return
     }
 
-    setRodadas(data || [])
-  }
+    const rodadasConcluidas = (data || []).filter((rodada: Rodada) =>
+      rodada.jogos.every(
+        (jogo) =>
+          jogo.gols_mandante !== null &&
+          jogo.gols_mandante !== undefined &&
+          jogo.gols_visitante !== null &&
+          jogo.gols_visitante !== undefined
+      )
+    )
 
-  async function buscarTimes() {
-    const { data, error } = await supabase.from('times').select('id, nome')
-    if (error) {
-      console.error('Erro ao buscar times:', error)
-      return
-    }
-
-    const mapa: Record<string, Time> = {}
-    data?.forEach((time) => {
-      mapa[time.id] = time
-    })
-
-    setTimesMap(mapa)
+    setRodadas(rodadasConcluidas)
+    setLoading(false)
   }
 
   async function registrar(jogo: Jogo, rodada: Rodada) {
-    const promises = []
+    try {
+      const promises = []
 
-    const mandante = timesMap[jogo.mandante]
-    const visitante = timesMap[jogo.visitante]
+      const saldoMandante =
+        jogo.gols_mandante > jogo.gols_visitante
+          ? 1000000
+          : jogo.gols_mandante === jogo.gols_visitante
+          ? 500000
+          : 0
 
-    if (!mandante || !visitante) return
+      const saldoVisitante =
+        jogo.gols_visitante > jogo.gols_mandante
+          ? 1000000
+          : jogo.gols_mandante === jogo.gols_visitante
+          ? 500000
+          : 0
 
-    const vitoriaMandante = jogo.gols_mandante > jogo.gols_visitante
-    const vitoriaVisitante = jogo.gols_visitante > jogo.gols_mandante
-    const empate = jogo.gols_mandante === jogo.gols_visitante
-
-    const salario = -5_000_000
-    const bonusVitoria = 3_000_000
-    const bonusGol = 1_000_000
-    const penalidadeGolSofrido = -500_000
-
-    // Mandante
-    promises.push(
-      registrarMovimentacao({
-        id_time: jogo.mandante,
-        tipo: 'saida',
-        descricao: `Pagamento de salários - Rodada ${rodada.numero}`,
-        valor: salario
-      })
-    )
-
-    promises.push(
-      registrarMovimentacao({
-        id_time: jogo.mandante,
-        tipo: 'entrada',
-        descricao: `Bônus por gols marcados - Rodada ${rodada.numero}`,
-        valor: jogo.gols_mandante * bonusGol
-      })
-    )
-
-    promises.push(
-      registrarMovimentacao({
-        id_time: jogo.mandante,
-        tipo: 'saida',
-        descricao: `Penalidade por gols sofridos - Rodada ${rodada.numero}`,
-        valor: jogo.gols_visitante * penalidadeGolSofrido
-      })
-    )
-
-    if (vitoriaMandante) {
       promises.push(
         registrarMovimentacao({
           id_time: jogo.mandante,
           tipo: 'entrada',
-          descricao: `Bônus por vitória - Rodada ${rodada.numero}`,
-          valor: bonusVitoria
+          descricao: `Vitória/Empate rodada ${rodada.numero}`,
+          valor: saldoMandante
         })
       )
-    }
 
-    // Visitante
-    promises.push(
-      registrarMovimentacao({
-        id_time: jogo.visitante,
-        tipo: 'saida',
-        descricao: `Pagamento de salários - Rodada ${rodada.numero}`,
-        valor: salario
-      })
-    )
-
-    promises.push(
-      registrarMovimentacao({
-        id_time: jogo.visitante,
-        tipo: 'entrada',
-        descricao: `Bônus por gols marcados - Rodada ${rodada.numero}`,
-        valor: jogo.gols_visitante * bonusGol
-      })
-    )
-
-    promises.push(
-      registrarMovimentacao({
-        id_time: jogo.visitante,
-        tipo: 'saida',
-        descricao: `Penalidade por gols sofridos - Rodada ${rodada.numero}`,
-        valor: jogo.gols_mandante * penalidadeGolSofrido
-      })
-    )
-
-    if (vitoriaVisitante) {
       promises.push(
         registrarMovimentacao({
           id_time: jogo.visitante,
           tipo: 'entrada',
-          descricao: `Bônus por vitória - Rodada ${rodada.numero}`,
-          valor: bonusVitoria
+          descricao: `Vitória/Empate rodada ${rodada.numero}`,
+          valor: saldoVisitante
         })
       )
+
+      if (jogo.gols_mandante > 0) {
+        promises.push(
+          registrarMovimentacao({
+            id_time: jogo.mandante,
+            tipo: 'entrada',
+            descricao: `Bônus por gols rodada ${rodada.numero}`,
+            valor: jogo.gols_mandante * 200000
+          })
+        )
+      }
+
+      if (jogo.gols_visitante > 0) {
+        promises.push(
+          registrarMovimentacao({
+            id_time: jogo.visitante,
+            tipo: 'entrada',
+            descricao: `Bônus por gols rodada ${rodada.numero}`,
+            valor: jogo.gols_visitante * 200000
+          })
+        )
+      }
+
+      promises.push(
+        registrarMovimentacao({
+          id_time: jogo.mandante,
+          tipo: 'saida',
+          descricao: `Pagamento de salários rodada ${rodada.numero}`,
+          valor: -1000000
+        }),
+        registrarMovimentacao({
+          id_time: jogo.visitante,
+          tipo: 'saida',
+          descricao: `Pagamento de salários rodada ${rodada.numero}`,
+          valor: -1000000
+        })
+      )
+
+      await Promise.all(promises)
+
+      toast.success(`Movimentações da rodada ${rodada.numero} registradas`)
+    } catch (err) {
+      toast.error('Erro ao registrar movimentações')
     }
-
-    await Promise.all(promises)
-
-    const jogoId = `${rodada.numero}-${jogo.mandante}-${jogo.visitante}`
-    setStatus((prev) => ({ ...prev, [jogoId]: true }))
   }
 
   return (
-    <div className="p-4 max-w-4xl mx-auto text-white">
-      <h1 className="text-2xl font-bold mb-4 text-center">
-        Registrar Movimentações por Jogo
-      </h1>
+    <div className="max-w-4xl mx-auto p-4 text-white">
+      <h1 className="text-3xl font-bold mb-6 text-center text-green-400">💸 Registrar Movimentações</h1>
 
-      {rodadas.map((rodada) => (
-        <div key={rodada.id} className="mb-6 bg-zinc-800 rounded-xl p-4 shadow">
-          <h2 className="text-xl font-semibold mb-2">
-            Rodada {rodada.numero}
-          </h2>
-
-          {rodada.jogos.map((jogo, index) => {
-            const jogoId = `${rodada.numero}-${jogo.mandante}-${jogo.visitante}`
-            const jaRegistrado = status[jogoId]
-
-            return (
+      {loading ? (
+        <p className="text-center text-gray-400">Carregando rodadas concluídas...</p>
+      ) : rodadas.length === 0 ? (
+        <p className="text-center text-gray-400">Nenhuma rodada concluída disponível.</p>
+      ) : (
+        rodadas.map((rodada) => (
+          <div key={rodada.id} className="mb-8 border border-gray-600 p-4 rounded-xl bg-gray-900 shadow-lg">
+            <h2 className="text-xl font-semibold mb-3 text-yellow-300">Rodada {rodada.numero}</h2>
+            {rodada.jogos.map((jogo, index) => (
               <div
                 key={index}
-                className="flex items-center justify-between bg-zinc-700 p-3 rounded-lg mb-2"
+                className="flex justify-between items-center border-b border-gray-700 py-2 px-2 hover:bg-gray-800 transition"
               >
-                <span>
-                  <strong>{timesMap[jogo.mandante]?.nome || 'Mandante'}</strong>{' '}
-                  {jogo.gols_mandante} x {jogo.gols_visitante}{' '}
-                  <strong>{timesMap[jogo.visitante]?.nome || 'Visitante'}</strong>
+                <span className="text-sm">
+                  <strong>{jogo.mandante}</strong> {jogo.gols_mandante} x {jogo.gols_visitante}{' '}
+                  <strong>{jogo.visitante}</strong>
                 </span>
-
-                {jaRegistrado ? (
-                  <span className="text-green-400 font-semibold">✅ Registrado</span>
-                ) : (
-                  <button
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-                    onClick={() => registrar(jogo, rodada)}
-                  >
-                    Registrar
-                  </button>
-                )}
+                <button
+                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                  onClick={() => registrar(jogo, rodada)}
+                >
+                  Registrar
+                </button>
               </div>
-            )
-          })}
-        </div>
-      ))}
+            ))}
+          </div>
+        ))
+      )}
     </div>
   )
 }
