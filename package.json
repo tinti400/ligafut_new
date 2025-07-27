@@ -12,6 +12,7 @@
     "@react-three/drei": "^10.5.1",
     "@react-three/fiber": "^9.2.0",
     "@supabase/supabase-js": "^2.50.5",
+    "canvas-confetti": "^1.9.3",
     "classnames": "^2.5.1",
     "dayjs": "^1.11.13",
     "next": "15.3.5",
