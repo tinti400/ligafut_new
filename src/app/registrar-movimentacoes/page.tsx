@@ -34,6 +34,7 @@ export default function RegistrarMovimentacoesPage() {
   const [rodadas, setRodadas] = useState<Rodada[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  const [jogosRegistrados, setJogosRegistrados] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     buscarRodadas()
@@ -83,7 +84,13 @@ export default function RegistrarMovimentacoesPage() {
     setLoading(false)
   }
 
-  async function registrar(jogo: Jogo, rodada: Rodada) {
+  async function registrar(jogo: Jogo, rodada: Rodada, index: number) {
+    const key = `${rodada.id}-${index}`
+    if (jogosRegistrados[key]) {
+      toast('Movimentação já registrada', { icon: '✅' })
+      return
+    }
+
     try {
       const promises = []
 
@@ -142,6 +149,7 @@ export default function RegistrarMovimentacoesPage() {
 
       await Promise.all(promises)
 
+      setJogosRegistrados((prev) => ({ ...prev, [key]: true }))
       toast.success(`Movimentações da rodada ${rodada.numero} registradas`)
     } catch (err) {
       toast.error('Erro ao registrar movimentações')
@@ -164,24 +172,34 @@ export default function RegistrarMovimentacoesPage() {
             <h2 className="text-xl font-semibold mb-3 text-yellow-300">
               Rodada {rodada.numero}
             </h2>
-            {rodada.jogos.map((jogo, index) => (
-              <div
-                key={index}
-                className="flex justify-between items-center border-b border-gray-700 py-2 px-2 hover:bg-gray-800 transition"
-              >
-                <span className="text-sm">
-                  <strong>{timesMap[jogo.mandante] || 'Desconhecido'}</strong>{' '}
-                  {jogo.gols_mandante} x {jogo.gols_visitante}{' '}
-                  <strong>{timesMap[jogo.visitante] || 'Desconhecido'}</strong>
-                </span>
-                <button
-                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
-                  onClick={() => registrar(jogo, rodada)}
+            {rodada.jogos.map((jogo, index) => {
+              const key = `${rodada.id}-${index}`
+              const registrado = jogosRegistrados[key]
+
+              return (
+                <div
+                  key={key}
+                  className="flex justify-between items-center border-b border-gray-700 py-2 px-2 hover:bg-gray-800 transition"
                 >
-                  Registrar
-                </button>
-              </div>
-            ))}
+                  <span className="text-sm">
+                    <strong>{timesMap[jogo.mandante] || 'Desconhecido'}</strong>{' '}
+                    {jogo.gols_mandante} x {jogo.gols_visitante}{' '}
+                    <strong>{timesMap[jogo.visitante] || 'Desconhecido'}</strong>
+                  </span>
+                  <button
+                    className={`px-3 py-1 rounded text-sm ${
+                      registrado
+                        ? 'bg-gray-600 text-white cursor-not-allowed'
+                        : 'bg-green-600 hover:bg-green-700 text-white'
+                    }`}
+                    disabled={registrado}
+                    onClick={() => registrar(jogo, rodada, index)}
+                  >
+                    {registrado ? '✅ Registrado' : 'Registrar'}
+                  </button>
+                </div>
+              )
+            })}
           </div>
         ))
       )}
