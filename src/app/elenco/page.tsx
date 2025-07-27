@@ -24,7 +24,7 @@ const bandeiras: Record<string, string> = {
 const coresPorPosicao: Record<string, string> = {
   GL: 'bg-yellow-500', Zagueiro: 'bg-blue-500', LD: 'bg-indigo-400', LE: 'bg-indigo-500',
   VOL: 'bg-green-600', MC: 'bg-green-500', ME: 'bg-green-400', MD: 'bg-green-400',
-  SA: 'bg-orange-500', CA: 'bg-red-600', PD: 'bg-pink-500', PE: 'bg-pink-600',
+  SA: 'bg-orange-500', Centroavante: 'bg-red-600', PD: 'bg-pink-500', PE: 'bg-pink-600',
 }
 
 export default function ElencoPage() {
