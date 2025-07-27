@@ -15,6 +15,7 @@ export default function PropostasRecebidasPage() {
   const [jogadores, setJogadores] = useState<any>({})
   const [jogadoresOferecidosData, setJogadoresOferecidosData] = useState<any>({})
   const [idTime, setIdTime] = useState<string>('')
+  const [loadingPropostaId, setLoadingPropostaId] = useState<string | null>(null)
 
   useEffect(() => {
     const id_time = localStorage.getItem('id_time') || ''
@@ -85,6 +86,12 @@ export default function PropostasRecebidasPage() {
   }, [])
 
   const aceitarProposta = async (proposta: any) => {
+    const confirmar = window.confirm(`Tem certeza que deseja aceitar a proposta por ${jogadores[proposta.jogador_id]?.nome || 'o jogador'}?`)
+    if (!confirmar) return
+
+    if (loadingPropostaId === proposta.id) return
+    setLoadingPropostaId(proposta.id)
+
     try {
       await supabase.from('propostas_app').update({ status: 'aceita' }).eq('id', proposta.id)
 
@@ -146,19 +153,18 @@ export default function PropostasRecebidasPage() {
       })
 
       await registrarMovimentacao({
-  id_time: proposta.id_time_origem,
-  tipo: 'saida',
-  valor: proposta.valor_oferecido,
-  descricao: `Compra de ${jogador?.nome || 'Jogador'} via proposta`,
-})
+        id_time: proposta.id_time_origem,
+        tipo: 'saida',
+        valor: proposta.valor_oferecido,
+        descricao: `Compra de ${jogador?.nome || 'Jogador'} via proposta`,
+      })
 
-await registrarMovimentacao({
-  id_time: proposta.id_time_alvo,
-  tipo: 'entrada',
-  valor: proposta.valor_oferecido,
-  descricao: `Venda de ${jogador?.nome || 'Jogador'} via proposta`,
-})
-
+      await registrarMovimentacao({
+        id_time: proposta.id_time_alvo,
+        tipo: 'entrada',
+        valor: proposta.valor_oferecido,
+        descricao: `Venda de ${jogador?.nome || 'Jogador'} via proposta`,
+      })
 
       await supabase.from('bid').insert({
         tipo_evento: 'transferencia',
@@ -173,6 +179,8 @@ await registrarMovimentacao({
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
     } catch (err) {
       console.error('❌ Erro ao aceitar proposta:', err)
+    } finally {
+      setLoadingPropostaId(null)
     }
   }
 
@@ -259,9 +267,10 @@ await registrarMovimentacao({
           <div className="flex gap-2 mt-2 flex-wrap justify-center">
             <button
               onClick={() => aceitarProposta(p)}
-              className="bg-green-600 text-white text-xs px-2 py-1 rounded"
+              className="bg-green-600 text-white text-xs px-2 py-1 rounded disabled:opacity-50"
+              disabled={loadingPropostaId === p.id}
             >
-              ✅ Aceitar
+              {loadingPropostaId === p.id ? '⏳' : '✅ Aceitar'}
             </button>
             <button
               onClick={() => recusarProposta(p.id)}
