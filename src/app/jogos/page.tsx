@@ -107,11 +107,15 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
 }
 
 async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number) {
+  // ⛔️ Se ainda não há placar, sai da função
+  if (gols_pro === undefined || gols_contra === undefined) return
+
   const { data: timeData, error: errorTime } = await supabase
     .from('times')
     .select('divisao')
     .eq('id', timeId)
     .single()
+
   if (errorTime || !timeData) return
 
   const divisao = timeData.divisao
