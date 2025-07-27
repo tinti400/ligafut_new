@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { registrarMovimentacao } from './registrarMovimentacao'
-import Loading from '@/components/Loading'
+import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
+import classNames from 'classnames'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,136 +26,185 @@ interface Rodada {
 interface Time {
   id: string
   nome: string
-  salario?: number
 }
 
 export default function RegistrarMovimentacoesPage() {
   const [rodadas, setRodadas] = useState<Rodada[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
-  const [loading, setLoading] = useState(true)
-  const [statusRegistro, setStatusRegistro] = useState<Record<string, boolean>>({})
+  const [status, setStatus] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    carregarRodadas()
-    carregarTimes()
+    buscarRodadas()
+    buscarTimes()
   }, [])
 
-  async function carregarRodadas() {
+  async function buscarRodadas() {
     const { data, error } = await supabase
       .from('rodadas')
-      .select('id, numero, jogos')
+      .select('*')
       .order('numero', { ascending: true })
 
-    if (data) setRodadas(data)
-  }
-
-  async function carregarTimes() {
-    const { data } = await supabase.from('times').select('id, nome, salario')
-    if (data) {
-      const map: Record<string, Time> = {}
-      data.forEach((t) => (map[t.id] = t))
-      setTimesMap(map)
-      setLoading(false)
+    if (error) {
+      console.error('Erro ao buscar rodadas:', error)
+      return
     }
+
+    setRodadas(data || [])
   }
 
-  async function registrarPorJogo(jogo: Jogo, rodada: number) {
+  async function buscarTimes() {
+    const { data, error } = await supabase.from('times').select('id, nome')
+    if (error) {
+      console.error('Erro ao buscar times:', error)
+      return
+    }
+
+    const mapa: Record<string, Time> = {}
+    data?.forEach((time) => {
+      mapa[time.id] = time
+    })
+
+    setTimesMap(mapa)
+  }
+
+  async function registrar(jogo: Jogo, rodada: Rodada) {
+    const promises = []
+
     const mandante = timesMap[jogo.mandante]
     const visitante = timesMap[jogo.visitante]
+
     if (!mandante || !visitante) return
 
-    const hoje = new Date().toISOString()
+    const vitoriaMandante = jogo.gols_mandante > jogo.gols_visitante
+    const vitoriaVisitante = jogo.gols_visitante > jogo.gols_mandante
+    const empate = jogo.gols_mandante === jogo.gols_visitante
 
-    // Salários
-    await registrarMovimentacao({
-      id_time: mandante.id,
-      tipo: 'saida',
-      descricao: 'Pagamento de salário',
-      valor: -(mandante.salario || 0),
-      data: hoje
-    })
+    const salario = -5_000_000
+    const bonusVitoria = 3_000_000
+    const bonusGol = 1_000_000
+    const penalidadeGolSofrido = -500_000
 
-    await registrarMovimentacao({
-      id_time: visitante.id,
-      tipo: 'saida',
-      descricao: 'Pagamento de salário',
-      valor: -(visitante.salario || 0),
-      data: hoje
-    })
-
-    // Bônus por gols
-    if (jogo.gols_mandante > 0) {
-      await registrarMovimentacao({
-        id_time: mandante.id,
-        tipo: 'entrada',
-        descricao: `Bônus de gols (${jogo.gols_mandante})`,
-        valor: 500_000 * jogo.gols_mandante,
-        data: hoje
+    // Mandante
+    promises.push(
+      registrarMovimentacao({
+        id_time: jogo.mandante,
+        tipo: 'saida',
+        descricao: `Pagamento de salários - Rodada ${rodada.numero}`,
+        valor: salario
       })
+    )
+
+    promises.push(
+      registrarMovimentacao({
+        id_time: jogo.mandante,
+        tipo: 'entrada',
+        descricao: `Bônus por gols marcados - Rodada ${rodada.numero}`,
+        valor: jogo.gols_mandante * bonusGol
+      })
+    )
+
+    promises.push(
+      registrarMovimentacao({
+        id_time: jogo.mandante,
+        tipo: 'saida',
+        descricao: `Penalidade por gols sofridos - Rodada ${rodada.numero}`,
+        valor: jogo.gols_visitante * penalidadeGolSofrido
+      })
+    )
+
+    if (vitoriaMandante) {
+      promises.push(
+        registrarMovimentacao({
+          id_time: jogo.mandante,
+          tipo: 'entrada',
+          descricao: `Bônus por vitória - Rodada ${rodada.numero}`,
+          valor: bonusVitoria
+        })
+      )
     }
 
-    if (jogo.gols_visitante > 0) {
-      await registrarMovimentacao({
-        id_time: visitante.id,
-        tipo: 'entrada',
-        descricao: `Bônus de gols (${jogo.gols_visitante})`,
-        valor: 500_000 * jogo.gols_visitante,
-        data: hoje
+    // Visitante
+    promises.push(
+      registrarMovimentacao({
+        id_time: jogo.visitante,
+        tipo: 'saida',
+        descricao: `Pagamento de salários - Rodada ${rodada.numero}`,
+        valor: salario
       })
+    )
+
+    promises.push(
+      registrarMovimentacao({
+        id_time: jogo.visitante,
+        tipo: 'entrada',
+        descricao: `Bônus por gols marcados - Rodada ${rodada.numero}`,
+        valor: jogo.gols_visitante * bonusGol
+      })
+    )
+
+    promises.push(
+      registrarMovimentacao({
+        id_time: jogo.visitante,
+        tipo: 'saida',
+        descricao: `Penalidade por gols sofridos - Rodada ${rodada.numero}`,
+        valor: jogo.gols_mandante * penalidadeGolSofrido
+      })
+    )
+
+    if (vitoriaVisitante) {
+      promises.push(
+        registrarMovimentacao({
+          id_time: jogo.visitante,
+          tipo: 'entrada',
+          descricao: `Bônus por vitória - Rodada ${rodada.numero}`,
+          valor: bonusVitoria
+        })
+      )
     }
 
-    // Premiação por vitória
-    if (jogo.gols_mandante > jogo.gols_visitante) {
-      await registrarMovimentacao({
-        id_time: mandante.id,
-        tipo: 'entrada',
-        descricao: 'Premiação por vitória',
-        valor: 2_000_000,
-        data: hoje
-      })
-    } else if (jogo.gols_visitante > jogo.gols_mandante) {
-      await registrarMovimentacao({
-        id_time: visitante.id,
-        tipo: 'entrada',
-        descricao: 'Premiação por vitória',
-        valor: 2_000_000,
-        data: hoje
-      })
-    }
+    await Promise.all(promises)
 
-    const chave = `${rodada}-${mandante.id}-${visitante.id}`
-    setStatusRegistro((prev) => ({ ...prev, [chave]: true }))
+    const jogoId = `${rodada.numero}-${jogo.mandante}-${jogo.visitante}`
+    setStatus((prev) => ({ ...prev, [jogoId]: true }))
   }
 
-  if (loading) return <Loading />
-
   return (
-    <div className="max-w-4xl mx-auto p-6 text-white">
-      <h1 className="text-2xl font-bold mb-6 text-center">📄 Registrar Movimentações por Jogo</h1>
+    <div className="p-4 max-w-4xl mx-auto text-white">
+      <h1 className="text-2xl font-bold mb-4 text-center">
+        Registrar Movimentações por Jogo
+      </h1>
 
       {rodadas.map((rodada) => (
-        <div key={rodada.id} className="mb-8 border border-zinc-700 rounded-lg p-4">
-          <h2 className="text-lg font-semibold mb-4">Rodada {rodada.numero}</h2>
+        <div key={rodada.id} className="mb-6 bg-zinc-800 rounded-xl p-4 shadow">
+          <h2 className="text-xl font-semibold mb-2">
+            Rodada {rodada.numero}
+          </h2>
+
           {rodada.jogos.map((jogo, index) => {
-            const nomeMandante = timesMap[jogo.mandante]?.nome || 'Desconhecido'
-            const nomeVisitante = timesMap[jogo.visitante]?.nome || 'Desconhecido'
-            const chave = `${rodada.numero}-${jogo.mandante}-${jogo.visitante}`
-            const jaRegistrado = statusRegistro[chave]
+            const jogoId = `${rodada.numero}-${jogo.mandante}-${jogo.visitante}`
+            const jaRegistrado = status[jogoId]
 
             return (
-              <div key={index} className="flex items-center justify-between mb-3 bg-zinc-800 p-3 rounded">
+              <div
+                key={index}
+                className="flex items-center justify-between bg-zinc-700 p-3 rounded-lg mb-2"
+              >
                 <span>
-                  ⚽ {nomeMandante} {jogo.gols_mandante} x {jogo.gols_visitante} {nomeVisitante}
+                  <strong>{timesMap[jogo.mandante]?.nome || 'Mandante'}</strong>{' '}
+                  {jogo.gols_mandante} x {jogo.gols_visitante}{' '}
+                  <strong>{timesMap[jogo.visitante]?.nome || 'Visitante'}</strong>
                 </span>
-                <button
-                  onClick={() => registrarPorJogo(jogo, rodada.numero)}
-                  disabled={jaRegistrado}
-                  className={`px-3 py-1 rounded ${
-                    jaRegistrado ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700'
-                  }`}
-                >
-                  {jaRegistrado ? '✅ Registrado' : 'Registrar Movimentações'}
-                </button>
+
+                {jaRegistrado ? (
+                  <span className="text-green-400 font-semibold">✅ Registrado</span>
+                ) : (
+                  <button
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                    onClick={() => registrar(jogo, rodada)}
+                  >
+                    Registrar
+                  </button>
+                )}
               </div>
             )
           })}
