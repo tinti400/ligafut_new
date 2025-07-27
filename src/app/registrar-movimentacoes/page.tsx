@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { registrarMovimentacao } from '@/utils/utils'
+import { registrarMovimentacao } from './registrarMovimentacao'
 import Loading from '@/components/Loading'
 
 const supabase = createClient(
