@@ -106,14 +106,14 @@ export default function FaseLigaAdminPage() {
 
       await registrarMovimentacao({
         id_time: time1Id,
-        tipo: 'Premiação',
+        tipo: 'entrada',
         valor: total1,
         descricao: `Premiação por jogo: ${g1}x${g2}`
       })
 
       await registrarMovimentacao({
         id_time: time2Id,
-        tipo: 'Premiação',
+        tipo: 'entrada',
         valor: total2,
         descricao: `Premiação por jogo: ${g2}x${g1}`
       })
