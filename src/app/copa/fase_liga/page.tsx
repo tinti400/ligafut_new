@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
+import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -73,7 +74,52 @@ export default function FaseLigaAdminPage() {
       toast.error('Erro ao salvar placar!')
     } else {
       await atualizarClassificacao()
-      toast.success('✅ Placar salvo com sucesso!')
+
+      const time1Id = jogo.time1
+      const time2Id = jogo.time2
+      const g1 = jogo.gols_time1
+      const g2 = jogo.gols_time2
+
+      const diferenca = g1 - g2
+
+      const premioGol = 550000
+      const premioSofrido = -100000
+
+      const totalGol1 = g1 * premioGol + g2 * premioSofrido
+      const totalGol2 = g2 * premioGol + g1 * premioSofrido
+
+      let bonus1 = 0
+      let bonus2 = 0
+
+      if (g1 > g2) {
+        bonus1 = 8000000
+        bonus2 = 2000000
+      } else if (g2 > g1) {
+        bonus1 = 2000000
+        bonus2 = 8000000
+      } else {
+        bonus1 = 5000000
+        bonus2 = 5000000
+      }
+
+      const total1 = bonus1 + totalGol1
+      const total2 = bonus2 + totalGol2
+
+      await registrarMovimentacao({
+        id_time: time1Id,
+        tipo: 'Premiação',
+        valor: total1,
+        descricao: `Premiação por jogo: ${g1}x${g2}`
+      })
+
+      await registrarMovimentacao({
+        id_time: time2Id,
+        tipo: 'Premiação',
+        valor: total2,
+        descricao: `Premiação por jogo: ${g2}x${g1}`
+      })
+
+      toast.success('✅ Placar e premiação salvos com sucesso!')
     }
 
     setSalvandoId(null)
