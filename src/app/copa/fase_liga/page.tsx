@@ -13,14 +13,14 @@ const supabase = createClient(
 export default function FaseLigaAdminPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<any[]>([])
-  const [timesMap, setTimesMap] = useState<Record<string, { logo_url: string }>>({})
+  const [timesMap, setTimesMap] = useState<Record<string, { nome: string, logo_url: string }>>({})
   const [filtroTime, setFiltroTime] = useState<string>('Todos')
   const [loading, setLoading] = useState(true)
   const [salvandoId, setSalvandoId] = useState<number | null>(null)
 
   useEffect(() => {
     buscarJogos()
-    buscarLogos()
+    buscarTimes()
   }, [])
 
   async function buscarJogos() {
@@ -40,12 +40,12 @@ export default function FaseLigaAdminPage() {
     setLoading(false)
   }
 
-  async function buscarLogos() {
-    const { data } = await supabase.from('times').select('nome, logo_url')
+  async function buscarTimes() {
+    const { data } = await supabase.from('times').select('id, nome, logo_url')
     if (data) {
-      const map: Record<string, { logo_url: string }> = {}
+      const map: Record<string, { nome: string, logo_url: string }> = {}
       data.forEach((t) => {
-        map[t.nome] = { logo_url: t.logo_url }
+        map[t.id] = { nome: t.nome, logo_url: t.logo_url }
       })
       setTimesMap(map)
     }
@@ -84,10 +84,7 @@ export default function FaseLigaAdminPage() {
 
     const { error } = await supabase
       .from('copa_fase_liga')
-      .update({
-        gols_time1: null,
-        gols_time2: null,
-      })
+      .update({ gols_time1: null, gols_time2: null })
       .eq('id', jogo.id)
 
     if (error) {
@@ -102,7 +99,7 @@ export default function FaseLigaAdminPage() {
   }
 
   const jogosFiltrados = jogos.filter((jogo) =>
-    filtroTime === 'Todos' || jogo.time1 === filtroTime || jogo.time2 === filtroTime
+    filtroTime === 'Todos' || timesMap[jogo.time1]?.nome === filtroTime || timesMap[jogo.time2]?.nome === filtroTime
   )
 
   const jogosPorRodada: Record<number, any[]> = {}
@@ -113,9 +110,7 @@ export default function FaseLigaAdminPage() {
     jogosPorRodada[jogo.rodada].push(jogo)
   })
 
-  const nomesDosTimes = Array.from(
-    new Set(jogos.map((j) => j.time1).concat(jogos.map((j) => j.time2)))
-  ).sort()
+  const nomesDosTimes = Object.values(timesMap).map((t) => t.nome).sort()
 
   return (
     <div className="p-4 max-w-5xl mx-auto bg-zinc-900 min-h-screen text-white">
@@ -123,7 +118,6 @@ export default function FaseLigaAdminPage() {
         🏆 Administração – Fase Liga
       </h1>
 
-      {/* Filtro por time */}
       <div className="mb-6 text-center">
         <label className="mr-2">Filtrar por time:</label>
         <select
@@ -133,9 +127,7 @@ export default function FaseLigaAdminPage() {
         >
           <option value="Todos">Todos</option>
           {nomesDosTimes.map((nome) => (
-            <option key={nome} value={nome}>
-              {nome}
-            </option>
+            <option key={nome} value={nome}>{nome}</option>
           ))}
         </select>
       </div>
@@ -152,17 +144,15 @@ export default function FaseLigaAdminPage() {
                   key={jogo.id}
                   className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-zinc-800 p-4 rounded-lg shadow border border-zinc-700"
                 >
-                  {/* Time 1 */}
                   <div className="flex items-center gap-2 w-40">
                     <img
                       src={timesMap[jogo.time1]?.logo_url || '/default.png'}
-                      alt={jogo.time1}
+                      alt={timesMap[jogo.time1]?.nome || ''}
                       className="w-8 h-8 rounded-full border object-cover bg-white"
                     />
-                    <span className="font-semibold text-white">{jogo.time1}</span>
+                    <span className="font-semibold text-white">{timesMap[jogo.time1]?.nome || jogo.time1}</span>
                   </div>
 
-                  {/* Placar */}
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
@@ -197,17 +187,15 @@ export default function FaseLigaAdminPage() {
                     />
                   </div>
 
-                  {/* Time 2 */}
                   <div className="flex items-center gap-2 w-40 justify-end">
-                    <span className="font-semibold text-white">{jogo.time2}</span>
+                    <span className="font-semibold text-white">{timesMap[jogo.time2]?.nome || jogo.time2}</span>
                     <img
                       src={timesMap[jogo.time2]?.logo_url || '/default.png'}
-                      alt={jogo.time2}
+                      alt={timesMap[jogo.time2]?.nome || ''}
                       className="w-8 h-8 rounded-full border object-cover bg-white"
                     />
                   </div>
 
-                  {/* Botões (visíveis apenas para admin) */}
                   {isAdmin && (
                     <div className="flex gap-2">
                       <button
