@@ -80,8 +80,7 @@ export default function FaseLigaAdminPage() {
       const g1 = jogo.gols_time1
       const g2 = jogo.gols_time2
 
-      const diferenca = g1 - g2
-
+      // PREMIAÇÃO
       const premioGol = 550000
       const premioSofrido = -100000
 
@@ -119,7 +118,17 @@ export default function FaseLigaAdminPage() {
         descricao: `Premiação por jogo: ${g2}x${g1}`
       })
 
-      toast.success('✅ Placar e premiação salvos com sucesso!')
+      // REGISTRO NO BID
+      await supabase.from('bid').insert([
+        {
+          tipo_evento: 'Jogo',
+          descricao: `${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'}`,
+          id_time1: time1Id,
+          id_time2: time2Id,
+        }
+      ])
+
+      toast.success('✅ Placar, premiação e BID salvos com sucesso!')
     }
 
     setSalvandoId(null)
