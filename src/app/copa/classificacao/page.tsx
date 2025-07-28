@@ -33,13 +33,86 @@ export default function ClassificacaoCopaPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    buscarClassificacao()
+    atualizarClassificacao()
     buscarTimes()
   }, [])
 
-  async function buscarClassificacao() {
-    const { data } = await supabase.from('classificacao_copa').select('*')
-    if (data) setClassificacao(data)
+  async function atualizarClassificacao() {
+    setLoading(true)
+
+    const { data: jogos } = await supabase
+      .from('copa_fase_liga')
+      .select('*')
+      .not('gols_time1', 'is', null)
+      .not('gols_time2', 'is', null)
+
+    if (!jogos || jogos.length === 0) {
+      setClassificacao([])
+      setLoading(false)
+      return
+    }
+
+    const tabela: Record<string, LinhaClassificacao> = {}
+
+    for (const jogo of jogos) {
+      const { time1, time2, gols_time1, gols_time2 } = jogo
+
+      if (!tabela[time1]) {
+        tabela[time1] = {
+          id_time: time1,
+          pontos: 0,
+          vitorias: 0,
+          empates: 0,
+          derrotas: 0,
+          gols_pro: 0,
+          gols_contra: 0,
+          saldo: 0,
+          jogos: 0
+        }
+      }
+
+      if (!tabela[time2]) {
+        tabela[time2] = {
+          id_time: time2,
+          pontos: 0,
+          vitorias: 0,
+          empates: 0,
+          derrotas: 0,
+          gols_pro: 0,
+          gols_contra: 0,
+          saldo: 0,
+          jogos: 0
+        }
+      }
+
+      tabela[time1].gols_pro += gols_time1
+      tabela[time1].gols_contra += gols_time2
+      tabela[time1].jogos += 1
+
+      tabela[time2].gols_pro += gols_time2
+      tabela[time2].gols_contra += gols_time1
+      tabela[time2].jogos += 1
+
+      if (gols_time1 > gols_time2) {
+        tabela[time1].vitorias += 1
+        tabela[time1].pontos += 3
+        tabela[time2].derrotas += 1
+      } else if (gols_time1 < gols_time2) {
+        tabela[time2].vitorias += 1
+        tabela[time2].pontos += 3
+        tabela[time1].derrotas += 1
+      } else {
+        tabela[time1].empates += 1
+        tabela[time2].empates += 1
+        tabela[time1].pontos += 1
+        tabela[time2].pontos += 1
+      }
+
+      tabela[time1].saldo = tabela[time1].gols_pro - tabela[time1].gols_contra
+      tabela[time2].saldo = tabela[time2].gols_pro - tabela[time2].gols_contra
+    }
+
+    setClassificacao(Object.values(tabela))
     setLoading(false)
   }
 
