@@ -59,6 +59,24 @@ export default function FaseLigaAdminPage() {
     }
   }
 
+  async function pagarPremiacao(id_time: string, valor: number, descricao: string) {
+    const { error: erroSaldo } = await supabase.rpc('atualizar_saldo', {
+      p_id_time: id_time,
+      p_valor: valor
+    })
+    if (erroSaldo) {
+      console.error('Erro ao atualizar saldo via RPC:', erroSaldo)
+      toast.error('Erro ao atualizar saldo do time')
+    }
+
+    await registrarMovimentacao({
+      id_time,
+      tipo: 'entrada',
+      valor,
+      descricao
+    })
+  }
+
   async function salvarPlacar(jogo: any) {
     setSalvandoId(jogo.id)
 
@@ -80,7 +98,6 @@ export default function FaseLigaAdminPage() {
       const g1 = jogo.gols_time1
       const g2 = jogo.gols_time2
 
-      // PREMIAÇÃO
       const premioGol = 550000
       const penalidadeGolSofrido = 100000
 
@@ -106,25 +123,13 @@ export default function FaseLigaAdminPage() {
       const total1 = bonus1 + premioGols1 - descontoSofrido1
       const total2 = bonus2 + premioGols2 - descontoSofrido2
 
-      await registrarMovimentacao({
-        id_time: time1Id,
-        tipo: 'entrada',
-        valor: total1,
-        descricao: `Premiação por jogo: ${g1}x${g2}`
-      })
+      await pagarPremiacao(time1Id, total1, `Premiação por jogo: ${g1}x${g2}`)
+      await pagarPremiacao(time2Id, total2, `Premiação por jogo: ${g2}x${g1}`)
 
-      await registrarMovimentacao({
-        id_time: time2Id,
-        tipo: 'entrada',
-        valor: total2,
-        descricao: `Premiação por jogo: ${g2}x${g1}`
-      })
-
-      // REGISTRO NO BID
       await supabase.from('bid').insert([
         {
           tipo_evento: 'Jogo',
-          descricao: `${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'}`,
+          descricao: `${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'} — ${total1.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} x ${total2.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
           id_time1: time1Id,
           id_time2: time2Id,
           valor: null
