@@ -82,10 +82,12 @@ export default function FaseLigaAdminPage() {
 
       // PREMIAÇÃO
       const premioGol = 550000
-      const premioSofrido = -100000
+      const penalidadeGolSofrido = 100000
 
-      const totalGol1 = g1 * premioGol + g2 * premioSofrido
-      const totalGol2 = g2 * premioGol + g1 * premioSofrido
+      const premioGols1 = g1 * premioGol
+      const premioGols2 = g2 * premioGol
+      const descontoSofrido1 = g2 * penalidadeGolSofrido
+      const descontoSofrido2 = g1 * penalidadeGolSofrido
 
       let bonus1 = 0
       let bonus2 = 0
@@ -101,8 +103,8 @@ export default function FaseLigaAdminPage() {
         bonus2 = 5000000
       }
 
-      const total1 = bonus1 + totalGol1
-      const total2 = bonus2 + totalGol2
+      const total1 = bonus1 + premioGols1 - descontoSofrido1
+      const total2 = bonus2 + premioGols2 - descontoSofrido2
 
       await registrarMovimentacao({
         id_time: time1Id,
@@ -125,6 +127,7 @@ export default function FaseLigaAdminPage() {
           descricao: `${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'}`,
           id_time1: time1Id,
           id_time2: time2Id,
+          valor: null
         }
       ])
 
