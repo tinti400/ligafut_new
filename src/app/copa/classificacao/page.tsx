@@ -22,6 +22,7 @@ interface LinhaClassificacao {
 }
 
 interface TimeInfo {
+  id: string
   nome: string
   logo_url?: string
   logo?: string
@@ -33,57 +34,56 @@ export default function ClassificacaoCopaPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    atualizarClassificacao()
-    buscarTimes()
+    calcularClassificacao()
   }, [])
 
-  async function atualizarClassificacao() {
+  async function calcularClassificacao() {
     setLoading(true)
 
+    // 1. Buscar todos os times
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url, logo')
+    if (!times) return
+
+    const mapaTimes: Record<string, TimeInfo> = {}
+    const tabela: Record<string, LinhaClassificacao> = {}
+
+    for (const time of times) {
+      mapaTimes[time.id] = {
+        id: time.id,
+        nome: time.nome,
+        logo_url: time.logo_url,
+        logo: time.logo
+      }
+
+      tabela[time.id] = {
+        id_time: time.id,
+        pontos: 0,
+        vitorias: 0,
+        empates: 0,
+        derrotas: 0,
+        gols_pro: 0,
+        gols_contra: 0,
+        saldo: 0,
+        jogos: 0
+      }
+    }
+
+    setTimesMap(mapaTimes)
+
+    // 2. Buscar todos os jogos com placar
     const { data: jogos } = await supabase
       .from('copa_fase_liga')
       .select('*')
       .not('gols_time1', 'is', null)
       .not('gols_time2', 'is', null)
 
-    if (!jogos || jogos.length === 0) {
-      setClassificacao([])
-      setLoading(false)
-      return
-    }
+    if (!jogos) return
 
-    const tabela: Record<string, LinhaClassificacao> = {}
-
+    // 3. Processar resultados
     for (const jogo of jogos) {
       const { time1, time2, gols_time1, gols_time2 } = jogo
 
-      if (!tabela[time1]) {
-        tabela[time1] = {
-          id_time: time1,
-          pontos: 0,
-          vitorias: 0,
-          empates: 0,
-          derrotas: 0,
-          gols_pro: 0,
-          gols_contra: 0,
-          saldo: 0,
-          jogos: 0
-        }
-      }
-
-      if (!tabela[time2]) {
-        tabela[time2] = {
-          id_time: time2,
-          pontos: 0,
-          vitorias: 0,
-          empates: 0,
-          derrotas: 0,
-          gols_pro: 0,
-          gols_contra: 0,
-          saldo: 0,
-          jogos: 0
-        }
-      }
+      if (!tabela[time1] || !tabela[time2]) continue
 
       tabela[time1].gols_pro += gols_time1
       tabela[time1].gols_contra += gols_time2
@@ -112,23 +112,10 @@ export default function ClassificacaoCopaPage() {
       tabela[time2].saldo = tabela[time2].gols_pro - tabela[time2].gols_contra
     }
 
-    setClassificacao(Object.values(tabela))
+    // 4. Salvar classificação em estado
+    const classificacaoFinal = Object.values(tabela)
+    setClassificacao(classificacaoFinal)
     setLoading(false)
-  }
-
-  async function buscarTimes() {
-    const { data } = await supabase.from('times').select('id, nome, logo_url, logo')
-    if (data) {
-      const map: Record<string, TimeInfo> = {}
-      data.forEach((t) => {
-        map[t.id] = {
-          nome: t.nome,
-          logo_url: t.logo_url,
-          logo: t.logo
-        }
-      })
-      setTimesMap(map)
-    }
   }
 
   const classificacaoOrdenada = [...classificacao].sort((a, b) => {
