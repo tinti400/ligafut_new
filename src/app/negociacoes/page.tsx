@@ -108,7 +108,7 @@ export default function NegociacoesPage() {
     created_at: new Date().toISOString(),
   }
 
-  const { error } = await supabase.from('propostas').insert(proposta)
+  const { error } = await supabase.from('propostas_app').insert(proposta)
 
   if (!error) {
     // ✅ Confirmação visual simples
