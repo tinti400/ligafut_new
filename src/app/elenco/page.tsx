@@ -226,6 +226,7 @@ export default function ElencoPage() {
               <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
+              <p className="text-gray-400 text-xs">Percentual: {jogador.percentual ?? 100}%</p>
               {status.length > 0 && <p className="text-xs mt-1 text-yellow-400">{status.join(' • ')}</p>}
               {jogador.link_sofifa && (
                 <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs underline block mt-1">🔗 Ver no SoFIFA</a>
