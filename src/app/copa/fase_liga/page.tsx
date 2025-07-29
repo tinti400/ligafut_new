@@ -174,6 +174,8 @@ await supabase.from('bid').insert([
 toast.success('✅ Placar, premiação e BID salvos com sucesso!')
 setSalvandoId(null)
 
+}
+
   async function excluirPlacar(jogo: any) {
     setSalvandoId(jogo.id)
 
