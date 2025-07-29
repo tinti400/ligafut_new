@@ -129,8 +129,8 @@ export default function PropostasRecebidasPage() {
 
       let valorTotal = proposta.valor_oferecido
 
-      if (proposta.percentual) {
-        valorTotal = (jogadorData.valor * proposta.percentual) / 100
+      if (proposta.tipo_proposta === 'percentual') {
+        valorTotal = (jogadorData.valor * proposta.percentual_desejado) / 100
       }
 
       await supabase.from('times').update({ saldo: comprador.saldo - valorTotal }).eq('id', proposta.id_time_origem)
@@ -138,12 +138,7 @@ export default function PropostasRecebidasPage() {
 
       await supabase
         .from('elenco')
-        .update({ id_time: proposta.id_time_origem, jogos: 0 })
-        .eq('id', proposta.jogador_id)
-
-      await supabase
-        .from('elenco')
-        .update({ valor: valorTotal })
+        .update({ id_time: proposta.id_time_origem, jogos: 0, valor: valorTotal })
         .eq('id', proposta.jogador_id)
 
       if (['troca_simples', 'troca_composta'].includes(proposta.tipo_proposta)) {
@@ -218,8 +213,8 @@ export default function PropostasRecebidasPage() {
         <div className="text-sm text-blue-700 font-bold mt-1">
           R$ {Number(p.valor_oferecido).toLocaleString('pt-BR')}
         </div>
-        {p.percentual && (
-          <div className="text-xs mt-1">📊 Percentual: {p.percentual}%</div>
+        {p.tipo_proposta === 'percentual' && (
+          <div className="text-xs mt-1">📊 Percentual: {p.percentual_desejado}%</div>
         )}
         {p.jogadores_oferecidos.length > 0 && (
           <div className="text-xs mt-1 text-center">
