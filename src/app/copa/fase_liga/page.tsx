@@ -80,6 +80,25 @@ export default function FaseLigaAdminPage() {
   async function salvarPlacar(jogo: any) {
     setSalvandoId(jogo.id)
 
+    // 🔒 Verifica se já foi pago o bônus
+  const { data: jogoExistente, error: erroVerificacao } = await supabase
+    .from('copa_fase_liga')
+    .select('bonus_pago')
+    .eq('id', jogo.id)
+    .single()
+
+  if (erroVerificacao) {
+    toast.error('Erro ao verificar bônus já pago')
+    setSalvandoId(null)
+    return
+  }
+
+  if (jogoExistente?.bonus_pago) {
+    toast.error('❌ Bônus já pago para esse jogo!')
+    setSalvandoId(null)
+    return
+  }
+
     const { error } = await supabase
       .from('copa_fase_liga')
       .update({
@@ -136,11 +155,15 @@ export default function FaseLigaAdminPage() {
         }
       ])
 
-      toast.success('✅ Placar, premiação e BID salvos com sucesso!')
-    }
+      // ✅ Marca como bônus já pago
+  await supabase
+    .from('copa_fase_liga')
+    .update({ bonus_pago: true })
+    .eq('id', jogo.id)
 
-    setSalvandoId(null)
-  }
+  toast.success('✅ Placar, premiação e BID salvos com sucesso!')
+  setSalvandoId(null)
+}
 
   async function excluirPlacar(jogo: any) {
     setSalvandoId(jogo.id)
