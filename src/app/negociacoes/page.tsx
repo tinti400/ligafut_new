@@ -17,6 +17,7 @@ export default function NegociacoesPage() {
   const [jogadorSelecionadoId, setJogadorSelecionadoId] = useState('')
   const [tipoProposta, setTipoProposta] = useState<{ [key: string]: string }>({})
   const [valorProposta, setValorProposta] = useState<{ [key: string]: string }>({})
+  const [percentualDesejado, setPercentualDesejado] = useState<{ [key: string]: string }>({})
   const [jogadoresOferecidos, setJogadoresOferecidos] = useState<{ [key: string]: string[] }>({})
   const [mensagemSucesso, setMensagemSucesso] = useState<{ [key: string]: boolean }>({})
 
@@ -76,6 +77,7 @@ export default function NegociacoesPage() {
   const enviarProposta = async (jogador: any) => {
     const tipo = tipoProposta[jogador.id]
     const valor = valorProposta[jogador.id] || '0'
+    const percentual = percentualDesejado[jogador.id] || '0'
 
     if (!id_time || !tipo || !nome_time) return
 
@@ -96,6 +98,7 @@ export default function NegociacoesPage() {
       tipo_proposta: tipo,
       valor_oferecido: ['dinheiro', 'troca_composta'].includes(tipo) ? parseInt(valor) : 0,
       jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
+      percentual_desejado: parseInt(percentual),
       status: 'pendente',
     }
 
@@ -110,6 +113,7 @@ export default function NegociacoesPage() {
       setJogadorSelecionadoId('')
       setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
       setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
+      setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '' }))
       setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: [] }))
     }
   }
@@ -186,20 +190,39 @@ export default function NegociacoesPage() {
                 </select>
 
                 {['dinheiro', 'troca_composta'].includes(tipoProposta[jogador.id] || '') && (
-                  <div className="mb-3">
-                    <label className="font-semibold">Valor oferecido (R$):</label>
-                    <input
-                      type="number"
-                      className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
-                      value={valorProposta[jogador.id] || ''}
-                      onChange={(e) =>
-                        setValorProposta((prev) => ({
-                          ...prev,
-                          [jogador.id]: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
+                  <>
+                    <div className="mb-3">
+                      <label className="font-semibold">Valor oferecido (R$):</label>
+                      <input
+                        type="number"
+                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                        value={valorProposta[jogador.id] || ''}
+                        onChange={(e) =>
+                          setValorProposta((prev) => ({
+                            ...prev,
+                            [jogador.id]: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="font-semibold">Percentual desejado (%):</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                        value={percentualDesejado[jogador.id] || ''}
+                        onChange={(e) =>
+                          setPercentualDesejado((prev) => ({
+                            ...prev,
+                            [jogador.id]: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </>
                 )}
 
                 {['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id] || '') && (
@@ -231,6 +254,8 @@ export default function NegociacoesPage() {
                   disabled={
                     (['dinheiro', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
                       (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
+                    !percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])) ||
+                    Number(percentualDesejado[jogador.id]) <= 0 ||
                     (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
                       (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
                   }
@@ -239,6 +264,8 @@ export default function NegociacoesPage() {
                     ${
                       (['dinheiro', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
                       (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
+                      !percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])) ||
+                      Number(percentualDesejado[jogador.id]) <= 0 ||
                       (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
                       (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
                         ? 'bg-gray-500 cursor-not-allowed'
