@@ -96,37 +96,59 @@ export default function ElencoPage() {
   }
 
   const venderSelecionados = async () => {
-    const jogadores = elenco.filter(j => selecionados.includes(j.id))
+  const jogadores = elenco.filter(j => selecionados.includes(j.id))
 
-    for (const jogador of jogadores) {
-      if ((jogador.jogos || 0) < 3) {
-        alert(`🚫 ${jogador.nome} não completou 3 jogos.`)
-        continue
-      }
-
-      await supabase.from('mercado_transferencias').insert({
-        jogador_id: jogador.id,
-        nome: jogador.nome,
-        posicao: jogador.posicao,
-        overall: jogador.overall,
-        valor: jogador.valor,
-        imagem_url: jogador.imagem_url || '',
-        salario: jogador.salario || 0,
-        link_sofifa: jogador.link_sofifa || '',
-        id_time_origem: jogador.id_time,
-        status: 'disponivel',
-        created_at: new Date().toISOString()
-      })
-
-      await supabase.from('elenco').delete().eq('id', jogador.id)
-      await supabase.from('times').update({
-        saldo: saldo + Math.round(jogador.valor * 0.7)
-      }).eq('id', jogador.id_time)
+  for (const jogador of jogadores) {
+    if ((jogador.jogos || 0) < 3) {
+      alert(`🚫 ${jogador.nome} não completou 3 jogos.`)
+      continue
     }
 
-    await fetchElenco()
-    alert('✅ Jogadores vendidos!')
+    const percentualAVender = prompt(`Quantos % de ${jogador.nome} deseja vender?`, '100')
+    const percentualNum = Number(percentualAVender)
+
+    if (!percentualNum || percentualNum <= 0 || percentualNum > (jogador.percentual ?? 100)) {
+      alert(`❌ Percentual inválido.`)
+      continue
+    }
+
+    const valorVenda = Math.round((jogador.valor * percentualNum / 100) * 0.7)
+
+    // Registrar no mercado
+    await supabase.from('mercado_transferencias').insert({
+      jogador_id: jogador.id,
+      nome: jogador.nome,
+      posicao: jogador.posicao,
+      overall: jogador.overall,
+      valor: jogador.valor,
+      imagem_url: jogador.imagem_url || '',
+      salario: jogador.salario || 0,
+      link_sofifa: jogador.link_sofifa || '',
+      id_time_origem: jogador.id_time,
+      status: 'disponivel',
+      percentual: percentualNum,
+      created_at: new Date().toISOString()
+    })
+
+    // Atualizar o percentual do time atual
+    const novoPercentual = (jogador.percentual ?? 100) - percentualNum
+
+    if (novoPercentual <= 0) {
+      // Remove jogador
+      await supabase.from('elenco').delete().eq('id', jogador.id)
+    } else {
+      await supabase.from('elenco').update({ percentual: novoPercentual }).eq('id', jogador.id)
+    }
+
+    // Atualiza saldo
+    await supabase.from('times').update({
+      saldo: saldo + valorVenda
+    }).eq('id', jogador.id_time)
   }
+
+  await fetchElenco()
+  alert('✅ Venda registrada!')
+}
 
   const valorTotal = elenco.reduce((acc, j) => acc + (j.valor || 0), 0)
   const salarioTotal = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
