@@ -74,64 +74,44 @@ export default function NegociacoesPage() {
     buscarElencoMeuTime()
   }, [id_time])
 
-  const enviarProposta = async (jogador: any) => {
-  const tipo = tipoProposta[jogador.id]
-  const valor = valorProposta[jogador.id] || '0'
-  const percentual = percentualDesejado[jogador.id] || '0'
-
-  if (!id_time || !tipo || !nome_time) return
-
-  const { data: timeAlvoData } = await supabase
-    .from('times')
-    .select('nome')
-    .eq('id', jogador.id_time)
-    .single()
-
-  const nome_time_alvo = timeAlvoData?.nome || 'Indefinido'
-
-  // Mensagem de confirmação customizada
-  let confirmMessage = 'Deseja realmente enviar esta proposta?'
-
-  if (tipo === 'comprar_percentual') {
-    confirmMessage = `📈 Deseja comprar ${percentual}% do jogador ${jogador.nome} por R$ ${Number(valor).toLocaleString('pt-BR')}?`
-  } else if (tipo === 'dinheiro') {
-    confirmMessage = `💰 Deseja comprar o jogador ${jogador.nome} por R$ ${Number(valor).toLocaleString('pt-BR')}?`
-  } else if (tipo === 'troca_simples') {
-    confirmMessage = `🔁 Deseja trocar jogadores pelo ${jogador.nome}?`
-  } else if (tipo === 'troca_composta') {
-    confirmMessage = `💶 Deseja trocar jogadores e pagar R$ ${Number(valor).toLocaleString('pt-BR')} pelo ${jogador.nome}?`
+  const enviarProposta = async () => {
+  if (!proposta.valor_oferecido || isNaN(Number(proposta.valor_oferecido))) {
+    alert('Insira um valor válido.')
+    return
   }
 
-  const confirmacao = window.confirm(confirmMessage)
+  if (jogador.id_time === idTime) {
+    alert('Você não pode fazer proposta para jogador do seu próprio time.')
+    return
+  }
+
+  const confirmacao = window.confirm('Tem certeza que deseja enviar esta proposta?')
   if (!confirmacao) return
 
-  const proposta = {
-    id_time_origem: id_time,
-    nome_time_origem: nome_time,
-    id_time_alvo: jogador.id_time,
-    nome_time_alvo: nome_time_alvo,
-    jogador_id: jogador.id,
-    tipo_proposta: tipo,
-    valor_oferecido: ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo) ? parseInt(valor) : 0,
-    jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
-    percentual: tipo === 'comprar_percentual' ? parseInt(percentual) : null,
+  const novaProposta = {
+    ...proposta,
     status: 'pendente',
+    id_time_origem: idTime,
+    id_time_alvo: jogador.id_time,
+    jogador_id: jogador.id,
+    created_at: new Date().toISOString(),
   }
 
-  const { error } = await supabase.from('propostas').insert(proposta)
+  const { error } = await supabase.from('propostas').insert(novaProposta)
 
-  if (!error) {
-    setMensagemSucesso((prev) => ({ ...prev, [jogador.id]: true }))
-    setTimeout(() => {
-      setMensagemSucesso((prev) => ({ ...prev, [jogador.id]: false }))
-    }, 3000)
-
-    setJogadorSelecionadoId('')
-    setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-    setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
-    setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '' }))
-    setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: [] }))
+  if (error) {
+    console.error('❌ Erro ao enviar proposta:', error)
+    alert('Erro ao enviar proposta. Tente novamente.')
+    return
   }
+
+  alert('✅ Proposta enviada com sucesso!')
+  setProposta({
+    tipo_proposta: 'dinheiro',
+    valor_oferecido: 0,
+    jogadores_oferecidos: [],
+    percentual_desejado: 100,
+  })
 }
 
   const timesFiltrados = times.filter((t) =>
