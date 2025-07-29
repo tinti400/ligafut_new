@@ -128,7 +128,6 @@ export default function PropostasRecebidasPage() {
       if (!comprador || !vendedor) return
 
       let valorTotal = proposta.valor_oferecido
-
       if (proposta.tipo_proposta === 'percentual') {
         valorTotal = (jogadorData.valor * proposta.percentual_desejado) / 100
       }

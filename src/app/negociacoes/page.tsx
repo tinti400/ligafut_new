@@ -25,7 +25,6 @@ export default function NegociacoesPage() {
   const [id_time, setIdTime] = useState<string | null>(null)
   const [nome_time, setNomeTime] = useState<string | null>(null)
 
-  // Carrega dados do usuário
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
     if (userStorage) {
@@ -36,7 +35,6 @@ export default function NegociacoesPage() {
     }
   }, [])
 
-  // Buscar times disponíveis para negociação
   useEffect(() => {
     const buscarTimes = async () => {
       const { data } = await supabase
@@ -50,7 +48,6 @@ export default function NegociacoesPage() {
     if (id_time) buscarTimes()
   }, [id_time])
 
-  // Buscar elenco do time selecionado
   useEffect(() => {
     const buscarElenco = async () => {
       if (!timeSelecionado) return
@@ -64,7 +61,6 @@ export default function NegociacoesPage() {
     buscarElenco()
   }, [timeSelecionado])
 
-  // Buscar elenco do meu time
   useEffect(() => {
     const buscarElencoMeuTime = async () => {
       if (!id_time) return
@@ -100,9 +96,9 @@ export default function NegociacoesPage() {
       nome_time_alvo: nome_time_alvo,
       jogador_id: jogador.id,
       tipo_proposta: tipo,
-      valor_oferecido: ['dinheiro', 'troca_composta'].includes(tipo) ? parseInt(valor) : 0,
+      valor_oferecido: ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo) ? parseInt(valor) : 0,
       jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
-      percentual: parseInt(percentual),
+      percentual: ['comprar_percentual'].includes(tipo) ? parseInt(percentual) : null,
       status: 'pendente',
     }
 
@@ -114,7 +110,6 @@ export default function NegociacoesPage() {
         setMensagemSucesso((prev) => ({ ...prev, [jogador.id]: false }))
       }, 3000)
 
-      // Limpa os campos
       setJogadorSelecionadoId('')
       setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
       setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
@@ -179,60 +174,48 @@ export default function NegociacoesPage() {
             </button>
 
             {jogadorSelecionadoId === jogador.id && (
-              <div className="mt-3 w-full text-left text-xs border-t border-gray-700 pt-2">
+              <div className="mt-3 text-xs border-t border-gray-700 pt-2">
                 <label className="font-semibold block mb-1">Tipo de proposta:</label>
                 <select
                   className="border p-1 w-full mb-3 bg-gray-800 border-gray-600 text-white"
                   value={tipoProposta[jogador.id] || 'dinheiro'}
                   onChange={(e) =>
-                    setTipoProposta((prev) => ({
-                      ...prev,
-                      [jogador.id]: e.target.value,
-                    }))
+                    setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))
                   }
                 >
                   <option value="dinheiro">💰 Apenas dinheiro</option>
                   <option value="troca_simples">🔁 Troca simples</option>
                   <option value="troca_composta">💶 Troca + dinheiro</option>
+                  <option value="comprar_percentual">📈 Comprar percentual</option>
                 </select>
 
-                {['dinheiro', 'troca_composta'].includes(tipoProposta[jogador.id] || '') && (
-                  <>
-                    <div className="mb-3">
-                      <label className="font-semibold">Valor oferecido (R$):</label>
-                      <input
-                        type="number"
-                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
-                        value={valorProposta[jogador.id] || ''}
-                        onChange={(e) =>
-                          setValorProposta((prev) => ({
-                            ...prev,
-                            [jogador.id]: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="mb-3">
-                      <label className="font-semibold">Percentual desejado (%):</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
-                        value={percentualDesejado[jogador.id] || ''}
-                        onChange={(e) =>
-                          setPercentualDesejado((prev) => ({
-                            ...prev,
-                            [jogador.id]: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  </>
+                {['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipoProposta[jogador.id]) && (
+                  <div className="mb-3">
+                    <label className="font-semibold">Valor oferecido (R$):</label>
+                    <input
+                      type="number"
+                      className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                      value={valorProposta[jogador.id] || ''}
+                      onChange={(e) => setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))}
+                    />
+                  </div>
                 )}
 
-                {['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id] || '') && (
+                {['comprar_percentual'].includes(tipoProposta[jogador.id]) && (
+                  <div className="mb-3">
+                    <label className="font-semibold">Percentual desejado (%):</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                      value={percentualDesejado[jogador.id] || ''}
+                      onChange={(e) => setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: e.target.value }))}
+                    />
+                  </div>
+                )}
+
+                {['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id]) && (
                   <div className="mb-3">
                     <label className="font-semibold">Jogadores oferecidos:</label>
                     <select
@@ -241,10 +224,7 @@ export default function NegociacoesPage() {
                       value={jogadoresOferecidos[jogador.id] || []}
                       onChange={(e) => {
                         const selected = Array.from(e.target.selectedOptions).map((opt) => opt.value)
-                        setJogadoresOferecidos((prev) => ({
-                          ...prev,
-                          [jogador.id]: selected,
-                        }))
+                        setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: selected }))
                       }}
                     >
                       {elencoMeuTime.map((j) => (
@@ -259,21 +239,21 @@ export default function NegociacoesPage() {
                 <button
                   onClick={() => enviarProposta(jogador)}
                   disabled={
-                    (['dinheiro', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
+                    (['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipoProposta[jogador.id]) &&
                       (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
-                    !percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])) ||
-                    Number(percentualDesejado[jogador.id]) <= 0 ||
-                    (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
+                    (tipoProposta[jogador.id] === 'comprar_percentual' &&
+                      (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))) ||
+                    (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id]) &&
                       (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
                   }
                   className={`
                     w-full text-white font-bold py-1 rounded mt-2 text-xs
                     ${
-                      (['dinheiro', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
+                      (['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipoProposta[jogador.id]) &&
                         (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
-                      !percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])) ||
-                      Number(percentualDesejado[jogador.id]) <= 0 ||
-                      (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
+                      (tipoProposta[jogador.id] === 'comprar_percentual' &&
+                        (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))) ||
+                      (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id]) &&
                         (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
                         ? 'bg-gray-500 cursor-not-allowed'
                         : 'bg-green-600 hover:bg-green-700'
@@ -284,9 +264,7 @@ export default function NegociacoesPage() {
                 </button>
 
                 {mensagemSucesso[jogador.id] && (
-                  <div className="text-green-400 text-xs mt-2 text-center">
-                    ✅ Proposta enviada!
-                  </div>
+                  <div className="text-green-400 text-xs mt-2 text-center">✅ Proposta enviada!</div>
                 )}
               </div>
             )}
@@ -296,3 +274,4 @@ export default function NegociacoesPage() {
     </main>
   )
 }
+
