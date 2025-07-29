@@ -25,6 +25,7 @@ export default function NegociacoesPage() {
   const [id_time, setIdTime] = useState<string | null>(null)
   const [nome_time, setNomeTime] = useState<string | null>(null)
 
+  // Carrega dados do usuário
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
     if (userStorage) {
@@ -35,6 +36,7 @@ export default function NegociacoesPage() {
     }
   }, [])
 
+  // Buscar times disponíveis para negociação
   useEffect(() => {
     const buscarTimes = async () => {
       const { data } = await supabase
@@ -48,6 +50,7 @@ export default function NegociacoesPage() {
     if (id_time) buscarTimes()
   }, [id_time])
 
+  // Buscar elenco do time selecionado
   useEffect(() => {
     const buscarElenco = async () => {
       if (!timeSelecionado) return
@@ -61,6 +64,7 @@ export default function NegociacoesPage() {
     buscarElenco()
   }, [timeSelecionado])
 
+  // Buscar elenco do meu time
   useEffect(() => {
     const buscarElencoMeuTime = async () => {
       if (!id_time) return
@@ -90,19 +94,19 @@ export default function NegociacoesPage() {
     const nome_time_alvo = timeAlvoData?.nome || 'Indefinido'
 
     const proposta = {
-  id_time_origem: id_time,
-  nome_time_origem: nome_time,
-  id_time_alvo: jogador.id_time,
-  nome_time_alvo: nome_time_alvo,
-  jogador_id: jogador.id,
-  tipo_proposta: tipo,
-  valor_oferecido: ['dinheiro', 'troca_composta'].includes(tipo) ? parseInt(valor) : 0,
-  jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
-  percentual: parseInt(percentual),
-  status: 'pendente',
-}
+      id_time_origem: id_time,
+      nome_time_origem: nome_time,
+      id_time_alvo: jogador.id_time,
+      nome_time_alvo: nome_time_alvo,
+      jogador_id: jogador.id,
+      tipo_proposta: tipo,
+      valor_oferecido: ['dinheiro', 'troca_composta'].includes(tipo) ? parseInt(valor) : 0,
+      jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
+      percentual: parseInt(percentual),
+      status: 'pendente',
+    }
 
-    const { error } = await supabase.from('').insert(proposta)
+    const { error } = await supabase.from('propostas').insert(proposta)
 
     if (!error) {
       setMensagemSucesso((prev) => ({ ...prev, [jogador.id]: true }))
@@ -110,6 +114,7 @@ export default function NegociacoesPage() {
         setMensagemSucesso((prev) => ({ ...prev, [jogador.id]: false }))
       }, 3000)
 
+      // Limpa os campos
       setJogadorSelecionadoId('')
       setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
       setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
@@ -265,11 +270,11 @@ export default function NegociacoesPage() {
                     w-full text-white font-bold py-1 rounded mt-2 text-xs
                     ${
                       (['dinheiro', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
-                      (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
+                        (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
                       !percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])) ||
                       Number(percentualDesejado[jogador.id]) <= 0 ||
                       (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id] || '') &&
-                      (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
+                        (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
                         ? 'bg-gray-500 cursor-not-allowed'
                         : 'bg-green-600 hover:bg-green-700'
                     }
