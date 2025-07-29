@@ -90,17 +90,17 @@ export default function NegociacoesPage() {
     const nome_time_alvo = timeAlvoData?.nome || 'Indefinido'
 
     const proposta = {
-      id_time_origem: id_time,
-      nome_time_origem: nome_time,
-      id_time_alvo: jogador.id_time,
-      nome_time_alvo: nome_time_alvo,
-      jogador_id: jogador.id,
-      tipo_proposta: tipo,
-      valor_oferecido: ['dinheiro', 'troca_composta'].includes(tipo) ? parseInt(valor) : 0,
-      jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
-      percentual: parseInt(percentual),
-      status: 'pendente',
-    }
+  id_time_origem: id_time,
+  nome_time_origem: nome_time,
+  id_time_alvo: jogador.id_time,
+  nome_time_alvo: nome_time_alvo,
+  jogador_id: jogador.id,
+  tipo_proposta: tipo,
+  valor_oferecido: ['dinheiro', 'troca_composta'].includes(tipo) ? parseInt(valor) : 0,
+  jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
+  percentual: parseInt(percentual),
+  status: 'pendente',
+}
 
     const { error } = await supabase.from('').insert(proposta)
 
