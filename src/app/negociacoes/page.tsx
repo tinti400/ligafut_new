@@ -166,6 +166,8 @@ export default function NegociacoesPage() {
               onClick={() => {
                 setJogadorSelecionadoId(jogador.id)
                 setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
+                setValorProposta((prev) => ({ ...prev, [jogador.id]: jogador.valor?.toString() || '0' }))
+                setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
               }}
             >
               💬 Fazer Proposta
