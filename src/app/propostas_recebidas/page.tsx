@@ -86,103 +86,131 @@ export default function PropostasRecebidasPage() {
   }, [])
 
   const aceitarProposta = async (proposta: any) => {
-    const confirmar = window.confirm(`Tem certeza que deseja aceitar a proposta por ${jogadores[proposta.jogador_id]?.nome || 'o jogador'}?`)
-    if (!confirmar) return
+  const jogador = jogadores[proposta.jogador_id]
 
-    if (loadingPropostaId === proposta.id) return
-    setLoadingPropostaId(proposta.id)
+  // Verifica jogos pelo time atual
+  const { data: jogadorData, error: errorJogador } = await supabase
+    .from('elenco')
+    .select('jogos, id_time')
+    .eq('id', proposta.jogador_id)
+    .single()
 
-    try {
-      await supabase.from('propostas_app').update({ status: 'aceita' }).eq('id', proposta.id)
+  if (errorJogador || !jogadorData) {
+    alert('Erro ao verificar número de jogos do jogador.')
+    return
+  }
 
-      const { data: comprador } = await supabase
-        .from('times')
-        .select('saldo, nome')
-        .eq('id', proposta.id_time_origem)
-        .single()
+  // Se jogador ainda não jogou 3 vezes no clube atual, bloqueia
+  if (jogadorData.jogos < 3) {
+    alert('❌ Este jogador ainda não pode ser negociado. Ele precisa ter pelo menos 3 jogos pelo time atual.')
+    return
+  }
 
-      const { data: vendedor } = await supabase
-        .from('times')
-        .select('saldo, nome')
-        .eq('id', proposta.id_time_alvo)
-        .single()
+  const confirmar = window.confirm(`Tem certeza que deseja aceitar a proposta por ${jogador?.nome || 'o jogador'}?`)
+  if (!confirmar) return
 
-      if (!comprador || !vendedor) return
+  if (loadingPropostaId === proposta.id) return
+  setLoadingPropostaId(proposta.id)
 
-      await supabase
-        .from('times')
-        .update({ saldo: comprador.saldo - proposta.valor_oferecido })
-        .eq('id', proposta.id_time_origem)
+  try {
+    // Atualiza status da proposta
+    await supabase.from('propostas_app').update({ status: 'aceita' }).eq('id', proposta.id)
 
-      await supabase
-        .from('times')
-        .update({ saldo: vendedor.saldo + proposta.valor_oferecido })
-        .eq('id', proposta.id_time_alvo)
+    // Busca saldos
+    const { data: comprador } = await supabase
+      .from('times')
+      .select('saldo, nome')
+      .eq('id', proposta.id_time_origem)
+      .single()
 
+    const { data: vendedor } = await supabase
+      .from('times')
+      .select('saldo, nome')
+      .eq('id', proposta.id_time_alvo)
+      .single()
+
+    if (!comprador || !vendedor) return
+
+    // Atualiza saldos
+    await supabase
+      .from('times')
+      .update({ saldo: comprador.saldo - proposta.valor_oferecido })
+      .eq('id', proposta.id_time_origem)
+
+    await supabase
+      .from('times')
+      .update({ saldo: vendedor.saldo + proposta.valor_oferecido })
+      .eq('id', proposta.id_time_alvo)
+
+    // Transfere jogador principal zerando os jogos
+    await supabase
+      .from('elenco')
+      .update({ id_time: proposta.id_time_origem, jogos: 0 })
+      .eq('id', proposta.jogador_id)
+
+    // Atualiza valor do jogador se for tipo "dinheiro"
+    if (proposta.tipo_proposta === 'dinheiro') {
       await supabase
         .from('elenco')
-        .update({ id_time: proposta.id_time_origem })
+        .update({ valor: proposta.valor_oferecido })
         .eq('id', proposta.jogador_id)
+    }
 
-      if (proposta.tipo_proposta === 'dinheiro') {
+    // Troca jogadores oferecidos (se houver)
+    let descricaoExtra = ''
+    if (['troca_simples', 'troca_composta'].includes(proposta.tipo_proposta)) {
+      const nomes = []
+      for (const idJogador of proposta.jogadores_oferecidos) {
         await supabase
           .from('elenco')
-          .update({ valor: proposta.valor_oferecido })
-          .eq('id', proposta.jogador_id)
+          .update({ id_time: proposta.id_time_alvo, jogos: 0 }) // Zera jogos dos jogadores oferecidos
+          .eq('id', idJogador)
+        nomes.push(jogadoresOferecidosData[idJogador] || idJogador)
       }
-
-      let descricaoExtra = ''
-      if (['troca_simples', 'troca_composta'].includes(proposta.tipo_proposta)) {
-        const nomes = []
-        for (const idJogador of proposta.jogadores_oferecidos) {
-          await supabase
-            .from('elenco')
-            .update({ id_time: proposta.id_time_alvo })
-            .eq('id', idJogador)
-          nomes.push(jogadoresOferecidosData[idJogador] || idJogador)
-        }
-        descricaoExtra = ` Na negociação, ${nomes.join(', ')} foi/foram para o ${vendedor.nome}.`
-      }
-
-      const jogador = jogadores[proposta.jogador_id]
-
-      await supabase.from('notificacoes').insert({
-        id_time: proposta.id_time_origem,
-        titulo: '✅ Proposta aceita!',
-        mensagem: `Sua proposta pelo jogador ${jogador?.nome || 'Desconhecido'} foi aceita.`,
-      })
-
-      await registrarMovimentacao({
-        id_time: proposta.id_time_origem,
-        tipo: 'saida',
-        valor: proposta.valor_oferecido,
-        descricao: `Compra de ${jogador?.nome || 'Jogador'} via proposta`,
-      })
-
-      await registrarMovimentacao({
-        id_time: proposta.id_time_alvo,
-        tipo: 'entrada',
-        valor: proposta.valor_oferecido,
-        descricao: `Venda de ${jogador?.nome || 'Jogador'} via proposta`,
-      })
-
-      await supabase.from('bid').insert({
-        tipo_evento: 'transferencia',
-        descricao: `O ${vendedor.nome} vendeu ${jogador?.nome || 'Jogador'} para o ${comprador.nome} por R$ ${proposta.valor_oferecido.toLocaleString('pt-BR')}.${descricaoExtra}`,
-        id_time1: proposta.id_time_alvo,
-        id_time2: proposta.id_time_origem,
-        valor: proposta.valor_oferecido,
-        data_evento: new Date().toISOString(),
-      })
-
-      setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
-      setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
-    } catch (err) {
-      console.error('❌ Erro ao aceitar proposta:', err)
-    } finally {
-      setLoadingPropostaId(null)
+      descricaoExtra = ` Na negociação, ${nomes.join(', ')} foi/foram para o ${vendedor.nome}.`
     }
+
+    // Notificação para o comprador
+    await supabase.from('notificacoes').insert({
+      id_time: proposta.id_time_origem,
+      titulo: '✅ Proposta aceita!',
+      mensagem: `Sua proposta pelo jogador ${jogador?.nome || 'Desconhecido'} foi aceita.`,
+    })
+
+    // Movimentações financeiras
+    await registrarMovimentacao({
+      id_time: proposta.id_time_origem,
+      tipo: 'saida',
+      valor: proposta.valor_oferecido,
+      descricao: `Compra de ${jogador?.nome || 'Jogador'} via proposta`,
+    })
+
+    await registrarMovimentacao({
+      id_time: proposta.id_time_alvo,
+      tipo: 'entrada',
+      valor: proposta.valor_oferecido,
+      descricao: `Venda de ${jogador?.nome || 'Jogador'} via proposta`,
+    })
+
+    // Registro no BID
+    await supabase.from('bid').insert({
+      tipo_evento: 'transferencia',
+      descricao: `O ${vendedor.nome} vendeu ${jogador?.nome || 'Jogador'} para o ${comprador.nome} por R$ ${proposta.valor_oferecido.toLocaleString('pt-BR')}.${descricaoExtra}`,
+      id_time1: proposta.id_time_alvo,
+      id_time2: proposta.id_time_origem,
+      valor: proposta.valor_oferecido,
+      data_evento: new Date().toISOString(),
+    })
+
+    // Atualiza estado da tela
+    setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
+    setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
+  } catch (err) {
+    console.error('❌ Erro ao aceitar proposta:', err)
+  } finally {
+    setLoadingPropostaId(null)
   }
+}
 
   const recusarProposta = async (id: string) => {
     await supabase.from('propostas_app').update({ status: 'recusada' }).eq('id', id)
