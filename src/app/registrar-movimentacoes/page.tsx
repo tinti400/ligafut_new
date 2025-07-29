@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
+import { registrarNoExtrato } from '@/utils/registrarMovimentacao'
 import toast from 'react-hot-toast'
 
 const supabase = createClient(
@@ -109,37 +109,37 @@ export default function RegistrarMovimentacoesPage() {
           : 0
 
       promises.push(
-        registrarMovimentacao({
+        registrarNoExtrato({
           id_time: jogo.mandante,
           tipo: 'entrada',
           descricao: `Vitória/Empate rodada ${rodada.numero}`,
           valor: saldoMandante
         }),
-        registrarMovimentacao({
+        registrarNoExtrato({
           id_time: jogo.visitante,
           tipo: 'entrada',
           descricao: `Vitória/Empate rodada ${rodada.numero}`,
           valor: saldoVisitante
         }),
-        registrarMovimentacao({
+        registrarNoExtrato({
           id_time: jogo.mandante,
           tipo: 'entrada',
           descricao: `Bônus por gols rodada ${rodada.numero}`,
           valor: jogo.gols_mandante * 200000
         }),
-        registrarMovimentacao({
+        registrarNoExtrato({
           id_time: jogo.visitante,
           tipo: 'entrada',
           descricao: `Bônus por gols rodada ${rodada.numero}`,
           valor: jogo.gols_visitante * 200000
         }),
-        registrarMovimentacao({
+        registrarNoExtrato({
           id_time: jogo.mandante,
           tipo: 'saida',
           descricao: `Pagamento de salários rodada ${rodada.numero}`,
           valor: -1000000
         }),
-        registrarMovimentacao({
+        registrarNoExtrato({
           id_time: jogo.visitante,
           tipo: 'saida',
           descricao: `Pagamento de salários rodada ${rodada.numero}`,
@@ -159,7 +159,7 @@ export default function RegistrarMovimentacoesPage() {
   return (
     <div className="max-w-4xl mx-auto p-4 text-white">
       <h1 className="text-3xl font-bold mb-6 text-center text-green-400">
-        💸 Registrar Movimentações
+        💸 Registrar Movimentações (Histórico)
       </h1>
 
       {loading ? (
