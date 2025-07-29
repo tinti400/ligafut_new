@@ -98,7 +98,7 @@ export default function NegociacoesPage() {
       tipo_proposta: tipo,
       valor_oferecido: ['dinheiro', 'troca_composta'].includes(tipo) ? parseInt(valor) : 0,
       jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
-      percentual_desejado: parseInt(percentual),
+      percentual: parseInt(percentual),
       status: 'pendente',
     }
 
