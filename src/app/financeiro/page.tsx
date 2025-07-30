@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import classNames from 'classnames'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,8 +21,8 @@ interface Evento {
 
 export default function Page() {
   const [times, setTimes] = useState<Time[]>([])
-  const [timeSelecionado, setTimeSelecionado] = useState<string>('')
-  const [dataSelecionada, setDataSelecionada] = useState<string>('')
+  const [timeSelecionado, setTimeSelecionado] = useState('')
+  const [dataSelecionada, setDataSelecionada] = useState('')
 
   useEffect(() => {
     async function carregarTimes() {
@@ -32,14 +31,14 @@ export default function Page() {
         .select('id, nome')
         .order('nome', { ascending: true })
 
-      if (!error && data) setTimes(data)
+      if (data && !error) setTimes(data)
     }
 
     carregarTimes()
   }, [])
 
   return (
-    <div className="min-h-screen bg-zinc-900 text-white p-6">
+    <div className="min-h-screen bg-zinc-950 text-white p-6">
       <h1 className="text-3xl font-bold text-center mb-6">📊 Painel Financeiro por Time</h1>
 
       <div className="flex flex-col md:flex-row justify-center items-center gap-4 mb-8">
@@ -71,75 +70,48 @@ export default function Page() {
 
 function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) {
   const [nomeTime, setNomeTime] = useState('')
-  const [mostrarHistorico, setMostrarHistorico] = useState(false)
-  const [historico, setHistorico] = useState<any[]>([])
   const [dados, setDados] = useState({
     vendas: 0,
     compras: 0,
-    bonus: 0,
-    salario: 0,
-    saldo: 0,
+    bonus_resultado: 0,
+    bonus_gols: 0,
+    salariosPagos: 0,
+    folhaSalarial: 0,
+    saldoAtual: 0,
     caixaNoDia: 0,
-    mediaRenda: 0,
+    caixaAnterior: 0,
   })
 
   useEffect(() => {
     async function carregarDados() {
-      const { data: eventos, error } = await supabase
+      let vendas = 0, compras = 0, bonus_resultado = 0, bonus_gols = 0, salariosPagos = 0
+      let caixaNoDia = 0, caixaAnterior = 0
+
+      const { data: eventos } = await supabase
         .from('bid')
         .select('tipo_evento, valor, data_evento')
         .eq('id_time1', id_time)
 
-      if (error || !eventos) return
+      if (eventos) {
+        eventos.forEach((e) => {
+          const valor = e.valor || 0
+          const tipo = e.tipo_evento
 
-      let vendas = 0, compras = 0, bonus = 0, salario = 0, caixaNoDia = 0, totalRenda = 0, qtdRenda = 0
+          if (tipo === 'venda') vendas += valor
+          else if (tipo === 'compra') compras += valor
+          else if (tipo === 'bonus') bonus_resultado += valor
+          else if (tipo === 'bonus_gol') bonus_gols += valor
+          else if (tipo === 'salario') salariosPagos += valor
 
-      const historicoPorDia: Record<string, { entradas: number, saidas: number }> = {}
-
-      eventos.forEach((e: Evento) => {
-        const valor = e.valor || 0
-
-        switch (e.tipo_evento) {
-          case 'venda':
-            vendas += valor
-            break
-          case 'compra':
-            compras += valor
-            break
-          case 'bonus':
-            bonus += valor
-            break
-          case 'salario':
-            salario += valor
-            break
-          case 'renda_estadio':
-            totalRenda += valor
-            qtdRenda++
-            break
-        }
-
-        if (data && e.data_evento?.startsWith(data)) {
-          caixaNoDia += valor
-        }
-
-        const dia = e.data_evento?.split('T')[0]
-        if (dia) {
-          if (!historicoPorDia[dia]) historicoPorDia[dia] = { entradas: 0, saidas: 0 }
-
-          if (['venda', 'bonus', 'renda_estadio'].includes(e.tipo_evento)) {
-            historicoPorDia[dia].entradas += valor
-          } else {
-            historicoPorDia[dia].saidas += valor
+          if (data && e.data_evento?.startsWith(data)) {
+            caixaNoDia += valor
           }
-        }
-      })
 
-      const historicoArray = Object.entries(historicoPorDia).map(([dia, val]) => ({
-        dia,
-        entradas: val.entradas,
-        saidas: val.saidas,
-        saldo: val.entradas - val.saidas,
-      })).sort((a, b) => b.dia.localeCompare(a.dia))
+          if (data && e.data_evento < data) {
+            caixaAnterior += valor
+          }
+        })
+      }
 
       const { data: timeData } = await supabase
         .from('times')
@@ -152,64 +124,42 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
         .select('salario')
         .eq('time_id', id_time)
 
-      const folhaSalarial = (elenco || []).reduce((acc, j) => acc + (j.salario || 0), 0)
+      const folhaSalarial = elenco?.reduce((acc, jogador) => acc + (jogador.salario || 0), 0) || 0
 
       setNomeTime(timeData?.nome || 'Time')
       setDados({
         vendas,
         compras,
-        bonus,
-        salario: folhaSalarial,
-        saldo: timeData?.saldo || 0,
+        bonus_resultado,
+        bonus_gols,
+        salariosPagos,
+        folhaSalarial,
+        saldoAtual: timeData?.saldo || 0,
         caixaNoDia,
-        mediaRenda: qtdRenda > 0 ? totalRenda / qtdRenda : 0,
+        caixaAnterior,
       })
-
-      setHistorico(historicoArray)
     }
 
     carregarDados()
   }, [id_time, data])
 
   return (
-    <div className="bg-zinc-800 rounded-xl shadow-md p-6 max-w-xl mx-auto">
-      <h2 className="text-xl font-bold text-center mb-4">{nomeTime}</h2>
+    <div className="bg-zinc-900 rounded-xl shadow-lg p-6 max-w-2xl mx-auto">
+      <h2 className="text-2xl font-bold text-center mb-4">{nomeTime}</h2>
       <div className="space-y-2 text-sm">
         <p>💰 <strong>Vendas:</strong> R$ {dados.vendas.toLocaleString()}</p>
         <p>🛒 <strong>Compras:</strong> R$ {dados.compras.toLocaleString()}</p>
-        <p>🎁 <strong>Bônus:</strong> R$ {dados.bonus.toLocaleString()}</p>
-        <p>💼 <strong>Folha Salarial:</strong> R$ {dados.salario.toLocaleString()}</p>
-        <p>🏟️ <strong>Média de Renda Estádio:</strong> R$ {dados.mediaRenda.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+        <p>🏆 <strong>Bônus por Resultado:</strong> R$ {dados.bonus_resultado.toLocaleString()}</p>
+        <p>⚽ <strong>Bônus por Gols:</strong> R$ {dados.bonus_gols.toLocaleString()}</p>
+        <p>💼 <strong>Salários Pagos:</strong> R$ {dados.salariosPagos.toLocaleString()}</p>
+        <p>📄 <strong>Folha Salarial Atual:</strong> R$ {dados.folhaSalarial.toLocaleString()}</p>
         <hr className="my-2 border-zinc-600" />
-        <p className="text-base font-semibold">📈 <strong>Caixa Atual:</strong> R$ {dados.saldo.toLocaleString()}</p>
+        <p className="text-base font-semibold">📈 <strong>Caixa Atual:</strong> R$ {dados.saldoAtual.toLocaleString()}</p>
         {data && (
-          <p className="text-sm text-zinc-400 mt-1">📅 <strong>Caixa no dia {data}:</strong> R$ {dados.caixaNoDia.toLocaleString()}</p>
-        )}
-
-        <button
-          className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-          onClick={() => setMostrarHistorico(!mostrarHistorico)}
-        >
-          📅 Ver Histórico
-        </button>
-
-        {mostrarHistorico && (
-          <div className="mt-4 space-y-2">
-            <h3 className="text-sm font-bold mb-2">📚 Histórico Financeiro:</h3>
-            {historico.map((h) => (
-              <div key={h.dia} className="flex justify-between text-xs border-b border-zinc-700 py-1">
-                <span>{h.dia}</span>
-                <span className="text-green-400">+R$ {h.entradas.toLocaleString()}</span>
-                <span className="text-red-400">-R$ {h.saidas.toLocaleString()}</span>
-                <span className={classNames("font-bold", {
-                  'text-green-400': h.saldo >= 0,
-                  'text-red-400': h.saldo < 0
-                })}>
-                  {h.saldo >= 0 ? '▲' : '▼'} R$ {h.saldo.toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </div>
+          <>
+            <p className="text-sm text-zinc-400">📅 <strong>Caixa no dia {data}:</strong> R$ {dados.caixaNoDia.toLocaleString()}</p>
+            <p className="text-sm text-zinc-400">📉 <strong>Caixa antes do dia:</strong> R$ {dados.caixaAnterior.toLocaleString()}</p>
+          </>
         )}
       </div>
     </div>
