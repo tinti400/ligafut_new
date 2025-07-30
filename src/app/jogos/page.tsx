@@ -269,7 +269,6 @@ export default function Jogos() {
 
   setIsSalvando(true)
 
-  // 🔒 Verificação segura direto do banco
   const { data: rodadaAtualizada, error: erroRodada } = await supabase
     .from('rodadas')
     .select('jogos')
@@ -306,19 +305,74 @@ export default function Jogos() {
   // 💰 Atualiza saldo dos clubes com base na renda
   await supabase.rpc('atualizar_saldo', {
     id_time: mandanteId,
-    valor: renda * 0.95
+    valor: renda * 0.95,
   })
   await supabase.rpc('atualizar_saldo', {
     id_time: visitanteId,
-    valor: renda * 0.05
+    valor: renda * 0.05,
   })
 
-  // 💸 Descontar salários
-  await descontarSalariosDosTimes(mandanteId, visitanteId)
+  // 💸 Descontar salários e registrar como DESPESA
+  const descontarSalariosComRegistro = async (timeId: string) => {
+    const { data: elenco } = await supabase
+      .from('elenco')
+      .select('salario')
+      .eq('id_time', timeId)
 
-  // 🏆 Premiar por desempenho da rodada
-  await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
-  await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
+    if (!elenco) return 0
+
+    const totalSalarios = elenco.reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
+
+    await supabase.rpc('atualizar_saldo', {
+      id_time: timeId,
+      valor: -totalSalarios,
+    })
+
+    const dataAgora = new Date().toISOString()
+
+    await supabase.from('movimentacoes').insert({
+      id_time: timeId,
+      tipo: 'salario',
+      valor: totalSalarios,
+      descricao: 'Desconto de salários após partida',
+      data: dataAgora,
+    })
+
+    await supabase.from('bid').insert({
+      tipo_evento: 'despesas',
+      descricao: 'Desconto de salários após a partida',
+      id_time1: timeId,
+      valor: -totalSalarios,
+      data_evento: dataAgora,
+    })
+
+    return totalSalarios
+  }
+
+  const salariosMandante = await descontarSalariosComRegistro(mandanteId)
+  const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
+
+  // 🏆 Premiar por desempenho da rodada e retornar o valor
+  const premiacaoMandante = await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
+  const premiacaoVisitante = await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
+
+  // 📊 Registrar BID de receita (renda + bônus)
+  await supabase.from('bid').insert([
+    {
+      tipo_evento: 'receita_partida',
+      descricao: 'Receita da partida (renda + bônus)',
+      id_time1: mandanteId,
+      valor: renda * 0.95 + premiacaoMandante,
+      data_evento: new Date().toISOString(),
+    },
+    {
+      tipo_evento: 'receita_partida',
+      descricao: 'Receita da partida (renda + bônus)',
+      id_time1: visitanteId,
+      valor: renda * 0.05 + premiacaoVisitante,
+      data_evento: new Date().toISOString(),
+    },
+  ])
 
   // ✅ Atualiza o número de jogos dos jogadores
   const atualizarJogosElenco = async (timeId: string) => {
@@ -342,14 +396,14 @@ export default function Jogos() {
   await atualizarJogosElenco(mandanteId)
   await atualizarJogosElenco(visitanteId)
 
-  // Atualiza o jogo
+  // Atualiza o jogo na rodada
   novaLista[editandoIndex] = {
     ...jogo,
     gols_mandante: golsMandante,
     gols_visitante: golsVisitante,
     renda,
     publico,
-    bonus_pago: true  // ✅ Marca como pago
+    bonus_pago: true,
   }
 
   await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
@@ -362,8 +416,8 @@ export default function Jogos() {
 
   toast.success(
     `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()}
-💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()}`,
+💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()} + bônus
+💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()} + bônus`,
     { duration: 8000 }
   )
 

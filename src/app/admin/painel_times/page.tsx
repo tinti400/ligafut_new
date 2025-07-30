@@ -21,6 +21,14 @@ interface TimeInfo {
   saldo_anterior: number
 }
 
+interface RegistroBID {
+  valor: number
+  tipo_evento: string
+  data_evento: string
+  id_time1?: string
+  id_time2?: string
+}
+
 export default function PainelTimesAdmin() {
   const [times, setTimes] = useState<TimeInfo[]>([])
   const [filtroNome, setFiltroNome] = useState('')
@@ -71,16 +79,17 @@ export default function PainelTimesAdmin() {
 
       const { data: movsAnteriores } = await supabase
         .from('bid')
-        .select('valor, tipo_evento, data_evento')
+        .select('valor, tipo_evento, data_evento, id_time1, id_time2') // <- ADICIONADO
         .or(`id_time1.eq.${time.id},id_time2.eq.${time.id}`)
 
-      const saldoAnterior = movsAnteriores?.reduce((acc, m) => {
+      const saldoAnterior = movsAnteriores?.reduce((acc: number, m: RegistroBID) => {
         if (!m.data_evento || m.data_evento >= hoje) return acc
         const valor = m.valor || 0
         const tipo = m.tipo_evento
+
         if (m.id_time1 === time.id) {
-          if (['venda', 'bonus', 'bonus_gol'].includes(tipo)) return acc + valor
-          if (['salario'].includes(tipo)) return acc - valor
+          if (['venda', 'bonus', 'bonus_gol', 'receita_partida'].includes(tipo)) return acc + valor
+          if (['salario', 'despesas'].includes(tipo)) return acc - valor
         } else if (m.id_time2 === time.id) {
           if (['compra', 'leilao'].includes(tipo)) return acc - valor
         }
