@@ -53,20 +53,28 @@ function calcularPremiacao(time: TimeDados): number {
   const ultimaPartida = historico[historico.length - 1]
 
   const regras = {
-  1: { vitoria: 13_000_000, empate: 8_000_000, derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
-  2: { vitoria: 8_500_000, empate: 4_000_000, derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
-  3: { vitoria: 5_000_000, empate: 2_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
-}
+    1: { vitoria: 13_000_000, empate: 8_000_000, derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
+    2: { vitoria: 8_500_000, empate: 4_000_000, derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
+    3: { vitoria: 5_000_000, empate: 2_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
+  }
 
-
-  const { vitoria, gol, gol_sofrido } = regras[divisao as 1 | 2 | 3] || { vitoria: 0, gol: 0, gol_sofrido: 0 }
+  const regra = regras[divisao as 1 | 2 | 3]
+  if (!regra) return 0
 
   let premiacao = 0
 
-  if (ultimaPartida.resultado === 'vitoria') premiacao += vitoria
-  premiacao += ultimaPartida.gols_pro * gol
-  premiacao -= ultimaPartida.gols_contra * gol_sofrido
+  if (ultimaPartida.resultado === 'vitoria') {
+    premiacao += regra.vitoria
+  } else if (ultimaPartida.resultado === 'empate') {
+    premiacao += regra.empate
+  } else {
+    premiacao += regra.derrota
+  }
 
+  premiacao += ultimaPartida.gols_pro * regra.gol
+  premiacao -= ultimaPartida.gols_contra * regra.gol_sofrido
+
+  // Bônus por 5 vitórias seguidas
   const ultimos5 = historico.slice(-5)
   const venceuTodas = ultimos5.length === 5 && ultimos5.every((j) => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
@@ -150,8 +158,8 @@ async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string
   }
 }
 
-async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number) {
-  if (gols_pro === undefined || gols_contra === undefined) return
+async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number): Promise<number> {
+  if (gols_pro === undefined || gols_contra === undefined) return 0
 
   const { data: timeData, error: errorTime } = await supabase
     .from('times')
@@ -159,7 +167,7 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     .eq('id', timeId)
     .single()
 
-  if (errorTime || !timeData) return
+  if (errorTime || !timeData) return 0
 
   const divisao = timeData.divisao
 
@@ -192,11 +200,18 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
 
   const resultadoAtual =
     gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
+
   historico.push({ gols_pro, gols_contra, resultado: resultadoAtual })
 
-  const time: TimeDados = { id: timeId, divisao, historico }
+  const time: TimeDados = {
+    id: timeId,
+    divisao,
+    historico,
+  }
+
   const valor = calcularPremiacao(time)
-  if (valor <= 0) return
+
+  if (valor <= 0) return 0
 
   await supabase.rpc('atualizar_saldo', {
     id_time: timeId,
@@ -211,7 +226,6 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     data: new Date().toISOString(),
   })
 
-  // ✅ REGISTRO NO BID
   await supabase.from('bid').insert({
     tipo_evento: 'bonus',
     descricao: 'Bônus por desempenho na rodada',
@@ -220,8 +234,8 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     data_evento: new Date().toISOString(),
   })
 
+  return valor
 }
-
 export default function Jogos() {
   const { isAdmin, loading } = useAdmin()
   const [rodadas, setRodadas] = useState<Rodada[]>([])
@@ -352,7 +366,7 @@ const salvarResultado = async () => {
   const salariosMandante = await descontarSalariosComRegistro(mandanteId)
   const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-  // 🏆 Premiar por desempenho da rodada e retornar o valor
+  // 🏆 Premiar por desempenho da rodada e retornar o valor como number
   const premiacaoMandante: number = await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
   const premiacaoVisitante: number = await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
 
