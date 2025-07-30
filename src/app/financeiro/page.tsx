@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import classNames from 'classnames'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -70,6 +71,8 @@ export default function Page() {
 
 function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) {
   const [nomeTime, setNomeTime] = useState('')
+  const [mostrarHistorico, setMostrarHistorico] = useState(false)
+  const [historico, setHistorico] = useState<any[]>([])
   const [dados, setDados] = useState({
     vendas: 0,
     compras: 0,
@@ -77,8 +80,7 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
     salario: 0,
     saldo: 0,
     caixaNoDia: 0,
-    folhaSalarial: 0,
-    mediaEstadio: 0,
+    mediaRenda: 0,
   })
 
   useEffect(() => {
@@ -90,26 +92,54 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
 
       if (error || !eventos) return
 
-      let vendas = 0, compras = 0, bonus = 0, salario = 0, caixaNoDia = 0, totalPublico = 0, totalRenda = 0, jogosEstadio = 0
+      let vendas = 0, compras = 0, bonus = 0, salario = 0, caixaNoDia = 0, totalRenda = 0, qtdRenda = 0
+
+      const historicoPorDia: Record<string, { entradas: number, saidas: number }> = {}
 
       eventos.forEach((e: Evento) => {
         const valor = e.valor || 0
 
         switch (e.tipo_evento) {
-          case 'venda': vendas += valor; break
-          case 'compra': compras += valor; break
-          case 'bonus': bonus += valor; break
-          case 'salario': salario += valor; break
-          case 'renda':
+          case 'venda':
+            vendas += valor
+            break
+          case 'compra':
+            compras += valor
+            break
+          case 'bonus':
+            bonus += valor
+            break
+          case 'salario':
+            salario += valor
+            break
+          case 'renda_estadio':
             totalRenda += valor
-            jogosEstadio++
+            qtdRenda++
             break
         }
 
         if (data && e.data_evento?.startsWith(data)) {
           caixaNoDia += valor
         }
+
+        const dia = e.data_evento?.split('T')[0]
+        if (dia) {
+          if (!historicoPorDia[dia]) historicoPorDia[dia] = { entradas: 0, saidas: 0 }
+
+          if (['venda', 'bonus', 'renda_estadio'].includes(e.tipo_evento)) {
+            historicoPorDia[dia].entradas += valor
+          } else {
+            historicoPorDia[dia].saidas += valor
+          }
+        }
       })
+
+      const historicoArray = Object.entries(historicoPorDia).map(([dia, val]) => ({
+        dia,
+        entradas: val.entradas,
+        saidas: val.saidas,
+        saldo: val.entradas - val.saidas,
+      })).sort((a, b) => b.dia.localeCompare(a.dia))
 
       const { data: timeData } = await supabase
         .from('times')
@@ -122,20 +152,20 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
         .select('salario')
         .eq('time_id', id_time)
 
-      const folhaSalarial = elenco?.reduce((acc, j) => acc + (j.salario || 0), 0) || 0
-      const mediaEstadio = jogosEstadio > 0 ? totalRenda / jogosEstadio : 0
+      const folhaSalarial = (elenco || []).reduce((acc, j) => acc + (j.salario || 0), 0)
 
       setNomeTime(timeData?.nome || 'Time')
       setDados({
         vendas,
         compras,
         bonus,
-        salario,
+        salario: folhaSalarial,
         saldo: timeData?.saldo || 0,
         caixaNoDia,
-        folhaSalarial,
-        mediaEstadio,
+        mediaRenda: qtdRenda > 0 ? totalRenda / qtdRenda : 0,
       })
+
+      setHistorico(historicoArray)
     }
 
     carregarDados()
@@ -143,18 +173,43 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
 
   return (
     <div className="bg-zinc-800 rounded-xl shadow-md p-6 max-w-xl mx-auto">
-      <h2 className="text-xl font-bold text-center mb-4">📋 {nomeTime}</h2>
+      <h2 className="text-xl font-bold text-center mb-4">{nomeTime}</h2>
       <div className="space-y-2 text-sm">
         <p>💰 <strong>Vendas:</strong> R$ {dados.vendas.toLocaleString()}</p>
         <p>🛒 <strong>Compras:</strong> R$ {dados.compras.toLocaleString()}</p>
         <p>🎁 <strong>Bônus:</strong> R$ {dados.bonus.toLocaleString()}</p>
-        <p>💼 <strong>Salários descontados:</strong> R$ {dados.salario.toLocaleString()}</p>
-        <p>🧾 <strong>Folha Salarial:</strong> R$ {dados.folhaSalarial.toLocaleString()}</p>
-        <p>🏟️ <strong>Média de Renda no Estádio:</strong> R$ {dados.mediaEstadio.toLocaleString()}</p>
+        <p>💼 <strong>Folha Salarial:</strong> R$ {dados.salario.toLocaleString()}</p>
+        <p>🏟️ <strong>Média de Renda Estádio:</strong> R$ {dados.mediaRenda.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
         <hr className="my-2 border-zinc-600" />
         <p className="text-base font-semibold">📈 <strong>Caixa Atual:</strong> R$ {dados.saldo.toLocaleString()}</p>
         {data && (
           <p className="text-sm text-zinc-400 mt-1">📅 <strong>Caixa no dia {data}:</strong> R$ {dados.caixaNoDia.toLocaleString()}</p>
+        )}
+
+        <button
+          className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+          onClick={() => setMostrarHistorico(!mostrarHistorico)}
+        >
+          📅 Ver Histórico
+        </button>
+
+        {mostrarHistorico && (
+          <div className="mt-4 space-y-2">
+            <h3 className="text-sm font-bold mb-2">📚 Histórico Financeiro:</h3>
+            {historico.map((h) => (
+              <div key={h.dia} className="flex justify-between text-xs border-b border-zinc-700 py-1">
+                <span>{h.dia}</span>
+                <span className="text-green-400">+R$ {h.entradas.toLocaleString()}</span>
+                <span className="text-red-400">-R$ {h.saidas.toLocaleString()}</span>
+                <span className={classNames("font-bold", {
+                  'text-green-400': h.saldo >= 0,
+                  'text-red-400': h.saldo < 0
+                })}>
+                  {h.saldo >= 0 ? '▲' : '▼'} R$ {h.saldo.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
