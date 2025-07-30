@@ -161,15 +161,32 @@ const total2 = bonus2 + premioGols2 - descontoSofrido2
 await pagarPremiacao(time1Id, total1, `Premiação por jogo: ${g1}x${g2}`)
 await pagarPremiacao(time2Id, total2, `Premiação por jogo: ${g2}x${g1}`)
 
+
+
+let resultado = ''
+if (g1 > g2) {
+  resultado = `🏆 Vitória de ${timesMap[time1Id]?.nome}`
+} else if (g2 > g1) {
+  resultado = `🏆 Vitória de ${timesMap[time2Id]?.nome}`
+} else {
+  resultado = '🤝 Empate'
+}
+
 await supabase.from('bid').insert([
   {
     tipo_evento: 'Jogo',
-    descricao: `${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'} — ${total1.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} x ${total2.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
+    descricao: `
+      ${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'} —
+      ${resultado}
+      💸 ${timesMap[time1Id]?.nome}: ${total1.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+      💸 ${timesMap[time2Id]?.nome}: ${total2.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+    `.replace(/\s+/g, ' ').trim(),
     id_time1: time1Id,
     id_time2: time2Id,
     valor: null
   }
 ])
+
 
 toast.success('✅ Placar, premiação e BID salvos com sucesso!')
 setSalvandoId(null)
