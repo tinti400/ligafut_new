@@ -77,6 +77,8 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
     salario: 0,
     saldo: 0,
     caixaNoDia: 0,
+    folhaSalarial: 0,
+    mediaEstadio: 0,
   })
 
   useEffect(() => {
@@ -88,27 +90,22 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
 
       if (error || !eventos) return
 
-      let vendas = 0, compras = 0, bonus = 0, salario = 0, caixaNoDia = 0
+      let vendas = 0, compras = 0, bonus = 0, salario = 0, caixaNoDia = 0, totalPublico = 0, totalRenda = 0, jogosEstadio = 0
 
       eventos.forEach((e: Evento) => {
         const valor = e.valor || 0
 
         switch (e.tipo_evento) {
-          case 'venda':
-            vendas += valor
-            break
-          case 'compra':
-            compras += valor
-            break
-          case 'bonus':
-            bonus += valor
-            break
-          case 'salario':
-            salario += valor
+          case 'venda': vendas += valor; break
+          case 'compra': compras += valor; break
+          case 'bonus': bonus += valor; break
+          case 'salario': salario += valor; break
+          case 'renda':
+            totalRenda += valor
+            jogosEstadio++
             break
         }
 
-        // Se tem filtro de data, soma só os do dia
         if (data && e.data_evento?.startsWith(data)) {
           caixaNoDia += valor
         }
@@ -120,6 +117,14 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
         .eq('id', id_time)
         .single()
 
+      const { data: elenco } = await supabase
+        .from('elenco')
+        .select('salario')
+        .eq('time_id', id_time)
+
+      const folhaSalarial = elenco?.reduce((acc, j) => acc + (j.salario || 0), 0) || 0
+      const mediaEstadio = jogosEstadio > 0 ? totalRenda / jogosEstadio : 0
+
       setNomeTime(timeData?.nome || 'Time')
       setDados({
         vendas,
@@ -128,6 +133,8 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
         salario,
         saldo: timeData?.saldo || 0,
         caixaNoDia,
+        folhaSalarial,
+        mediaEstadio,
       })
     }
 
@@ -136,12 +143,14 @@ function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) 
 
   return (
     <div className="bg-zinc-800 rounded-xl shadow-md p-6 max-w-xl mx-auto">
-      <h2 className="text-xl font-bold text-center mb-4">{nomeTime}</h2>
+      <h2 className="text-xl font-bold text-center mb-4">📋 {nomeTime}</h2>
       <div className="space-y-2 text-sm">
         <p>💰 <strong>Vendas:</strong> R$ {dados.vendas.toLocaleString()}</p>
         <p>🛒 <strong>Compras:</strong> R$ {dados.compras.toLocaleString()}</p>
         <p>🎁 <strong>Bônus:</strong> R$ {dados.bonus.toLocaleString()}</p>
         <p>💼 <strong>Salários descontados:</strong> R$ {dados.salario.toLocaleString()}</p>
+        <p>🧾 <strong>Folha Salarial:</strong> R$ {dados.folhaSalarial.toLocaleString()}</p>
+        <p>🏟️ <strong>Média de Renda no Estádio:</strong> R$ {dados.mediaEstadio.toLocaleString()}</p>
         <hr className="my-2 border-zinc-600" />
         <p className="text-base font-semibold">📈 <strong>Caixa Atual:</strong> R$ {dados.saldo.toLocaleString()}</p>
         {data && (
