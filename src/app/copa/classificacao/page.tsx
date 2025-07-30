@@ -108,12 +108,53 @@ export default function ClassificacaoCopaPage() {
 
       tabela[time1].saldo = tabela[time1].gols_pro - tabela[time1].gols_contra
       tabela[time2].saldo = tabela[time2].gols_pro - tabela[time2].gols_contra
+
+      // Premiação e BID
+      const premiacao = calcularPremiacao(gols_time1, gols_time2)
+
+      await supabase.rpc('atualizar_saldo', { id_time: time1, valor: premiacao.time1 })
+      await supabase.rpc('atualizar_saldo', { id_time: time2, valor: premiacao.time2 })
+
+      await supabase.from('bid').insert([
+        {
+          tipo_evento: 'premiacao',
+          descricao: `Partida ${gols_time1}x${gols_time2}`,
+          id_time1: time1,
+          id_time2: time2,
+          valor: premiacao.time1
+        },
+        {
+          tipo_evento: 'premiacao',
+          descricao: `Partida ${gols_time2}x${gols_time1}`,
+          id_time1: time2,
+          id_time2: time1,
+          valor: premiacao.time2
+        }
+      ])
     }
 
     const classificacaoFinal = Object.values(tabela)
     setClassificacao(classificacaoFinal)
     setLoading(false)
-    toast.success('Classificação atualizada!')
+    toast.success('Classificação e premiação atualizadas!')
+  }
+
+  function calcularPremiacao(gols1: number, gols2: number) {
+    let valor1 = gols1 * 550000 - gols2 * 100000
+    let valor2 = gols2 * 550000 - gols1 * 100000
+
+    if (gols1 > gols2) {
+      valor1 += 8000000
+      valor2 += 2000000
+    } else if (gols1 < gols2) {
+      valor2 += 8000000
+      valor1 += 2000000
+    } else {
+      valor1 += 5000000
+      valor2 += 5000000
+    }
+
+    return { time1: valor1, time2: valor2 }
   }
 
   const classificacaoOrdenada = [...classificacao].sort((a, b) => {
@@ -186,3 +227,4 @@ export default function ClassificacaoCopaPage() {
     </div>
   )
 }
+
