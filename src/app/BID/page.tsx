@@ -105,6 +105,7 @@ export default function BIDPage() {
     if (tipoMin.includes('salario')) return '📤'
     if (tipoMin.includes('bonus')) return '🎁'
     if (tipoMin.includes('leilao') || tipoMin.includes('roubo') || tipoMin.includes('multa')) return '🔁'
+    if (tipoMin.includes('venda')) return '📤'
     return '📝'
   }
 
@@ -117,6 +118,7 @@ export default function BIDPage() {
     if (tipoMin.includes('salario')) return 'bg-orange-800'
     if (tipoMin.includes('bonus')) return 'bg-emerald-800'
     if (tipoMin.includes('leilao') || tipoMin.includes('roubo') || tipoMin.includes('multa')) return 'bg-yellow-700'
+    if (tipoMin.includes('venda')) return 'bg-pink-700'
     return 'bg-gray-700'
   }
 
@@ -127,8 +129,7 @@ export default function BIDPage() {
       const nome2 = evento.id_time2 ? timesMap[evento.id_time2] || '' : ''
       const texto = `${evento.descricao} ${nome1} ${nome2}`.toLowerCase()
       const buscaOK = texto.includes(buscaTexto.toLowerCase())
-      const timeOK =
-        filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
+      const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
 
       const isFinanceiro = tipo.includes('salario') || tipo.includes('bonus') || tipo.includes('receita') || tipo.includes('premio')
       const isTransfer = tipo.includes('transfer') || tipo.includes('compra') || tipo.includes('venda') || tipo.includes('leilao') || tipo.includes('roubo') || tipo.includes('empr') || tipo.includes('rescis') || tipo.includes('multa')
@@ -233,7 +234,6 @@ export default function BIDPage() {
                         🗑️
                       </button>
                     )}
-
                     <div className="flex justify-between items-center mb-1">
                       <p className="font-bold text-lg flex items-center gap-2">
                         {iconeTipo(evento.tipo_evento)} {capitalizar(evento.tipo_evento)}
@@ -242,9 +242,7 @@ export default function BIDPage() {
                         {new Date(evento.data_evento).toLocaleTimeString('pt-BR')}
                       </span>
                     </div>
-
                     <p className="text-gray-100">{evento.descricao}</p>
-
                     <div className="mt-2 text-sm text-gray-200 space-y-1">
                       <p>🟢 Time principal: <strong>{timesMap[evento.id_time1] || 'Desconhecido'}</strong></p>
                       {evento.id_time2 && (
