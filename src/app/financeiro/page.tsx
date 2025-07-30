@@ -13,8 +13,16 @@ interface Time {
   nome: string
 }
 
+interface Evento {
+  tipo_evento: string
+  valor: number
+  data_evento: string
+}
+
 export default function Page() {
   const [times, setTimes] = useState<Time[]>([])
+  const [timeSelecionado, setTimeSelecionado] = useState<string>('')
+  const [dataSelecionada, setDataSelecionada] = useState<string>('')
 
   useEffect(() => {
     async function carregarTimes() {
@@ -23,79 +31,122 @@ export default function Page() {
         .select('id, nome')
         .order('nome', { ascending: true })
 
-      if (error) {
-        console.error('Erro ao buscar times:', error)
-        return
-      }
-
-      setTimes(data || [])
+      if (!error && data) setTimes(data)
     }
 
     carregarTimes()
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
-      <h1 className="text-2xl font-bold text-center text-gray-800 mb-6">📊 Painel Financeiro dos Times</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {times.map((time) => (
-          <PainelFinanceiro key={time.id} id_time={time.id} nome_time={time.nome} />
-        ))}
+    <div className="min-h-screen bg-zinc-900 text-white p-6">
+      <h1 className="text-3xl font-bold text-center mb-6">📊 Painel Financeiro por Time</h1>
+
+      <div className="flex flex-col md:flex-row justify-center items-center gap-4 mb-8">
+        <select
+          className="bg-zinc-800 border border-zinc-600 rounded px-4 py-2 text-white"
+          value={timeSelecionado}
+          onChange={(e) => setTimeSelecionado(e.target.value)}
+        >
+          <option value="">Selecione um time</option>
+          {times.map((t) => (
+            <option key={t.id} value={t.id}>{t.nome}</option>
+          ))}
+        </select>
+
+        <input
+          type="date"
+          className="bg-zinc-800 border border-zinc-600 rounded px-4 py-2 text-white"
+          value={dataSelecionada}
+          onChange={(e) => setDataSelecionada(e.target.value)}
+        />
       </div>
+
+      {timeSelecionado && (
+        <PainelFinanceiro id_time={timeSelecionado} data={dataSelecionada} />
+      )}
     </div>
   )
 }
 
-function PainelFinanceiro({ id_time, nome_time }: { id_time: string, nome_time: string }) {
-  const [totais, setTotais] = useState({
+function PainelFinanceiro({ id_time, data }: { id_time: string, data: string }) {
+  const [nomeTime, setNomeTime] = useState('')
+  const [dados, setDados] = useState({
     vendas: 0,
     compras: 0,
     bonus: 0,
+    salario: 0,
     saldo: 0,
+    caixaNoDia: 0,
   })
 
   useEffect(() => {
     async function carregarDados() {
-      const { data, error } = await supabase
+      const { data: eventos, error } = await supabase
         .from('bid')
-        .select('tipo_evento, valor')
+        .select('tipo_evento, valor, data_evento')
         .eq('id_time1', id_time)
 
-      if (error) {
-        console.error('Erro ao buscar movimentações:', error)
-        return
-      }
+      if (error || !eventos) return
 
-      const vendas = data.filter(e => e.tipo_evento === 'venda').reduce((a, c) => a + (c.valor || 0), 0)
-      const compras = data.filter(e => e.tipo_evento === 'compra').reduce((a, c) => a + (c.valor || 0), 0)
-      const bonus = data.filter(e => e.tipo_evento === 'bonus').reduce((a, c) => a + (c.valor || 0), 0)
+      let vendas = 0, compras = 0, bonus = 0, salario = 0, caixaNoDia = 0
+
+      eventos.forEach((e: Evento) => {
+        const valor = e.valor || 0
+
+        switch (e.tipo_evento) {
+          case 'venda':
+            vendas += valor
+            break
+          case 'compra':
+            compras += valor
+            break
+          case 'bonus':
+            bonus += valor
+            break
+          case 'salario':
+            salario += valor
+            break
+        }
+
+        // Se tem filtro de data, soma só os do dia
+        if (data && e.data_evento?.startsWith(data)) {
+          caixaNoDia += valor
+        }
+      })
 
       const { data: timeData } = await supabase
         .from('times')
-        .select('saldo')
+        .select('nome, saldo')
         .eq('id', id_time)
         .single()
 
-      setTotais({
+      setNomeTime(timeData?.nome || 'Time')
+      setDados({
         vendas,
         compras,
         bonus,
+        salario,
         saldo: timeData?.saldo || 0,
+        caixaNoDia,
       })
     }
 
     carregarDados()
-  }, [id_time])
+  }, [id_time, data])
 
   return (
-    <div className="bg-white rounded-xl shadow p-5">
-      <h2 className="text-lg font-bold text-gray-800 mb-2 text-center">{nome_time}</h2>
-      <div className="space-y-1 text-sm text-gray-700">
-        <p>💰 <strong>Vendas:</strong> R$ {totais.vendas.toLocaleString()}</p>
-        <p>🛒 <strong>Compras:</strong> R$ {totais.compras.toLocaleString()}</p>
-        <p>🎁 <strong>Bônus:</strong> R$ {totais.bonus.toLocaleString()}</p>
-        <hr className="my-2" />
-        <p className="text-base font-semibold">📈 <strong>Saldo Atual:</strong> R$ {totais.saldo.toLocaleString()}</p>
+    <div className="bg-zinc-800 rounded-xl shadow-md p-6 max-w-xl mx-auto">
+      <h2 className="text-xl font-bold text-center mb-4">{nomeTime}</h2>
+      <div className="space-y-2 text-sm">
+        <p>💰 <strong>Vendas:</strong> R$ {dados.vendas.toLocaleString()}</p>
+        <p>🛒 <strong>Compras:</strong> R$ {dados.compras.toLocaleString()}</p>
+        <p>🎁 <strong>Bônus:</strong> R$ {dados.bonus.toLocaleString()}</p>
+        <p>💼 <strong>Salários descontados:</strong> R$ {dados.salario.toLocaleString()}</p>
+        <hr className="my-2 border-zinc-600" />
+        <p className="text-base font-semibold">📈 <strong>Caixa Atual:</strong> R$ {dados.saldo.toLocaleString()}</p>
+        {data && (
+          <p className="text-sm text-zinc-400 mt-1">📅 <strong>Caixa no dia {data}:</strong> R$ {dados.caixaNoDia.toLocaleString()}</p>
+        )}
       </div>
     </div>
   )
