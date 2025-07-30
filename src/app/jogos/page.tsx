@@ -18,7 +18,9 @@ type Jogo = {
   gols_visitante?: number
   renda?: number
   publico?: number
+  bonus_pago?: boolean  // ✅ Adicione esta linha
 }
+
 
 type Rodada = {
   id: string
