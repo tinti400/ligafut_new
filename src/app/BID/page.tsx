@@ -37,7 +37,10 @@ export default function BIDPage() {
   const [filtroTime, setFiltroTime] = useState('todos')
   const [buscaTexto, setBuscaTexto] = useState('')
   const [modoVisualizacao, setModoVisualizacao] = useState<'financeiro' | 'transferencias'>('financeiro')
+  const [paginaAtual, setPaginaAtual] = useState(1)
   const [parent] = useAutoAnimate<HTMLDivElement>()
+
+  const eventosPorPagina = 50
 
   useEffect(() => {
     carregarDados()
@@ -139,15 +142,18 @@ export default function BIDPage() {
     })
   }, [eventos, filtroTime, buscaTexto, timesMap, modoVisualizacao])
 
+  const totalPaginas = Math.ceil(eventosFiltrados.length / eventosPorPagina)
+  const eventosPaginados = eventosFiltrados.slice((paginaAtual - 1) * eventosPorPagina, paginaAtual * eventosPorPagina)
+
   const eventosAgrupados = useMemo(() => {
     const grupos: Record<string, EventoBID[]> = {}
-    for (const evento of eventosFiltrados) {
+    for (const evento of eventosPaginados) {
       const data = new Date(evento.data_evento).toLocaleDateString('pt-BR')
       if (!grupos[data]) grupos[data] = []
       grupos[data].push(evento)
     }
     return grupos
-  }, [eventosFiltrados])
+  }, [eventosPaginados])
 
   return (
     <main className="min-h-screen bg-gray-900 text-white p-4 md:p-6">
@@ -256,6 +262,28 @@ export default function BIDPage() {
             </div>
           ))}
         </div>
+
+        {eventosFiltrados.length > eventosPorPagina && (
+          <div className="flex justify-center gap-4 mt-8">
+            <button
+              onClick={() => setPaginaAtual((prev) => Math.max(prev - 1, 1))}
+              className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600"
+              disabled={paginaAtual === 1}
+            >
+              ⬅️ Página anterior
+            </button>
+            <span className="text-sm text-gray-300 pt-2">
+              Página {paginaAtual} de {totalPaginas}
+            </span>
+            <button
+              onClick={() => setPaginaAtual((prev) => Math.min(prev + 1, totalPaginas))}
+              className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600"
+              disabled={paginaAtual === totalPaginas}
+            >
+              Próxima página ➡️
+            </button>
+          </div>
+        )}
       </div>
     </main>
   )
