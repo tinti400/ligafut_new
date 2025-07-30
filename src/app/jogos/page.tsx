@@ -261,7 +261,7 @@ export default function Jogos() {
     carregarDados()
   }, [temporada, divisao])
 
-  const salvarResultado = async () => {
+const salvarResultado = async () => {
   if (isSalvando || editandoRodada === null || editandoIndex === null) return
 
   const confirmar = confirm('Deseja salvar o resultado e calcular a renda?')
@@ -313,7 +313,7 @@ export default function Jogos() {
   })
 
   // 💸 Descontar salários e registrar como DESPESA
-  const descontarSalariosComRegistro = async (timeId: string) => {
+  const descontarSalariosComRegistro = async (timeId: string): Promise<number> => {
     const { data: elenco } = await supabase
       .from('elenco')
       .select('salario')
@@ -353,8 +353,8 @@ export default function Jogos() {
   const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
   // 🏆 Premiar por desempenho da rodada e retornar o valor
-  const premiacaoMandante = await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
-  const premiacaoVisitante = await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
+  const premiacaoMandante: number = await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
+  const premiacaoVisitante: number = await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
 
   // 📊 Registrar BID de receita (renda + bônus)
   await supabase.from('bid').insert([
@@ -425,6 +425,7 @@ export default function Jogos() {
   setEditandoIndex(null)
   setIsSalvando(false)
 }
+
 
   const excluirResultado = async (rodadaId: string, index: number) => {
     if (!confirm('Deseja excluir o resultado deste jogo?')) return
