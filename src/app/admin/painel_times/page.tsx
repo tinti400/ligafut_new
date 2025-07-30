@@ -18,6 +18,7 @@ interface TimeInfo {
   media_overall: number
   qtd_jogadores: number
   salario_total: number
+  saldo_anterior: number
 }
 
 export default function PainelTimesAdmin() {
@@ -35,6 +36,8 @@ export default function PainelTimesAdmin() {
       .select('id, nome, saldo, logo_url')
 
     if (!timesData) return
+
+    const hoje = new Date().toISOString().split('T')[0]
 
     const timesComDados = await Promise.all(timesData.map(async (time) => {
       const { data: elenco } = await supabase
@@ -66,6 +69,24 @@ export default function PainelTimesAdmin() {
 
       const recebido = movsVenda?.reduce((acc, m) => acc + (m.valor || 0), 0) || 0
 
+      const { data: movsAnteriores } = await supabase
+        .from('bid')
+        .select('valor, tipo_evento, data_evento')
+        .or(`id_time1.eq.${time.id},id_time2.eq.${time.id}`)
+
+      const saldoAnterior = movsAnteriores?.reduce((acc, m) => {
+        if (!m.data_evento || m.data_evento >= hoje) return acc
+        const valor = m.valor || 0
+        const tipo = m.tipo_evento
+        if (m.id_time1 === time.id) {
+          if (['venda', 'bonus', 'bonus_gol'].includes(tipo)) return acc + valor
+          if (['salario'].includes(tipo)) return acc - valor
+        } else if (m.id_time2 === time.id) {
+          if (['compra', 'leilao'].includes(tipo)) return acc - valor
+        }
+        return acc
+      }, 0) || 0
+
       return {
         id: time.id,
         nome: time.nome,
@@ -75,7 +96,8 @@ export default function PainelTimesAdmin() {
         recebido,
         media_overall: Math.round(mediaOverall),
         qtd_jogadores: qtdJogadores,
-        salario_total: salarioTotal
+        salario_total: salarioTotal,
+        saldo_anterior: saldoAnterior
       }
     }))
 
@@ -146,7 +168,8 @@ export default function PainelTimesAdmin() {
           <tr className="bg-gray-100 text-center">
             <th className="border p-2">Logo</th>
             <th className="border p-2">Nome</th>
-            <th className="border p-2">Saldo</th>
+            <th className="border p-2">Saldo Antes</th>
+            <th className="border p-2">Saldo Agora</th>
             <th className="border p-2">Gasto</th>
             <th className="border p-2">Recebido</th>
             <th className="border p-2">Média Overall</th>
@@ -161,6 +184,7 @@ export default function PainelTimesAdmin() {
                 <img src={time.logo_url} alt="Logo" className="h-6 mx-auto" />
               </td>
               <td className="border p-2">{time.nome}</td>
+              <td className="border p-2">{formatarValor(time.saldo_anterior)}</td>
               <td className="border p-2">{formatarValor(time.saldo)}</td>
               <td className="border p-2">{formatarValor(time.gasto)}</td>
               <td className="border p-2">{formatarValor(time.recebido)}</td>
