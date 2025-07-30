@@ -269,18 +269,32 @@ export default function Jogos() {
 
   setIsSalvando(true)
 
+  // 🔒 Verificação segura direto do banco
+  const { data: rodadaAtualizada, error: erroRodada } = await supabase
+    .from('rodadas')
+    .select('jogos')
+    .eq('id', editandoRodada)
+    .single()
+
+  if (erroRodada || !rodadaAtualizada) {
+    toast.error('Erro ao buscar rodada atualizada!')
+    setIsSalvando(false)
+    return
+  }
+
+  const jogoDoBanco = rodadaAtualizada.jogos[editandoIndex]
+
+  if (jogoDoBanco?.bonus_pago === true) {
+    toast.error('❌ Bônus já foi pago para esse jogo!')
+    setIsSalvando(false)
+    return
+  }
+
   const rodada = rodadas.find((r) => r.id === editandoRodada)
   if (!rodada) return
 
   const novaLista = [...rodada.jogos]
   const jogo = novaLista[editandoIndex]
-
-  // Proteção contra bônus duplicado
-  if (jogo.bonus_pago === true) {
-    toast.error('❌ Bônus já foi pago para esse jogo!')
-    setIsSalvando(false)
-    return
-  }
 
   const publico = Math.floor(Math.random() * 30000) + 10000
   const precoMedio = 80
@@ -302,11 +316,11 @@ export default function Jogos() {
   // 💸 Descontar salários
   await descontarSalariosDosTimes(mandanteId, visitanteId)
 
-  // 🏆 Premiar por desempenho da rodada (com proteção)
+  // 🏆 Premiar por desempenho da rodada
   await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
   await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
 
-  // ✅ Atualiza o número de jogos
+  // ✅ Atualiza o número de jogos dos jogadores
   const atualizarJogosElenco = async (timeId: string) => {
     const { data: jogadores, error } = await supabase
       .from('elenco')
