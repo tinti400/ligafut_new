@@ -271,13 +271,21 @@ export default function Jogos() {
   if (!rodada) return
 
   const novaLista = [...rodada.jogos]
+  const jogo = novaLista[editandoIndex]
+
+  // Proteção contra bônus duplicado
+  if (jogo.bonus_pago === true) {
+    toast.error('❌ Bônus já foi pago para esse jogo!')
+    setIsSalvando(false)
+    return
+  }
 
   const publico = Math.floor(Math.random() * 30000) + 10000
   const precoMedio = 80
   const renda = publico * precoMedio
 
-  const mandanteId = novaLista[editandoIndex].mandante
-  const visitanteId = novaLista[editandoIndex].visitante
+  const mandanteId = jogo.mandante
+  const visitanteId = jogo.visitante
 
   // 💰 Atualiza saldo dos clubes com base na renda
   await supabase.rpc('atualizar_saldo', {
@@ -289,53 +297,50 @@ export default function Jogos() {
     valor: renda * 0.05
   })
 
-  // 💸 Descontar salários do elenco dos dois times
+  // 💸 Descontar salários
   await descontarSalariosDosTimes(mandanteId, visitanteId)
 
-  // 🏆 Premiar por desempenho da rodada
-await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
-await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
+  // 🏆 Premiar por desempenho da rodada (com proteção)
+  await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
+  await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
 
-// ✅ Atualiza o número de jogos dos jogadores do elenco dos dois times
-const atualizarJogosElenco = async (timeId: string) => {
-  const { data: jogadores, error } = await supabase
-    .from('elenco')
-    .select('id, jogos')
-    .eq('id_time', timeId)
-
-  if (error || !jogadores) return
-
-  const updates = jogadores.map((jogador) =>
-    supabase
+  // ✅ Atualiza o número de jogos
+  const atualizarJogosElenco = async (timeId: string) => {
+    const { data: jogadores, error } = await supabase
       .from('elenco')
-      .update({ jogos: (jogador.jogos || 0) + 1 })
-      .eq('id', jogador.id)
-  )
+      .select('id, jogos')
+      .eq('id_time', timeId)
 
-  await Promise.all(updates)
-}
+    if (error || !jogadores) return
 
-await atualizarJogosElenco(mandanteId)
-await atualizarJogosElenco(visitanteId)
+    const updates = jogadores.map((jogador) =>
+      supabase
+        .from('elenco')
+        .update({ jogos: (jogador.jogos || 0) + 1 })
+        .eq('id', jogador.id)
+    )
 
+    await Promise.all(updates)
+  }
 
-  // Atualiza o resultado do jogo
+  await atualizarJogosElenco(mandanteId)
+  await atualizarJogosElenco(visitanteId)
+
+  // Atualiza o jogo
   novaLista[editandoIndex] = {
-    ...novaLista[editandoIndex],
+    ...jogo,
     gols_mandante: golsMandante,
     gols_visitante: golsVisitante,
     renda,
-    publico
+    publico,
+    bonus_pago: true  // ✅ Marca como pago
   }
 
-  // Salva no banco
   await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
   await fetch(`/api/classificacao?temporada=${temporada}`)
   await fetch('/api/atualizar-moral')
-
   await carregarDados()
 
-  // Mostra aviso
   const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
   const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
@@ -346,7 +351,6 @@ await atualizarJogosElenco(visitanteId)
     { duration: 8000 }
   )
 
-  // Limpa estados de edição
   setEditandoRodada(null)
   setEditandoIndex(null)
   setIsSalvando(false)
