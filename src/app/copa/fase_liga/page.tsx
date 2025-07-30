@@ -59,10 +59,28 @@ export default function FaseLigaAdminPage() {
     }
   }
 
-  async function salvarPlacar(jogo: any) {
-  setSalvandoId(jogo.id)
+  async function pagarPremiacao(id_time: string, valor: number, descricao: string) {
+    const { error: erroSaldo } = await supabase.rpc('atualizar_saldo', {
+      p_id_time: id_time,
+      p_valor: valor
+    })
+    if (erroSaldo) {
+      console.error('Erro ao atualizar saldo via RPC:', erroSaldo)
+      toast.error('Erro ao atualizar saldo do time')
+    }
 
-  // Verifica se já foi pago o bônus
+    await registrarMovimentacao({
+      id_time,
+      tipo: 'entrada',
+      valor,
+      descricao
+    })
+  }
+
+  async function salvarPlacar(jogo: any) {
+    setSalvandoId(jogo.id)
+
+    // 🔒 Verifica se já foi pago o bônus
   const { data: jogoExistente, error: erroVerificacao } = await supabase
     .from('copa_fase_liga')
     .select('bonus_pago')
@@ -81,83 +99,98 @@ export default function FaseLigaAdminPage() {
     return
   }
 
-  // ⚠️ SALVA O PLACAR E JÁ MARCA O BÔNUS COMO PAGO
-  const { error: erroSalvar } = await supabase
-    .from('copa_fase_liga')
-    .update({
-      gols_time1: jogo.gols_time1,
-      gols_time2: jogo.gols_time2,
-      bonus_pago: true, // Aqui resolve o problema do looping
-    })
-    .eq('id', jogo.id)
+    const { error } = await supabase
+  .from('copa_fase_liga')
+  .update({
+    gols_time1: jogo.gols_time1,
+    gols_time2: jogo.gols_time2,
+  })
+  .eq('id', jogo.id)
 
-  if (erroSalvar) {
-    toast.error('Erro ao salvar placar!')
-    setSalvandoId(null)
-    return
-  }
-
-  const time1Id = jogo.time1
-  const time2Id = jogo.time2
-  const g1 = jogo.gols_time1
-  const g2 = jogo.gols_time2
-
-  const premioGol = 550000
-  const penalidadeGolSofrido = 100000
-
-  const premioGols1 = g1 * premioGol
-  const premioGols2 = g2 * premioGol
-  const descontoSofrido1 = g2 * penalidadeGolSofrido
-  const descontoSofrido2 = g1 * penalidadeGolSofrido
-
-  let bonus1 = 0
-  let bonus2 = 0
-
-  if (g1 > g2) {
-    bonus1 = 8000000
-    bonus2 = 2000000
-  } else if (g2 > g1) {
-    bonus1 = 2000000
-    bonus2 = 8000000
-  } else {
-    bonus1 = 5000000
-    bonus2 = 5000000
-  }
-
-  const total1 = bonus1 + premioGols1 - descontoSofrido1
-  const total2 = bonus2 + premioGols2 - descontoSofrido2
-
-  await pagarPremiacao(time1Id, total1, `Premiação por jogo: ${g1}x${g2}`)
-  await pagarPremiacao(time2Id, total2, `Premiação por jogo: ${g2}x${g1}`)
-
-  await atualizarClassificacao()
-
-  let resultado = ''
-  if (g1 > g2) {
-    resultado = `🏆 Vitória de ${timesMap[time1Id]?.nome}`
-  } else if (g2 > g1) {
-    resultado = `🏆 Vitória de ${timesMap[time2Id]?.nome}`
-  } else {
-    resultado = '🤝 Empate'
-  }
-
-  await supabase.from('bid').insert([
-    {
-      tipo_evento: 'Jogo',
-      descricao: `
-        ${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'} —
-        ${resultado}
-        💸 ${timesMap[time1Id]?.nome}: ${total1.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-        💸 ${timesMap[time2Id]?.nome}: ${total2.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-      `.replace(/\s+/g, ' ').trim(),
-      id_time1: time1Id,
-      id_time2: time2Id,
-      valor: null
-    }
-  ])
-
-  toast.success('✅ Placar, premiação e BID salvos com sucesso!')
+if (error) {
+  toast.error('Erro ao salvar placar!')
   setSalvandoId(null)
+  return
+}
+
+// Atualiza a classificação
+await atualizarClassificacao()
+
+// Marca como bônus já pago ANTES de pagar
+const { error: erroBonus } = await supabase
+  .from('copa_fase_liga')
+  .update({ bonus_pago: true })
+  .eq('id', jogo.id)
+
+if (erroBonus) {
+  toast.error('Erro ao marcar bônus como pago!')
+  setSalvandoId(null)
+  return
+}
+
+const time1Id = jogo.time1
+const time2Id = jogo.time2
+const g1 = jogo.gols_time1
+const g2 = jogo.gols_time2
+
+const premioGol = 550000
+const penalidadeGolSofrido = 100000
+
+const premioGols1 = g1 * premioGol
+const premioGols2 = g2 * premioGol
+const descontoSofrido1 = g2 * penalidadeGolSofrido
+const descontoSofrido2 = g1 * penalidadeGolSofrido
+
+let bonus1 = 0
+let bonus2 = 0
+
+if (g1 > g2) {
+  bonus1 = 8000000
+  bonus2 = 2000000
+} else if (g2 > g1) {
+  bonus1 = 2000000
+  bonus2 = 8000000
+} else {
+  bonus1 = 5000000
+  bonus2 = 5000000
+}
+
+const total1 = bonus1 + premioGols1 - descontoSofrido1
+const total2 = bonus2 + premioGols2 - descontoSofrido2
+
+await pagarPremiacao(time1Id, total1, `Premiação por jogo: ${g1}x${g2}`)
+await pagarPremiacao(time2Id, total2, `Premiação por jogo: ${g2}x${g1}`)
+
+
+
+let resultado = ''
+if (g1 > g2) {
+  resultado = `🏆 Vitória de ${timesMap[time1Id]?.nome}`
+} else if (g2 > g1) {
+  resultado = `🏆 Vitória de ${timesMap[time2Id]?.nome}`
+} else {
+  resultado = '🤝 Empate'
+}
+
+await supabase.from('bid').insert([
+  {
+    tipo_evento: 'Jogo',
+    descricao: `
+      ${timesMap[time1Id]?.nome ?? 'Time 1'} ${g1}x${g2} ${timesMap[time2Id]?.nome ?? 'Time 2'} —
+      ${resultado}
+      💸 ${timesMap[time1Id]?.nome}: ${total1.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+      💸 ${timesMap[time2Id]?.nome}: ${total2.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+    `.replace(/\s+/g, ' ').trim(),
+    id_time1: time1Id,
+    id_time2: time2Id,
+    valor: null
+  }
+])
+
+
+toast.success('✅ Placar, premiação e BID salvos com sucesso!')
+setSalvandoId(null)
+
 }
 
   async function excluirPlacar(jogo: any) {
