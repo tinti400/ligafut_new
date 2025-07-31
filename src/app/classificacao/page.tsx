@@ -181,28 +181,21 @@ export default function ClassificacaoPage() {
                       const penultima = arr.length - 2
                       const antepenultima = arr.length - 3
 
-                      const cor =
-                        index === 0
-                          ? 'bg-green-700 hover:bg-green-600'
-                          : index === antepenultima
-                          ? 'bg-yellow-700 hover:bg-yellow-600'
-                          : index === penultima || index === ultima
-                          ? 'bg-red-700 hover:bg-red-600'
-                          : 'hover:bg-gray-700'
+                      const cor = (() => {
+  const divisao = divisaoSelecionada
 
-                      const aproveitamento =
-                        item.jogos > 0 ? Math.round((item.pontos / (item.jogos * 3)) * 100) : 0
+  if (index === 0) return 'bg-green-700 hover:bg-green-600'
 
-                      const icone =
-                        index === 0
-                          ? '🏆'
-                          : index === antepenultima
-                          ? '⚠️'
-                          : index === penultima || index === ultima
-                          ? '❌'
-                          : ''
+  if (divisao === 2 || divisao === 3) {
+    if (index === 1) return 'bg-green-700 hover:bg-green-600' // 2º lugar
+    if (index === 2) return 'bg-green-500 hover:bg-green-400' // 3º lugar
+  }
 
-                      return (
+  if (index === antepenultima) return 'bg-yellow-700 hover:bg-yellow-600'
+  if (index === penultima || index === ultima) return 'bg-red-700 hover:bg-red-600'
+
+  return 'hover:bg-gray-700'
+})()
                         <tr key={item.id_time} className={`border-b border-gray-700 ${cor}`}>
                           <td className="py-2 px-4">{index + 1}º {icone}</td>
                           <td className="py-2 px-4 flex items-center gap-2">
