@@ -86,11 +86,8 @@ export default function HomePage() {
         <Icone /> {titulo}
       </h3>
       {getTopTimes(campo, ordem).map((time, index) => (
-        <p key={time.id}>
-          {index + 1}. {time.nome} —{' '}
-          <span className={`${cor.replace('text-', 'text-')}`}>
-            {formatarValor(time[campo])}
-          </span>
+        <p key={time.id} className={time.nome === nomeTime ? 'text-yellow-400 font-semibold' : ''}>
+          {index + 1}. {time.nome} — {formatarValor(time[campo])}
         </p>
       ))}
     </motion.div>
@@ -101,14 +98,19 @@ export default function HomePage() {
       <div className="absolute inset-0 bg-black bg-opacity-80 z-0" />
       <div className="relative z-10 flex flex-col items-center justify-start p-6">
 
-        <motion.h1
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="text-4xl font-bold mb-4"
+          className="mb-4 text-center"
         >
-          🏠 Bem-vindo ao LigaFut
-        </motion.h1>
+          <h1 className="text-4xl font-bold text-green-500 flex items-center justify-center gap-2">
+            🏟️ LigaFut
+          </h1>
+          <p className="text-sm text-gray-300 italic">
+            Simule campeonatos, gerencie seu time e conquiste títulos!
+          </p>
+        </motion.div>
 
         {logado ? (
           <p className="text-lg mb-6">✅ Logado como <span className="text-green-400">{nomeTime}</span></p>
@@ -173,12 +175,11 @@ export default function HomePage() {
           />
         </div>
 
-        {/* FAB botão flutuante se logado */}
         {logado && (
           <button
             onClick={() => router.push('/admin')}
-            className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-lg transition"
-            title="Ir para Administração"
+            className="fixed bottom-6 right-6 p-4 bg-green-600 rounded-full text-white shadow-lg hover:bg-green-700"
+            title="Administração"
           >
             <FaPlus size={20} />
           </button>
