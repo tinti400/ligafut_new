@@ -196,6 +196,18 @@ export default function ClassificacaoPage() {
 
   return 'hover:bg-gray-700'
 })()
+
+const aproveitamento =
+  item.jogos > 0 ? Math.round((item.pontos / (item.jogos * 3)) * 100) : 0
+
+const icone = (() => {
+  if (index === 0) return '🏆'
+  if ((divisaoSelecionada === 2 || divisaoSelecionada === 3) && index === 1) return '🥈'
+  if ((divisaoSelecionada === 2 || divisaoSelecionada === 3) && index === 2) return '🥉'
+  if (index === antepenultima) return '⚠️'
+  if (index === penultima || index === ultima) return '❌'
+  return ''
+})()
                         <tr key={item.id_time} className={`border-b border-gray-700 ${cor}`}>
                           <td className="py-2 px-4">{index + 1}º {icone}</td>
                           <td className="py-2 px-4 flex items-center gap-2">
