@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
+import { FaMoneyBillWave, FaChartLine, FaArrowDown, FaArrowUp, FaPlus } from 'react-icons/fa'
+import { motion } from 'framer-motion'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,6 +18,7 @@ export default function HomePage() {
   const [eventosBID, setEventosBID] = useState<any[]>([])
   const [indexAtual, setIndexAtual] = useState(0)
   const [times, setTimes] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
@@ -32,29 +35,19 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    const buscarBID = async () => {
-      const { data, error } = await supabase
-        .from('bid')
-        .select('*')
-        .order('data_evento', { ascending: false })
-        .limit(10)
+    async function carregarDados() {
+      setLoading(true)
+      const [bidRes, timesRes] = await Promise.all([
+        supabase.from('bid').select('*').order('data_evento', { ascending: false }).limit(10),
+        supabase.from('times').select('*')
+      ])
 
-      if (!error) setEventosBID(data || [])
+      if (!bidRes.error) setEventosBID(bidRes.data || [])
+      if (!timesRes.error) setTimes(timesRes.data || [])
+      setLoading(false)
     }
 
-    buscarBID()
-  }, [])
-
-  useEffect(() => {
-    const buscarTimes = async () => {
-      const { data, error } = await supabase
-        .from('times')
-        .select('*')
-
-      if (!error) setTimes(data || [])
-    }
-
-    buscarTimes()
+    carregarDados()
   }, [])
 
   useEffect(() => {
@@ -67,79 +60,129 @@ export default function HomePage() {
   const formatarValor = (valor: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 
-  const getTopTimes = (campo: string, ordem: 'asc' | 'desc') => {
-    return [...times]
-      .sort((a, b) => (ordem === 'asc' ? a[campo] - b[campo] : b[campo] - a[campo]))
-      .slice(0, 3)
-  }
+  const getTopTimes = (campo: string, ordem: 'asc' | 'desc') =>
+    [...times].sort((a, b) => (ordem === 'asc' ? a[campo] - b[campo] : b[campo] - a[campo])).slice(0, 3)
+
+  const CardRanking = ({
+    titulo,
+    campo,
+    ordem,
+    cor,
+    Icone
+  }: {
+    titulo: string,
+    campo: string,
+    ordem: 'asc' | 'desc',
+    cor: string,
+    Icone: any
+  }) => (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+      className="bg-black/60 p-4 rounded shadow-md"
+    >
+      <h3 className={`text-xl font-bold ${cor} mb-2 flex items-center gap-2`}>
+        <Icone /> {titulo}
+      </h3>
+      {getTopTimes(campo, ordem).map((time, index) => (
+        <p key={time.id}>
+          {index + 1}. {time.nome} —{' '}
+          <span className={`${cor.replace('text-', 'text-')}`}>
+            {formatarValor(time[campo])}
+          </span>
+        </p>
+      ))}
+    </motion.div>
+  )
 
   return (
-    <main className="flex flex-col items-center justify-start min-h-screen text-white bg-gray-900 p-4">
-      <h1 className="text-4xl font-bold mb-4">🏠 Bem-vindo ao LigaFut</h1>
+    <main className="relative min-h-screen text-white bg-cover bg-center" style={{ backgroundImage: `url('/campo-futebol-dark.jpg')` }}>
+      <div className="absolute inset-0 bg-black bg-opacity-80 z-0" />
+      <div className="relative z-10 flex flex-col items-center justify-start p-6">
 
-      {logado ? (
-        <p className="text-lg mb-6">✅ Logado como <span className="text-green-400">{nomeTime}</span></p>
-      ) : (
-        <div className="mb-6 text-center">
-          <p className="text-lg">❌ Você não está logado</p>
-          <button
-            onClick={() => router.push('/login')}
-            className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded mt-2"
-          >
-            🔑 Ir para Login
-          </button>
-        </div>
-      )}
+        <motion.h1
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="text-4xl font-bold mb-4"
+        >
+          🏠 Bem-vindo ao LigaFut
+        </motion.h1>
 
-      <div className="bg-gray-800 rounded p-4 w-full max-w-xl text-center mb-6">
-        <h2 className="text-2xl font-semibold mb-2">📰 Últimos Eventos do BID</h2>
-        {eventosBID.length > 0 ? (
-          <div className="h-24 flex items-center justify-center transition-all duration-500">
-            <p className="text-yellow-300 text-lg">
-              {eventosBID[indexAtual]?.descricao || ''}
-            </p>
-          </div>
+        {logado ? (
+          <p className="text-lg mb-6">✅ Logado como <span className="text-green-400">{nomeTime}</span></p>
         ) : (
-          <p className="text-gray-400">Nenhum evento encontrado.</p>
+          <div className="mb-6 text-center">
+            <p className="text-lg">❌ Você não está logado</p>
+            <button
+              onClick={() => router.push('/login')}
+              className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded mt-2"
+            >
+              🔑 Ir para Login
+            </button>
+          </div>
         )}
-      </div>
 
-      <div className="grid grid-cols-2 gap-4 w-full max-w-4xl">
-        <div className="bg-gray-800 p-4 rounded">
-          <h3 className="text-xl font-bold text-green-400 mb-2">💰 Top 3 Mais Saldo</h3>
-          {getTopTimes('saldo', 'desc').map((time, index) => (
-            <p key={time.id}>
-              {index + 1}. {time.nome} — <span className="text-green-300">{formatarValor(time.saldo)}</span>
-            </p>
-          ))}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="bg-black/60 rounded p-4 w-full max-w-xl text-center mb-6"
+        >
+          <h2 className="text-2xl font-semibold mb-2">📰 Últimos Eventos do BID</h2>
+          {loading ? (
+            <p className="text-gray-400 animate-pulse">Carregando eventos...</p>
+          ) : eventosBID.length > 0 ? (
+            <div className="h-24 flex items-center justify-center transition-all duration-500">
+              <p className="text-yellow-300 text-lg font-medium italic">{eventosBID[indexAtual]?.descricao}</p>
+            </div>
+          ) : (
+            <p className="text-gray-400">Nenhum evento encontrado.</p>
+          )}
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
+          <CardRanking
+            titulo="Top 3 Mais Saldo"
+            campo="saldo"
+            ordem="desc"
+            cor="text-green-400"
+            Icone={FaMoneyBillWave}
+          />
+          <CardRanking
+            titulo="Top 3 Menos Saldo"
+            campo="saldo"
+            ordem="asc"
+            cor="text-red-400"
+            Icone={FaArrowDown}
+          />
+          <CardRanking
+            titulo="Top 3 Maiores Salários"
+            campo="total_salarios"
+            ordem="desc"
+            cor="text-yellow-300"
+            Icone={FaChartLine}
+          />
+          <CardRanking
+            titulo="Top 3 Menores Salários"
+            campo="total_salarios"
+            ordem="asc"
+            cor="text-blue-400"
+            Icone={FaArrowUp}
+          />
         </div>
 
-        <div className="bg-gray-800 p-4 rounded">
-          <h3 className="text-xl font-bold text-red-400 mb-2">💸 Top 3 Menos Saldo</h3>
-          {getTopTimes('saldo', 'asc').map((time, index) => (
-            <p key={time.id}>
-              {index + 1}. {time.nome} — <span className="text-red-300">{formatarValor(time.saldo)}</span>
-            </p>
-          ))}
-        </div>
-
-        <div className="bg-gray-800 p-4 rounded">
-          <h3 className="text-xl font-bold text-yellow-400 mb-2">🧩 Top 3 Maiores Salários</h3>
-          {getTopTimes('total_salarios', 'desc').map((time, index) => (
-            <p key={time.id}>
-              {index + 1}. {time.nome} — <span className="text-yellow-300">{formatarValor(time.total_salarios)}</span>
-            </p>
-          ))}
-        </div>
-
-        <div className="bg-gray-800 p-4 rounded">
-          <h3 className="text-xl font-bold text-blue-400 mb-2">📝 Top 3 Menores Salários</h3>
-          {getTopTimes('total_salarios', 'asc').map((time, index) => (
-            <p key={time.id}>
-              {index + 1}. {time.nome} — <span className="text-blue-300">{formatarValor(time.total_salarios)}</span>
-            </p>
-          ))}
-        </div>
+        {/* FAB botão flutuante se logado */}
+        {logado && (
+          <button
+            onClick={() => router.push('/admin')}
+            className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-lg transition"
+            title="Ir para Administração"
+          >
+            <FaPlus size={20} />
+          </button>
+        )}
       </div>
     </main>
   )
