@@ -99,16 +99,16 @@ export default function ClassificacaoPage() {
         ))}
       </div>
 
-      {isAdmin && (
-        <div className="mb-6 text-center">
-          <button
-            onClick={iniciarNovaTemporada}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
-          >
-            🚀 Iniciar Nova Temporada
-          </button>
-        </div>
-      )}
+      {!loading && isAdmin && (
+  <div className="mb-6 text-center">
+    <button
+      onClick={iniciarNovaTemporada}
+      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+    >
+      🚀 Iniciar Nova Temporada
+    </button>
+  </div>
+)}
 
       <div className="mb-6 flex flex-wrap justify-center gap-3">
         {divisoesDisponiveis.map((div) => (
