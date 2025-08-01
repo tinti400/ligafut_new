@@ -528,7 +528,7 @@ export default function MercadoPage() {
   const jogadoresPaginados = jogadoresFiltrados.slice(indexOfFirstJogador, indexOfLastJogador)
   const totalPaginas = Math.ceil(jogadoresFiltrados.length / jogadoresPorPagina)
 
-return (
+  return (
   <>
     <Toaster position="top-right" />
 
@@ -605,38 +605,6 @@ return (
           </div>
         </div>
       )}
-
-      {/* ...outros elementos como filtros, cards, paginação etc... */}
-    </div> {/* 🔒 Fechamento do div principal */}
-
-    {/* Modais devem ficar fora da <div> principal */}
-    <ModalConfirm
-      visible={modalComprarVisivel}
-      titulo="Confirmar Compra"
-      mensagem={`Deseja comprar ${jogadorParaComprar?.nome} por ${
-        jogadorParaComprar ? formatarValor(jogadorParaComprar.valor) : ''
-      }?`}
-      onConfirm={confirmarCompra}
-      onCancel={() => {
-        setModalComprarVisivel(false)
-        setJogadorParaComprar(null)
-      }}
-      loading={loadingComprarId !== null}
-    />
-
-    <ModalConfirm
-      visible={modalExcluirVisivel}
-      titulo="Confirmar Exclusão"
-      mensagem={`Tem certeza que deseja excluir ${selecionados.length} jogador(es)?`}
-      onConfirm={confirmarExcluirSelecionados}
-      onCancel={() => setModalExcluirVisivel(false)}
-      loading={loadingExcluir}
-    />
-  </>
-)
-
-
-</div>
 
         {/* Botão excluir */}
         {isAdmin && (
