@@ -24,10 +24,7 @@ export default function LoginPage() {
   }, [])
 
   const handleLogin = async () => {
-    if (!usuario || !senha) {
-      alert('⚠️ Preencha usuário e senha!')
-      return
-    }
+    if (!usuario || !senha) return alert('⚠️ Preencha usuário e senha!')
 
     setLoading(true)
 
@@ -39,11 +36,7 @@ export default function LoginPage() {
         .eq('senha', senha)
         .single()
 
-      if (error || !userData) {
-        alert('❌ Usuário ou senha inválidos!')
-        setLoading(false)
-        return
-      }
+      if (error || !userData) return alert('❌ Usuário ou senha inválidos!')
 
       const { data: timeData, error: timeError } = await supabase
         .from('times')
@@ -51,29 +44,17 @@ export default function LoginPage() {
         .eq('id', userData.time_id)
         .single()
 
-      if (timeError || !timeData) {
-        alert('❌ Seu time não foi encontrado. Contate o administrador.')
-        setLoading(false)
-        return
-      }
-
-      if (!timeData.id || !timeData.nome) {
-        alert('❌ Dados do time inválidos. Contate o administrador.')
-        setLoading(false)
-        return
-      }
+      if (timeError || !timeData) return alert('❌ Seu time não foi encontrado.')
 
       localStorage.setItem('user', JSON.stringify({
         usuario_id: userData.id,
         id_time: timeData.id,
         nome_time: timeData.nome,
         usuario: userData.usuario,
+        nome: userData.usuario.toLowerCase(), // necessário p/ admin
+        email: userData.usuario.toLowerCase(), // para buscar no hook useAdmin
         isAdmin: userData.administrador === true
       }))
-
-      localStorage.setItem('id_time', timeData.id)
-      localStorage.setItem('nome_time', timeData.nome)
-      localStorage.setItem('email', userData.usuario.toLowerCase())
 
       router.push('/')
     } catch (err) {
@@ -85,10 +66,7 @@ export default function LoginPage() {
   }
 
   const handleTrocarSenha = async () => {
-    if (!usuario || !senha || !novaSenha) {
-      alert('⚠️ Preencha todos os campos!')
-      return
-    }
+    if (!usuario || !senha || !novaSenha) return alert('⚠️ Preencha todos os campos!')
 
     setLoading(true)
 
@@ -100,11 +78,7 @@ export default function LoginPage() {
         .eq('senha', senha)
         .single()
 
-      if (error || !userData) {
-        alert('❌ Usuário ou senha inválidos!')
-        setLoading(false)
-        return
-      }
+      if (error || !userData) return alert('❌ Usuário ou senha inválidos!')
 
       const { error: updateError } = await supabase
         .from('usuarios')
@@ -114,12 +88,10 @@ export default function LoginPage() {
 
       if (updateError) {
         console.error('Erro ao atualizar senha:', updateError)
-        alert('❌ Erro ao atualizar a senha. Tente novamente.')
-        setLoading(false)
-        return
+        return alert('❌ Erro ao atualizar a senha. Tente novamente.')
       }
 
-      alert('✅ Senha atualizada com sucesso! Faça login novamente.')
+      alert('✅ Senha atualizada com sucesso!')
       setTela('login')
       setSenha('')
       setNovaSenha('')
