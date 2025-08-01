@@ -157,6 +157,8 @@ export default function ElencoPage() {
 await fetchElenco()
 alert('✅ Venda registrada!')
 
+}
+
   const valorTotal = elenco.reduce((acc, j) => acc + (j.valor || 0), 0)
   const salarioTotal = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
   const mediaOverall =
