@@ -255,14 +255,17 @@ export default function BIDPage() {
                       )}
                     >
                       {isAdmin && (
-                        <button
-                          onClick={() => excluirEvento(evento.id)}
-                          className="absolute top-2 right-2 text-red-400 hover:text-red-600 text-xl"
-                          title="Excluir evento"
-                        >
-                          🗑️
-                        </button>
-                      )}
+  <div className="flex justify-end mt-3">
+    <button
+      onClick={() => excluirEvento(evento.id)}
+      className="text-red-400 hover:text-red-600 text-sm underline"
+      title="Excluir evento"
+    >
+      🗑️ Excluir evento
+    </button>
+  </div>
+)}
+
 
                       <div className="flex justify-between items-center mb-1">
                         <p className="font-bold text-lg text-white flex items-center gap-2">
