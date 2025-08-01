@@ -271,22 +271,32 @@ export default function MercadoPage() {
         const json = XLSX.utils.sheet_to_json(sheet)
 
         const jogadoresParaInserir = (json as any[]).map(item => {
-          const { 'Nome Completo': nome, Posição: posicao, Overall: overall, Valor: valor, Foto: imagem_url, Link_sofifa: link_sofifa } = item
-          if (!nome || !posicao || !overall || !valor) {
-            throw new Error('Colunas obrigatórias: Nome Completo, Posição, Overall, Valor')
-          }
-          return {
-  jogador_id: crypto.randomUUID(),
-  nome: String(nome),
-  posicao: String(posicao),
-  overall: Number(overall),
-  valor: Number(valor),
-  imagem_url: imagem_url ? String(imagem_url) : '',
-  link_sofifa: link_sofifa ? String(link_sofifa) : '',
-  salario: Math.round(Number(valor) * 0.007),
-  nacionalidade: item.Nacionalidade && item.Nacionalidade.trim() !== '' ? String(item.Nacionalidade) : 'Resto do Mundo',
-}
-        })
+  const {
+    nome,
+    posicao,
+    overall,
+    valor,
+    foto: imagem_url,
+    link_sofifa,
+    nacionalidade,
+    time_origem
+  } = item
+
+  if (!nome || !posicao || !overall || !valor) {
+    throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
+  }
+
+  return {
+    nome,
+    posicao,
+    overall: parseInt(overall),
+    valor: parseInt(valor),
+    imagem_url,
+    link_sofifa,
+    nacionalidade,
+    time_origem
+  }
+})
 
         const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
         if (error) throw error
