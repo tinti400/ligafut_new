@@ -335,6 +335,22 @@ export default function MercadoPage() {
     return
   }
 
+  // 🔒 Verificar limite de elenco
+  const { data: elencoAtual, error: errorElenco } = await supabase
+    .from('elenco')
+    .select('id')
+    .eq('id_time', user.id_time)
+
+  if (errorElenco) {
+    toast.error('Erro ao verificar o elenco atual.')
+    return
+  }
+
+  if ((elencoAtual?.length || 0) >= 25) {
+    toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco. Venda para comprar do mercado!')
+    return
+  }
+
   setLoadingComprarId(jogadorParaComprar.id)
 
   try {
@@ -379,14 +395,13 @@ export default function MercadoPage() {
       jogos: 0,
       link_sofifa: jogador.link_sofifa || '',
     })
-    
-    await registrarMovimentacao({
-  id_time: user.id_time,
-  tipo: 'saida',
-  valor: jogador.valor,
-  descricao: `Compra de ${jogador.nome} no mercado`
 
-})
+    await registrarMovimentacao({
+      id_time: user.id_time,
+      tipo: 'saida',
+      valor: jogador.valor,
+      descricao: `Compra de ${jogador.nome} no mercado`
+    })
 
     if (errorInsert) throw errorInsert
 
@@ -410,7 +425,7 @@ export default function MercadoPage() {
     setModalComprarVisivel(false)
     setJogadorParaComprar(null)
   }
-} // <- Faltava essa chave!
+}
 
   const toggleSelecionado = (id: string) => {
     setSelecionados((prev) =>
