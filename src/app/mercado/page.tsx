@@ -528,83 +528,113 @@ export default function MercadoPage() {
   const jogadoresPaginados = jogadoresFiltrados.slice(indexOfFirstJogador, indexOfLastJogador)
   const totalPaginas = Math.ceil(jogadoresFiltrados.length / jogadoresPorPagina)
 
-  return (
-    <>
-      <Toaster position="top-right" />
+return (
+  <>
+    <Toaster position="top-right" />
 
-<div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
-  <h1 className="text-3xl font-bold mb-6 text-center text-green-400">
-    🛒 Mercado de Transferências
-  </h1>
+    <div className="p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
+      <h1 className="text-3xl font-bold mb-6 text-center text-green-400">
+        🛒 Mercado de Transferências
+      </h1>
 
-  {/* Botão abrir/fechar mercado */}
-  {isAdmin && (
-    <div className="mb-4">
-      <button
-        onClick={toggleMarketStatus}
-        disabled={loading}
-        className="bg-yellow-600 hover:bg-yellow-700 text-black font-bold py-2 px-4 rounded transition-opacity w-full sm:w-auto"
-      >
-        {loading
-          ? 'Processando...'
-          : marketStatus === 'aberto'
-          ? '🔓 Fechar Mercado'
-          : '🔒 Abrir Mercado'}
-      </button>
-    </div>
-  )}
+      {/* Botão abrir/fechar mercado */}
+      {isAdmin && (
+        <div className="mb-4">
+          <button
+            onClick={toggleMarketStatus}
+            disabled={loading}
+            className="bg-yellow-600 hover:bg-yellow-700 text-black font-bold py-2 px-4 rounded transition-opacity w-full sm:w-auto"
+          >
+            {loading
+              ? 'Processando...'
+              : marketStatus === 'aberto'
+              ? '🔓 Fechar Mercado'
+              : '🔒 Abrir Mercado'}
+          </button>
+        </div>
+      )}
 
-  {/* Upload XLSX */}
-  {isAdmin && (
-    <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-wrap">
-      <div className="relative inline-block">
-        <button
-          type="button"
-          onClick={() => document.getElementById('input-xlsx-upload')?.click()}
-          disabled={uploadLoading || marketStatus === 'fechado'}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {uploadLoading ? (
-            <svg
-              className="animate-spin h-5 w-5 text-white"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
+      {/* Upload XLSX */}
+      {isAdmin && (
+        <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-wrap">
+          <div className="relative inline-block">
+            <button
+              type="button"
+              onClick={() => document.getElementById('input-xlsx-upload')?.click()}
+              disabled={uploadLoading || marketStatus === 'fechado'}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v8H4z"
-              />
-            </svg>
-          ) : (
-            <>📁 Importar Planilha</>
-          )}
-        </button>
-        <input
-          id="input-xlsx-upload"
-          type="file"
-          accept=".xlsx, .xls"
-          onChange={handleFileUpload}
-          disabled={uploadLoading || marketStatus === 'fechado'}
-          className="hidden"
-        />
-      </div>
+              {uploadLoading ? (
+                <svg
+                  className="animate-spin h-5 w-5 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v8H4z"
+                  />
+                </svg>
+              ) : (
+                <>📁 Importar Planilha</>
+              )}
+            </button>
+            <input
+              id="input-xlsx-upload"
+              type="file"
+              accept=".xlsx, .xls"
+              onChange={handleFileUpload}
+              disabled={uploadLoading || marketStatus === 'fechado'}
+              className="hidden"
+            />
+          </div>
 
-      <div className="text-sm text-gray-300 max-w-lg">
-        {msg ||
-          'Formato: Nome Completo, Posição, Overall, Valor, Foto (opcional), Nacionalidade (opcional), Link_sofifa (opcional).'}
-      </div>
-    </div>
-  )}
+          <div className="text-sm text-gray-300 max-w-lg">
+            {msg ||
+              'Formato: Nome Completo, Posição, Overall, Valor, Foto (opcional), Nacionalidade (opcional), Link_sofifa (opcional).'}
+          </div>
+        </div>
+      )}
+
+      {/* ...outros elementos como filtros, cards, paginação etc... */}
+    </div> {/* 🔒 Fechamento do div principal */}
+
+    {/* Modais devem ficar fora da <div> principal */}
+    <ModalConfirm
+      visible={modalComprarVisivel}
+      titulo="Confirmar Compra"
+      mensagem={`Deseja comprar ${jogadorParaComprar?.nome} por ${
+        jogadorParaComprar ? formatarValor(jogadorParaComprar.valor) : ''
+      }?`}
+      onConfirm={confirmarCompra}
+      onCancel={() => {
+        setModalComprarVisivel(false)
+        setJogadorParaComprar(null)
+      }}
+      loading={loadingComprarId !== null}
+    />
+
+    <ModalConfirm
+      visible={modalExcluirVisivel}
+      titulo="Confirmar Exclusão"
+      mensagem={`Tem certeza que deseja excluir ${selecionados.length} jogador(es)?`}
+      onConfirm={confirmarExcluirSelecionados}
+      onCancel={() => setModalExcluirVisivel(false)}
+      loading={loadingExcluir}
+    />
+  </>
+)
+
 
 </div>
 
