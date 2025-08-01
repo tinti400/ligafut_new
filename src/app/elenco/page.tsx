@@ -146,6 +146,15 @@ export default function ElencoPage() {
     }).eq('id', jogador.id_time)
   }
 
+await supabase.from('bid').insert({
+  tipo_evento: 'transferencia mercado',
+  descricao: `O time ${nomeTime} colocou ${jogador.nome} no mercado por R$ ${valorVenda.toLocaleString('pt-BR')}`,
+  id_time1: jogador.id_time,
+  valor: valorVenda,
+  data_evento: new Date().toISOString()
+})
+
+
   await fetchElenco()
   alert('✅ Venda registrada!')
 }
