@@ -605,6 +605,7 @@ export default function MercadoPage() {
       </div>
     </div>
   )}
+
 </div>
 
         {/* Botão excluir */}
