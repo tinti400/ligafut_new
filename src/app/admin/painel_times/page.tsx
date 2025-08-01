@@ -8,6 +8,18 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
+const bandeiras: Record<string, string> = {
+  Brasil: 'br', Argentina: 'ar', Portugal: 'pt', Espanha: 'es', França: 'fr',
+  Inglaterra: 'gb', Alemanha: 'de', Itália: 'it', Holanda: 'nl', Bélgica: 'be',
+  Uruguai: 'uy', Chile: 'cl', Colômbia: 'co', México: 'mx', Estados_Unidos: 'us',
+  Canadá: 'ca', Paraguai: 'py', Peru: 'pe', Equador: 'ec', Bolívia: 'bo',
+  Venezuela: 've', Congo: 'cg', Guiana: 'gy', Suriname: 'sr', Honduras: 'hn',
+  Nicarágua: 'ni', Guatemala: 'gt', Costa_Rica: 'cr', Panamá: 'pa', Jamaica: 'jm',
+  Camarões: 'cm', Senegal: 'sn', Marrocos: 'ma', Egito: 'eg', Argélia: 'dz',
+  Croácia: 'hr', Sérvia: 'rs', Suíça: 'ch', Polônia: 'pl', Rússia: 'ru',
+  Japão: 'jp', Coreia_do_Sul: 'kr', Austrália: 'au'
+}
+
 interface TimeInfo {
   id: string
   nome: string
@@ -19,6 +31,7 @@ interface TimeInfo {
   qtd_jogadores: number
   salario_total: number
   saldo_anterior: number
+  nacionalidades: Record<string, number>
 }
 
 interface RegistroBID {
@@ -50,7 +63,7 @@ export default function PainelTimesAdmin() {
     const timesComDados = await Promise.all(timesData.map(async (time) => {
       const { data: elenco } = await supabase
         .from('elenco')
-        .select('overall, salario')
+        .select('overall, salario, nacionalidade')
         .eq('id_time', time.id)
 
       const qtdJogadores = elenco?.length || 0
@@ -60,6 +73,12 @@ export default function PainelTimesAdmin() {
         : 0
 
       const salarioTotal = elenco?.reduce((acc, j) => acc + (j.salario || 0), 0) || 0
+
+      const nacionalidades: Record<string, number> = {}
+      elenco?.forEach(j => {
+        const nac = j.nacionalidade || 'Outro'
+        nacionalidades[nac] = (nacionalidades[nac] || 0) + 1
+      })
 
       const { data: movsCompra } = await supabase
         .from('movimentacoes')
@@ -79,7 +98,7 @@ export default function PainelTimesAdmin() {
 
       const { data: movsAnteriores } = await supabase
         .from('bid')
-        .select('valor, tipo_evento, data_evento, id_time1, id_time2') // <- ADICIONADO
+        .select('valor, tipo_evento, data_evento, id_time1, id_time2')
         .or(`id_time1.eq.${time.id},id_time2.eq.${time.id}`)
 
       const saldoAnterior = movsAnteriores?.reduce((acc: number, m: RegistroBID) => {
@@ -106,7 +125,8 @@ export default function PainelTimesAdmin() {
         media_overall: Math.round(mediaOverall),
         qtd_jogadores: qtdJogadores,
         salario_total: salarioTotal,
-        saldo_anterior: saldoAnterior
+        saldo_anterior: saldoAnterior,
+        nacionalidades
       }
     }))
 
@@ -184,6 +204,7 @@ export default function PainelTimesAdmin() {
             <th className="border p-2">Média Overall</th>
             <th className="border p-2"># Jogadores</th>
             <th className="border p-2">Salário Total</th>
+            <th className="border p-2">Nacionalidades</th>
           </tr>
         </thead>
         <tbody>
@@ -200,6 +221,25 @@ export default function PainelTimesAdmin() {
               <td className="border p-2">{time.media_overall}</td>
               <td className="border p-2">{time.qtd_jogadores}</td>
               <td className="border p-2">{formatarValor(time.salario_total)}</td>
+              <td className="border p-2">
+                <div className="flex flex-wrap justify-center gap-1">
+                  {Object.entries(time.nacionalidades).map(([nac, qtd]) => {
+                    const codigo = bandeiras[nac] || ''
+                    return (
+                      <div key={nac} title={`${nac}: ${qtd}`} className="flex items-center gap-1">
+                        {codigo && (
+                          <img
+                            src={`https://flagcdn.com/w20/${codigo}.png`}
+                            alt={nac}
+                            className="w-5 h-3"
+                          />
+                        )}
+                        <span className="text-xs">{qtd}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
