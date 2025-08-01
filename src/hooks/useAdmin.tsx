@@ -23,20 +23,36 @@ export function useAdmin() {
 
         const user = JSON.parse(userStr)
         const email = user.email
+        const nome = user.nome?.toLowerCase()
 
-        if (!email) {
-          setIsAdmin(false)
+        // ✅ Se o nome for 'adm', concede acesso
+        if (nome === 'adm') {
+          setIsAdmin(true)
           return
         }
 
-        const { data, error } = await supabase
-          .from('admins')
-          .select('email')
-          .eq('email', email)
-          .maybeSingle()
+        // ✅ Se tiver email, busca na tabela de admins (case-insensitive)
+        if (email) {
+          const { data, error } = await supabase
+            .from('admins')
+            .select('email')
+            .ilike('email', email) // <- insensível a maiúsculas/minúsculas
+            .maybeSingle()
 
-        setIsAdmin(!!data)
+          if (error) {
+            console.error('Erro ao verificar admin:', error)
+            setIsAdmin(false)
+            return
+          }
+
+          setIsAdmin(!!data)
+          return
+        }
+
+        // Caso não tenha e-mail e não seja adm
+        setIsAdmin(false)
       } catch (err) {
+        console.error('Erro no useAdmin:', err)
         setIsAdmin(false)
       } finally {
         setLoading(false)
