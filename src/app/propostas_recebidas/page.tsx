@@ -135,10 +135,18 @@ export default function PropostasRecebidasPage() {
       await supabase.from('times').update({ saldo: comprador.saldo - valorTotal }).eq('id', proposta.id_time_origem)
       await supabase.from('times').update({ saldo: vendedor.saldo + valorTotal }).eq('id', proposta.id_time_alvo)
 
-      await supabase
-        .from('elenco')
-        .update({ id_time: proposta.id_time_origem, jogos: 0, valor: valorTotal })
-        .eq('id', proposta.jogador_id)
+      const novoSalario = Math.round(valorTotal * 0.007)
+
+await supabase
+  .from('elenco')
+  .update({
+    id_time: proposta.id_time_origem,
+    jogos: 0,
+    valor: valorTotal,
+    salario: novoSalario
+  })
+
+  .eq('id', proposta.jogador_id)
 
       if (['troca_simples', 'troca_composta'].includes(proposta.tipo_proposta)) {
         for (const idJogador of proposta.jogadores_oferecidos) {
