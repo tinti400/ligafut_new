@@ -46,15 +46,18 @@ export default function LoginPage() {
 
       if (timeError || !timeData) return alert('❌ Seu time não foi encontrado.')
 
+      // ✅ Salvar usuário e ID do time no localStorage
       localStorage.setItem('user', JSON.stringify({
         usuario_id: userData.id,
         id_time: timeData.id,
         nome_time: timeData.nome,
         usuario: userData.usuario,
         nome: userData.usuario.toLowerCase(), // necessário p/ admin
-        email: userData.usuario.toLowerCase(), // para buscar no hook useAdmin
+        email: userData.usuario.toLowerCase(), // para hook useAdmin
         isAdmin: userData.administrador === true
       }))
+
+      localStorage.setItem('id_time', timeData.id) // ✅ ESSENCIAL para carregar elenco
 
       router.push('/')
     } catch (err) {
