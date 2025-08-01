@@ -116,19 +116,21 @@ export default function ElencoPage() {
 
   // Registrar no mercado
   await supabase.from('mercado_transferencias').insert({
-    jogador_id: jogador.id,
-    nome: jogador.nome,
-    posicao: jogador.posicao,
-    overall: jogador.overall,
-    valor: jogador.valor,
-    imagem_url: jogador.imagem_url || '',
-    salario: jogador.salario || 0,
-    link_sofifa: jogador.link_sofifa || '',
-    id_time_origem: jogador.id_time,
-    status: 'disponivel',
-    percentual: percentualNum,
-    created_at: new Date().toISOString()
-  })
+  jogador_id: jogador.id,
+  nome: jogador.nome,
+  posicao: jogador.posicao,
+  overall: jogador.overall,
+  valor: jogador.valor,
+  imagem_url: jogador.imagem_url || '',
+  salario: jogador.salario || 0,
+  link_sofifa: jogador.link_sofifa || '',
+  nacionalidade: jogador.nacionalidade || '',
+  id_time_origem: jogador.id_time,
+  status: 'disponivel',
+  percentual: percentualNum,
+  created_at: new Date().toISOString()
+})
+
 
   // Atualizar percentual
   const novoPercentual = (jogador.percentual ?? 100) - percentualNum
