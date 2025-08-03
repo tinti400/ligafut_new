@@ -126,7 +126,7 @@ export default function PatrociniosPage() {
 
           <div className="grid sm:grid-cols-2 gap-4">
             {patrocinios
-              .filter((p) => p.categoria === categoria && p.divisao === meuTime?.divisao)
+              .filter((p) => p.categoria === categoria && String(p.divisao) === String(meuTime?.divisao))
               .map((p) => (
                 <div
                   key={p.id}
