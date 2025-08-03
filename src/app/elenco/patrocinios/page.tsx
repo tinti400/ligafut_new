@@ -16,7 +16,7 @@ interface Patrocinio {
   nome: string
   categoria: Categoria
   valor_fixo: number
-  beneficios: string
+  descricao_patrocinio: string
   divisao: number
 }
 
@@ -168,7 +168,9 @@ export default function PatrociniosPage() {
                     <p className="text-sm text-gray-300 mb-1">
                       💰 Valor Fixo: <strong className="text-white">{formatarValor(p.valor_fixo)}</strong>
                     </p>
-                    <p className="text-sm text-yellow-300 whitespace-pre-line">🎁 {p.beneficios}</p>
+                    <p className="text-sm text-yellow-300 whitespace-pre-line">
+                      🎁 {p.descricao_patrocinio}
+                    </p>
                   </div>
                 ))}
             </div>
