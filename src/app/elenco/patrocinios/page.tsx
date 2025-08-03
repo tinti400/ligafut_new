@@ -9,6 +9,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+type Categoria = 'master' | 'fornecedor' | 'secundario'
+
 export default function PatrociniosPage() {
   const [patrocinios, setPatrocinios] = useState<any[]>([])
   const [meuTime, setMeuTime] = useState<any | null>(null)
@@ -60,13 +62,12 @@ export default function PatrociniosPage() {
   async function salvarEscolhas() {
     if (!meuTime) return
 
-    const patrociniosSelecionados = patrocinios.filter((p) =>
-      [selecionado.master, selecionado.fornecedor, selecionado.secundario].includes(p.id)
-    )
+    const selecionados = [selecionado.master, selecionado.fornecedor, selecionado.secundario]
+    const patrosSelecionados = patrocinios.filter(p => selecionados.includes(p.id))
 
-    const valorTotal = patrociniosSelecionados.reduce((acc, p) => acc + Number(p.valor_fixo), 0)
+    const valorTotal = patrosSelecionados.reduce((acc, p) => acc + (p.valor_fixo || 0), 0)
 
-    const { error: updatePatrocinioError } = await supabase
+    const { error: erroUpdate } = await supabase
       .from('times')
       .update({
         patrocinio_master_id: selecionado.master,
@@ -75,39 +76,37 @@ export default function PatrociniosPage() {
       })
       .eq('id', meuTime.id)
 
-    if (updatePatrocinioError) {
-      toast.error('Erro ao salvar patrocinadores')
+    if (erroUpdate) {
+      toast.error('Erro ao salvar escolhas')
       return
     }
 
-    const { error: saldoError } = await supabase.rpc('atualizar_saldo', {
+    const { error: erroSaldo } = await supabase.rpc('atualizar_saldo', {
       id_time: meuTime.id,
       valor: valorTotal,
     })
 
-    if (saldoError) {
-      toast.error('Erro ao atualizar saldo do time')
+    if (erroSaldo) {
+      toast.error('Erro ao atualizar saldo')
       return
     }
 
-    for (const p of patrociniosSelecionados) {
-      const tipo = p.categoria.toUpperCase()
-      const { error: bidError } = await supabase.from('bid').insert({
-        tipo_evento: 'patrocinio',
-        descricao: `🏷️ ${meuTime.nome} escolheu o patrocínio ${tipo} da ${p.nome} (R$ ${Number(p.valor_fixo).toLocaleString('pt-BR')})`,
-        id_time1: meuTime.id,
-      })
+    const nomes = patrosSelecionados.map(p => p.nome).join(', ')
+    const { error: erroBid } = await supabase.from('bid').insert({
+      tipo_evento: 'Patrocínio',
+      descricao: `Time ${meuTime.nome} fechou com: ${nomes}`,
+      id_time1: meuTime.id,
+      valor: valorTotal,
+    })
 
-      if (bidError) {
-        console.error('Erro ao registrar no BID:', bidError)
-      }
+    if (erroBid) {
+      toast.error('Erro ao registrar no BID')
     }
 
-    toast.success(`✅ Patrocínios salvos e R$ ${valorTotal.toLocaleString('pt-BR')} adicionados ao caixa!`)
-    carregarMeuTime()
+    toast.success('✅ Patrocínios salvos com sucesso!')
   }
 
-  const categorias = ['master', 'fornecedor', 'secundario']
+  const categorias: Categoria[] = ['master', 'fornecedor', 'secundario']
 
   return (
     <div className="max-w-4xl mx-auto p-4 text-white">
@@ -118,8 +117,11 @@ export default function PatrociniosPage() {
       {categorias.map((categoria) => (
         <div key={categoria} className="mb-8">
           <h2 className="text-2xl font-semibold capitalize mb-4 text-green-400">
-            {categoria === 'master' ? 'Patrocínio Master' :
-             categoria === 'fornecedor' ? 'Fornecedor de Material' : 'Patrocínio Secundário'}
+            {categoria === 'master'
+              ? 'Patrocínio Master'
+              : categoria === 'fornecedor'
+              ? 'Fornecedor de Material'
+              : 'Patrocínio Secundário'}
           </h2>
 
           <div className="grid sm:grid-cols-2 gap-4">
@@ -131,10 +133,17 @@ export default function PatrociniosPage() {
                   className={`border rounded p-4 bg-zinc-800 hover:border-green-400 transition cursor-pointer ${
                     selecionado[categoria] === p.id ? 'border-green-400' : 'border-zinc-600'
                   }`}
-                  onClick={() => setSelecionado((prev) => ({ ...prev, [categoria]: p.id }))}
+                  onClick={() =>
+                    setSelecionado((prev) => ({
+                      ...prev,
+                      [categoria]: p.id,
+                    }))
+                  }
                 >
                   <h3 className="text-xl font-bold text-white">{p.nome}</h3>
-                  <p className="text-sm text-gray-300 mt-1">Valor fixo: R$ {Number(p.valor_fixo).toLocaleString('pt-BR')}</p>
+                  <p className="text-sm text-gray-300 mt-1">
+                    Valor fixo: R$ {Number(p.valor_fixo).toLocaleString('pt-BR')}
+                  </p>
                   <p className="text-sm text-gray-400 mt-2">{p.descricao_beneficio}</p>
                 </div>
               ))}
