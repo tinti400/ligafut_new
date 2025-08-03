@@ -109,14 +109,14 @@ export default function PatrociniosPage() {
   const categorias: Categoria[] = ['master', 'fornecedor', 'secundario']
 
   return (
-    <div className="max-w-4xl mx-auto p-4 text-white">
-      <h1 className="text-3xl font-bold text-center mb-6 text-yellow-400">
+    <div className="p-4 text-white min-h-screen bg-zinc-900">
+      <h1 className="text-2xl font-bold text-center mb-6 text-yellow-400">
         💼 Escolha seus Patrocinadores
       </h1>
 
       {categorias.map((categoria) => (
-        <div key={categoria} className="mb-8">
-          <h2 className="text-2xl font-semibold capitalize mb-4 text-green-400">
+        <div key={categoria} className="mb-10">
+          <h2 className="text-xl font-semibold capitalize mb-3 text-green-400">
             {categoria === 'master'
               ? 'Patrocínio Master'
               : categoria === 'fornecedor'
@@ -130,8 +130,8 @@ export default function PatrociniosPage() {
               .map((p) => (
                 <div
                   key={p.id}
-                  className={`border rounded p-4 bg-zinc-800 hover:border-green-400 transition cursor-pointer ${
-                    selecionado[categoria] === p.id ? 'border-green-400' : 'border-zinc-600'
+                  className={`border rounded-lg p-4 bg-zinc-800 shadow-md hover:border-green-500 transition cursor-pointer ${
+                    selecionado[categoria] === p.id ? 'border-green-400' : 'border-zinc-700'
                   }`}
                   onClick={() =>
                     setSelecionado((prev) => ({
@@ -140,11 +140,11 @@ export default function PatrociniosPage() {
                     }))
                   }
                 >
-                  <h3 className="text-xl font-bold text-white">{p.nome}</h3>
+                  <h3 className="text-lg font-bold">{p.nome}</h3>
                   <p className="text-sm text-gray-300 mt-1">
-                    Valor fixo: R$ {Number(p.valor_fixo).toLocaleString('pt-BR')}
+                    💰 Valor fixo: R$ {Number(p.valor_fixo).toLocaleString('pt-BR')}
                   </p>
-                  <p className="text-sm text-gray-400 mt-2">{p.descricao_beneficio}</p>
+                  <p className="text-sm text-gray-400 mt-2 italic">{p.descricao_beneficio}</p>
                 </div>
               ))}
           </div>
@@ -154,7 +154,7 @@ export default function PatrociniosPage() {
       <div className="text-center mt-10">
         <button
           onClick={salvarEscolhas}
-          className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded font-semibold"
+          className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded text-white font-semibold"
         >
           Salvar Patrocínios
         </button>
@@ -162,3 +162,4 @@ export default function PatrociniosPage() {
     </div>
   )
 }
+
