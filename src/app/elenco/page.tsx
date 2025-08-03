@@ -1,4 +1,3 @@
-[media pointer="file-service://file-HiXA6uhfHw1NTFCABs4YSX"]
 'use client'
 
 import { useEffect, useState } from 'react'
