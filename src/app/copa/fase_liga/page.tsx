@@ -61,8 +61,8 @@ export default function FaseLigaAdminPage() {
 
   async function pagarPremiacao(id_time: string, valor: number, descricao: string) {
     const { error: erroSaldo } = await supabase.rpc('atualizar_saldo', {
-      p_id_time: id_time,
-      p_valor: valor
+      id_time: id_time,
+      valor: valor
     })
     if (erroSaldo) {
       console.error('Erro ao atualizar saldo via RPC:', erroSaldo)
