@@ -296,7 +296,6 @@ const salvarResultado = async () => {
   }
 
   const jogoDoBanco = rodadaAtualizada.jogos[editandoIndex]
-
   if (jogoDoBanco?.bonus_pago === true) {
     toast.error('❌ Bônus já foi pago para esse jogo!')
     setIsSalvando(false)
@@ -370,20 +369,91 @@ const salvarResultado = async () => {
   const premiacaoMandante: number = await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
   const premiacaoVisitante: number = await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
 
+  // 🎯 Pagamento de bônus dos patrocinadores
+  async function pagarBonusPatrocinador(timeId: string, golsPro: number, golsContra: number) {
+    const { data: escolhidos } = await supabase
+      .from('patrocinios_escolhidos')
+      .select(`
+        id_patrocinio_master:id_patrocinio_master,
+        id_patrocinio_fornecedor:id_patrocinio_fornecedor,
+        id_patrocinio_secundario:id_patrocinio_secundario
+      `)
+      .eq('id_time', timeId)
+      .single()
+
+    if (!escolhidos) return
+
+    const ids = [
+      escolhidos.id_patrocinio_master,
+      escolhidos.id_patrocinio_fornecedor,
+      escolhidos.id_patrocinio_secundario,
+    ]
+
+    const { data: patrocinadores } = await supabase
+      .from('patrocinios')
+      .select('*')
+      .in('id', ids)
+
+    let totalBonus = 0
+
+    for (const p of patrocinadores || []) {
+      let bonus = 0
+
+      switch (p.beneficio) {
+        case 'vitoria' && golsPro > golsContra:
+          bonus = Number(p.valor_fixo || 0)
+          break
+        case 'empate' && golsPro === golsContra:
+          bonus = Number(p.valor_fixo || 0)
+          break
+        case 'goleada' && golsPro - golsContra >= 3:
+          bonus = Number(p.valor_fixo || 0)
+          break
+        case 'clean_sheet' && golsContra === 0:
+          bonus = Number(p.valor_fixo || 0)
+          break
+        default:
+          break
+      }
+
+      if (bonus > 0) {
+        await supabase.rpc('atualizar_saldo', {
+          id_time: timeId,
+          valor: bonus,
+        })
+
+        await supabase.from('bid').insert({
+          tipo_evento: 'bonus_patrocinio',
+          descricao: `Bônus de patrocinador: ${p.nome}`,
+          id_time1: timeId,
+          valor: bonus,
+          data_evento: new Date().toISOString(),
+        })
+
+        totalBonus += bonus
+      }
+    }
+
+    return totalBonus
+  }
+
+  const bonusMandante = await pagarBonusPatrocinador(mandanteId, golsMandante, golsVisitante)
+  const bonusVisitante = await pagarBonusPatrocinador(visitanteId, golsVisitante, golsMandante)
+
   // 📊 Registrar BID de receita (renda + bônus)
   await supabase.from('bid').insert([
     {
       tipo_evento: 'receita_partida',
       descricao: 'Receita da partida (renda + bônus)',
       id_time1: mandanteId,
-      valor: renda * 0.95 + premiacaoMandante,
+      valor: renda * 0.95 + premiacaoMandante + (bonusMandante || 0),
       data_evento: new Date().toISOString(),
     },
     {
       tipo_evento: 'receita_partida',
       descricao: 'Receita da partida (renda + bônus)',
       id_time1: visitanteId,
-      valor: renda * 0.05 + premiacaoVisitante,
+      valor: renda * 0.05 + premiacaoVisitante + (bonusVisitante || 0),
       data_evento: new Date().toISOString(),
     },
   ])
