@@ -296,6 +296,7 @@ const salvarResultado = async () => {
   }
 
   const jogoDoBanco = rodadaAtualizada.jogos[editandoIndex]
+
   if (jogoDoBanco?.bonus_pago === true) {
     toast.error('❌ Bônus já foi pago para esse jogo!')
     setIsSalvando(false)
@@ -315,7 +316,7 @@ const salvarResultado = async () => {
   const mandanteId = jogo.mandante
   const visitanteId = jogo.visitante
 
-  // 💰 Renda para os clubes
+  // 💰 Atualiza saldo dos clubes com base na renda
   await supabase.rpc('atualizar_saldo', {
     id_time: mandanteId,
     valor: renda * 0.95,
@@ -325,7 +326,7 @@ const salvarResultado = async () => {
     valor: renda * 0.05,
   })
 
-  // 💸 Descontar salários com registro
+  // 💸 Descontar salários e registrar como DESPESA
   const descontarSalariosComRegistro = async (timeId: string): Promise<number> => {
     const { data: elenco } = await supabase
       .from('elenco')
@@ -365,35 +366,29 @@ const salvarResultado = async () => {
   const salariosMandante = await descontarSalariosComRegistro(mandanteId)
   const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-  // 🏆 Premiação por desempenho (vitória/empate/gols)
+  // 🏆 Premiar por desempenho da rodada e retornar o valor como number
   const premiacaoMandante: number = await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
   const premiacaoVisitante: number = await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
 
-  // 🟢 Bônus de patrocinador
-  const posicaoMandante = classificacao.find((t) => t.id_time === mandanteId)?.posicao || 99
-  const posicaoVisitante = classificacao.find((t) => t.id_time === visitanteId)?.posicao || 99
-  const bonusMandante = await pagarBonusPatrocinador(mandanteId, golsMandante, golsVisitante, posicaoMandante)
-  const bonusVisitante = await pagarBonusPatrocinador(visitanteId, golsVisitante, golsMandante, posicaoVisitante)
-
-  // 📊 Registrar receita total no BID
+  // 📊 Registrar BID de receita (renda + bônus)
   await supabase.from('bid').insert([
     {
       tipo_evento: 'receita_partida',
       descricao: 'Receita da partida (renda + bônus)',
       id_time1: mandanteId,
-      valor: renda * 0.95 + premiacaoMandante + bonusMandante,
+      valor: renda * 0.95 + premiacaoMandante,
       data_evento: new Date().toISOString(),
     },
     {
       tipo_evento: 'receita_partida',
       descricao: 'Receita da partida (renda + bônus)',
       id_time1: visitanteId,
-      valor: renda * 0.05 + premiacaoVisitante + bonusVisitante,
+      valor: renda * 0.05 + premiacaoVisitante,
       data_evento: new Date().toISOString(),
     },
   ])
 
-  // ✅ Atualiza número de jogos dos jogadores
+  // ✅ Atualiza o número de jogos dos jogadores
   const atualizarJogosElenco = async (timeId: string) => {
     const { data: jogadores, error } = await supabase
       .from('elenco')
@@ -415,7 +410,7 @@ const salvarResultado = async () => {
   await atualizarJogosElenco(mandanteId)
   await atualizarJogosElenco(visitanteId)
 
-  // Atualiza a rodada com resultado
+  // Atualiza o jogo na rodada
   novaLista[editandoIndex] = {
     ...jogo,
     gols_mandante: golsMandante,
@@ -435,8 +430,8 @@ const salvarResultado = async () => {
 
   toast.success(
     `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${(renda * 0.95 + bonusMandante).toLocaleString()} + bônus
-💵 ${visitanteNome}: R$ ${(renda * 0.05 + bonusVisitante).toLocaleString()} + bônus`,
+💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()} + bônus
+💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()} + bônus`,
     { duration: 8000 }
   )
 
