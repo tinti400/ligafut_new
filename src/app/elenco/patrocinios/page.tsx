@@ -17,7 +17,6 @@ interface Patrocinio {
   categoria: Categoria
   valor_fixo: number
   beneficio: string
-  descricao_beneficio: string
   divisao: number
 }
 
@@ -33,10 +32,7 @@ export default function PatrociniosPage() {
 
   useEffect(() => {
     async function buscarPatrocinios() {
-      if (!user?.id_time) {
-        console.error('⚠️ id_time não encontrado no localStorage')
-        return
-      }
+      if (!user?.id_time) return
 
       const { data: time, error: erroTime } = await supabase
         .from('times')
@@ -44,21 +40,14 @@ export default function PatrociniosPage() {
         .eq('id', user.id_time)
         .single()
 
-      if (erroTime || !time) {
-        console.error('Erro ao buscar divisão do time:', erroTime)
-        return
-      }
+      if (erroTime || !time) return
 
       const { data, error } = await supabase
         .from('patrocinios')
         .select('*')
         .eq('divisao', time.divisao)
 
-      if (error) {
-        console.error('Erro ao buscar patrocinadores:', error)
-      } else {
-        setPatrocinios(data)
-      }
+      if (!error && data) setPatrocinios(data)
     }
 
     buscarPatrocinios()
@@ -68,13 +57,12 @@ export default function PatrociniosPage() {
     setPatrocinioSelecionado((prev) => ({ ...prev, [categoria]: id }))
   }
 
-  const formatarValor = (valor: number) => {
-    return valor.toLocaleString('pt-BR', {
+  const formatarValor = (valor: number) =>
+    valor.toLocaleString('pt-BR', {
       style: 'currency',
       currency: 'BRL',
-      minimumFractionDigits: 0
+      minimumFractionDigits: 0,
     })
-  }
 
   const salvarPatrocinios = async () => {
     if (!user?.id_time) {
@@ -101,7 +89,6 @@ export default function PatrociniosPage() {
       }, { onConflict: 'id_time' })
 
     if (erroUpsert) {
-      console.error('Erro ao salvar patrocinadores:', erroUpsert)
       toast.error('Erro ao salvar patrocinadores.')
       return
     }
@@ -112,7 +99,6 @@ export default function PatrociniosPage() {
     })
 
     if (erroSaldo) {
-      console.error('Erro ao atualizar saldo do time:', erroSaldo)
       toast.error('Erro ao atualizar o saldo do time.')
     } else {
       toast.success('Patrocinadores salvos e saldo atualizado com sucesso!')
@@ -150,8 +136,11 @@ export default function PatrociniosPage() {
                   <p className="text-sm text-gray-300 mb-1">
                     💰 Valor Fixo: <strong className="text-white">{formatarValor(p.valor_fixo)}</strong>
                   </p>
-                  {p.descricao_beneficio && (
-                    <p className="text-sm text-yellow-300">🎁 {p.descricao_beneficio}</p>
+                  
+                  {p.beneficio && p.beneficio !== 'nenhum' && (
+                    <p className="text-sm text-green-400 mb-1">
+                      🎯 Benefício: <strong>{p.beneficio}</strong>
+                    </p>
                   )}
                 </div>
               ))}
@@ -170,3 +159,4 @@ export default function PatrociniosPage() {
     </div>
   )
 }
+
