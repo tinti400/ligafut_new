@@ -125,6 +125,7 @@ export default function Sidebar() {
               <div className="ml-4 mt-2 space-y-2 text-sm">
                 <Link href="/elenco" className="block hover:text-green-400">👥 Meu Elenco</Link>
                 <Link href="/elenco/tatico" className="block hover:text-green-400">🎯 Painel Tático</Link>
+                <Link href="/elenco/patrocinios" className="block hover:text-green-400">💼 Patrocínios</Link>
                 <Link href="/negociacoes" className="block hover:text-green-400">🤝 Negociações</Link>
                 <Link href="/propostas_recebidas" className="block hover:text-green-400">📥 Propostas Recebidas</Link>
                 <Link href="/propostas_enviadas" className="block hover:text-green-400">📤 Propostas Enviadas</Link>
