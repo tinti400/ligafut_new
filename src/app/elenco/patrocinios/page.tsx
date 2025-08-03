@@ -91,37 +91,45 @@ export default function PatrociniosPage() {
     }
   }
 
+  const formatarValor = (valor: number) => {
+    return valor.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 0
+    })
+  }
+
   const categorias: Categoria[] = ['master', 'fornecedor', 'secundario']
 
   return (
-    <div className="p-4 text-white min-h-screen bg-zinc-900">
-      <h1 className="text-2xl font-bold text-center mb-6 text-yellow-400">
+    <div className="p-4 text-white min-h-screen bg-gradient-to-br from-zinc-900 to-zinc-800">
+      <h1 className="text-3xl font-extrabold text-center mb-8 text-yellow-400 drop-shadow">
         💼 Escolha seus Patrocinadores
       </h1>
 
       {categorias.map((categoria) => (
-        <div key={categoria} className="mb-6">
-          <h2 className="text-green-400 text-xl font-semibold mb-2 capitalize">
-            {categoria === 'master' && 'Patrocínio Master'}
-            {categoria === 'fornecedor' && 'Fornecedor de Material'}
-            {categoria === 'secundario' && 'Patrocínio Secundário'}
+        <div key={categoria} className="mb-10">
+          <h2 className="text-green-400 text-2xl font-bold mb-4 capitalize">
+            {categoria === 'master' && '🏆 Patrocínio Master'}
+            {categoria === 'fornecedor' && '🛍️ Fornecedor de Material'}
+            {categoria === 'secundario' && '📢 Patrocínio Secundário'}
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {patrocinios
               .filter(p => p.categoria === categoria)
               .map(p => (
                 <div
                   key={p.id}
-                  className={`border rounded-md p-4 cursor-pointer hover:bg-zinc-800 ${
-                    patrocinioSelecionado[categoria] === p.id ? 'border-green-400' : 'border-zinc-600'
+                  className={`rounded-lg border-2 p-4 shadow transition-all cursor-pointer hover:scale-105 hover:border-green-400 ${
+                    patrocinioSelecionado[categoria] === p.id ? 'border-green-500 bg-zinc-800' : 'border-zinc-700 bg-zinc-900'
                   }`}
                   onClick={() => handleSelecionar(categoria, p.id)}
                 >
-                  <h3 className="text-lg font-bold">{p.nome}</h3>
-                  <p className="text-sm text-gray-300 mt-1">💰 Valor Fixo: R${(p.valor_fixo / 1_000_000).toFixed(1)} mi</p>
+                  <h3 className="text-xl font-semibold mb-2 text-white">{p.nome}</h3>
+                  <p className="text-sm text-gray-300 mb-1">💰 Valor Fixo: <strong className="text-white">{formatarValor(p.valor_fixo)}</strong></p>
                   {p.descricao_beneficio && (
-                    <p className="text-sm text-yellow-300 mt-1">🎁 {p.descricao_beneficio}</p>
+                    <p className="text-sm text-yellow-300">🎁 {p.descricao_beneficio}</p>
                   )}
                 </div>
               ))}
@@ -129,15 +137,16 @@ export default function PatrociniosPage() {
         </div>
       ))}
 
-      <div className="text-center mt-8">
+      <div className="text-center mt-10">
         <button
           onClick={salvarPatrocinios}
-          className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-md text-white font-bold"
+          className="bg-green-600 hover:bg-green-700 px-8 py-3 rounded-lg text-white text-lg font-bold shadow-lg"
         >
-          Salvar Patrocinios
+          ✅ Salvar Patrocínios
         </button>
       </div>
     </div>
   )
 }
+
 
