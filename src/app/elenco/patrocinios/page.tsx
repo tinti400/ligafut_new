@@ -11,85 +11,84 @@ const supabase = createClient(
 
 type Categoria = 'master' | 'fornecedor' | 'secundario'
 
-export default function PatrociniosPage() {
-  const [patrocinios, setPatrocinios] = useState<any[]>([])
-  const [meuTime, setMeuTime] = useState<any | null>(null)
-  const [loading, setLoading] = useState(true)
+interface Patrocinio {
+  id: string
+  nome: string
+  categoria: Categoria
+  valor_fixo: number
+  beneficio: string
+  descricao_beneficio: string
+  divisao: number
+}
 
-  const [selecionado, setSelecionado] = useState<{
-    master: string
-    fornecedor: string
-    secundario: string
-  }>({ master: '', fornecedor: '', secundario: '' })
+export default function PatrociniosPage() {
+  const [patrocinios, setPatrocinios] = useState<Patrocinio[]>([])
+  const [patrocinioSelecionado, setPatrocinioSelecionado] = useState<Record<Categoria, string>>({
+    master: '',
+    fornecedor: '',
+    secundario: ''
+  })
+
+  const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
 
   useEffect(() => {
-    async function init() {
-      const { data: patros, error: errorPatros } = await supabase
-        .from('patrocinios')
-        .select('*')
-        .order('categoria')
-        .order('valor_fixo', { ascending: false })
-
-      if (errorPatros) {
-        console.error('❌ Erro ao carregar patrocínios:', errorPatros)
-        toast.error('Erro ao carregar patrocínios')
-      } else {
-        setPatrocinios(patros || [])
+    async function buscarPatrocinios() {
+      if (!user?.id_time) {
+        console.error('⚠️ id_time não encontrado no localStorage')
+        return
       }
 
-      const userStr = localStorage.getItem('user')
-      if (!userStr) return
-
-      const user = JSON.parse(userStr)
-      const { data: time, error: errorTime } = await supabase
+      const { data: time, error: erroTime } = await supabase
         .from('times')
-        .select('*')
-        .eq('id', user.time_id)
+        .select('divisao')
+        .eq('id', user.id_time)
         .single()
 
-      if (errorTime) return
+      if (erroTime || !time) {
+        console.error('Erro ao buscar divisão do time:', erroTime)
+        return
+      }
 
-      setMeuTime(time)
-      setSelecionado({
-        master: time.patrocinio_master_id || '',
-        fornecedor: time.patrocinio_fornecedor_id || '',
-        secundario: time.patrocinio_secundario_id || '',
-      })
+      const { data, error } = await supabase
+        .from('patrocinios')
+        .select('*')
+        .eq('divisao', time.divisao)
+
+      if (error) {
+        console.error('Erro ao buscar patrocinadores:', error)
+      } else {
+        setPatrocinios(data)
+      }
     }
 
-    init()
+    buscarPatrocinios()
   }, [])
 
-  async function salvarEscolhas() {
-    if (!meuTime) return
+  const handleSelecionar = (categoria: Categoria, id: string) => {
+    setPatrocinioSelecionado((prev) => ({ ...prev, [categoria]: id }))
+  }
 
-    const selecionados = [selecionado.master, selecionado.fornecedor, selecionado.secundario]
-    const patrosSelecionados = patrocinios.filter(p => selecionados.includes(p.id))
-    const valorTotal = patrosSelecionados.reduce((acc, p) => acc + (p.valor_fixo || 0), 0)
+  const salvarPatrocinios = async () => {
+    if (!user?.id_time) {
+      toast.error('Usuário não encontrado.')
+      return
+    }
 
-    await supabase
-      .from('times')
-      .update({
-        patrocinio_master_id: selecionado.master,
-        patrocinio_fornecedor_id: selecionado.fornecedor,
-        patrocinio_secundario_id: selecionado.secundario,
-      })
-      .eq('id', meuTime.id)
+    const { error } = await supabase
+      .from('patrocinios_escolhidos')
+      .upsert({
+        id_time: user.id_time,
+        id_patrocinio_master: patrocinioSelecionado.master,
+        id_patrocinio_fornecedor: patrocinioSelecionado.fornecedor,
+        id_patrocinio_secundario: patrocinioSelecionado.secundario,
+      }, { onConflict: 'id_time' })
 
-    await supabase.rpc('atualizar_saldo', {
-      id_time: meuTime.id,
-      valor: valorTotal,
-    })
-
-    const nomes = patrosSelecionados.map(p => p.nome).join(', ')
-    await supabase.from('bid').insert({
-      tipo_evento: 'Patrocínio',
-      descricao: `Time ${meuTime.nome} fechou com: ${nomes}`,
-      id_time1: meuTime.id,
-      valor: valorTotal,
-    })
-
-    toast.success('✅ Patrocínios salvos com sucesso!')
+    if (error) {
+      console.error('Erro ao salvar patrocinadores:', error)
+      toast.error('Erro ao salvar patrocinadores.')
+    } else {
+      toast.success('Patrocinadores salvos com sucesso!')
+    }
   }
 
   const categorias: Categoria[] = ['master', 'fornecedor', 'secundario']
@@ -101,34 +100,29 @@ export default function PatrociniosPage() {
       </h1>
 
       {categorias.map((categoria) => (
-        <div key={categoria} className="mb-8">
-          <h2 className="text-xl font-semibold capitalize mb-4 text-green-400">
-            {categoria === 'master'
-              ? 'Patrocínio Master'
-              : categoria === 'fornecedor'
-              ? 'Fornecedor de Material'
-              : 'Patrocínio Secundário'}
+        <div key={categoria} className="mb-6">
+          <h2 className="text-green-400 text-xl font-semibold mb-2 capitalize">
+            {categoria === 'master' && 'Patrocínio Master'}
+            {categoria === 'fornecedor' && 'Fornecedor de Material'}
+            {categoria === 'secundario' && 'Patrocínio Secundário'}
           </h2>
 
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {patrocinios
-              .filter((p) => p.categoria === categoria && String(p.divisao) === String(meuTime?.divisao))
-              .map((p) => (
+              .filter(p => p.categoria === categoria)
+              .map(p => (
                 <div
                   key={p.id}
-                  className={`border rounded p-4 bg-zinc-800 hover:border-green-400 transition cursor-pointer ${
-                    selecionado[categoria] === p.id ? 'border-green-400' : 'border-zinc-600'
+                  className={`border rounded-md p-4 cursor-pointer hover:bg-zinc-800 ${
+                    patrocinioSelecionado[categoria] === p.id ? 'border-green-400' : 'border-zinc-600'
                   }`}
-                  onClick={() =>
-                    setSelecionado((prev) => ({
-                      ...prev,
-                      [categoria]: p.id,
-                    }))
-                  }
+                  onClick={() => handleSelecionar(categoria, p.id)}
                 >
                   <h3 className="text-lg font-bold">{p.nome}</h3>
-                  <p className="text-sm mt-1">💰 R$ {Number(p.valor_fixo).toLocaleString('pt-BR')}</p>
-                  <p className="text-sm mt-2 text-gray-400">{p.descricao_beneficio}</p>
+                  <p className="text-sm text-gray-300 mt-1">💰 Valor Fixo: R${(p.valor_fixo / 1_000_000).toFixed(1)} mi</p>
+                  {p.descricao_beneficio && (
+                    <p className="text-sm text-yellow-300 mt-1">🎁 {p.descricao_beneficio}</p>
+                  )}
                 </div>
               ))}
           </div>
@@ -137,10 +131,10 @@ export default function PatrociniosPage() {
 
       <div className="text-center mt-8">
         <button
-          onClick={salvarEscolhas}
-          className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded font-semibold"
+          onClick={salvarPatrocinios}
+          className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded-md text-white font-bold"
         >
-          Salvar Patrocínios
+          Salvar Patrocinios
         </button>
       </div>
     </div>
