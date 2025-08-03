@@ -68,13 +68,30 @@ export default function PatrociniosPage() {
     setPatrocinioSelecionado((prev) => ({ ...prev, [categoria]: id }))
   }
 
+  const formatarValor = (valor: number) => {
+    return valor.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 0
+    })
+  }
+
   const salvarPatrocinios = async () => {
     if (!user?.id_time) {
       toast.error('Usuário não encontrado.')
       return
     }
 
-    const { error } = await supabase
+    const master = patrocinios.find(p => p.id === patrocinioSelecionado.master)
+    const fornecedor = patrocinios.find(p => p.id === patrocinioSelecionado.fornecedor)
+    const secundario = patrocinios.find(p => p.id === patrocinioSelecionado.secundario)
+
+    const totalPatrocinio =
+      (master?.valor_fixo || 0) +
+      (fornecedor?.valor_fixo || 0) +
+      (secundario?.valor_fixo || 0)
+
+    const { error: erroUpsert } = await supabase
       .from('patrocinios_escolhidos')
       .upsert({
         id_time: user.id_time,
@@ -83,20 +100,23 @@ export default function PatrociniosPage() {
         id_patrocinio_secundario: patrocinioSelecionado.secundario,
       }, { onConflict: 'id_time' })
 
-    if (error) {
-      console.error('Erro ao salvar patrocinadores:', error)
+    if (erroUpsert) {
+      console.error('Erro ao salvar patrocinadores:', erroUpsert)
       toast.error('Erro ao salvar patrocinadores.')
-    } else {
-      toast.success('Patrocinadores salvos com sucesso!')
+      return
     }
-  }
 
-  const formatarValor = (valor: number) => {
-    return valor.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-      minimumFractionDigits: 0
+    const { error: erroSaldo } = await supabase.rpc('incrementar_saldo', {
+      id_time_param: user.id_time,
+      valor_param: totalPatrocinio
     })
+
+    if (erroSaldo) {
+      console.error('Erro ao atualizar saldo do time:', erroSaldo)
+      toast.error('Erro ao atualizar o saldo do time.')
+    } else {
+      toast.success('Patrocinadores salvos e saldo atualizado com sucesso!')
+    }
   }
 
   const categorias: Categoria[] = ['master', 'fornecedor', 'secundario']
@@ -127,7 +147,9 @@ export default function PatrociniosPage() {
                   onClick={() => handleSelecionar(categoria, p.id)}
                 >
                   <h3 className="text-xl font-semibold mb-2 text-white">{p.nome}</h3>
-                  <p className="text-sm text-gray-300 mb-1">💰 Valor Fixo: <strong className="text-white">{formatarValor(p.valor_fixo)}</strong></p>
+                  <p className="text-sm text-gray-300 mb-1">
+                    💰 Valor Fixo: <strong className="text-white">{formatarValor(p.valor_fixo)}</strong>
+                  </p>
                   {p.descricao_beneficio && (
                     <p className="text-sm text-yellow-300">🎁 {p.descricao_beneficio}</p>
                   )}
