@@ -61,12 +61,16 @@ export function calcularPublicoSetor(
     vitorias * 0.01 -
     derrotas * 0.005
 
+  // Novo fator de preço ajustado conforme o nível do estádio
+  const toleranciaPreco = 1 + (nivelEstadio - 1) * 0.2 // Nível 1 = 1.0, Nível 5 = 1.8
+  const precoAjustado = preco / toleranciaPreco
+
   const fatorPreco =
-    preco <= 20 ? 1.0 :
-    preco <= 50 ? 0.85 :
-    preco <= 100 ? 0.65 :
-    preco <= 200 ? 0.4 :
-    preco <= 500 ? 0.2 : 0.05
+    precoAjustado <= 20 ? 1.0 :
+    precoAjustado <= 50 ? 0.75 :
+    precoAjustado <= 100 ? 0.5 :
+    precoAjustado <= 200 ? 0.25 :
+    precoAjustado <= 500 ? 0.1 : 0.02
 
   const fatorEstadio = 1 + (nivelEstadio - 1) * 0.15
   const fatorMoral = (moralTecnico / 10 + moralTorcida / 100) / 2
