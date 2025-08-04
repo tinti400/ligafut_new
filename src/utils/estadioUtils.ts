@@ -61,27 +61,27 @@ export function calcularPublicoSetor(
     vitorias * 0.01 -
     derrotas * 0.005
 
-  // Novo fator de preço ajustado conforme o nível do estádio
-  const toleranciaPreco = 1 + (nivelEstadio - 1) * 0.2 // Nível 1 = 1.0, Nível 5 = 1.8
+  const toleranciaPreco = 1 + (nivelEstadio - 1) * 0.25 // Estádio mais alto tolera melhor preço
   const precoAjustado = preco / toleranciaPreco
 
-  const fatorPreco =
-    precoAjustado <= 20 ? 1.0 :
-    precoAjustado <= 50 ? 0.75 :
-    precoAjustado <= 100 ? 0.5 :
-    precoAjustado <= 200 ? 0.25 :
-    precoAjustado <= 500 ? 0.1 : 0.02
+  let fatorPreco = 1.0
+  if (precoAjustado <= 20) fatorPreco = 1.0
+  else if (precoAjustado <= 50) fatorPreco = 0.7
+  else if (precoAjustado <= 100) fatorPreco = 0.5
+  else if (precoAjustado <= 200) fatorPreco = 0.3
+  else if (precoAjustado <= 500) fatorPreco = 0.15
+  else fatorPreco = 0.05
 
-  const fatorEstadio = 1 + (nivelEstadio - 1) * 0.15
+  const fatorEstadio = 1 + (nivelEstadio - 1) * 0.12
   const fatorMoral = (moralTecnico / 10 + moralTorcida / 100) / 2
 
-  const publicoEstimado = Math.min(
-    lugares,
-    Math.floor(lugares * fatorBase * fatorPreco * fatorEstadio * fatorMoral)
+  const publicoEstimado = Math.max(
+    Math.floor(lugares * fatorBase * fatorPreco * fatorEstadio * fatorMoral),
+    Math.floor(lugares * 0.3) // mínimo de 30% caso preço esteja muito alto
   )
 
   const renda = publicoEstimado * preco
-  return { publicoEstimado, renda }
+  return { publicoEstimado: Math.min(lugares, publicoEstimado), renda }
 }
 
 // Cálculo de custo para melhorar o estádio
@@ -109,7 +109,7 @@ export function calcularMoralTecnico(pontos: number): number {
   return 5
 }
 
-// Cálculo da moral da torcida (inicia em 100%, só cai com desempenho ruim ou pouca ocupação)
+// Cálculo da moral da torcida baseado nos pontos e ocupação
 export function calcularMoralTorcida(pontos: number, ocupacaoMedia: number): number {
   let moral = 100
 
@@ -150,4 +150,5 @@ export async function salvarNovaMoralTorcida(idTime: string, novaMoral: number) 
     console.error('Erro ao salvar moral da torcida:', error.message)
   }
 }
+
 
