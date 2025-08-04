@@ -9,7 +9,8 @@ import {
   limitesPrecos,
   calcularPublicoSetor,
   calcularMelhoriaEstadio,
-  mensagemDesempenho
+  mensagemDesempenho,
+  calcularMoralTecnico
 } from '@/utils/estadioUtils'
 
 const supabase = createClient(
@@ -24,7 +25,7 @@ export default function EstadioPage() {
   const [rendaTotal, setRendaTotal] = useState(0)
   const [saldo, setSaldo] = useState(0)
   const [desempenho, setDesempenho] = useState(0)
-  const [moralTecnico, setMoralTecnico] = useState(5)
+  const [moralTecnico, setMoralTecnico] = useState(10)
   const [moralTorcida, setMoralTorcida] = useState(50)
 
   const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') : ''
@@ -34,8 +35,7 @@ export default function EstadioPage() {
     if (!idTime) return
     buscarEstadio()
     buscarSaldo()
-    buscarDesempenho()
-    buscarMoral()
+    buscarDesempenhoEMoral()
   }, [idTime])
 
   const buscarEstadio = async () => {
@@ -64,16 +64,31 @@ export default function EstadioPage() {
     if (data) setSaldo(data.saldo)
   }
 
-  const buscarDesempenho = async () => {
-    const { data } = await supabase.from('classificacao').select('pontos').eq('id_time', idTime).single()
-    if (data?.pontos) setDesempenho(data.pontos)
-  }
+  const buscarDesempenhoEMoral = async () => {
+    const { data: classData } = await supabase
+      .from('classificacao')
+      .select('pontos')
+      .eq('id_time', idTime)
+      .single()
 
-  const buscarMoral = async () => {
-    const { data } = await supabase.from('times').select('moral_tecnico, moral_torcida').eq('id', idTime).single()
-    if (data) {
-      setMoralTecnico(data.moral_tecnico || 5)
-      setMoralTorcida(data.moral_torcida || 50)
+    if (classData) {
+      const pontos = classData.pontos || 0
+      setDesempenho(pontos)
+
+      const novaMoral = calcularMoralTecnico(pontos)
+      setMoralTecnico(novaMoral)
+
+      await supabase.from('times').update({ moral_tecnico: novaMoral }).eq('id', idTime)
+    }
+
+    const { data: moralData } = await supabase
+      .from('times')
+      .select('moral_torcida')
+      .eq('id', idTime)
+      .single()
+
+    if (moralData) {
+      setMoralTorcida(moralData.moral_torcida || 50)
     }
   }
 
@@ -91,7 +106,17 @@ export default function EstadioPage() {
     Object.entries(setoresBase).forEach(([setor, proporcao]) => {
       const lugares = Math.floor(capacidade * proporcao)
       const preco = precos[setor] || precosPadrao[setor as keyof typeof precosPadrao]
-      const { publicoEstimado, renda } = calcularPublicoSetor(lugares, preco, desempenho, 5, 2, 1)
+      const { publicoEstimado, renda } = calcularPublicoSetor(
+        lugares,
+        preco,
+        desempenho,
+        5, // posição fictícia
+        2, // vitórias fictícias
+        1, // derrotas fictícias
+        estadio.nivel,
+        moralTecnico,
+        moralTorcida
+      )
       totalPublico += publicoEstimado
       totalRenda += renda
     })
@@ -102,7 +127,7 @@ export default function EstadioPage() {
 
   useEffect(() => {
     calcularTotais()
-  }, [precos, estadio, desempenho])
+  }, [precos, estadio, desempenho, moralTecnico, moralTorcida])
 
   const melhorarEstadio = async () => {
     const custo = calcularMelhoriaEstadio(estadio.nivel)
