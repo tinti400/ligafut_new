@@ -26,7 +26,7 @@ export default function EstadioPage() {
   const [saldo, setSaldo] = useState(0)
   const [desempenho, setDesempenho] = useState(0)
   const [moralTecnico, setMoralTecnico] = useState(10)
-  const [moralTorcida, setMoralTorcida] = useState(100)
+  const [moralTorcida, setMoralTorcida] = useState(50)
 
   const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') : ''
   const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : ''
@@ -75,20 +75,20 @@ export default function EstadioPage() {
       const pontos = classData.pontos || 0
       setDesempenho(pontos)
 
-      const novaMoralTecnico = calcularMoralTecnico(pontos)
-      setMoralTecnico(novaMoralTecnico)
-      await supabase.from('times').update({ moral_tecnico: novaMoralTecnico }).eq('id', idTime)
+      const novaMoral = calcularMoralTecnico(pontos)
+      setMoralTecnico(novaMoral)
 
-      let novaMoralTorcida = 100
-      if (pontos < 80) novaMoralTorcida -= 10
-      if (pontos < 60) novaMoralTorcida -= 15
-      if (pontos < 40) novaMoralTorcida -= 20
-      if (pontos < 25) novaMoralTorcida -= 25
-      if (pontos < 10) novaMoralTorcida -= 30
+      await supabase.from('times').update({ moral_tecnico: novaMoral }).eq('id', idTime)
+    }
 
-      novaMoralTorcida = Math.max(0, Math.min(100, novaMoralTorcida))
-      setMoralTorcida(novaMoralTorcida)
-      await supabase.from('times').update({ moral_torcida: novaMoralTorcida }).eq('id', idTime)
+    const { data: moralData } = await supabase
+      .from('times')
+      .select('moral_torcida')
+      .eq('id', idTime)
+      .single()
+
+    if (moralData) {
+      setMoralTorcida(moralData.moral_torcida || 50)
     }
   }
 
@@ -110,9 +110,9 @@ export default function EstadioPage() {
         lugares,
         preco,
         desempenho,
-        5,
-        2,
-        1,
+        5, // posição fictícia
+        2, // vitórias fictícias
+        1, // derrotas fictícias
         estadio.nivel,
         moralTecnico,
         moralTorcida
@@ -146,7 +146,95 @@ export default function EstadioPage() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto text-white">
-      {/* ... UI renderização omitida por brevidade ... */}
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h1 className="text-2xl font-bold text-center mb-2">🏟️ {estadio.nome}</h1>
+        <p className="text-center text-gray-300">
+          <strong>Nível:</strong> {estadio.nivel} | <strong>Capacidade:</strong> {estadio.capacidade.toLocaleString()} lugares
+        </p>
+      </div>
+
+      <div className="bg-gray-900 rounded p-4 text-center mb-4 border border-yellow-400">
+        <h2 className="text-lg font-bold mb-2 text-yellow-300">📣 Aviso Importante</h2>
+        <p>{mensagemDesempenho(desempenho)}</p>
+      </div>
+
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2 text-center text-green-300">🔥 Moral do Clube</h2>
+
+        <div className="mb-3">
+          <p className="text-sm text-gray-300 mb-1">🎯 Técnico</p>
+          <div className="w-full h-5 bg-gray-700 rounded">
+            <div
+              className="h-5 bg-green-600 rounded transition-all duration-300"
+              style={{ width: `${(moralTecnico / 10) * 100}%` }}
+            ></div>
+          </div>
+          <p className="text-xs text-right text-gray-400 mt-1">{moralTecnico.toFixed(1)}/10</p>
+        </div>
+
+        <div>
+          <p className="text-sm text-gray-300 mb-1">🙌 Torcida</p>
+          <div className="w-full h-5 bg-gray-700 rounded">
+            <div
+              className="h-5 bg-green-400 rounded transition-all duration-300"
+              style={{ width: `${moralTorcida}%` }}
+            ></div>
+          </div>
+          <p className="text-xs text-right text-gray-400 mt-1">{moralTorcida.toFixed(0)}%</p>
+        </div>
+      </div>
+
+      <div className="bg-gray-800 rounded p-4 text-center mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2">🏟️ Visualização da Lotação</h2>
+        <div className="grid grid-cols-10 gap-1 justify-center">
+          {[...Array(100)].map((_, idx) => {
+            const ocupado = idx < Math.round((publicoTotal / estadio.capacidade) * 100)
+            return (
+              <div key={idx} className={`w-4 h-4 rounded ${ocupado ? 'bg-red-500' : 'bg-gray-500'}`}></div>
+            )
+          })}
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          {publicoTotal.toLocaleString()} / {estadio.capacidade.toLocaleString()} lugares ocupados
+        </p>
+      </div>
+
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2 text-center">💵 Preços dos Setores</h2>
+        <div className="grid grid-cols-2 gap-2">
+          {Object.entries(setoresBase).map(([setor, _]) => {
+            const limite = limitesPrecos[estadio.nivel][setor] || 5000
+            return (
+              <div key={setor} className="flex flex-col border border-gray-700 rounded p-2 bg-gray-900">
+                <span className="font-semibold capitalize text-sm">{setor}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={limite}
+                  value={precos[setor] || 0}
+                  onChange={(e) => atualizarPreco(setor, parseFloat(e.target.value))}
+                  className="border border-gray-700 rounded p-1 mt-1 text-sm bg-gray-800 text-white"
+                />
+                <span className="text-xs text-gray-400 mt-1">Limite: R$ {limite}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
+        <h2 className="text-lg font-bold mb-2 text-center">📊 Estimativas</h2>
+        <p>👥 <strong>Público total:</strong> {publicoTotal.toLocaleString()} pessoas</p>
+        <p>💰 <strong>Renda estimada:</strong> R$ {rendaTotal.toLocaleString()}</p>
+      </div>
+
+      {estadio.nivel < 5 ? (
+        <button onClick={melhorarEstadio} className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
+          Melhorar Estádio (Custo: R$ {calcularMelhoriaEstadio(estadio.nivel).toLocaleString()})
+        </button>
+      ) : (
+        <div className="text-center text-green-400 font-bold">🏆 Estádio já está no nível máximo!</div>
+      )}
     </div>
   )
 }
