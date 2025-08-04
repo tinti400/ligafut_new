@@ -1,3 +1,10 @@
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
 // Capacidade total por nível de estádio
 export const capacidadePorNivel: Record<number, number> = {
   1: 25000,
@@ -98,17 +105,15 @@ export function calcularMoralTecnico(pontos: number): number {
   return 5
 }
 
-// Cálculo da moral da torcida baseada no desempenho + ocupação média
+// Cálculo da moral da torcida (inicia em 100%, só cai com desempenho ruim ou pouca ocupação)
 export function calcularMoralTorcida(pontos: number, ocupacaoMedia: number): number {
-  let moral = 50
+  let moral = 100
 
-  if (pontos >= 85) moral += 30
-  else if (pontos >= 70) moral += 20
-  else if (pontos >= 50) moral += 10
-  else if (pontos < 30) moral -= 10
+  if (pontos < 30) moral -= 10
+  else if (pontos < 50) moral -= 5
 
-  if (ocupacaoMedia >= 0.9) moral += 10
-  else if (ocupacaoMedia < 0.5) moral -= 10
+  if (ocupacaoMedia < 0.5) moral -= 10
+  else if (ocupacaoMedia < 0.75) moral -= 5
 
   return Math.max(30, Math.min(100, Math.round(moral)))
 }
@@ -117,16 +122,28 @@ export function calcularMoralTorcida(pontos: number, ocupacaoMedia: number): num
 export function atualizarMoralTorcidaPeloResultado(
   moralAtual: number,
   resultado: 'vitoria' | 'empate' | 'derrota',
-  ocupacao: number // valor entre 0 e 1
+  ocupacao: number
 ): number {
   let novaMoral = moralAtual
 
-  if (resultado === 'vitoria') novaMoral += 10
-  else if (resultado === 'empate') novaMoral += 2
-  else if (resultado === 'derrota') novaMoral -= 5
+  if (resultado === 'derrota') novaMoral -= 10
+  else if (resultado === 'empate') novaMoral -= 3
 
-  if (ocupacao >= 0.9) novaMoral += 5
-  else if (ocupacao < 0.5) novaMoral -= 5
+  if (ocupacao < 0.5) novaMoral -= 5
+  else if (ocupacao < 0.75) novaMoral -= 2
 
   return Math.max(30, Math.min(100, Math.round(novaMoral)))
 }
+
+// Salvar moral da torcida no Supabase
+export async function salvarNovaMoralTorcida(idTime: string, novaMoral: number) {
+  const { error } = await supabase
+    .from('times')
+    .update({ moral_torcida: novaMoral })
+    .eq('id', idTime)
+
+  if (error) {
+    console.error('Erro ao salvar moral da torcida:', error.message)
+  }
+}
+
