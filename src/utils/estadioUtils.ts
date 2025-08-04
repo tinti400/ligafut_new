@@ -37,9 +37,18 @@ export function calcularPublicoSetor(
   desempenho: number,
   posicao: number,
   vitorias: number,
-  derrotas: number
+  derrotas: number,
+  nivelEstadio: number,
+  moralTecnico: number,
+  moralTorcida: number
 ) {
-  const fatorBase = 0.8 + desempenho * 0.007 + (20 - posicao) * 0.005 + vitorias * 0.01 - derrotas * 0.005
+  const fatorBase =
+    0.8 +
+    desempenho * 0.007 +
+    (20 - posicao) * 0.005 +
+    vitorias * 0.01 -
+    derrotas * 0.005
+
   const fatorPreco =
     preco <= 20 ? 1.0 :
     preco <= 50 ? 0.85 :
@@ -47,7 +56,15 @@ export function calcularPublicoSetor(
     preco <= 200 ? 0.4 :
     preco <= 500 ? 0.2 : 0.05
 
-  const publicoEstimado = Math.min(lugares, Math.floor(lugares * fatorBase * fatorPreco))
+  const fatorEstadio = 1 + (nivelEstadio - 1) * 0.15
+
+  const fatorMoral = (moralTecnico / 10 + moralTorcida / 100) / 2
+
+  const publicoEstimado = Math.min(
+    lugares,
+    Math.floor(lugares * fatorBase * fatorPreco * fatorEstadio * fatorMoral)
+  )
+
   const renda = publicoEstimado * preco
   return { publicoEstimado, renda }
 }
@@ -62,5 +79,14 @@ export function mensagemDesempenho(desempenho: number): string {
   if (desempenho >= 70) return '😊 Boa fase! Ótima chance de público elevado.'
   if (desempenho >= 50) return '😐 Fase regular. Público razoável esperado.'
   if (desempenho >= 30) return '⚠️ Fase ruim. Público abaixo do esperado. Considere baixar os preços.'
-  return '🚨 Pessima fase! Muito difícil atrair público. Baixe o preço urgente!'
+  return '🚨 Péssima fase! Muito difícil atrair público. Baixe o preço urgente!'
+}
+
+export function calcularMoralTecnico(pontos: number): number {
+  if (pontos >= 85) return 10
+  if (pontos >= 70) return 9
+  if (pontos >= 55) return 8
+  if (pontos >= 40) return 7
+  if (pontos >= 25) return 6
+  return 5
 }
