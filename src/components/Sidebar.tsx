@@ -1,3 +1,5 @@
+// Atualizado: Sidebar com Painel de Punições
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -193,6 +195,7 @@ export default function Sidebar() {
                 <Link href="/admin/painel_times" className="block hover:text-green-400">📋 Painel Times</Link>
                 <Link href="/admin/times" className="block hover:text-green-400">📝 Admin Times</Link>
                 <Link href="/admin/evento_roubo_admin" className="block hover:text-green-400">🕵️ Evento Roubo (Admin)</Link>
+                <Link href="/admin/punicoes" className="block hover:text-green-400">🚫 Painel de Punições</Link>
                 <Link href="/admin" className="block hover:text-green-400">🗂️ Administração Geral</Link>
               </div>
             )}
