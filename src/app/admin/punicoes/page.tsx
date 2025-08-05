@@ -11,6 +11,7 @@ const supabase = createClient(
 
 export default function PunicoesAdminPage() {
   const [times, setTimes] = useState<any[]>([])
+  const [punicoesAtuais, setPunicoesAtuais] = useState<any[]>([])
   const [idTime, setIdTime] = useState('')
   const [tipo, setTipo] = useState<'desconto_pontos' | 'multa_dinheiro' | 'bloqueio_leilao' | 'bloqueio_mercado'>('desconto_pontos')
   const [valor, setValor] = useState('')
@@ -19,15 +20,17 @@ export default function PunicoesAdminPage() {
 
   useEffect(() => {
     carregarTimes()
+    carregarPunicoes()
   }, [])
 
   async function carregarTimes() {
-    const { data, error } = await supabase
-      .from('times')
-      .select('id, nome')
-      .order('nome', { ascending: true })
-
+    const { data, error } = await supabase.from('times').select('id, nome').order('nome', { ascending: true })
     if (!error && data) setTimes(data)
+  }
+
+  async function carregarPunicoes() {
+    const { data, error } = await supabase.from('punicoes').select('*').eq('ativo', true).order('created_at', { ascending: false })
+    if (!error && data) setPunicoesAtuais(data)
   }
 
   async function aplicarPunicao() {
@@ -47,6 +50,7 @@ export default function PunicoesAdminPage() {
 
     const valorNumerico = valor ? parseInt(valor) : null
 
+    // 1. Inserir punição
     const { error } = await supabase.from('punicoes').insert({
       id_time: idTime,
       nome_time: time.nome,
@@ -58,15 +62,40 @@ export default function PunicoesAdminPage() {
 
     if (error) {
       toast.error('Erro ao aplicar punição.')
-    } else {
-      toast.success('Punição aplicada com sucesso!')
-      setIdTime('')
-      setTipo('desconto_pontos')
-      setValor('')
-      setMotivo('')
+      setCarregando(false)
+      return
     }
 
+    // 2. Executar efeito da punição
+    if (tipo === 'desconto_pontos') {
+      await supabase.rpc('remover_pontos_classificacao', {
+        id_time_param: idTime,
+        pontos_remover: valorNumerico
+      })
+    }
+
+    if (tipo === 'multa_dinheiro') {
+      await supabase.rpc('descontar_dinheiro', {
+        id_time_param: idTime,
+        valor_multa: valorNumerico
+      })
+    }
+
+    toast.success('Punição aplicada com sucesso!')
+    setIdTime('')
+    setTipo('desconto_pontos')
+    setValor('')
+    setMotivo('')
+    carregarPunicoes()
     setCarregando(false)
+  }
+
+  async function removerPunicao(id: string) {
+    const { error } = await supabase.from('punicoes').update({ ativo: false }).eq('id', id)
+    if (!error) {
+      toast.success('Punição removida.')
+      carregarPunicoes()
+    }
   }
 
   return (
@@ -74,7 +103,6 @@ export default function PunicoesAdminPage() {
       <h1 className="text-2xl font-bold mb-6">⚠️ Painel de Punições</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-xl">
-
         <div>
           <label className="block mb-1 font-medium">👥 Time:</label>
           <select
@@ -84,9 +112,7 @@ export default function PunicoesAdminPage() {
           >
             <option value="">Selecione um time</option>
             {times.map((time) => (
-              <option key={time.id} value={time.id}>
-                {time.nome}
-              </option>
+              <option key={time.id} value={time.id}>{time.nome}</option>
             ))}
           </select>
         </div>
@@ -139,6 +165,30 @@ export default function PunicoesAdminPage() {
       >
         {carregando ? 'Aplicando...' : 'Aplicar Punição'}
       </button>
+
+      <div className="mt-10">
+        <h2 className="text-xl font-bold mb-3">📋 Punições Ativas</h2>
+        {punicoesAtuais.length === 0 ? (
+          <p className="text-zinc-400">Nenhuma punição ativa no momento.</p>
+        ) : (
+          <ul className="space-y-3">
+            {punicoesAtuais.map((p) => (
+              <li key={p.id} className="bg-zinc-800 p-4 rounded flex justify-between items-start">
+                <div>
+                  <p className="font-bold">{p.nome_time}</p>
+                  <p className="text-sm text-zinc-400">Tipo: {p.tipo_punicao}</p>
+                  {p.valor && <p className="text-sm text-zinc-400">Valor: {p.valor}</p>}
+                  <p className="text-sm text-zinc-400">Motivo: {p.motivo}</p>
+                </div>
+                <button onClick={() => removerPunicao(p.id)} className="text-red-400 text-sm hover:underline">
+                  Remover
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }
+
