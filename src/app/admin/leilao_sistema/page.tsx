@@ -15,7 +15,7 @@ export default function LeilaoSistemaPage() {
   const [leiloes, setLeiloes] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
   const [saldo, setSaldo] = useState<number | null>(null)
-  const [podeDarLance, setPodeDarLance] = useState(true)
+  const [leilaoTravado, setLeilaoTravado] = useState<Record<string, boolean>>({})
   const [tremores, setTremores] = useState<Record<string, boolean>>({})
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
@@ -51,7 +51,9 @@ export default function LeilaoSistemaPage() {
         }
       })
       setLeiloes(data || [])
-    } else console.error('Erro ao buscar leilões:', error)
+    } else {
+      console.error('Erro ao buscar leilões:', error)
+    }
 
     setCarregando(false)
   }
@@ -67,7 +69,7 @@ export default function LeilaoSistemaPage() {
   }, [])
 
   const darLance = async (leilaoId: string, valorAtual: number, incremento: number, tempoRestante: number) => {
-    if (!id_time || !nome_time || !podeDarLance) return
+    if (!id_time || !nome_time || leilaoTravado[leilaoId]) return
 
     const novoValor = Number(valorAtual) + incremento
     if (saldo !== null && novoValor > saldo) {
@@ -75,7 +77,7 @@ export default function LeilaoSistemaPage() {
       return
     }
 
-    setPodeDarLance(false)
+    setLeilaoTravado((prev) => ({ ...prev, [leilaoId]: true }))
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
 
     try {
@@ -87,15 +89,19 @@ export default function LeilaoSistemaPage() {
         p_estender: tempoRestante < 15
       })
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Erro ao dar lance:', error)
+        throw error
+      }
 
-      setTimeout(() => setPodeDarLance(true), 1000)
       setTimeout(() => router.refresh(), 3000)
     } catch (err: any) {
       alert('Erro ao dar lance: ' + err.message)
-      setPodeDarLance(true)
     } finally {
-      setTimeout(() => setTremores((prev) => ({ ...prev, [leilaoId]: false })), 300)
+      setTimeout(() => {
+        setLeilaoTravado((prev) => ({ ...prev, [leilaoId]: false }))
+        setTremores((prev) => ({ ...prev, [leilaoId]: false }))
+      }, 1000)
     }
   }
 
@@ -145,7 +151,6 @@ export default function LeilaoSistemaPage() {
           let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
           if (tempoRestante < 0) tempoRestante = 0
 
-          const isVencendo = leilao.nome_time_vencedor === nome_time
           const tremorClass = tremores[leilao.id] ? 'animate-pulse scale-105' : ''
           const borderClass = classNames('border-2 rounded-xl', corBorda(leilao.valor_atual))
 
@@ -188,7 +193,7 @@ export default function LeilaoSistemaPage() {
                   const disabled =
                     tempoRestante === 0 ||
                     (saldo !== null && Number(leilao.valor_atual) + incremento > saldo) ||
-                    !podeDarLance
+                    leilaoTravado[leilao.id]
 
                   return (
                     <button
