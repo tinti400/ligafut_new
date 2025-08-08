@@ -1,7 +1,6 @@
 import './globals.css'
 import Sidebar from '../components/Sidebar'
 
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
@@ -12,6 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </main>
         </div>
-
+      </body>
+    </html>
   )
 }
