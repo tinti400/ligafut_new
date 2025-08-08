@@ -36,10 +36,7 @@ export default function LoginPage() {
         .eq('senha', senha)
         .single()
 
-      if (error || !userData) {
-        alert('❌ Usuário ou senha inválidos!')
-        return
-      }
+      if (error || !userData) return alert('❌ Usuário ou senha inválidos!')
 
       const { data: timeData, error: timeError } = await supabase
         .from('times')
@@ -47,28 +44,25 @@ export default function LoginPage() {
         .eq('id', userData.time_id)
         .single()
 
-      if (timeError || !timeData) {
-        alert('❌ Seu time não foi encontrado.')
-        return
-      }
+      if (timeError || !timeData) return alert('❌ Seu time não foi encontrado.')
 
-      // ✅ Salvar dados no localStorage
+      // ✅ Salvar usuário e ID do time no localStorage
       localStorage.setItem('user', JSON.stringify({
         usuario_id: userData.id,
         id_time: timeData.id,
         nome_time: timeData.nome,
         usuario: userData.usuario,
-        nome: userData.usuario.toLowerCase(),
-        email: userData.usuario.toLowerCase(),
+        nome: userData.usuario.toLowerCase(), // necessário p/ admin
+        email: userData.usuario.toLowerCase(), // para hook useAdmin
         isAdmin: userData.administrador === true
       }))
 
-      localStorage.setItem('id_time', timeData.id)
+      localStorage.setItem('id_time', timeData.id) // ✅ ESSENCIAL para carregar elenco
 
       router.push('/')
     } catch (err) {
       console.error('Erro ao fazer login:', err)
-      alert('❌ Erro ao tentar fazer login.')
+      alert('❌ Ocorreu um erro ao tentar fazer login.')
     } finally {
       setLoading(false)
     }
@@ -87,10 +81,7 @@ export default function LoginPage() {
         .eq('senha', senha)
         .single()
 
-      if (error || !userData) {
-        alert('❌ Usuário ou senha inválidos!')
-        return
-      }
+      if (error || !userData) return alert('❌ Usuário ou senha inválidos!')
 
       const { error: updateError } = await supabase
         .from('usuarios')
@@ -100,8 +91,7 @@ export default function LoginPage() {
 
       if (updateError) {
         console.error('Erro ao atualizar senha:', updateError)
-        alert('❌ Erro ao atualizar a senha. Tente novamente.')
-        return
+        return alert('❌ Erro ao atualizar a senha. Tente novamente.')
       }
 
       alert('✅ Senha atualizada com sucesso!')
