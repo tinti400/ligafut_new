@@ -29,9 +29,11 @@ export default function LeilaoSistemaPage() {
       .select('saldo')
       .eq('id', id_time)
       .single()
-    if (!error && data) setSaldo(data.saldo)
-    else {
-      console.error('Erro ao buscar saldo:', error)
+    if (!error && data) {
+      console.log('✅ Saldo carregado:', data.saldo)
+      setSaldo(data.saldo)
+    } else {
+      console.error('❌ Erro ao buscar saldo:', error)
       setSaldo(null)
     }
   }
@@ -50,13 +52,19 @@ export default function LeilaoSistemaPage() {
           audioRef.current?.play()
         }
       })
+      console.log('📦 Leilões carregados:', data)
       setLeiloes(data || [])
-    } else console.error('Erro ao buscar leilões:', error)
+    } else {
+      console.error('❌ Erro ao buscar leilões:', error)
+    }
 
     setCarregando(false)
   }
 
   useEffect(() => {
+    console.log('🔁 useEffect inicial')
+    console.log('🆔 id_time:', id_time)
+    console.log('📛 nome_time:', nome_time)
     buscarLeiloesAtivos()
     buscarSaldo()
     const intervalo = setInterval(() => {
@@ -67,10 +75,19 @@ export default function LeilaoSistemaPage() {
   }, [])
 
   const darLance = async (leilaoId: string, valorAtual: number, incremento: number, tempoRestante: number) => {
-    if (!id_time || !nome_time || !podeDarLance) return
+    console.log('🟢 Clique detectado no botão de lance')
+    console.log({ leilaoId, valorAtual, incremento, tempoRestante, saldo, podeDarLance, id_time, nome_time })
+
+    if (!id_time || !nome_time || !podeDarLance) {
+      console.warn('🚫 Lance bloqueado por falta de dados ou trava')
+      return
+    }
 
     const novoValor = Number(valorAtual) + incremento
+    console.log('💰 Novo valor do lance:', novoValor)
+
     if (saldo !== null && novoValor > saldo) {
+      console.warn('💸 Saldo insuficiente:', saldo)
       alert('❌ Você não tem saldo suficiente.')
       return
     }
@@ -79,6 +96,7 @@ export default function LeilaoSistemaPage() {
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
 
     try {
+      console.log('📡 Enviando RPC para dar lance...')
       const { error } = await supabase.rpc('dar_lance_no_leilao', {
         p_leilao_id: leilaoId,
         p_valor_novo: novoValor,
@@ -87,11 +105,16 @@ export default function LeilaoSistemaPage() {
         p_estender: tempoRestante < 15
       })
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Erro na RPC:', error)
+        throw error
+      }
 
+      console.log('✅ Lance registrado com sucesso!')
       setTimeout(() => setPodeDarLance(true), 1000)
       setTimeout(() => router.refresh(), 3000)
     } catch (err: any) {
+      console.error('❌ Erro ao dar lance:', err.message)
       alert('Erro ao dar lance: ' + err.message)
       setPodeDarLance(true)
     } finally {
@@ -145,7 +168,6 @@ export default function LeilaoSistemaPage() {
           let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
           if (tempoRestante < 0) tempoRestante = 0
 
-          const isVencendo = leilao.nome_time_vencedor === nome_time
           const tremorClass = tremores[leilao.id] ? 'animate-pulse scale-105' : ''
           const borderClass = classNames('border-2 rounded-xl', corBorda(leilao.valor_atual))
 
@@ -193,8 +215,20 @@ export default function LeilaoSistemaPage() {
                   return (
                     <button
                       key={incremento}
-                      onClick={() => darLance(leilao.id, leilao.valor_atual, incremento, tempoRestante)}
+                      onClick={() => {
+                        console.log(`🧪 Clique no botão de +R$${incremento}`)
+                        darLance(leilao.id, leilao.valor_atual, incremento, tempoRestante)
+                      }}
                       disabled={disabled}
+                      title={
+                        tempoRestante === 0
+                          ? '⏱️ Leilão encerrado'
+                          : saldo !== null && Number(leilao.valor_atual) + incremento > saldo
+                          ? '💸 Saldo insuficiente'
+                          : !podeDarLance
+                          ? '⏳ Aguarde para dar novo lance'
+                          : ''
+                      }
                       className="bg-green-600 hover:bg-green-700 text-white py-1 rounded text-xs font-bold transition disabled:opacity-50"
                     >
                       + R$ {(incremento / 1000000).toLocaleString()} mi
