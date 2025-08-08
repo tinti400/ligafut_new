@@ -15,9 +15,5 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </main>
         </div>
 
-        {/* Chat Flutuante Global */}
-        <ChatFlutuante />
-      </body>
-    </html>
-  )
+   )
 }
