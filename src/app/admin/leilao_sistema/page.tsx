@@ -23,7 +23,7 @@ export default function LeilaoSistemaPage() {
   const nome_time = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
   const buscarSaldo = async () => {
-    if (!id_time) return
+    if (!id_time || id_time === 'null') return
     const { data, error } = await supabase
       .from('times')
       .select('saldo')
@@ -78,8 +78,12 @@ export default function LeilaoSistemaPage() {
     console.log('🟢 Clique detectado no botão de lance')
     console.log({ leilaoId, valorAtual, incremento, tempoRestante, saldo, podeDarLance, id_time, nome_time })
 
-    if (!id_time || !nome_time || !podeDarLance) {
-      console.warn('🚫 Lance bloqueado por falta de dados ou trava')
+    if (
+      !id_time || id_time === 'null' ||
+      !nome_time || nome_time === 'null' ||
+      !podeDarLance
+    ) {
+      console.warn('🚫 Lance bloqueado por falta de dados válidos:', { id_time, nome_time, podeDarLance })
       return
     }
 
