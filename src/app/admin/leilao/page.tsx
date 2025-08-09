@@ -12,12 +12,45 @@ const supabase = createClient(
 
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
+// ---------------- helpers ----------------
+const norm = (s?: any) => (typeof s === 'string' ? s.trim() : s ?? '')
+
+function pickStr(row: any, keys: string[]): string {
+  // tenta exatamente essas chaves
+  for (const k of keys) {
+    if (row?.[k] != null && String(row[k]).trim() !== '') return String(row[k]).trim()
+  }
+  // tolera variações com espaços / caixa
+  for (const k in row) {
+    if (
+      k &&
+      k.replace(/\s+/g, '').toLowerCase() === keys[0].replace(/\s+/g, '').toLowerCase() &&
+      String(row[k]).trim() !== ''
+    ) {
+      return String(row[k]).trim()
+    }
+  }
+  return ''
+}
+
+function normalizeUrl(u: string): string {
+  if (!u) return ''
+  let url = u.replace(/^"(.*)"$/, '$1').trim() // remove aspas ao redor, se tiver
+  if (url.startsWith('//')) url = 'https:' + url
+  if (url.startsWith('http://')) url = 'https://' + url.slice(7)
+  if (!/^https?:\/\//i.test(url)) return '' // garante que é http(s)
+  return url
+}
+
+// -----------------------------------------
+
 export default function AdminLeilaoPage() {
   const router = useRouter()
+
   const [jogador, setJogador] = useState('')
   const [posicao, setPosicao] = useState('CA')
   const [overall, setOverall] = useState(80)
-  const [valorInicial, setValorInicial] = useState(35000000)
+  const [valorInicial, setValorInicial] = useState(35_000_000)
   const [duracaoMin, setDuracaoMin] = useState(1)
 
   const [leiloesAtivos, setLeiloesAtivos] = useState<any[]>([])
@@ -83,12 +116,13 @@ export default function AdminLeilaoPage() {
     const agora = new Date()
     const fim = new Date(agora.getTime() + duracaoMin * 60000)
 
-    const { error } = await supabase.from('leiloes_sistema')
+    const { error } = await supabase
+      .from('leiloes_sistema')
       .update({
         status: 'ativo',
         criado_em: agora,
         fim,
-        valor_atual: 35000000,
+        valor_atual: 35_000_000,
         id_time_vencedor: null,
         nome_time_vencedor: null
       })
@@ -102,6 +136,7 @@ export default function AdminLeilaoPage() {
     }
   }
 
+  // ---------- IMPORTAÇÃO DO EXCEL (ATUALIZADO) ----------
   const handleImportar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -111,40 +146,85 @@ export default function AdminLeilaoPage() {
 
     const reader = new FileReader()
     reader.onload = async (event) => {
-      const data = new Uint8Array(event.target?.result as ArrayBuffer)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const json = XLSX.utils.sheet_to_json(sheet)
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
-      for (const item of json as any[]) {
-        const { nome, posicao, overall, origem, nacionalidade, imagem_url, link_sofifa } = item
-        const criado_em = new Date()
-        const fim = new Date(criado_em.getTime() + 1 * 60000)
+        // defval: preenche vazio com '' para evitar undefined
+        const json = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as any[]
 
-        const { error } = await supabase.from('leiloes_sistema').insert({
-          nome,
-          posicao,
-          overall: Number(overall),
-          valor_atual: 35000000,
-          origem: origem || '',
-          nacionalidade: nacionalidade || '',
-          imagem_url: imagem_url || '',
-          link_sofifa: link_sofifa || '',
-          criado_em,
-          fim,
-          status: 'fila'
+        const rows = json.map((item) => {
+          const nome = pickStr(item, ['nome'])
+          const posicao = pickStr(item, ['posicao'])
+          const overall = Number(item?.overall || 0) || 80
+          const origem = pickStr(item, ['time_origem', 'origem'])
+          const nacionalidade = pickStr(item, ['nacionalidade'])
+
+          // Lê exatamente a URL do Excel (aceita Imagem_url / Imagem URL / imagemURL etc.)
+          const imagemRaw = pickStr(item, [
+            'imagem_url',
+            'Imagem_url',
+            'Imagem URL',
+            'imagem URL',
+            'imagemURL'
+          ])
+          const linkRaw = pickStr(item, ['link_sofifa', 'Link_sofifa', 'link Sofifa', 'link'])
+
+          const imagem_url = normalizeUrl(imagemRaw)
+          const link_sofifa = normalizeUrl(linkRaw)
+
+          const criado_em = new Date()
+          const fim = new Date(criado_em.getTime() + 1 * 60000) // placeholder enquanto na fila
+
+          return {
+            nome,
+            posicao,
+            overall,
+            valor_atual: 35_000_000,
+            origem,
+            nacionalidade,
+            imagem_url,   // <- vai pro banco como veio do Excel (normalizado)
+            link_sofifa,
+            criado_em,
+            fim,
+            status: 'fila',
+            id_time_vencedor: null,
+            nome_time_vencedor: null
+          }
         })
 
-        if (error) console.error('Erro ao inserir jogador:', error.message)
-      }
+        // filtra linhas sem nome/posição
+        const validos = rows.filter((r) => r.nome && r.posicao)
 
-      setMsg('✅ Jogadores importados com sucesso!')
-      buscarFila()
-      setImportando(false)
+        setMsg(`Importando ${validos.length} registros...`)
+
+        // insert em lote pra performance
+        const chunkSize = 500
+        for (let i = 0; i < validos.length; i += chunkSize) {
+          const chunk = validos.slice(i, i + chunkSize)
+          const { error } = await supabase.from('leiloes_sistema').insert(chunk)
+          if (error) {
+            console.error('Erro ao inserir chunk:', error.message)
+            setMsg(`Erro ao inserir (chunk ${i / chunkSize + 1}): ${error.message}`)
+          } else {
+            setMsg(`Importados ${Math.min(i + chunk.length, validos.length)} / ${validos.length}`)
+          }
+        }
+
+        setMsg('✅ Jogadores importados com sucesso!')
+        await buscarFila()
+      } catch (err: any) {
+        console.error(err)
+        setMsg('❌ Falha ao importar: ' + (err?.message || 'erro desconhecido'))
+      } finally {
+        setImportando(false)
+      }
     }
 
     reader.readAsArrayBuffer(file)
   }
+  // ------------------------------------------------------
 
   const formatarTempo = (fim: string) => {
     const tempoFinal = new Date(fim).getTime()
@@ -188,16 +268,49 @@ export default function AdminLeilaoPage() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-          <input type="text" placeholder="Nome" value={jogador} onChange={(e) => setJogador(e.target.value)} className="p-2 border rounded bg-gray-700 text-white" />
-          <select value={posicao} onChange={(e) => setPosicao(e.target.value)} className="p-2 border rounded bg-gray-700 text-white">
-            {POSICOES.map(p => <option key={p}>{p}</option>)}
+          <input
+            type="text"
+            placeholder="Nome"
+            value={jogador}
+            onChange={(e) => setJogador(e.target.value)}
+            className="p-2 border rounded bg-gray-700 text-white"
+          />
+          <select
+            value={posicao}
+            onChange={(e) => setPosicao(e.target.value)}
+            className="p-2 border rounded bg-gray-700 text-white"
+          >
+            {POSICOES.map((p) => (
+              <option key={p}>{p}</option>
+            ))}
           </select>
-          <input type="number" placeholder="Overall" value={overall} onChange={(e) => setOverall(Number(e.target.value))} className="p-2 border rounded bg-gray-700 text-white" />
-          <input type="number" placeholder="Valor (R$)" value={valorInicial} onChange={(e) => setValorInicial(Number(e.target.value))} className="p-2 border rounded bg-gray-700 text-white" />
-          <input type="number" placeholder="Duração (min)" value={duracaoMin} onChange={(e) => setDuracaoMin(Number(e.target.value))} className="p-2 border rounded bg-gray-700 text-white" />
+          <input
+            type="number"
+            placeholder="Overall"
+            value={overall}
+            onChange={(e) => setOverall(Number(e.target.value))}
+            className="p-2 border rounded bg-gray-700 text-white"
+          />
+          <input
+            type="number"
+            placeholder="Valor (R$)"
+            value={valorInicial}
+            onChange={(e) => setValorInicial(Number(e.target.value))}
+            className="p-2 border rounded bg-gray-700 text-white"
+          />
+          <input
+            type="number"
+            placeholder="Duração (min)"
+            value={duracaoMin}
+            onChange={(e) => setDuracaoMin(Number(e.target.value))}
+            className="p-2 border rounded bg-gray-700 text-white"
+          />
         </div>
 
-        <button onClick={criarLeilaoManual} className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded mb-6">
+        <button
+          onClick={criarLeilaoManual}
+          className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded mb-6"
+        >
           🚀 Criar Leilão Manual
         </button>
 
@@ -206,8 +319,19 @@ export default function AdminLeilaoPage() {
           <p className="text-sm text-gray-400 italic">Nenhum jogador na fila.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {fila.map(jog => (
+            {fila.map((jog) => (
               <div key={jog.id} className="border rounded p-4 shadow bg-gray-700">
+                {/* mini preview da imagem, se existir */}
+                {jog.imagem_url && (
+                  <img
+                    src={jog.imagem_url}
+                    alt={jog.nome}
+                    className="w-full h-40 object-cover rounded mb-2 border"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                  />
+                )}
                 <p><strong>{jog.nome}</strong> ({jog.posicao})</p>
                 <p>Overall: {jog.overall}</p>
                 <p>💰 R$ {Number(jog.valor_atual).toLocaleString()}</p>
