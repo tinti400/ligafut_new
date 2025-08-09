@@ -18,11 +18,11 @@ async function registrarNoBID({
   id_time2 = null,
   valor = null,
 }: {
-  tipo_evento: string,
-  descricao: string,
-  id_time1: string,
-  id_time2?: string | null,
-  valor?: number | null,
+  tipo_evento: string
+  descricao: string
+  id_time1: string
+  id_time2?: string | null
+  valor?: number | null
 }) {
   const { error } = await supabase.from('bid').insert({
     tipo_evento,
@@ -32,64 +32,91 @@ async function registrarNoBID({
     valor,
     data_evento: new Date(),
   })
-
-  if (error) {
-    console.error('Erro ao registrar no BID:', error.message)
-  }
+  if (error) console.error('Erro ao registrar no BID:', error.message)
 }
 
 export default function LeiloesFinalizadosPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
+  const [motivoBloqueio, setMotivoBloqueio] = useState<string | null>(null)
+
   const [leiloes, setLeiloes] = useState<any[]>([])
   const [carregando, setCarregando] = useState(true)
   const [filtroPosicao, setFiltroPosicao] = useState('')
   const [filtroTime, setFiltroTime] = useState('')
 
+  // ---------------- Verificação de admin ----------------
   useEffect(() => {
     const verificarAdmin = async () => {
-      const emailUsuario = localStorage.getItem('email')?.toLowerCase() || ''
-      if (!emailUsuario) {
+      try {
+        setCarregando(true)
+        setMotivoBloqueio(null)
+
+        // 1) pega email via Auth; fallback para localStorage
+        const { data: authData } = await supabase.auth.getUser()
+        const emailAuth = authData?.user?.email || null
+        const emailLS = (localStorage.getItem('email') || '').trim() || null
+
+        const emailUsuario = (emailAuth || emailLS)?.toLowerCase().trim() || null
+        if (!emailUsuario) {
+          setIsAdmin(false)
+          setMotivoBloqueio('Sem email para validar (não autenticado).')
+          setCarregando(false)
+          return
+        }
+
+        // 2) consulta admins sem quebrar quando não encontra (case-insensitive)
+        const { data, error, status } = await supabase
+          .from('admins')
+          .select('email')
+          .ilike('email', emailUsuario) // match exato ignorando caixa
+          .maybeSingle()
+
+        if (error) {
+          // 401/403 → geralmente RLS/permissão
+          setIsAdmin(false)
+          setMotivoBloqueio(
+            `Erro consultando admins (status ${status}): ${error.message}. Verifique RLS/policies.`
+          )
+          setCarregando(false)
+          return
+        }
+
+        setIsAdmin(!!data)
+        setCarregando(false)
+      } catch (e: any) {
+        console.error('Falha geral na verificação de admin:', e)
         setIsAdmin(false)
-        return
+        setMotivoBloqueio(e?.message || 'Falha ao verificar admin.')
+        setCarregando(false)
       }
-
-      const { data, error } = await supabase
-        .from('admins')
-        .select('email')
-        .eq('email', emailUsuario)
-        .single()
-
-      if (error || !data) {
-        setIsAdmin(false)
-        return
-      }
-
-      setIsAdmin(true)
     }
 
     verificarAdmin()
   }, [])
 
+  // ---------------- Dados ----------------
   useEffect(() => {
-    if (isAdmin) {
-      buscarLeiloesFinalizados()
-    } else {
-      setCarregando(false)
-    }
+    if (isAdmin) buscarLeiloesFinalizados()
   }, [isAdmin])
 
   const buscarLeiloesFinalizados = async () => {
-    setCarregando(true)
-    const { data, error } = await supabase
-      .from('leiloes_sistema')
-      .select('*')
-      .eq('status', 'leiloado')
-      .order('fim', { ascending: false })
+    try {
+      setCarregando(true)
+      const { data, error } = await supabase
+        .from('leiloes_sistema')
+        .select('*')
+        .eq('status', 'leiloado')
+        .order('fim', { ascending: false })
 
-    if (!error) setLeiloes(data || [])
-    else console.error('Erro ao buscar leilões finalizados:', error)
-
-    setCarregando(false)
+      if (error) {
+        console.error('Erro ao buscar leilões finalizados:', error)
+        setLeiloes([])
+      } else {
+        setLeiloes(data || [])
+      }
+    } finally {
+      setCarregando(false)
+    }
   }
 
   const enviarParaElenco = async (leilao: any) => {
@@ -112,7 +139,6 @@ export default function LeiloesFinalizadosPage() {
       nacionalidade: leilao.nacionalidade || '',
       jogos: 0,
     })
-
     if (erroInsert) {
       console.error('❌ Erro ao enviar para elenco:', erroInsert)
       alert(`❌ Erro ao enviar para elenco:\n${erroInsert.message}`)
@@ -124,7 +150,6 @@ export default function LeiloesFinalizadosPage() {
       .select('saldo')
       .eq('id', leilao.id_time_vencedor)
       .single()
-
     if (errorBusca || !timeData) {
       console.error('❌ Erro ao buscar saldo:', errorBusca)
       alert('Erro ao buscar saldo do time.')
@@ -132,11 +157,7 @@ export default function LeiloesFinalizadosPage() {
     }
 
     const novoSaldo = timeData.saldo - leilao.valor_atual
-
-    await supabase
-      .from('times')
-      .update({ saldo: novoSaldo })
-      .eq('id', leilao.id_time_vencedor)
+    await supabase.from('times').update({ saldo: novoSaldo }).eq('id', leilao.id_time_vencedor)
 
     await registrarMovimentacao({
       id_time: leilao.id_time_vencedor,
@@ -152,10 +173,7 @@ export default function LeiloesFinalizadosPage() {
       valor: leilao.valor_atual,
     })
 
-    await supabase
-      .from('leiloes_sistema')
-      .update({ status: 'concluido' })
-      .eq('id', leilao.id)
+    await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
 
     alert('✅ Jogador enviado ao elenco e saldo debitado!')
     location.reload()
@@ -176,14 +194,18 @@ export default function LeiloesFinalizadosPage() {
     return matchPosicao && matchTime
   })
 
-  if (isAdmin === null) {
+  // ---------------- UI ----------------
+  if (isAdmin === null || carregando) {
     return <p className="text-center mt-10 text-white">Verificando permissão...</p>
   }
 
   if (isAdmin === false) {
     return (
-      <main className="min-h-screen bg-gray-900 flex items-center justify-center text-red-500 text-xl font-semibold">
-        🚫 Você não tem permissão para acessar esta página.
+      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center gap-2 text-red-500 text-center">
+        <div className="text-xl font-semibold">🚫 Você não tem permissão para acessar esta página.</div>
+        {motivoBloqueio && (
+          <div className="text-sm text-red-300 max-w-xl px-4">Detalhe: {motivoBloqueio}</div>
+        )}
       </main>
     )
   }
@@ -201,7 +223,9 @@ export default function LeiloesFinalizadosPage() {
           >
             <option value="">📌 Todas as Posições</option>
             {POSICOES.map((pos) => (
-              <option key={pos} value={pos}>{pos}</option>
+              <option key={pos} value={pos}>
+                {pos}
+              </option>
             ))}
           </select>
           <input
@@ -212,21 +236,25 @@ export default function LeiloesFinalizadosPage() {
             className="p-2 border rounded text-black"
           />
           <button
-            onClick={() => { setFiltroPosicao(''); setFiltroTime('') }}
+            onClick={() => {
+              setFiltroPosicao('')
+              setFiltroTime('')
+            }}
             className="bg-gray-300 hover:bg-gray-400 text-black py-2 px-4 rounded"
           >
             ❌ Limpar Filtros
           </button>
         </div>
 
-        {carregando ? (
-          <p className="text-center text-gray-400">⏳ Carregando...</p>
-        ) : leiloesFiltrados.length === 0 ? (
+        {leiloesFiltrados.length === 0 ? (
           <p className="text-center text-gray-400 italic">Nenhum leilão encontrado com os filtros.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {leiloesFiltrados.map((leilao) => (
-              <div key={leilao.id} className="border rounded p-4 shadow bg-gray-700 hover:bg-gray-600 transition">
+              <div
+                key={leilao.id}
+                className="border rounded p-4 shadow bg-gray-700 hover:bg-gray-600 transition"
+              >
                 {leilao.imagem_url && (
                   <img
                     src={leilao.imagem_url}
@@ -234,15 +262,23 @@ export default function LeiloesFinalizadosPage() {
                     className="w-full h-48 object-cover rounded mb-2 border"
                   />
                 )}
-                <p className="font-bold text-lg">{leilao.nome} ({leilao.posicao})</p>
+                <p className="font-bold text-lg">
+                  {leilao.nome} ({leilao.posicao})
+                </p>
                 <p className="text-gray-300">⭐ Overall: {leilao.overall}</p>
                 <p className="text-gray-300">🌍 {leilao.nacionalidade}</p>
                 <p className="text-yellow-400">💰 R$ {Number(leilao.valor_atual).toLocaleString()}</p>
                 <p className="text-gray-300">🏆 {leilao.nome_time_vencedor || '— Sem Vencedor'}</p>
-                <p className="text-xs text-gray-400 mt-1">🕒 {new Date(leilao.fim).toLocaleString('pt-BR')}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  🕒 {new Date(leilao.fim).toLocaleString('pt-BR')}
+                </p>
 
                 {leilao.link_sofifa && (
-                  <a href={leilao.link_sofifa} target="_blank" className="text-blue-400 text-sm mt-2 inline-block hover:underline">
+                  <a
+                    href={leilao.link_sofifa}
+                    target="_blank"
+                    className="text-blue-400 text-sm mt-2 inline-block hover:underline"
+                  >
                     🔗 Ver no Sofifa
                   </a>
                 )}
