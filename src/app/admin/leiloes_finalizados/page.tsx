@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 
@@ -44,55 +44,81 @@ export default function LeiloesFinalizadosPage() {
   const [filtroPosicao, setFiltroPosicao] = useState('')
   const [filtroTime, setFiltroTime] = useState('')
 
+  // email manual (quando não foi possível detectar)
+  const [emailManual, setEmailManual] = useState('')
+
+  const normaliza = (s?: string | null) => (s || '').trim().toLowerCase()
+
   // ---------------- Verificação de admin ----------------
   useEffect(() => {
-    const verificarAdmin = async () => {
-      try {
-        setCarregando(true)
-        setMotivoBloqueio(null)
-
-        // 1) pega email via Auth; fallback para localStorage
-        const { data: authData } = await supabase.auth.getUser()
-        const emailAuth = authData?.user?.email || null
-        const emailLS = (localStorage.getItem('email') || '').trim() || null
-
-        const emailUsuario = (emailAuth || emailLS)?.toLowerCase().trim() || null
-        if (!emailUsuario) {
-          setIsAdmin(false)
-          setMotivoBloqueio('Sem email para validar (não autenticado).')
-          setCarregando(false)
-          return
-        }
-
-        // 2) consulta admins sem quebrar quando não encontra (case-insensitive)
-        const { data, error, status } = await supabase
-          .from('admins')
-          .select('email')
-          .ilike('email', emailUsuario) // match exato ignorando caixa
-          .maybeSingle()
-
-        if (error) {
-          // 401/403 → geralmente RLS/permissão
-          setIsAdmin(false)
-          setMotivoBloqueio(
-            `Erro consultando admins (status ${status}): ${error.message}. Verifique RLS/policies.`
-          )
-          setCarregando(false)
-          return
-        }
-
-        setIsAdmin(!!data)
-        setCarregando(false)
-      } catch (e: any) {
-        console.error('Falha geral na verificação de admin:', e)
-        setIsAdmin(false)
-        setMotivoBloqueio(e?.message || 'Falha ao verificar admin.')
-        setCarregando(false)
-      }
-    }
-
     verificarAdmin()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function verificarAdmin() {
+    try {
+      setCarregando(true)
+      setMotivoBloqueio(null)
+
+      // 1) Supabase Auth
+      const { data: authData } = await supabase.auth.getUser()
+      const emailAuth = authData?.user?.email || null
+
+      // 2) LocalStorage (várias chaves)
+      const emailLS = localStorage.getItem('email')
+      const emailLS2 = localStorage.getItem('Email')
+
+      // 3) Objeto user/usuario salvo
+      let emailObj = ''
+      try {
+        const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
+        if (raw) {
+          const obj = JSON.parse(raw)
+          emailObj = obj?.email || obj?.Email || obj?.e_mail || ''
+        }
+      } catch {}
+
+      // 4) Query param ?email=
+      const emailURL = new URLSearchParams(window.location.search).get('email')
+
+      const emailUsuario = normaliza(emailAuth) || normaliza(emailLS) || normaliza(emailLS2) || normaliza(emailObj) || normaliza(emailURL)
+
+      if (!emailUsuario) {
+        setIsAdmin(false)
+        setMotivoBloqueio('Sem e-mail para validar. Informe abaixo e confirmaremos na lista de admins.')
+        setCarregando(false)
+        return
+      }
+
+      // cache
+      localStorage.setItem('email', emailUsuario)
+
+      // 5) consulta admins (case-insensitive, sem erro quando não encontra)
+      const { data, error, status } = await supabase
+        .from('admins')
+        .select('email')
+        .ilike('email', emailUsuario) // match exato ignorando caixa
+        .maybeSingle()
+
+      if (error) {
+        setIsAdmin(false)
+        setMotivoBloqueio(`Erro consultando admins (status ${status}): ${error.message}`)
+        setCarregando(false)
+        return
+      }
+
+      setIsAdmin(!!data)
+      if (!data) {
+        setMotivoBloqueio(`E-mail "${emailUsuario}" não consta na tabela admins.`)
+      }
+    } catch (e: any) {
+      console.error('Falha geral na verificação de admin:', e)
+      setIsAdmin(false)
+      setMotivoBloqueio(e?.message || 'Falha ao verificar admin.')
+    } finally {
+      setCarregando(false)
+    }
+  }
 
   // ---------------- Dados ----------------
   useEffect(() => {
@@ -186,13 +212,15 @@ export default function LeiloesFinalizadosPage() {
     alert('✅ Leilão excluído com sucesso!')
   }
 
-  const leiloesFiltrados = leiloes.filter((leilao) => {
-    const matchPosicao = filtroPosicao ? leilao.posicao === filtroPosicao : true
-    const matchTime = filtroTime
-      ? leilao.nome_time_vencedor?.toLowerCase().includes(filtroTime.toLowerCase())
-      : true
-    return matchPosicao && matchTime
-  })
+  const leiloesFiltrados = useMemo(() => {
+    return leiloes.filter((leilao) => {
+      const matchPosicao = filtroPosicao ? leilao.posicao === filtroPosicao : true
+      const matchTime = filtroTime
+        ? (leilao.nome_time_vencedor || '').toLowerCase().includes(filtroTime.toLowerCase())
+        : true
+      return matchPosicao && matchTime
+    })
+  }, [leiloes, filtroPosicao, filtroTime])
 
   // ---------------- UI ----------------
   if (isAdmin === null || carregando) {
@@ -201,11 +229,33 @@ export default function LeiloesFinalizadosPage() {
 
   if (isAdmin === false) {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center gap-2 text-red-500 text-center">
-        <div className="text-xl font-semibold">🚫 Você não tem permissão para acessar esta página.</div>
-        {motivoBloqueio && (
-          <div className="text-sm text-red-300 max-w-xl px-4">Detalhe: {motivoBloqueio}</div>
-        )}
+      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center gap-4 text-center px-4">
+        <div className="text-red-500 text-xl font-semibold">
+          🚫 Você não tem permissão para acessar esta página.
+        </div>
+        {motivoBloqueio && <div className="text-sm text-red-300 max-w-xl">Detalhe: {motivoBloqueio}</div>}
+        <div className="bg-gray-800 rounded-xl p-4 text-white w-full max-w-md">
+          <div className="text-sm mb-2">Informe seu e-mail para validar com a lista de admins:</div>
+          <div className="flex gap-2">
+            <input
+              className="flex-1 p-2 rounded text-black"
+              placeholder="seuemail@dominio.com"
+              value={emailManual}
+              onChange={(e) => setEmailManual(e.target.value)}
+            />
+            <button
+              onClick={async () => {
+                const e = emailManual.trim().toLowerCase()
+                if (!e) return
+                localStorage.setItem('email', e)
+                await verificarAdmin()
+              }}
+              className="px-3 py-2 rounded bg-green-600 hover:bg-green-700 text-white"
+            >
+              Validar
+            </button>
+          </div>
+        </div>
       </main>
     )
   }
@@ -251,10 +301,7 @@ export default function LeiloesFinalizadosPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {leiloesFiltrados.map((leilao) => (
-              <div
-                key={leilao.id}
-                className="border rounded p-4 shadow bg-gray-700 hover:bg-gray-600 transition"
-              >
+              <div key={leilao.id} className="border rounded p-4 shadow bg-gray-700 hover:bg-gray-600 transition">
                 {leilao.imagem_url && (
                   <img
                     src={leilao.imagem_url}
@@ -307,3 +354,4 @@ export default function LeiloesFinalizadosPage() {
     </main>
   )
 }
+
