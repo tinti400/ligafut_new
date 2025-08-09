@@ -51,11 +51,48 @@ export default function LeilaoSistemaPage() {
   const isUuid = (s: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
-  function sane(str: any) {
+  const sane = (str: any) => {
     if (typeof str !== 'string') return null
     const s = str.trim()
     if (!s || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return null
     return s
+  }
+
+  // normalizador de URL (https, sem aspas, ignora lixo)
+  const normalizeUrl = (u?: string | null) => {
+    if (!u) return ''
+    let url = String(u).trim().replace(/^"(.*)"$/, '$1')
+    if (url.startsWith('//')) url = 'https:' + url
+    if (url.startsWith('http://')) url = 'https://' + url.slice(7)
+    if (!/^https?:\/\//i.test(url)) return ''
+    return url
+  }
+
+  // pega imagem do registro, tolerando variações de cabeçalho do Excel
+  const pickImagemUrl = (row: any) => {
+    const keys = [
+      'imagem_url',
+      'Imagem_url',
+      'Imagem URL',
+      'imagem URL',
+      'imagemURL',
+      'url_imagem',
+      'URL_Imagem',
+    ]
+    for (const k of keys) {
+      if (row?.[k]) {
+        const fixed = normalizeUrl(row[k])
+        if (fixed) return fixed
+      }
+    }
+    // fallback: se a coluna veio com espaços estranhos
+    for (const k in row || {}) {
+      if (k && k.replace(/\s+/g, '').toLowerCase() === 'imagem_url') {
+        const fixed = normalizeUrl(row[k])
+        if (fixed) return fixed
+      }
+    }
+    return row?.imagem_url ? normalizeUrl(row.imagem_url) : ''
   }
 
   function carregarIdentidadeLocal() {
@@ -103,7 +140,7 @@ export default function LeilaoSistemaPage() {
         setIdTime(data.id)
       }
     } catch {
-      // silencioso
+      /* ignore */
     }
   }
 
@@ -123,12 +160,18 @@ export default function LeilaoSistemaPage() {
       .limit(3)
 
     if (!error && data) {
-      data.forEach((leilao: any) => {
+      // normaliza imagem_url para garantir que a URL do Excel funcione
+      const arr = data.map((l: any) => ({
+        ...l,
+        imagem_url: pickImagemUrl(l) || null,
+      }))
+
+      arr.forEach((leilao: any) => {
         if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
           audioRef.current?.play().catch(() => {})
         }
       })
-      setLeiloes(data as Leilao[])
+      setLeiloes(arr as Leilao[])
     }
   }
 
@@ -137,7 +180,6 @@ export default function LeilaoSistemaPage() {
   }, [])
 
   useEffect(() => {
-    // sempre que carregar/alterar nome/id, tente corrigir o id_time
     garantirIdTimeValido()
   }, [nomeTime, idTime])
 
@@ -186,7 +228,6 @@ export default function LeilaoSistemaPage() {
   ) {
     setErroTela(null)
 
-    // garanta que tem UUID válido
     await garantirIdTimeValido()
     if (travadoPorIdentidade) {
       setErroTela(travadoPorIdentidade)
@@ -206,7 +247,6 @@ export default function LeilaoSistemaPage() {
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
 
     try {
-      // valida estado mais recente
       const { data: atual, error: e1 } = await supabase
         .from('leiloes_sistema')
         .select('status, valor_atual, fim')
@@ -217,11 +257,10 @@ export default function LeilaoSistemaPage() {
       const fimMs = new Date(atual.fim).getTime()
       if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
 
-      // RPC
-      const { data: retorno, error } = await supabase.rpc('dar_lance_no_leilao', {
+      const { error } = await supabase.rpc('dar_lance_no_leilao', {
         p_leilao_id: leilaoId,
         p_valor_novo: novoValor,
-        p_id_time_vencedor: idTime,     // agora garantidamente UUID (string)
+        p_id_time_vencedor: idTime,
         p_nome_time_vencedor: nomeTime,
         p_estender: tempoRestante < 15
       })
@@ -230,7 +269,6 @@ export default function LeilaoSistemaPage() {
         throw new Error(error.message || 'Falha ao registrar lance.')
       }
 
-      // read-after-write (sem router.refresh)
       await buscarLeiloesAtivos()
       await buscarSaldo()
     } catch (err: any) {
@@ -305,6 +343,12 @@ export default function LeilaoSistemaPage() {
                     src={leilao.imagem_url}
                     alt={leilao.nome}
                     className="w-24 h-24 object-cover rounded-full mx-auto mb-2 border-2 border-green-400"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    onError={(e) => {
+                      ;(e.currentTarget as HTMLImageElement).style.display = 'none'
+                      console.warn('Imagem falhou:', leilao.imagem_url)
+                    }}
                   />
                 )}
 
