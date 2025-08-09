@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import toast from 'react-hot-toast'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -141,10 +142,7 @@ export default function NegociacoesPage() {
     // Confirmação
     if (!window.confirm('Deseja realmente enviar esta proposta?')) return
 
-    // Snapshot do alvo
-    const jogador_valor_atual = Number(jogadorAlvo.valor || 0)
-
-    // Monta snapshot dos oferecidos (somente meus e com >=3 jogos)
+    // Snapshot dos oferecidos (somente meus e com >=3 jogos)
     let oferecidosDetalhes: any[] = []
     if (idsOferecidos.length) {
       const idsValidos = elencoOfertavel
@@ -245,11 +243,16 @@ export default function NegociacoesPage() {
           details: insertErr.details,
           hint: insertErr.hint,
         })
-        alert(`Erro ao enviar a proposta:\n${insertErr.code || ''} ${insertErr.message || ''}`)
+        toast.error(`Erro ao enviar a proposta: ${insertErr.message}`)
         return
       }
 
-      // OK
+      // ✅ Toast de sucesso com o valor
+      toast.success(
+        `💰 Proposta de valor R$ ${Number(payload.valor_oferecido).toLocaleString('pt-BR')} enviada com sucesso!`
+      )
+
+      // Feedback visual opcional já existente
       setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
       setTimeout(() => {
         setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: false }))
@@ -391,7 +394,7 @@ export default function NegociacoesPage() {
                               return j?.podeOferecer
                             })
                             .map((opt) => opt.value)
-                          setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: selected }))
+                          setJogadoresOferecidos((prev) => ({ ...prev, [jogadorAlvo.id]: selected }))
                         }}
                       >
                         {elencoOfertavel.map((j) => (
@@ -427,4 +430,5 @@ export default function NegociacoesPage() {
     </main>
   )
 }
+
 
