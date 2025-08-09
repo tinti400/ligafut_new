@@ -394,7 +394,8 @@ export default function NegociacoesPage() {
                               return j?.podeOferecer
                             })
                             .map((opt) => opt.value)
-                          setJogadoresOferecidos((prev) => ({ ...prev, [jogadorAlvo.id]: selected }))
+                          // 👇 correção: usar o jogador do escopo do map
+                          setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: selected }))
                         }}
                       >
                         {elencoOfertavel.map((j) => (
