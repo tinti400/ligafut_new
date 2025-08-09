@@ -48,6 +48,9 @@ export default function LeilaoSistemaPage() {
   const intervaloRef = useRef<NodeJS.Timeout | null>(null)
 
   // -------- utils ----------
+  const isUuid = (s: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+
   function sane(str: any) {
     if (typeof str !== 'string') return null
     const s = str.trim()
@@ -85,8 +88,27 @@ export default function LeilaoSistemaPage() {
     }
   }
 
+  // Se id_time não for UUID, busca pelo nome do time e corrige no localStorage
+  async function garantirIdTimeValido() {
+    try {
+      if (idTime && isUuid(idTime)) return
+      if (!nomeTime) return
+      const { data, error } = await supabase
+        .from('times')
+        .select('id')
+        .eq('nome', nomeTime)
+        .single()
+      if (!error && data?.id && isUuid(data.id)) {
+        localStorage.setItem('id_time', data.id)
+        setIdTime(data.id)
+      }
+    } catch {
+      // silencioso
+    }
+  }
+
   const buscarSaldo = async () => {
-    if (!idTime) return
+    if (!idTime || !isUuid(idTime)) return
     const { data, error } = await supabase.from('times').select('saldo').eq('id', idTime).single()
     if (!error && data) setSaldo(data.saldo)
     else setSaldo(null)
@@ -113,6 +135,11 @@ export default function LeilaoSistemaPage() {
   useEffect(() => {
     carregarIdentidadeLocal()
   }, [])
+
+  useEffect(() => {
+    // sempre que carregar/alterar nome/id, tente corrigir o id_time
+    garantirIdTimeValido()
+  }, [nomeTime, idTime])
 
   useEffect(() => {
     ;(async () => {
@@ -146,7 +173,8 @@ export default function LeilaoSistemaPage() {
   }
 
   const travadoPorIdentidade = useMemo(() => {
-    if (!idTime || !nomeTime) return 'Identificação do time não encontrada. Faça login novamente.'
+    if (!idTime || !isUuid(idTime) || !nomeTime)
+      return 'Identificação do time inválida. Faça login novamente.'
     return null
   }, [idTime, nomeTime])
 
@@ -158,6 +186,8 @@ export default function LeilaoSistemaPage() {
   ) {
     setErroTela(null)
 
+    // garanta que tem UUID válido
+    await garantirIdTimeValido()
     if (travadoPorIdentidade) {
       setErroTela(travadoPorIdentidade)
       return
@@ -191,11 +221,14 @@ export default function LeilaoSistemaPage() {
       const { data: retorno, error } = await supabase.rpc('dar_lance_no_leilao', {
         p_leilao_id: leilaoId,
         p_valor_novo: novoValor,
-        p_id_time_vencedor: idTime,
+        p_id_time_vencedor: idTime,     // agora garantidamente UUID (string)
         p_nome_time_vencedor: nomeTime,
         p_estender: tempoRestante < 15
       })
-      if (error) throw new Error(error.message || 'Falha ao registrar lance.')
+      if (error) {
+        console.error('RPC error:', error)
+        throw new Error(error.message || 'Falha ao registrar lance.')
+      }
 
       // read-after-write (sem router.refresh)
       await buscarLeiloesAtivos()
@@ -203,7 +236,6 @@ export default function LeilaoSistemaPage() {
     } catch (err: any) {
       setErroTela(err?.message || 'Erro ao dar lance.')
     } finally {
-      // libera cooldown e animação rapidamente
       setTimeout(() => setCooldownGlobal(false), 300)
       setTimeout(() => {
         setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
@@ -222,7 +254,6 @@ export default function LeilaoSistemaPage() {
     if (error) alert('Erro ao finalizar leilão: ' + error.message)
     else {
       alert('Leilão finalizado!')
-      // refresh rápido e local
       await buscarLeiloesAtivos()
     }
   }
