@@ -101,14 +101,24 @@ export default function NegociacoesPage() {
     [times, filtro]
   )
 
-  // Util: valida dinheiro
-  function parseNumberOrNull(v: string): number | null {
+  // Utils
+  const parseNumberOrNull = (v: string): number | null => {
     if (v == null) return null
     const n = Number(v)
     return Number.isFinite(n) ? n : null
   }
+  const isUUID = (s?: string | null) =>
+    !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+  const toInt32Safe = (n: number | null | undefined) => {
+    const v = Math.trunc(Number(n || 0))
+    const INT32_MAX = 2147483647
+    const INT32_MIN = -2147483648
+    if (v > INT32_MAX) return INT32_MAX
+    if (v < INT32_MIN) return INT32_MIN
+    return v
+  }
 
-  // Util: bloqueia ofertar jogador com < 3 jogos
+  // bloqueia ofertar jogador com < 3 jogos
   const elencoOfertavel = useMemo(() => {
     return (elencoMeuTime || []).map((j) => ({
       ...j,
@@ -116,11 +126,11 @@ export default function NegociacoesPage() {
     }))
   }, [elencoMeuTime])
 
-  // Enviar proposta (com snapshots e campos corretos)
+  // Enviar proposta (alinhado ao schema de `propostas_app`)
   const enviarProposta = async (jogadorAlvo: Jogador) => {
     const tipo = (tipoProposta[jogadorAlvo.id] || 'dinheiro') as TipoProposta
     const valor = valorProposta[jogadorAlvo.id] || ''
-    const percentual = percentualDesejado[jogadorAlvo.id] || ''
+    const perc = percentualDesejado[jogadorAlvo.id] || ''
     const idsOferecidos = jogadoresOferecidos[jogadorAlvo.id] || []
 
     if (!id_time || !nome_time) {
@@ -131,12 +141,12 @@ export default function NegociacoesPage() {
     // Confirmação
     if (!window.confirm('Deseja realmente enviar esta proposta?')) return
 
-    // Monta snapshots
+    // Snapshot do alvo
     const jogador_valor_atual = Number(jogadorAlvo.valor || 0)
 
+    // Monta snapshot dos oferecidos (somente meus e com >=3 jogos)
     let oferecidosDetalhes: any[] = []
     if (idsOferecidos.length) {
-      // filtra somente meus jogadores e com >= 3 jogos
       const idsValidos = elencoOfertavel
         .filter((j) => idsOferecidos.includes(j.id) && j.podeOferecer)
         .map((j) => j.id)
@@ -150,6 +160,7 @@ export default function NegociacoesPage() {
           .from('elenco')
           .select('id, nome, valor, posicao, overall, id_time, jogos')
           .in('id', idsValidos)
+
         oferecidosDetalhes = (data || []).map((d: any) => ({
           id: d.id,
           nome: d.nome,
@@ -162,75 +173,83 @@ export default function NegociacoesPage() {
       }
     }
 
-    // Valor oferecido (apenas quando faz sentido)
+    // Valores oferecidos / percentuais
     const valorNumerico = parseNumberOrNull(valor)
-    const valor_oferecido: number | null =
-      ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo)
-        ? valorNumerico
-        : null
-
-    // Percentual somente em comprar_percentual
-    const percentualNum: number | null =
-      tipo === 'comprar_percentual'
-        ? parseNumberOrNull(percentual)
-        : null
+    const valor_oferecido =
+      ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo) ? valorNumerico : 0
+    const percentualNum =
+      tipo === 'comprar_percentual' ? parseNumberOrNull(perc) : 0
 
     // Validações de front
     if (
       ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo) &&
-      (valor_oferecido === null || valor_oferecido < 0)
+      (valor_oferecido == null || valor_oferecido < 0)
     ) {
       alert('Informe um valor válido.')
       return
     }
-
     if (tipo === 'comprar_percentual' && (!percentualNum || percentualNum <= 0 || percentualNum > 100)) {
       alert('Percentual inválido (1 a 100).')
       return
     }
-
     if (['troca_simples', 'troca_composta'].includes(tipo) && oferecidosDetalhes.length === 0) {
       alert('Selecione ao menos 1 jogador para a troca.')
       return
     }
 
+    // Nome do time alvo
+    const { data: timeAlvoData } = await supabase
+      .from('times')
+      .select('nome')
+      .eq('id', jogadorAlvo.id_time)
+      .single()
+
+    // Monta payload conforme tabela propostas_app
+    const payload = {
+      id_time_origem: id_time,                         // uuid (string)
+      nome_time_origem: nome_time,                     // text
+      id_time_alvo: jogadorAlvo.id_time,               // uuid (string)
+      nome_time_alvo: timeAlvoData?.nome || 'Indefinido',
+
+      jogador_id: jogadorAlvo.id,                      // uuid
+      tipo_proposta: tipo,                             // text
+
+      valor_oferecido: toInt32Safe(valor_oferecido),   // int4
+
+      percentual_desejado: tipo === 'comprar_percentual' ? (percentualNum || 0) : 0, // numeric
+      percentual:          tipo === 'comprar_percentual' ? (percentualNum || 0) : 0, // numeric
+
+      jogadores_oferecidos: oferecidosDetalhes || [],  // jsonb (array de objetos)
+
+      status: 'pendente',
+      created_at: new Date().toISOString()
+    }
+
+    // Valida UUIDs para evitar erro no Postgres
+    if (!isUUID(payload.id_time_origem) || !isUUID(payload.id_time_alvo) || !isUUID(payload.jogador_id)) {
+      alert('IDs inválidos (uuid). Recarregue e faça login novamente.')
+      return
+    }
+
     setEnviando((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
     try {
-      // Nome do time alvo
-      const { data: timeAlvoData } = await supabase
-        .from('times')
-        .select('nome')
-        .eq('id', jogadorAlvo.id_time)
-        .single()
+      const { data: insertData, error: insertErr } = await supabase
+        .from('propostas_app') // nome confirmado
+        .insert([payload])
+        .select('id')
 
-      const proposta = {
-        id_time_origem: id_time,
-        nome_time_origem: nome_time,
-        id_time_alvo: jogadorAlvo.id_time,
-        nome_time_alvo: timeAlvoData?.nome || 'Indefinido',
-
-        jogador_id: jogadorAlvo.id,
-        jogador_valor_atual, // snapshot do alvo
-
-        tipo_proposta: tipo,
-        valor_oferecido, // null em trocas
-        percentual: percentualNum, // só em comprar_percentual
-
-        jogadores_oferecidos_ids: oferecidosDetalhes.map((d) => d.id),
-        jogadores_oferecidos_detalhes: oferecidosDetalhes, // snapshot completo
-
-        status: 'pendente',
-        created_at: new Date().toISOString()
-      }
-
-      const { error } = await supabase.from('propostas_app').insert(proposta)
-      if (error) {
-        console.error('❌ Erro ao enviar proposta:', error)
-        alert('Erro ao enviar a proposta. Tente novamente.')
+      if (insertErr) {
+        console.error('❌ INSERT propostas_app', {
+          code: insertErr.code,
+          message: insertErr.message,
+          details: insertErr.details,
+          hint: insertErr.hint,
+        })
+        alert(`Erro ao enviar a proposta:\n${insertErr.code || ''} ${insertErr.message || ''}`)
         return
       }
 
-      // Feedback
+      // OK
       setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
       setTimeout(() => {
         setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: false }))
@@ -408,3 +427,4 @@ export default function NegociacoesPage() {
     </main>
   )
 }
+
