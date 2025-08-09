@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -8,130 +8,244 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function NegociacoesPage() {
-  const [times, setTimes] = useState<any[]>([])
-  const [filtro, setFiltro] = useState('')
-  const [timeSelecionado, setTimeSelecionado] = useState('')
-  const [elencoAdversario, setElencoAdversario] = useState<any[]>([])
-  const [elencoMeuTime, setElencoMeuTime] = useState<any[]>([])
-  const [jogadorSelecionadoId, setJogadorSelecionadoId] = useState('')
-  const [tipoProposta, setTipoProposta] = useState<{ [key: string]: string }>({})
-  const [valorProposta, setValorProposta] = useState<{ [key: string]: string }>({})
-  const [percentualDesejado, setPercentualDesejado] = useState<{ [key: string]: string }>({})
-  const [jogadoresOferecidos, setJogadoresOferecidos] = useState<{ [key: string]: string[] }>({})
-  const [mensagemSucesso, setMensagemSucesso] = useState<{ [key: string]: boolean }>({})
+type Time = { id: string; nome: string }
+type Jogador = {
+  id: string
+  id_time: string
+  nome: string
+  posicao: string
+  overall: number | null
+  valor: number | null
+  imagem_url?: string | null
+  jogos?: number | null
+}
 
-  const [userData, setUserData] = useState<any>(null)
+type TipoProposta = 'dinheiro' | 'troca_simples' | 'troca_composta' | 'comprar_percentual'
+
+export default function NegociacoesPage() {
+  const [times, setTimes] = useState<Time[]>([])
+  const [filtro, setFiltro] = useState('')
+  const [timeSelecionado, setTimeSelecionado] = useState<string>('')
+
+  const [elencoAdversario, setElencoAdversario] = useState<Jogador[]>([])
+  const [elencoMeuTime, setElencoMeuTime] = useState<Jogador[]>([])
+
+  const [jogadorSelecionadoId, setJogadorSelecionadoId] = useState<string>('')
+
+  const [tipoProposta, setTipoProposta] = useState<Record<string, TipoProposta>>({})
+  const [valorProposta, setValorProposta] = useState<Record<string, string>>({})
+  const [percentualDesejado, setPercentualDesejado] = useState<Record<string, string>>({})
+  const [jogadoresOferecidos, setJogadoresOferecidos] = useState<Record<string, string[]>>({})
+  const [mensagemSucesso, setMensagemSucesso] = useState<Record<string, boolean>>({})
+  const [enviando, setEnviando] = useState<Record<string, boolean>>({})
+
   const [id_time, setIdTime] = useState<string | null>(null)
   const [nome_time, setNomeTime] = useState<string | null>(null)
 
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
     if (userStorage) {
-      const parsed = JSON.parse(userStorage)
-      setUserData(parsed)
-      setIdTime(parsed.id_time)
-      setNomeTime(parsed.nome_time)
+      try {
+        const parsed = JSON.parse(userStorage)
+        setIdTime(parsed.id_time ?? null)
+        setNomeTime(parsed.nome_time ?? null)
+      } catch {}
     }
   }, [])
 
+  // Carrega lista de times (exceto o meu)
   useEffect(() => {
-    const buscarTimes = async () => {
-      const { data } = await supabase
+    async function buscarTimes() {
+      if (!id_time) return
+      const { data, error } = await supabase
         .from('times')
         .select('id, nome')
         .neq('id', id_time)
         .order('nome', { ascending: true })
-
-      if (data) setTimes(data)
+      if (!error && data) setTimes(data as Time[])
     }
-    if (id_time) buscarTimes()
+    buscarTimes()
   }, [id_time])
 
+  // Carrega elenco do time alvo
   useEffect(() => {
-    const buscarElenco = async () => {
-      if (!timeSelecionado) return
-      const { data } = await supabase
+    async function buscarElencoAdversario() {
+      if (!timeSelecionado) {
+        setElencoAdversario([])
+        return
+      }
+      const { data, error } = await supabase
         .from('elenco')
         .select('*')
         .eq('id_time', timeSelecionado)
-
-      if (data) setElencoAdversario(data)
+      if (!error && data) setElencoAdversario(data as Jogador[])
     }
-    buscarElenco()
+    buscarElencoAdversario()
   }, [timeSelecionado])
 
+  // Carrega elenco do meu time (para ofertas)
   useEffect(() => {
-    const buscarElencoMeuTime = async () => {
+    async function buscarElencoMeuTime() {
       if (!id_time) return
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('elenco')
         .select('*')
         .eq('id_time', id_time)
-
-      if (data) setElencoMeuTime(data)
+      if (!error && data) setElencoMeuTime(data as Jogador[])
     }
     buscarElencoMeuTime()
   }, [id_time])
 
-  const enviarProposta = async (jogador: any) => {
-  const tipo = tipoProposta[jogador.id]
-  const valor = valorProposta[jogador.id] || '0'
-  const percentual = percentualDesejado[jogador.id] || '0'
-
-  if (!id_time || !tipo || !nome_time) return
-
-  const confirmacao = window.confirm('Deseja realmente enviar esta proposta?')
-  if (!confirmacao) return
-
-  const { data: timeAlvoData } = await supabase
-    .from('times')
-    .select('nome')
-    .eq('id', jogador.id_time)
-    .single()
-
-  const nome_time_alvo = timeAlvoData?.nome || 'Indefinido'
-
-  const proposta = {
-    id_time_origem: id_time,
-    nome_time_origem: nome_time,
-    id_time_alvo: jogador.id_time,
-    nome_time_alvo: nome_time_alvo,
-    jogador_id: jogador.id,
-    tipo_proposta: tipo,
-    valor_oferecido: ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo)
-      ? parseInt(valor) || 0
-      : 0,
-    jogadores_oferecidos: jogadoresOferecidos[jogador.id] || [],
-    percentual: tipo === 'comprar_percentual' ? parseInt(percentual) || null : null,
-    status: 'pendente',
-    created_at: new Date().toISOString(),
-  }
-
-  const { error } = await supabase.from('propostas_app').insert(proposta)
-
-  if (!error) {
-    // ✅ Confirmação visual simples
-    setMensagemSucesso((prev) => ({ ...prev, [jogador.id]: true }))
-    setTimeout(() => {
-      setMensagemSucesso((prev) => ({ ...prev, [jogador.id]: false }))
-    }, 3000)
-
-    // 🔄 Reset de campos
-    setJogadorSelecionadoId('')
-    setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-    setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
-    setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '' }))
-    setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: [] }))
-  } else {
-    console.error('❌ Erro ao enviar proposta:', error)
-    alert('Erro ao enviar a proposta. Tente novamente.')
-  }
-}
-
-  const timesFiltrados = times.filter((t) =>
-    t.nome.toLowerCase().includes(filtro.toLowerCase())
+  const timesFiltrados = useMemo(
+    () => times.filter((t) => t.nome.toLowerCase().includes(filtro.toLowerCase())),
+    [times, filtro]
   )
+
+  // Util: valida dinheiro
+  function parseNumberOrNull(v: string): number | null {
+    if (v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+
+  // Util: bloqueia ofertar jogador com < 3 jogos
+  const elencoOfertavel = useMemo(() => {
+    return (elencoMeuTime || []).map((j) => ({
+      ...j,
+      podeOferecer: (j.jogos ?? 0) >= 3
+    }))
+  }, [elencoMeuTime])
+
+  // Enviar proposta (com snapshots e campos corretos)
+  const enviarProposta = async (jogadorAlvo: Jogador) => {
+    const tipo = (tipoProposta[jogadorAlvo.id] || 'dinheiro') as TipoProposta
+    const valor = valorProposta[jogadorAlvo.id] || ''
+    const percentual = percentualDesejado[jogadorAlvo.id] || ''
+    const idsOferecidos = jogadoresOferecidos[jogadorAlvo.id] || []
+
+    if (!id_time || !nome_time) {
+      alert('Usuário não identificado. Faça login novamente.')
+      return
+    }
+
+    // Confirmação
+    if (!window.confirm('Deseja realmente enviar esta proposta?')) return
+
+    // Monta snapshots
+    const jogador_valor_atual = Number(jogadorAlvo.valor || 0)
+
+    let oferecidosDetalhes: any[] = []
+    if (idsOferecidos.length) {
+      // filtra somente meus jogadores e com >= 3 jogos
+      const idsValidos = elencoOfertavel
+        .filter((j) => idsOferecidos.includes(j.id) && j.podeOferecer)
+        .map((j) => j.id)
+
+      if (idsValidos.length !== idsOferecidos.length) {
+        alert('Algum jogador oferecido não possui 3 jogos e foi removido da seleção.')
+      }
+
+      if (idsValidos.length) {
+        const { data } = await supabase
+          .from('elenco')
+          .select('id, nome, valor, posicao, overall, id_time, jogos')
+          .in('id', idsValidos)
+        oferecidosDetalhes = (data || []).map((d: any) => ({
+          id: d.id,
+          nome: d.nome,
+          valor_atual: Number(d.valor || 0),
+          posicao: d.posicao,
+          overall: d.overall,
+          id_time: d.id_time,
+          jogos: d.jogos ?? 0
+        }))
+      }
+    }
+
+    // Valor oferecido (apenas quando faz sentido)
+    const valorNumerico = parseNumberOrNull(valor)
+    const valor_oferecido: number | null =
+      ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo)
+        ? valorNumerico
+        : null
+
+    // Percentual somente em comprar_percentual
+    const percentualNum: number | null =
+      tipo === 'comprar_percentual'
+        ? parseNumberOrNull(percentual)
+        : null
+
+    // Validações de front
+    if (
+      ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo) &&
+      (valor_oferecido === null || valor_oferecido < 0)
+    ) {
+      alert('Informe um valor válido.')
+      return
+    }
+
+    if (tipo === 'comprar_percentual' && (!percentualNum || percentualNum <= 0 || percentualNum > 100)) {
+      alert('Percentual inválido (1 a 100).')
+      return
+    }
+
+    if (['troca_simples', 'troca_composta'].includes(tipo) && oferecidosDetalhes.length === 0) {
+      alert('Selecione ao menos 1 jogador para a troca.')
+      return
+    }
+
+    setEnviando((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
+    try {
+      // Nome do time alvo
+      const { data: timeAlvoData } = await supabase
+        .from('times')
+        .select('nome')
+        .eq('id', jogadorAlvo.id_time)
+        .single()
+
+      const proposta = {
+        id_time_origem: id_time,
+        nome_time_origem: nome_time,
+        id_time_alvo: jogadorAlvo.id_time,
+        nome_time_alvo: timeAlvoData?.nome || 'Indefinido',
+
+        jogador_id: jogadorAlvo.id,
+        jogador_valor_atual, // snapshot do alvo
+
+        tipo_proposta: tipo,
+        valor_oferecido, // null em trocas
+        percentual: percentualNum, // só em comprar_percentual
+
+        jogadores_oferecidos_ids: oferecidosDetalhes.map((d) => d.id),
+        jogadores_oferecidos_detalhes: oferecidosDetalhes, // snapshot completo
+
+        status: 'pendente',
+        created_at: new Date().toISOString()
+      }
+
+      const { error } = await supabase.from('propostas_app').insert(proposta)
+      if (error) {
+        console.error('❌ Erro ao enviar proposta:', error)
+        alert('Erro ao enviar a proposta. Tente novamente.')
+        return
+      }
+
+      // Feedback
+      setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
+      setTimeout(() => {
+        setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: false }))
+      }, 3000)
+
+      // Reset dos campos do jogador
+      setJogadorSelecionadoId('')
+      setTipoProposta((prev) => ({ ...prev, [jogadorAlvo.id]: 'dinheiro' }))
+      setValorProposta((prev) => ({ ...prev, [jogadorAlvo.id]: '' }))
+      setPercentualDesejado((prev) => ({ ...prev, [jogadorAlvo.id]: '' }))
+      setJogadoresOferecidos((prev) => ({ ...prev, [jogadorAlvo.id]: [] }))
+    } finally {
+      setEnviando((prev) => ({ ...prev, [jogadorAlvo.id]: false }))
+    }
+  }
 
   return (
     <main className="p-6 bg-gray-900 text-white min-h-screen">
@@ -158,131 +272,139 @@ export default function NegociacoesPage() {
         ))}
       </select>
 
+      {/* Cards de jogadores do time selecionado */}
       <div className="flex flex-wrap gap-4">
-        {elencoAdversario.map((jogador) => (
-          <div key={jogador.id} className="border border-gray-700 rounded p-3 w-[220px] bg-gray-800">
-            <img
-              src={jogador.imagem_url || '/jogador_padrao.png'}
-              alt={jogador.nome}
-              className="w-16 h-16 rounded-full object-cover mb-2 mx-auto"
-            />
-            <div className="text-center font-semibold">{jogador.nome}</div>
-            <div className="text-xs text-center text-gray-300">{jogador.posicao} • Overall {jogador.overall || '-'}</div>
-            <div className="text-xs text-center text-green-400 font-bold mb-2">
-              R$ {Number(jogador.valor).toLocaleString('pt-BR')}
-            </div>
+        {elencoAdversario.map((jogador) => {
+          const sel = jogadorSelecionadoId === jogador.id
+          const tp = (tipoProposta[jogador.id] || 'dinheiro') as TipoProposta
+          const disableEnviar =
+            (['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tp) &&
+              (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
+            (tp === 'comprar_percentual' &&
+              (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))) ||
+            (['troca_simples', 'troca_composta'].includes(tp) &&
+              (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
 
-            <button
-              className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded w-full"
-              onClick={() => {
-                setJogadorSelecionadoId(jogador.id)
-                setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-                setValorProposta((prev) => ({ ...prev, [jogador.id]: jogador.valor?.toString() || '0' }))
-                setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
-              }}
-            >
-              💬 Fazer Proposta
-            </button>
-
-            {jogadorSelecionadoId === jogador.id && (
-              <div className="mt-3 text-xs border-t border-gray-700 pt-2">
-                <label className="font-semibold block mb-1">Tipo de proposta:</label>
-                <select
-                  className="border p-1 w-full mb-3 bg-gray-800 border-gray-600 text-white"
-                  value={tipoProposta[jogador.id] || 'dinheiro'}
-                  onChange={(e) =>
-                    setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))
-                  }
-                >
-                  <option value="dinheiro">💰 Apenas dinheiro</option>
-                  <option value="troca_simples">🔁 Troca simples</option>
-                  <option value="troca_composta">💶 Troca + dinheiro</option>
-                  <option value="comprar_percentual">📈 Comprar percentual</option>
-                </select>
-
-                {['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipoProposta[jogador.id]) && (
-                  <div className="mb-3">
-                    <label className="font-semibold">Valor oferecido (R$):</label>
-                    <input
-                      type="number"
-                      className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
-                      value={valorProposta[jogador.id] || ''}
-                      onChange={(e) => setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))}
-                    />
-                  </div>
-                )}
-
-                {['comprar_percentual'].includes(tipoProposta[jogador.id]) && (
-                  <div className="mb-3">
-                    <label className="font-semibold">Percentual desejado (%):</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
-                      value={percentualDesejado[jogador.id] || ''}
-                      onChange={(e) => setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: e.target.value }))}
-                    />
-                  </div>
-                )}
-
-                {['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id]) && (
-                  <div className="mb-3">
-                    <label className="font-semibold">Jogadores oferecidos:</label>
-                    <select
-                      multiple
-                      className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
-                      value={jogadoresOferecidos[jogador.id] || []}
-                      onChange={(e) => {
-                        const selected = Array.from(e.target.selectedOptions).map((opt) => opt.value)
-                        setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: selected }))
-                      }}
-                    >
-                      {elencoMeuTime.map((j) => (
-                        <option key={j.id} value={j.id}>
-                          {j.nome} - {j.posicao} - R$ {Number(j.valor).toLocaleString('pt-BR')}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => enviarProposta(jogador)}
-                  disabled={
-                    (['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipoProposta[jogador.id]) &&
-                      (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
-                    (tipoProposta[jogador.id] === 'comprar_percentual' &&
-                      (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))) ||
-                    (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id]) &&
-                      (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
-                  }
-                  className={`
-                    w-full text-white font-bold py-1 rounded mt-2 text-xs
-                    ${
-                      (['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipoProposta[jogador.id]) &&
-                        (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
-                      (tipoProposta[jogador.id] === 'comprar_percentual' &&
-                        (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))) ||
-                      (['troca_simples', 'troca_composta'].includes(tipoProposta[jogador.id]) &&
-                        (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
-                        ? 'bg-gray-500 cursor-not-allowed'
-                        : 'bg-green-600 hover:bg-green-700'
-                    }
-                  `}
-                >
-                  ✅ Enviar Proposta
-                </button>
-
-                {mensagemSucesso[jogador.id] && (
-                  <div className="text-green-400 text-xs mt-2 text-center">✅ Proposta enviada!</div>
-                )}
+          return (
+            <div key={jogador.id} className="border border-gray-700 rounded p-3 w-[260px] bg-gray-800">
+              <img
+                src={jogador.imagem_url || '/jogador_padrao.png'}
+                alt={jogador.nome}
+                className="w-16 h-16 rounded-full object-cover mb-2 mx-auto"
+              />
+              <div className="text-center font-semibold">{jogador.nome}</div>
+              <div className="text-xs text-center text-gray-300">
+                {jogador.posicao} • Overall {jogador.overall ?? '-'}
               </div>
-            )}
-          </div>
-        ))}
+              <div className="text-xs text-center text-green-400 font-bold mb-2">
+                R$ {Number(jogador.valor || 0).toLocaleString('pt-BR')}
+              </div>
+
+              <button
+                className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded w-full"
+                onClick={() => {
+                  setJogadorSelecionadoId(jogador.id)
+                  setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
+                  setValorProposta((prev) => ({ ...prev, [jogador.id]: String(jogador.valor ?? 0) }))
+                  setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
+                }}
+              >
+                💬 Fazer Proposta
+              </button>
+
+              {sel && (
+                <div className="mt-3 text-xs border-t border-gray-700 pt-2">
+                  <label className="font-semibold block mb-1">Tipo de proposta:</label>
+                  <select
+                    className="border p-1 w-full mb-3 bg-gray-800 border-gray-600 text-white"
+                    value={tp}
+                    onChange={(e) =>
+                      setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value as TipoProposta }))
+                    }
+                  >
+                    <option value="dinheiro">💰 Apenas dinheiro</option>
+                    <option value="troca_simples">🔁 Troca simples</option>
+                    <option value="troca_composta">💶 Troca + dinheiro</option>
+                    <option value="comprar_percentual">📈 Comprar percentual</option>
+                  </select>
+
+                  {['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tp) && (
+                    <div className="mb-3">
+                      <label className="font-semibold">Valor oferecido (R$):</label>
+                      <input
+                        type="number"
+                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                        value={valorProposta[jogador.id] || ''}
+                        onChange={(e) =>
+                          setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {tp === 'comprar_percentual' && (
+                    <div className="mb-3">
+                      <label className="font-semibold">Percentual desejado (%):</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                        value={percentualDesejado[jogador.id] || ''}
+                        onChange={(e) =>
+                          setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {['troca_simples', 'troca_composta'].includes(tp) && (
+                    <div className="mb-3">
+                      <label className="font-semibold">Jogadores oferecidos (mín. 1 / precisam ter ≥ 3 jogos):</label>
+                      <select
+                        multiple
+                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white h-28"
+                        value={jogadoresOferecidos[jogador.id] || []}
+                        onChange={(e) => {
+                          const selected = Array.from(e.target.selectedOptions)
+                            .filter((opt) => {
+                              const j = elencoOfertavel.find((x) => x.id === opt.value)
+                              return j?.podeOferecer
+                            })
+                            .map((opt) => opt.value)
+                          setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: selected }))
+                        }}
+                      >
+                        {elencoOfertavel.map((j) => (
+                          <option key={j.id} value={j.id} disabled={!j.podeOferecer}>
+                            {j.nome} - {j.posicao} - R$ {Number(j.valor || 0).toLocaleString('pt-BR')}
+                            {!j.podeOferecer ? ' (menos de 3 jogos)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => enviarProposta(jogador)}
+                    disabled={disableEnviar || !!enviando[jogador.id]}
+                    className={`
+                      w-full text-white font-bold py-1 rounded mt-2 text-xs
+                      ${disableEnviar || enviando[jogador.id] ? 'bg-gray-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}
+                    `}
+                  >
+                    {enviando[jogador.id] ? 'Enviando...' : '✅ Enviar Proposta'}
+                  </button>
+
+                  {mensagemSucesso[jogador.id] && (
+                    <div className="text-green-400 text-xs mt-2 text-center">✅ Proposta enviada!</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </main>
   )
 }
-
