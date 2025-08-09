@@ -43,19 +43,28 @@ export default function ElencoPage() {
   const fetchElenco = async () => {
     setLoading(true)
     try {
-      const id_time = localStorage.getItem('id_time')
-      if (!id_time) return setLoading(false)
+      const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+      if (!id_time) {
+        setElenco([])
+        setSaldo(0)
+        setNomeTime('')
+        return
+      }
 
-      const [{ data: elencoData }, { data: timeData }] = await Promise.all([
+      const [{ data: elencoData, error: e1 }, { data: timeData, error: e2 }] = await Promise.all([
         supabase.from('elenco').select('*').eq('id_time', id_time),
         supabase.from('times').select('nome, saldo').eq('id', id_time).single()
       ])
+
+      if (e1) console.error('Erro elenco:', e1)
+      if (e2) console.error('Erro time:', e2)
 
       setElenco(elencoData || [])
       setSaldo(timeData?.saldo || 0)
       setNomeTime(timeData?.nome || '')
       setSelecionados([])
-    } catch {
+    } catch (err) {
+      console.error(err)
       alert('Erro ao carregar elenco.')
     } finally {
       setLoading(false)
@@ -70,7 +79,7 @@ export default function ElencoPage() {
     const div = document.createElement('div')
     div.innerHTML = `<div style="background:${cor};color:white;padding:16px;border-radius:8px;text-align:center;position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999">${mensagem}</div>`
     document.body.appendChild(div)
-    setTimeout(() => div.remove(), 3000)
+    setTimeout(() => div.remove(), 3500)
   }
 
   const getFlagUrl = (pais: string) => {
@@ -95,60 +104,155 @@ export default function ElencoPage() {
     )
   }
 
-  const venderSelecionados = async () => {
-  const jogadores = elenco.filter(j => selecionados.includes(j.id))
-
-  for (const jogador of jogadores) {
-    if ((jogador.jogos || 0) < 3) {
-      alert(`🚫 ${jogador.nome} não completou 3 jogos.`)
-      continue
-    }
-
-    const percentualAVender = prompt(`Quantos % de ${jogador.nome} deseja vender?`, '100')
-    const percentualNum = Number(percentualAVender)
-
-    if (!percentualNum || percentualNum <= 0 || percentualNum > (jogador.percentual ?? 100)) {
-      alert(`❌ Percentual inválido.`)
-      continue
-    }
-
-    const valorVenda = Math.round((jogador.valor * percentualNum / 100) * 0.7)
-
-    // Registrar no mercado
-    await supabase.from('mercado_transferencias').insert({
-      jogador_id: jogador.id,
-      nome: jogador.nome,
-      posicao: jogador.posicao,
-      overall: jogador.overall,
-      valor: jogador.valor,
-      imagem_url: jogador.imagem_url || '',
-      salario: jogador.salario || 0,
-      link_sofifa: jogador.link_sofifa || '',
-      id_time_origem: jogador.id_time,
-      status: 'disponivel',
-      percentual: percentualNum,
-      created_at: new Date().toISOString()
+  // Helpers: registra evento no BID
+  async function registrarNoBID({
+    tipo_evento,
+    descricao,
+    id_time1,
+    valor
+  }: {
+    tipo_evento: string
+    descricao: string
+    id_time1: string
+    valor?: number | null
+  }) {
+    const { error } = await supabase.from('bid').insert({
+      tipo_evento,
+      descricao,
+      id_time1,
+      valor: valor ?? null,
+      data_evento: new Date().toISOString()
     })
-
-    // Atualizar o percentual do time atual
-    const novoPercentual = (jogador.percentual ?? 100) - percentualNum
-
-    if (novoPercentual <= 0) {
-      // Remove jogador
-      await supabase.from('elenco').delete().eq('id', jogador.id)
-    } else {
-      await supabase.from('elenco').update({ percentual: novoPercentual }).eq('id', jogador.id)
+    if (error) {
+      console.error('Erro ao registrar no BID:', error)
+      exibirMensagem('⚠️ Falha ao registrar no BID.', '#b45309')
     }
-
-    // Atualiza saldo
-    await supabase.from('times').update({
-      saldo: saldo + valorVenda
-    }).eq('id', jogador.id_time)
   }
 
-  await fetchElenco()
-  alert('✅ Venda registrada!')
-}
+  // 🚀 Vender selecionados com:
+  // - Inserção no mercado
+  // - Atualização do percentual/remover do elenco
+  // - Crédito atômico (RPC retorna saldo novo)
+  // - Registro no BID
+  // - Mensagem com "Caixa atualizado para R$ X (antigo + venda)"
+  const venderSelecionados = async () => {
+    const jogadores = elenco.filter(j => selecionados.includes(j.id))
+    if (jogadores.length === 0) return
+
+    for (const jogador of jogadores) {
+      try {
+        if ((jogador.jogos || 0) < 3) {
+          exibirMensagem(`🚫 ${jogador.nome} não completou 3 jogos.`, '#b91c1c')
+          continue
+        }
+
+        const percentualStr = prompt(`Quantos % de ${jogador.nome} deseja vender?`, String(jogador.percentual ?? 100))
+        if (percentualStr === null) continue // cancelado
+
+        const percentualNum = Number(percentualStr)
+        const percentualAtual = Number(jogador.percentual ?? 100)
+
+        if (!Number.isFinite(percentualNum) || percentualNum <= 0 || percentualNum > percentualAtual) {
+          exibirMensagem('❌ Percentual inválido.', '#b91c1c')
+          continue
+        }
+
+        const baseValor = Number(jogador.valor || 0)
+        const valorVenda = Math.round((baseValor * percentualNum / 100) * 0.7)
+
+        // 1) Inserir no mercado
+        {
+          const { error } = await supabase.from('mercado_transferencias').insert({
+            jogador_id: jogador.id,
+            nome: jogador.nome,
+            posicao: jogador.posicao,
+            overall: jogador.overall,
+            valor: baseValor,
+            imagem_url: jogador.imagem_url || '',
+            salario: jogador.salario || 0,
+            link_sofifa: jogador.link_sofifa || '',
+            id_time_origem: jogador.id_time,
+            status: 'disponivel',
+            percentual: percentualNum,
+            created_at: new Date().toISOString()
+          })
+          if (error) {
+            console.error('Erro ao inserir no mercado:', error)
+            exibirMensagem(`❌ Falha ao anunciar ${jogador.nome} no mercado.`, '#b91c1c')
+            continue
+          }
+        }
+
+        // 2) Atualizar percentual no elenco (ou remover)
+        const novoPercentual = percentualAtual - percentualNum
+        if (novoPercentual <= 0) {
+          const { error } = await supabase.from('elenco').delete().eq('id', jogador.id)
+          if (error) {
+            console.error('Erro ao remover do elenco:', error)
+            exibirMensagem(`⚠️ Falha ao remover ${jogador.nome} do elenco.`, '#b45309')
+          }
+        } else {
+          const { error } = await supabase.from('elenco').update({ percentual: novoPercentual }).eq('id', jogador.id)
+          if (error) {
+            console.error('Erro ao atualizar percentual:', error)
+            exibirMensagem(`⚠️ Falha ao atualizar percentual de ${jogador.nome}.`, '#b45309')
+          }
+        }
+
+        // 3) Crédito atômico + receber saldo NOVO já atualizado
+        let saldoNovo: number | null = null
+        {
+          // saldo antigo (apenas para mostrar a conta no toast)
+          let saldoAntigo = saldo
+          // se quiser garantir um saldoAntigo real do banco para este time específico:
+          const { data: timeRow } = await supabase
+            .from('times')
+            .select('saldo')
+            .eq('id', jogador.id_time)
+            .single()
+          if (timeRow?.saldo != null) {
+            saldoAntigo = Number(timeRow.saldo)
+          }
+
+          const { data, error } = await supabase.rpc('increment_saldo_return', {
+            p_time_id: jogador.id_time,
+            p_delta: valorVenda
+          })
+          if (error) {
+            console.error('Erro ao incrementar saldo via RPC:', error)
+            exibirMensagem(`❌ Falha ao creditar R$ ${valorVenda.toLocaleString()} para o time.`, '#b91c1c')
+            continue
+          }
+          saldoNovo = Number(data)
+
+          // Se o jogador pertencer ao time logado, atualiza o estado local do saldo
+          const id_time_local = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+          if (id_time_local && id_time_local === jogador.id_time) {
+            setSaldo(saldoNovo)
+          }
+
+          // 4) Registrar no BID
+          await registrarNoBID({
+            tipo_evento: 'venda_mercado',
+            descricao: `Venda de ${percentualNum}% de ${jogador.nome} por R$ ${valorVenda.toLocaleString()}`,
+            id_time1: jogador.id_time,
+            valor: valorVenda
+          })
+
+          // 5) Mensagem com saldo novo
+          exibirMensagem(
+            `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+R$ ${valorVenda.toLocaleString()}). Caixa atualizado: R$ ${saldoAntigo.toLocaleString()} → R$ ${Number(saldoNovo).toLocaleString()}`,
+            '#16a34a'
+          )
+        }
+      } catch (err) {
+        console.error('Erro na venda:', err)
+        exibirMensagem('❌ Ocorreu um erro ao processar a venda.', '#b91c1c')
+      }
+    }
+
+    await fetchElenco()
+  }
 
   const valorTotal = elenco.reduce((acc, j) => acc + (j.valor || 0), 0)
   const salarioTotal = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
@@ -231,7 +335,11 @@ export default function ElencoPage() {
           if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
           return (
-            <div key={jogador.id} onClick={() => toggleSelecionado(jogador.id)} className={`relative bg-gray-800 p-4 rounded-xl text-center border-2 cursor-pointer transition transform hover:scale-105 ${selecionado ? 'border-green-400' : 'border-gray-700'}`}>
+            <div
+              key={jogador.id}
+              onClick={() => toggleSelecionado(jogador.id)}
+              className={`relative bg-gray-800 p-4 rounded-xl text-center border-2 cursor-pointer transition transform hover:scale-105 ${selecionado ? 'border-green-400' : 'border-gray-700'}`}
+            >
               {selecionado && (
                 <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">✔</div>
               )}
@@ -245,11 +353,10 @@ export default function ElencoPage() {
                 {jogador.posicao}
               </span>
               <p className="text-sm text-gray-300">Overall: {jogador.overall}</p>
-              <p className="text-green-400 font-semibold">💰 R$ {jogador.valor.toLocaleString()}</p>
-              <p className="text-gray-400 text-xs">Salário: R$ {(jogador.salario || 0).toLocaleString()}</p>
+              <p className="text-green-400 font-semibold">💰 R$ {Number(jogador.valor || 0).toLocaleString()}</p>
+              <p className="text-gray-400 text-xs">Salário: R$ {Number(jogador.salario || 0).toLocaleString()}</p>
               <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
               <p className="text-gray-400 text-xs">Percentual: {jogador.percentual ?? 100}%</p>
-              {status.length > 0 && <p className="text-xs mt-1 text-yellow-400">{status.join(' • ')}</p>}
               {jogador.link_sofifa && (
                 <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs underline block mt-1">🔗 Ver no SoFIFA</a>
               )}
@@ -260,5 +367,3 @@ export default function ElencoPage() {
     </div>
   )
 }
-
-
