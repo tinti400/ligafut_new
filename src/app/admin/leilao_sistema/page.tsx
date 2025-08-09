@@ -20,7 +20,7 @@ type Leilao = {
   link_sofifa?: string | null
   valor_atual: number
   nome_time_vencedor?: string | null
-  fim: string // ISO
+  fim: string
   criado_em: string
   status: 'ativo' | 'leiloado' | 'cancelado'
   anterior?: string | null
@@ -29,16 +29,16 @@ type Leilao = {
 export default function LeilaoSistemaPage() {
   const router = useRouter()
 
-  // Identidade do time (em estado, com fallback)
+  // identidade do time em estado
   const [idTime, setIdTime] = useState<string | null>(null)
   const [nomeTime, setNomeTime] = useState<string | null>(null)
 
-  // Dados de tela
+  // dados
   const [leiloes, setLeiloes] = useState<Leilao[]>([])
   const [carregando, setCarregando] = useState(true)
   const [saldo, setSaldo] = useState<number | null>(null)
 
-  // Controle de UI
+  // ui
   const [cooldownGlobal, setCooldownGlobal] = useState(false)
   const [cooldownPorLeilao, setCooldownPorLeilao] = useState<Record<string, boolean>>({})
   const [tremores, setTremores] = useState<Record<string, boolean>>({})
@@ -57,22 +57,23 @@ export default function LeilaoSistemaPage() {
 
   function carregarIdentidadeLocal() {
     try {
-      // chaves diretas
       const id_raw = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
       const nome_raw = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
 
       let id = sane(id_raw)
       let nome = sane(nome_raw)
 
-      // fallbacks: user / usuario (json)
       if (!id || !nome) {
-        const userStr = typeof window !== 'undefined' ? (localStorage.getItem('user') || localStorage.getItem('usuario')) : null
+        const userStr =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('user') || localStorage.getItem('usuario')
+            : null
         if (userStr) {
           try {
             const obj = JSON.parse(userStr)
             if (!id) id = sane(obj?.id_time || obj?.time_id || obj?.idTime)
             if (!nome) nome = sane(obj?.nome_time || obj?.nomeTime || obj?.time_nome || obj?.nome)
-          } catch { /* ignore */ }
+          } catch {}
         }
       }
 
@@ -86,16 +87,9 @@ export default function LeilaoSistemaPage() {
 
   const buscarSaldo = async () => {
     if (!idTime) return
-    const { data, error } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', idTime)
-      .single()
-    if (!error && data) {
-      setSaldo(data.saldo)
-    } else {
-      setSaldo(null)
-    }
+    const { data, error } = await supabase.from('times').select('saldo').eq('id', idTime).single()
+    if (!error && data) setSaldo(data.saldo)
+    else setSaldo(null)
   }
 
   const buscarLeiloesAtivos = async () => {
@@ -107,10 +101,8 @@ export default function LeilaoSistemaPage() {
       .limit(3)
 
     if (!error && data) {
-      // beep quando perco o topo
       data.forEach((leilao: any) => {
         if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
-          // pode falhar se o navegador bloquear autoplay; tudo bem
           audioRef.current?.play().catch(() => {})
         }
       })
@@ -119,13 +111,11 @@ export default function LeilaoSistemaPage() {
   }
 
   useEffect(() => {
-    // init identidade
     carregarIdentidadeLocal()
   }, [])
 
   useEffect(() => {
-    // load inicial e polling
-    (async () => {
+    ;(async () => {
       await Promise.all([buscarLeiloesAtivos(), buscarSaldo()])
       setCarregando(false)
     })()
@@ -168,7 +158,6 @@ export default function LeilaoSistemaPage() {
   ) {
     setErroTela(null)
 
-    // validações
     if (travadoPorIdentidade) {
       setErroTela(travadoPorIdentidade)
       return
@@ -177,62 +166,49 @@ export default function LeilaoSistemaPage() {
 
     const novoValor = Number(valorAtual) + Number(incremento)
 
-    // rechecagem de saldo
     if (saldo !== null && novoValor > saldo) {
       setErroTela('Saldo insuficiente para este lance.')
       return
     }
 
-    // ativa cooldown
     setCooldownGlobal(true)
     setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: true }))
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
 
     try {
-      // checa estado mais recente do leilão antes (evita lances em leilão encerrado)
+      // valida estado mais recente
       const { data: atual, error: e1 } = await supabase
         .from('leiloes_sistema')
         .select('status, valor_atual, fim')
         .eq('id', leilaoId)
         .single()
-
       if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
-
-      if (atual.status !== 'ativo') {
-        throw new Error('Leilão não está mais ativo.')
-      }
+      if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
       const fimMs = new Date(atual.fim).getTime()
-      if (isNaN(fimMs) || fimMs - Date.now() <= 0) {
-        throw new Error('Leilão encerrado.')
-      }
+      if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
 
-      // RPC de lance
-      const { error } = await supabase.rpc('dar_lance_no_leilao', {
+      // RPC
+      const { data: retorno, error } = await supabase.rpc('dar_lance_no_leilao', {
         p_leilao_id: leilaoId,
         p_valor_novo: novoValor,
         p_id_time_vencedor: idTime,
         p_nome_time_vencedor: nomeTime,
         p_estender: tempoRestante < 15
       })
+      if (error) throw new Error(error.message || 'Falha ao registrar lance.')
 
-      if (error) {
-        throw new Error(error.message || 'Falha ao registrar lance.')
-      }
-
-      // cooldown curto
-      setTimeout(() => setCooldownGlobal(false), 800)
+      // read-after-write (sem router.refresh)
+      await buscarLeiloesAtivos()
+      await buscarSaldo()
+    } catch (err: any) {
+      setErroTela(err?.message || 'Erro ao dar lance.')
+    } finally {
+      // libera cooldown e animação rapidamente
+      setTimeout(() => setCooldownGlobal(false), 300)
       setTimeout(() => {
         setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
         setTremores((prev) => ({ ...prev, [leilaoId]: false }))
-      }, 300)
-
-      // refresh leve
-      setTimeout(() => router.refresh(), 1200)
-    } catch (err: any) {
-      setErroTela(err?.message || 'Erro ao dar lance.')
-      setCooldownGlobal(false)
-      setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
-      setTremores((prev) => ({ ...prev, [leilaoId]: false }))
+      }, 150)
     }
   }
 
@@ -246,7 +222,8 @@ export default function LeilaoSistemaPage() {
     if (error) alert('Erro ao finalizar leilão: ' + error.message)
     else {
       alert('Leilão finalizado!')
-      router.refresh()
+      // refresh rápido e local
+      await buscarLeiloesAtivos()
     }
   }
 
@@ -262,15 +239,9 @@ export default function LeilaoSistemaPage() {
             💳 Saldo atual do seu time: R$ {saldo !== null ? saldo.toLocaleString() : '...'}
           </div>
           {travadoPorIdentidade && (
-            <div className="text-sm text-red-400">
-              ⚠️ {travadoPorIdentidade}
-            </div>
+            <div className="text-sm text-red-400">⚠️ {travadoPorIdentidade}</div>
           )}
-          {erroTela && (
-            <div className="text-sm text-yellow-300">
-              ⚠️ {erroTela}
-            </div>
-          )}
+          {erroTela && <div className="text-sm text-yellow-300">⚠️ {erroTela}</div>}
         </div>
       </div>
 
@@ -282,17 +253,14 @@ export default function LeilaoSistemaPage() {
             const tempoFinal = new Date(leilao.fim).getTime()
             const agora = Date.now()
             let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
-            if (!isFinite(tempoRestante)) tempoRestante = 0
-            if (tempoRestante < 0) tempoRestante = 0
+            if (!isFinite(tempoRestante) || tempoRestante < 0) tempoRestante = 0
 
             const tremorClass = tremores[leilao.id] ? 'animate-pulse scale-105' : ''
             const borderClass = classNames('border-2 rounded-xl', corBorda(leilao.valor_atual))
 
-            const disabledPorSaldo =
-              saldo !== null && Number(leilao.valor_atual) + 4_000_000 > saldo // checagem mínima
-            const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
             const disabledPorTempo = tempoRestante === 0
             const disabledPorIdentidade = !!travadoPorIdentidade
+            const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
 
             return (
               <div
@@ -312,9 +280,13 @@ export default function LeilaoSistemaPage() {
                 <h2 className="text-xl font-bold mb-1">
                   {leilao.nome} <span className="text-sm">({leilao.posicao})</span>
                 </h2>
-                <p className="mb-1">⭐ Overall: <strong>{leilao.overall}</strong></p>
+                <p className="mb-1">
+                  ⭐ Overall: <strong>{leilao.overall}</strong>
+                </p>
                 {leilao.nacionalidade && (
-                  <p className="mb-1">🌍 Nacionalidade: <strong>{leilao.nacionalidade}</strong></p>
+                  <p className="mb-1">
+                    🌍 Nacionalidade: <strong>{leilao.nacionalidade}</strong>
+                  </p>
                 )}
                 <p className="mb-2 text-green-400 text-lg font-bold">
                   💰 R$ {Number(leilao.valor_atual).toLocaleString()}
@@ -331,35 +303,37 @@ export default function LeilaoSistemaPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mb-3">
-                  {[4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000].map((inc) => {
-                    const disabled =
-                      disabledPorTempo ||
-                      disabledPorIdentidade ||
-                      disabledPorCooldown ||
-                      (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
+                  {[4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000].map(
+                    (inc) => {
+                      const disabled =
+                        disabledPorTempo ||
+                        disabledPorIdentidade ||
+                        disabledPorCooldown ||
+                        (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
 
-                    return (
-                      <button
-                        key={inc}
-                        onClick={() => darLance(leilao.id, leilao.valor_atual, inc, tempoRestante)}
-                        disabled={disabled}
-                        title={
-                          disabledPorTempo
-                            ? '⏱️ Leilão encerrado'
-                            : disabledPorIdentidade
-                            ? '🔐 Faça login novamente (time não identificado)'
-                            : (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
-                            ? '💸 Saldo insuficiente'
-                            : disabledPorCooldown
-                            ? '⏳ Aguarde um instante...'
-                            : ''
-                        }
-                        className="bg-green-600 hover:bg-green-700 text-white py-1 rounded text-xs font-bold transition disabled:opacity-50"
-                      >
-                        + R$ {(inc / 1_000_000).toLocaleString()} mi
-                      </button>
-                    )
-                  })}
+                      return (
+                        <button
+                          key={inc}
+                          onClick={() => darLance(leilao.id, leilao.valor_atual, inc, tempoRestante)}
+                          disabled={disabled}
+                          title={
+                            disabledPorTempo
+                              ? '⏱️ Leilão encerrado'
+                              : disabledPorIdentidade
+                              ? '🔐 Faça login novamente (time não identificado)'
+                              : saldo !== null && Number(leilao.valor_atual) + inc > saldo
+                              ? '💸 Saldo insuficiente'
+                              : disabledPorCooldown
+                              ? '⏳ Aguarde um instante...'
+                              : ''
+                          }
+                          className="bg-green-600 hover:bg-green-700 text-white py-1 rounded text-xs font-bold transition disabled:opacity-50"
+                        >
+                          + R$ {(inc / 1_000_000).toLocaleString()} mi
+                        </button>
+                      )
+                    }
+                  )}
                 </div>
 
                 {leilao.link_sofifa && (
