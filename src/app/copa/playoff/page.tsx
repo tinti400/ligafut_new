@@ -28,8 +28,8 @@ export default function PlayoffPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (isAdmin) buscarJogos()
-  }, [isAdmin])
+    buscarJogos() // todos carregam os jogos
+  }, [])
 
   async function buscarJogos() {
     setLoading(true)
@@ -48,6 +48,7 @@ export default function PlayoffPage() {
   }
 
   async function salvarPlacar(jogo: any) {
+    if (!isAdmin) return // segurança extra no client
     const { error } = await supabase
       .from('copa_playoff')
       .update({
@@ -78,6 +79,8 @@ export default function PlayoffPage() {
   }
 
   async function sortearPlayoff() {
+    if (!isAdmin) return // segurança extra no client
+
     const { data: classificacao, error } = await supabase
       .from('classificacao')
       .select('id_time, times ( nome )')
@@ -89,7 +92,8 @@ export default function PlayoffPage() {
       return
     }
 
-    const classificados = classificacao.slice(8, 24) // 9º ao 24º
+    // 9º ao 24º => índices 8 a 23
+    const classificados = classificacao.slice(8, 24)
 
     if (classificados.length !== 16) {
       toast.error('São necessários exatamente 16 times (do 9º ao 24º).')
@@ -114,6 +118,7 @@ export default function PlayoffPage() {
         return
       }
 
+      // Ida
       novosJogos.push({
         rodada: 1,
         ordem: ordem++,
@@ -125,6 +130,7 @@ export default function PlayoffPage() {
         gols_time2: null
       })
 
+      // Volta
       novosJogos.push({
         rodada: 2,
         ordem: ordem++,
@@ -137,7 +143,7 @@ export default function PlayoffPage() {
       })
     }
 
-    // Apaga jogos existentes antes de inserir
+    // Apaga todos os jogos antigos e insere o novo sorteio
     const { error: delError } = await supabase.from('copa_playoff').delete().neq('id', 0)
     if (delError) {
       toast.error('Erro ao limpar jogos antigos')
@@ -153,18 +159,19 @@ export default function PlayoffPage() {
     }
   }
 
-  if (!isAdmin) return <div className="p-4">⛔ Acesso restrito!</div>
-
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">🎯 Playoff – Administração</h1>
+      <h1 className="text-xl font-bold mb-4">🎯 Playoff</h1>
 
-      <button
-        className="mb-4 px-4 py-2 bg-blue-600 text-white rounded"
-        onClick={sortearPlayoff}
-      >
-        Sortear confrontos (9º ao 24º)
-      </button>
+      {/* Botão só aparece para admin */}
+      {isAdmin && (
+        <button
+          className="mb-4 px-4 py-2 bg-blue-600 text-white rounded"
+          onClick={sortearPlayoff}
+        >
+          Sortear confrontos (9º ao 24º)
+        </button>
+      )}
 
       {loading ? (
         <div>🔄 Carregando jogos...</div>
@@ -173,10 +180,12 @@ export default function PlayoffPage() {
           {jogos.map((jogo) => (
             <div key={jogo.id} className="flex gap-2 items-center">
               <span className="min-w-[280px]">{jogo.time1} vs {jogo.time2}</span>
+
               <input
                 type="number"
                 className="w-12 border rounded px-1"
                 value={jogo.gols_time1 ?? ''}
+                disabled={!isAdmin} // somente admin edita
                 onChange={(e) => {
                   const gols = Number.isNaN(parseInt(e.target.value)) ? null : parseInt(e.target.value)
                   setJogos((prev) =>
@@ -189,6 +198,7 @@ export default function PlayoffPage() {
                 type="number"
                 className="w-12 border rounded px-1"
                 value={jogo.gols_time2 ?? ''}
+                disabled={!isAdmin} // somente admin edita
                 onChange={(e) => {
                   const gols = Number.isNaN(parseInt(e.target.value)) ? null : parseInt(e.target.value)
                   setJogos((prev) =>
@@ -196,12 +206,15 @@ export default function PlayoffPage() {
                   )
                 }}
               />
-              <button
-                className="bg-green-500 text-white px-2 py-1 rounded"
-                onClick={() => salvarPlacar(jogo)}
-              >
-                Salvar
-              </button>
+
+              {isAdmin && (
+                <button
+                  className="bg-green-500 text-white px-2 py-1 rounded"
+                  onClick={() => salvarPlacar(jogo)}
+                >
+                  Salvar
+                </button>
+              )}
             </div>
           ))}
         </div>
