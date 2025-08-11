@@ -10,6 +10,18 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+type Jogo = {
+  id?: number
+  rodada: 1 | 2
+  ordem: number
+  id_time1: string
+  id_time2: string
+  time1: string
+  time2: string
+  gols_time1: number | null
+  gols_time2: number | null
+}
+
 export default function PlayoffPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<any[]>([])
@@ -33,7 +45,7 @@ export default function PlayoffPage() {
       return
     }
     setJogos(data || [])
-    setSorteado(data.length > 0)
+    setSorteado((data?.length || 0) > 0)
     setLoading(false)
   }
 
@@ -53,7 +65,24 @@ export default function PlayoffPage() {
     }
   }
 
+  // Fisher-Yates para embaralhar de forma justa
+  function shuffle<T>(arr: T[]): T[] {
+    const a = [...arr]
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[a[i], a[j]] = [a[j], a[i]]
+    }
+    return a
+  }
+
+  function nomeDoTime(reg: any): string {
+    // Supabase pode retornar relation como objeto ou array dependendo da FK/view
+    const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
+    return t?.nome ?? 'Time'
+  }
+
   async function sortearPlayoff() {
+    // Busca a classificação ordenada por pontos (desc)
     const { data: classificacao, error } = await supabase
       .from('classificacao')
       .select('id_time, times ( nome )')
@@ -61,27 +90,46 @@ export default function PlayoffPage() {
       .order('pontos', { ascending: false })
 
     if (error || !classificacao) {
-      toast.error('Erro ao buscar classificacao')
+      toast.error('Erro ao buscar classificação')
       return
     }
 
-    const classificados = classificacao.slice(16, 24)
-    const embaralhados = classificados.sort(() => Math.random() - 0.5)
-    const novosJogos: any[] = []
+    // Pegar do 9º ao 24º: no array (0-based) é slice(8, 24)
+    const classificados = classificacao.slice(8, 24)
+
+    if (classificados.length !== 16) {
+      toast.error('São necessários exatamente 16 times (do 9º ao 24º). Verifique a classificação.')
+      return
+    }
+
+    // Embaralhar para confrontos aleatórios
+    const embaralhados = shuffle(classificados)
+
+    const novosJogos: Jogo[] = []
     let ordem = 1
 
     for (let i = 0; i < embaralhados.length; i += 2) {
-      const time1 = embaralhados[i]
-      const time2 = embaralhados[i + 1]
+      const timeA = embaralhados[i]
+      const timeB = embaralhados[i + 1]
+
+      const idA = timeA.id_time
+      const idB = timeB.id_time
+      const nomeA = nomeDoTime(timeA)
+      const nomeB = nomeDoTime(timeB)
+
+      if (!idA || !idB) {
+        toast.error('Registro de time inválido na classificação.')
+        return
+      }
 
       // Ida
       novosJogos.push({
         rodada: 1,
         ordem: ordem++,
-        id_time1: time1.id_time,
-        id_time2: time2.id_time,
-        time1: time1.times[0].nome,
-        time2: time2.times[0].nome,
+        id_time1: idA,
+        id_time2: idB,
+        time1: nomeA,
+        time2: nomeB,
         gols_time1: null,
         gols_time2: null
       })
@@ -90,10 +138,10 @@ export default function PlayoffPage() {
       novosJogos.push({
         rodada: 2,
         ordem: ordem++,
-        id_time1: time2.id_time,
-        id_time2: time1.id_time,
-        time1: time2.times[0].nome,
-        time2: time1.times[0].nome,
+        id_time1: idB,
+        id_time2: idA,
+        time1: nomeB,
+        time2: nomeA,
         gols_time1: null,
         gols_time2: null
       })
@@ -120,7 +168,7 @@ export default function PlayoffPage() {
           className="mb-4 px-4 py-2 bg-blue-600 text-white rounded"
           onClick={sortearPlayoff}
         >
-          Sortear confrontos
+          Sortear confrontos (9º ao 24º)
         </button>
       )}
 
@@ -130,13 +178,13 @@ export default function PlayoffPage() {
         <div className="space-y-2">
           {jogos.map((jogo) => (
             <div key={jogo.id} className="flex gap-2 items-center">
-              <span>{jogo.time1} vs {jogo.time2}</span>
+              <span className="min-w-[280px]">{jogo.time1} vs {jogo.time2}</span>
               <input
                 type="number"
                 className="w-12 border rounded px-1"
                 value={jogo.gols_time1 ?? ''}
                 onChange={(e) => {
-                  const gols = parseInt(e.target.value)
+                  const gols = Number.isNaN(parseInt(e.target.value)) ? null : parseInt(e.target.value)
                   setJogos((prev) =>
                     prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: gols } : j)
                   )
@@ -148,7 +196,7 @@ export default function PlayoffPage() {
                 className="w-12 border rounded px-1"
                 value={jogo.gols_time2 ?? ''}
                 onChange={(e) => {
-                  const gols = parseInt(e.target.value)
+                  const gols = Number.isNaN(parseInt(e.target.value)) ? null : parseInt(e.target.value)
                   setJogos((prev) =>
                     prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: gols } : j)
                   )
