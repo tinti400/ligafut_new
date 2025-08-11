@@ -26,7 +26,6 @@ export default function PlayoffPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [sorteado, setSorteado] = useState(false)
 
   useEffect(() => {
     if (isAdmin) buscarJogos()
@@ -45,7 +44,6 @@ export default function PlayoffPage() {
       return
     }
     setJogos(data || [])
-    setSorteado((data?.length || 0) > 0)
     setLoading(false)
   }
 
@@ -65,7 +63,6 @@ export default function PlayoffPage() {
     }
   }
 
-  // Fisher-Yates para embaralhar de forma justa
   function shuffle<T>(arr: T[]): T[] {
     const a = [...arr]
     for (let i = a.length - 1; i > 0; i--) {
@@ -76,13 +73,11 @@ export default function PlayoffPage() {
   }
 
   function nomeDoTime(reg: any): string {
-    // Supabase pode retornar relation como objeto ou array dependendo da FK/view
     const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
     return t?.nome ?? 'Time'
   }
 
   async function sortearPlayoff() {
-    // Busca a classificação ordenada por pontos (desc)
     const { data: classificacao, error } = await supabase
       .from('classificacao')
       .select('id_time, times ( nome )')
@@ -94,17 +89,14 @@ export default function PlayoffPage() {
       return
     }
 
-    // Pegar do 9º ao 24º: no array (0-based) é slice(8, 24)
-    const classificados = classificacao.slice(8, 24)
+    const classificados = classificacao.slice(8, 24) // 9º ao 24º
 
     if (classificados.length !== 16) {
-      toast.error('São necessários exatamente 16 times (do 9º ao 24º). Verifique a classificação.')
+      toast.error('São necessários exatamente 16 times (do 9º ao 24º).')
       return
     }
 
-    // Embaralhar para confrontos aleatórios
     const embaralhados = shuffle(classificados)
-
     const novosJogos: Jogo[] = []
     let ordem = 1
 
@@ -118,11 +110,10 @@ export default function PlayoffPage() {
       const nomeB = nomeDoTime(timeB)
 
       if (!idA || !idB) {
-        toast.error('Registro de time inválido na classificação.')
+        toast.error('Registro de time inválido.')
         return
       }
 
-      // Ida
       novosJogos.push({
         rodada: 1,
         ordem: ordem++,
@@ -134,7 +125,6 @@ export default function PlayoffPage() {
         gols_time2: null
       })
 
-      // Volta
       novosJogos.push({
         rodada: 2,
         ordem: ordem++,
@@ -147,8 +137,14 @@ export default function PlayoffPage() {
       })
     }
 
-    const { error: insertError } = await supabase.from('copa_playoff').insert(novosJogos)
+    // Apaga jogos existentes antes de inserir
+    const { error: delError } = await supabase.from('copa_playoff').delete().neq('id', 0)
+    if (delError) {
+      toast.error('Erro ao limpar jogos antigos')
+      return
+    }
 
+    const { error: insertError } = await supabase.from('copa_playoff').insert(novosJogos)
     if (insertError) {
       toast.error('Erro ao sortear jogos')
     } else {
@@ -163,14 +159,12 @@ export default function PlayoffPage() {
     <div className="p-4">
       <h1 className="text-xl font-bold mb-4">🎯 Playoff – Administração</h1>
 
-      {!sorteado && (
-        <button
-          className="mb-4 px-4 py-2 bg-blue-600 text-white rounded"
-          onClick={sortearPlayoff}
-        >
-          Sortear confrontos (9º ao 24º)
-        </button>
-      )}
+      <button
+        className="mb-4 px-4 py-2 bg-blue-600 text-white rounded"
+        onClick={sortearPlayoff}
+      >
+        Sortear confrontos (9º ao 24º)
+      </button>
 
       {loading ? (
         <div>🔄 Carregando jogos...</div>
