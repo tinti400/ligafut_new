@@ -4,19 +4,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
-import classNames from 'classnames'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-/** ===== Tipos ===== */
+/** ========= Tipos ========= */
 interface TimeRow {
   id: string
   nome: string
   logo_url: string | null
 }
+
 interface Jogo {
   id?: number
   rodada: 1 | 2
@@ -28,12 +28,8 @@ interface Jogo {
   gols_time1: number | null
   gols_time2: number | null
 }
-interface ClassifRow {
-  id_time: string
-  times: { nome: string; logo_url: string | null } | { nome: string; logo_url: string | null }[] | null
-}
 
-/** ===== Util ===== */
+/** ========= Utils ========= */
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -42,85 +38,84 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return a
 }
-function nomeDoTime(reg: any): string {
+function nomeRel(reg: any): string {
   const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
   return t?.nome ?? 'Time'
 }
-function logoDoTime(reg: any): string | null {
+function logoRel(reg: any): string | null {
   const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
   return t?.logo_url ?? null
 }
 
+/** ========= Componente ========= */
 export default function PlayoffPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
 
-  // jogos normais
+  // jogos exibidos
   const [jogos, setJogos] = useState<Jogo[]>([])
   const [loading, setLoading] = useState(true)
   const [timesMap, setTimesMap] = useState<Record<string, TimeRow>>({})
 
-  // sorteio ao vivo (UI + realtime)
-  const [sorteioAberto, setSorteioAberto] = useState(false)
-  const [sorteioAtivo, setSorteioAtivo] = useState(false)
-  const [revelados, setRevelados] = useState<TimeRow[]>([])            // times revelados (em ordem)
-  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([])    // pares formados
-  const [contador, setContador] = useState<number>(0)                  // contador de 3..2..1 para próxima carta
-  const [filaSorteio, setFilaSorteio] = useState<TimeRow[]>([])        // ordem embaralhada de 16 times
-  const [confirmavel, setConfirmavel] = useState(false)                // quando todos os pares estão prontos
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
+  // ===== Estado do sorteio ao vivo (sincronizado)
+  const [sorteioAberto, setSorteioAberto] = useState(false)  // modal visível para todos
+  const [sorteioAtivo, setSorteioAtivo] = useState(false)    // cronômetro rodando
+  const [contador, setContador] = useState(3)                // 3..2..1
+  const [fila, setFila] = useState<TimeRow[]>([])            // times restantes
+  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // pares já revelados
+  const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
+  const [flipA, setFlipA] = useState(false)
+  const [flipB, setFlipB] = useState(false)
+  const [confirmavel, setConfirmavel] = useState(false)
 
+  // realtime
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const tickerRef = useRef<NodeJS.Timeout | null>(null)
+
+  /** ====== Mount ====== */
   useEffect(() => {
     carregarJogosELogos()
-    // ingressar no canal realtime para assistir o sorteio
-    const ch = supabase.channel('playoff-sorteio', {
-      config: { broadcast: { self: true } }
-    })
 
+    // canal realtime
+    const ch = supabase.channel('playoff-sorteio', { config: { broadcast: { self: true } } })
     ch.on('broadcast', { event: 'state' }, ({ payload }) => {
-      // sincroniza UI com transmissões do admin
-      const {
-        sorteioAberto: sao, sorteioAtivo: sat, revelados: rev,
-        pares: prs, contador: cnt, confirmavel: confv
-      } = payload || {}
-      setSorteioAberto(!!sao)
-      setSorteioAtivo(!!sat)
-      setRevelados(rev || [])
-      setPares(prs || [])
-      setContador(typeof cnt === 'number' ? cnt : 0)
-      setConfirmavel(!!confv)
+      const p = payload || {}
+      setSorteioAberto(!!p.sorteioAberto)
+      setSorteioAtivo(!!p.sorteioAtivo)
+      setContador(typeof p.contador === 'number' ? p.contador : 3)
+      setFila(p.fila || [])
+      setPares(p.pares || [])
+      setParAtual(p.parAtual || { A:null, B:null })
+      setFlipA(!!p.flipA)
+      setFlipB(!!p.flipB)
+      setConfirmavel(!!p.confirmavel)
     })
-
-    ch.subscribe((status) => {
-      // console.log('realtime status:', status)
-    })
-
+    ch.subscribe()
     channelRef.current = ch
+
     return () => {
       ch.unsubscribe()
-      if (timerRef.current) clearInterval(timerRef.current)
+      if (tickerRef.current) clearInterval(tickerRef.current)
     }
   }, [])
 
-  /** Broadcast helper */
-  function broadcastState(partial: any) {
-    const payload = {
+  /** ====== Helpers broadcast ====== */
+  function broadcast(partial: any) {
+    const snapshot = {
       sorteioAberto,
       sorteioAtivo,
-      revelados,
-      pares,
       contador,
+      fila,
+      pares,
+      parAtual,
+      flipA,
+      flipB,
       confirmavel,
       ...partial
     }
-    channelRef.current?.send({
-      type: 'broadcast',
-      event: 'state',
-      payload
-    })
+    channelRef.current?.send({ type: 'broadcast', event: 'state', payload: snapshot })
   }
 
-  /** ===== Dados principais (jogos + logos) ===== */
+  /** ====== Dados dos jogos ====== */
   async function carregarJogosELogos() {
     try {
       setLoading(true)
@@ -141,7 +136,6 @@ export default function PlayoffPage() {
           .select('id, nome, logo_url')
           .in('id', ids)
         if (tErr) throw tErr
-
         const mapa: Record<string, TimeRow> = {}
         for (const t of (timesData || []) as TimeRow[]) mapa[t.id] = t
         setTimesMap(mapa)
@@ -156,33 +150,213 @@ export default function PlayoffPage() {
     }
   }
 
-  /** ===== Salvar placar e pagar 14M ao vencedor (idempotente) ===== */
+  /** ====== Botão: Apagar confrontos ====== */
+  async function apagarConfrontos() {
+    if (!isAdmin) return
+    const temPlacar = jogos.some(j => j.gols_time1 != null || j.gols_time2 != null)
+    const msg = (temPlacar ? '⚠️ Existem jogos com placar lançado.\n\n' : '') + 'Tem certeza que deseja APAGAR todos os confrontos?'
+    if (!confirm(msg)) return
+
+    const { error } = await supabase.from('copa_playoff').delete().neq('id', 0)
+    if (error) {
+      toast.error('Erro ao apagar confrontos')
+      return
+    }
+    toast.success('Confrontos apagados!')
+    await carregarJogosELogos()
+  }
+
+  /** ====== Sorteio ao vivo (admin inicia) ====== */
+  async function iniciarSorteio() {
+    if (!isAdmin) return
+
+    // trava backend: não permitir se ainda há jogos na tabela
+    const { count, error: cErr } = await supabase
+      .from('copa_playoff')
+      .select('*', { count: 'exact', head: true })
+    if (cErr) { toast.error('Erro ao checar confrontos'); return }
+    if ((count ?? 0) > 0) {
+      toast.error('Apague os confrontos antes de sortear.')
+      return
+    }
+
+    // pega 9º..24º e embaralha
+    const { data: classificacao, error } = await supabase
+      .from('classificacao')
+      .select('id_time, times ( nome, logo_url )')
+      .eq('temporada', 1)
+      .order('pontos', { ascending: false })
+    if (error || !classificacao) {
+      toast.error('Erro ao buscar classificação')
+      return
+    }
+
+    const faixa = classificacao.slice(8, 24)
+    if (faixa.length !== 16) {
+      toast.error('Precisamos de 16 times (9º ao 24º).')
+      return
+    }
+
+    const lista: TimeRow[] = shuffle(
+      faixa.map((r: any) => ({
+        id: r.id_time,
+        nome: nomeRel(r),
+        logo_url: logoRel(r)
+      }))
+    )
+
+    // reset sorteio
+    setSorteioAberto(true)
+    setSorteioAtivo(true)
+    setContador(3)
+    setFila(lista)
+    setPares([])
+    setParAtual({ A:null, B:null })
+    setFlipA(false)
+    setFlipB(false)
+    setConfirmavel(false)
+    broadcast({
+      sorteioAberto: true, sorteioAtivo: true, contador: 3, fila: lista,
+      pares: [], parAtual: {A:null, B:null}, flipA: false, flipB: false, confirmavel: false
+    })
+
+    // inicia loop
+    startTicker(lista)
+  }
+
+  /** Tick do sorteio: 3..2..1 -> vira cartas A e B -> compõe par -> repete */
+  function startTicker(initialQueue: TimeRow[]) {
+    if (tickerRef.current) clearInterval(tickerRef.current)
+
+    let queue = [...initialQueue]
+    let step: 'countdown' | 'flipA' | 'flipB' | 'commit' = 'countdown'
+    let localCont = 3
+    let localPar: {A: TimeRow | null; B: TimeRow | null} = {A:null, B:null}
+    let localPares: Array<[TimeRow, TimeRow]> = []
+
+    tickerRef.current = setInterval(() => {
+      if (step === 'countdown') {
+        if (localCont > 0) {
+          localCont -= 1
+          setContador(localCont)
+          broadcast({ contador: localCont })
+        } else {
+          // prepara próxima carta A
+          localPar = { A: queue.shift() || null, B: null }
+          setParAtual(localPar)
+          setFlipA(false); setFlipB(false)
+          broadcast({ parAtual: localPar, flipA: false, flipB: false })
+          step = 'flipA'
+        }
+        return
+      }
+
+      if (step === 'flipA') {
+        // vira carta A
+        setFlipA(true)
+        broadcast({ flipA: true })
+        step = 'flipB'
+        return
+      }
+
+      if (step === 'flipB') {
+        // pega e vira carta B
+        localPar = { ...localPar, B: queue.shift() || null }
+        setParAtual(localPar)
+        broadcast({ parAtual: localPar })
+        setFlipB(true)
+        broadcast({ flipB: true })
+        step = 'commit'
+        return
+      }
+
+      if (step === 'commit') {
+        // commit do par revelado
+        if (localPar.A && localPar.B) {
+          localPares = [...localPares, [localPar.A, localPar.B]]
+          setPares(localPares)
+          broadcast({ pares: localPares })
+        }
+        // prepara próximo ciclo ou finaliza
+        if (queue.length === 0) {
+          if (tickerRef.current) clearInterval(tickerRef.current)
+          setSorteioAtivo(false)
+          setConfirmavel(true)
+          broadcast({ sorteioAtivo: false, confirmavel: true })
+        } else {
+          localCont = 3
+          setContador(localCont)
+          broadcast({ contador: localCont })
+          setFlipA(false); setFlipB(false)
+          broadcast({ flipA: false, flipB: false })
+          step = 'countdown'
+        }
+      }
+    }, 1000)
+  }
+
+  /** Confirmar confrontos (grava ida/volta) */
+  async function confirmarConfrontos() {
+    if (!isAdmin) return
+    if (pares.length !== 8) { toast.error('Sorteio incompleto.'); return }
+
+    try {
+      const novos: Jogo[] = []
+      let ordem = 1
+      for (const [A, B] of pares) {
+        novos.push({
+          rodada: 1, ordem: ordem++,
+          id_time1: A.id, id_time2: B.id,
+          time1: A.nome, time2: B.nome,
+          gols_time1: null, gols_time2: null
+        })
+        novos.push({
+          rodada: 2, ordem: ordem++,
+          id_time1: B.id, id_time2: A.id,
+          time1: B.nome, time2: A.nome,
+          gols_time1: null, gols_time2: null
+        })
+      }
+      const { error: delErr } = await supabase.from('copa_playoff').delete().neq('id', 0)
+      if (delErr) throw delErr
+      const { error: insErr } = await supabase.from('copa_playoff').insert(novos)
+      if (insErr) throw insErr
+
+      toast.success('Confrontos confirmados!')
+      setSorteioAberto(false)
+      broadcast({ sorteioAberto: false })
+      await carregarJogosELogos()
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro ao confirmar confrontos')
+    }
+  }
+
+  /** Salvar placar + pagar 14mi ao vencedor (idempotente) */
   async function salvarPlacar(jogo: Jogo) {
     if (!isAdmin) return
     try {
-      const { data: antes, error: beforeErr } = await supabase
+      const { data: antes, error: bErr } = await supabase
         .from('copa_playoff')
-        .select('gols_time1, gols_time2, id_time1, id_time2')
-        .eq('id', jogo.id)
-        .single()
-      if (beforeErr) throw beforeErr
+        .select('gols_time1, gols_time2')
+        .eq('id', jogo.id).single()
+      if (bErr) throw bErr
 
       const antesDef = antes?.gols_time1 != null && antes?.gols_time2 != null
 
-      const { error: updErr } = await supabase
+      const { error: uErr } = await supabase
         .from('copa_playoff')
         .update({ gols_time1: jogo.gols_time1, gols_time2: jogo.gols_time2 })
         .eq('id', jogo.id)
-      if (updErr) throw updErr
+      if (uErr) throw uErr
 
       const agoraDef = jogo.gols_time1 != null && jogo.gols_time2 != null
       if (!antesDef && agoraDef && jogo.gols_time1 !== jogo.gols_time2) {
         const vencedorId = jogo.gols_time1! > jogo.gols_time2! ? jogo.id_time1 : jogo.id_time2
-        const { error: saldoErr } = await supabase.rpc('incrementar_saldo', {
-          p_id_time: vencedorId,
-          p_valor: 14_000_000
+        const { error: rpcErr } = await supabase.rpc('incrementar_saldo', {
+          p_id_time: vencedorId, p_valor: 14_000_000
         })
-        if (saldoErr) toast.error('Erro ao pagar vitória (14M)')
+        if (rpcErr) toast.error('Erro ao pagar vitória (14M)')
         else toast.success('Vitória paga: R$ 14.000.000')
       }
 
@@ -193,173 +367,31 @@ export default function PlayoffPage() {
     }
   }
 
-  /** ===== Sorteio ao vivo ===== */
-
-  // Admin: prepara lista (9º–24º), embaralha e abre overlay
-  async function iniciarSorteioAoVivo() {
-    if (!isAdmin) return
-    try {
-      const { data: classificacao, error } = await supabase
-        .from('classificacao')
-        .select('id_time, times ( nome, logo_url )')
-        .eq('temporada', 1)
-        .order('pontos', { ascending: false })
-      if (error || !classificacao) {
-        toast.error('Erro ao buscar classificação')
-        return
-      }
-
-      const faixa = classificacao.slice(8, 24) // 9º..24º
-      if (faixa.length !== 16) {
-        toast.error('Precisamos de exatamente 16 times (9º ao 24º).')
-        return
-      }
-
-      const lista: TimeRow[] = shuffle(
-        faixa.map((r: ClassifRow) => ({
-          id: r.id_time,
-          nome: nomeDoTime(r),
-          logo_url: logoDoTime(r)
-        }))
-      )
-
-      // reset de estado do sorteio
-      setSorteioAberto(true)
-      setSorteioAtivo(true)
-      setRevelados([])
-      setPares([])
-      setFilaSorteio(lista)
-      setConfirmavel(false)
-      setContador(3)
-      broadcastState({
-        sorteioAberto: true,
-        sorteioAtivo: true,
-        revelados: [],
-        pares: [],
-        filaSorteio: lista,
-        confirmavel: false,
-        contador: 3
-      })
-
-      // inicia temporizador para revelar automaticamente
-      iniciarTemporizador(lista)
-    } catch (e) {
-      console.error(e)
-      toast.error('Erro ao iniciar sorteio')
-    }
-  }
-
-  // Admin: cronômetro revela um time a cada ciclo e fecha pares
-  function iniciarTemporizador(lista: TimeRow[]) {
-    if (timerRef.current) clearInterval(timerRef.current)
-    let fila = [...lista]
-    let localRevelados: TimeRow[] = []
-    let localPares: Array<[TimeRow, TimeRow]> = []
-    let c = 3
-
-    timerRef.current = setInterval(() => {
-      if (c > 0) {
-        c = c - 1
-        setContador(c)
-        broadcastState({ contador: c })
-        return
-      }
-      // tempo zerou -> revela próximo time
-      const prox = fila.shift()
-      if (prox) {
-        localRevelados = [...localRevelados, prox]
-        setRevelados(localRevelados)
-        broadcastState({ revelados: localRevelados })
-        c = 3
-        setContador(c)
-        broadcastState({ contador: c })
-
-        // se tiver dois últimos revelados sem par, fecha um par
-        if (localRevelados.length % 2 === 0) {
-          const a = localRevelados[localRevelados.length - 2]
-          const b = localRevelados[localRevelados.length - 1]
-          localPares = [...localPares, [a, b]]
-          setPares(localPares)
-          broadcastState({ pares: localPares })
-        }
-      }
-
-      // terminou?
-      if (fila.length === 0 && localRevelados.length === 16) {
-        if (timerRef.current) clearInterval(timerRef.current)
-        setConfirmavel(true)
-        setSorteioAtivo(false)
-        broadcastState({ confirmavel: true, sorteioAtivo: false })
-      }
-    }, 1000) // 1s por tick; a cada 3 ticks revela. (total ~4s por carta)
-  }
-
-  // Admin: confirma e grava confrontos (apaga e insere ida/volta)
-  async function confirmarConfrontos() {
-    if (!isAdmin) return
-    if (pares.length !== 8) {
-      toast.error('Sorteio incompleto.')
-      return
-    }
-    try {
-      const novos: Jogo[] = []
-      let ordem = 1
-      for (const [A, B] of pares) {
-        // ida
-        novos.push({
-          rodada: 1, ordem: ordem++,
-          id_time1: A.id, id_time2: B.id,
-          time1: A.nome, time2: B.nome,
-          gols_time1: null, gols_time2: null
-        })
-        // volta
-        novos.push({
-          rodada: 2, ordem: ordem++,
-          id_time1: B.id, id_time2: A.id,
-          time1: B.nome, time2: A.nome,
-          gols_time1: null, gols_time2: null
-        })
-      }
-
-      const { error: delErr } = await supabase.from('copa_playoff').delete().neq('id', 0)
-      if (delErr) throw delErr
-      const { error: insErr } = await supabase.from('copa_playoff').insert(novos)
-      if (insErr) throw insErr
-
-      toast.success('Confrontos confirmados!')
-      setSorteioAberto(false)
-      broadcastState({ sorteioAberto: false })
-      await carregarJogosELogos()
-    } catch (e) {
-      console.error(e)
-      toast.error('Erro ao confirmar confrontos')
-    }
-  }
-
-  /** ===== Layout de jogos atuais ===== */
+  /** Agrupar por rodada */
   const jogosPorRodada = useMemo(() => {
     const g = { 1: [] as Jogo[], 2: [] as Jogo[] }
     for (const j of jogos) (j.rodada === 1 ? g[1] : g[2]).push(j)
     return g
   }, [jogos])
 
-  function Escudo({ id, nome }: { id: string; nome: string }) {
-    const t = timesMap[id]
+  /** UI: escudo redondo */
+  function Escudo({ url, alt, size=32 }: { url?: string|null; alt: string; size?: number }) {
     return (
-      <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center bg-gray-800 border border-gray-700">
-        {t?.logo_url ? (
+      <div
+        className="rounded-full overflow-hidden bg-gray-800 border border-gray-700 flex items-center justify-center"
+        style={{ width: size, height: size }}
+      >
+        {url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={t.logo_url} alt={t.nome || nome} className="w-full h-full object-cover" />
+          <img src={url} alt={alt} className="w-full h-full object-cover" />
         ) : (
-          <span className="text-[10px] text-gray-300 px-1 text-center">
-            {(t?.nome || nome || 'TIM').slice(0,3).toUpperCase()}
-          </span>
+          <span className="text-[10px] text-gray-300 px-1">{alt.slice(0,3).toUpperCase()}</span>
         )}
       </div>
     )
   }
 
-  /** ===== UI ===== */
+  /** ====== Render ====== */
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 px-4 py-6">
       <div className="max-w-6xl mx-auto">
@@ -369,19 +401,21 @@ export default function PlayoffPage() {
           {!loadingAdmin && isAdmin && (
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  setSorteioAberto(true)
-                  broadcastState({ sorteioAberto: true })
-                }}
-                className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition"
+                onClick={apagarConfrontos}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 transition"
               >
-                Abrir painel
+                🗑️ Apagar confrontos
               </button>
+
               <button
-                onClick={iniciarSorteioAoVivo}
-                className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 transition"
+                onClick={iniciarSorteio}
+                disabled={jogos.length > 0}
+                title={jogos.length > 0 ? 'Apague os confrontos antes de sortear' : ''}
+                className={`px-4 py-2 rounded-lg transition ${
+                  jogos.length > 0 ? 'bg-green-600/50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'
+                }`}
               >
-                Sorteio ao vivo (9º–24º)
+                🎲 Sorteio ao vivo (9º–24º)
               </button>
             </div>
           )}
@@ -391,22 +425,21 @@ export default function PlayoffPage() {
           <div className="text-gray-400 animate-pulse">Carregando…</div>
         ) : (
           <>
-            {/* RODADA 1 (IDA) */}
+            {/* RODADA 1 */}
             {jogosPorRodada[1].length > 0 && (
               <section className="mb-10">
                 <h2 className="text-xl font-semibold mb-3">Rodada 1 (ida)</h2>
                 <div className="grid gap-4 md:grid-cols-2">
-                  {jogosPorRodada[1].map((jogo) => (
-                    <article key={jogo.id} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
+                  {jogosPorRodada[1].map((j) => (
+                    <article key={j.id} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
                       <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
-                        <span>Ordem #{jogo.ordem}</span>
-                        <span>ID {jogo.id}</span>
+                        <span>Ordem #{j.ordem}</span><span>ID {j.id}</span>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Escudo id={jogo.id_time1} nome={jogo.time1} />
+                        <Escudo url={timesMap[j.id_time1]?.logo_url} alt={timesMap[j.id_time1]?.nome || j.time1} />
                         <div className="flex-1">
-                          <div className="font-medium">{timesMap[jogo.id_time1]?.nome || jogo.time1}</div>
+                          <div className="font-medium">{timesMap[j.id_time1]?.nome || j.time1}</div>
                           <div className="text-xs text-gray-400">Mandante</div>
                         </div>
 
@@ -414,40 +447,38 @@ export default function PlayoffPage() {
                           <input
                             type="number" min={0}
                             className="w-16 text-center text-lg md:text-xl font-bold rounded-lg bg-gray-800 border border-gray-700 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-600"
-                            value={jogo.gols_time1 ?? ''}
-                            disabled={!isAdmin}
+                            value={j.gols_time1 ?? ''} disabled={!isAdmin}
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time1: Number.isNaN(gols as any) ? null : gols } : j))
+                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time1: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                           <span className="text-gray-400 font-semibold">x</span>
                           <input
                             type="number" min={0}
                             className="w-16 text-center text-lg md:text-xl font-bold rounded-lg bg-gray-800 border border-gray-700 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-600"
-                            value={jogo.gols_time2 ?? ''}
-                            disabled={!isAdmin}
+                            value={j.gols_time2 ?? ''} disabled={!isAdmin}
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time2: Number.isNaN(gols as any) ? null : gols } : j))
+                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time2: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                         </div>
 
                         <div className="flex-1 text-right">
-                          <div className="font-medium">{timesMap[jogo.id_time2]?.nome || jogo.time2}</div>
+                          <div className="font-medium">{timesMap[j.id_time2]?.nome || j.time2}</div>
                           <div className="text-xs text-gray-400">Visitante</div>
                         </div>
-                        <Escudo id={jogo.id_time2} nome={jogo.time2} />
+                        <Escudo url={timesMap[j.id_time2]?.logo_url} alt={timesMap[j.id_time2]?.nome || j.time2} />
                       </div>
 
                       {isAdmin && (
                         <div className="mt-4 flex justify-end">
                           <button
                             className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 transition text-sm"
-                            onClick={() => salvarPlacar(jogo)}
+                            onClick={() => salvarPlacar(j)}
                           >
                             Salvar placar
                           </button>
@@ -459,22 +490,21 @@ export default function PlayoffPage() {
               </section>
             )}
 
-            {/* RODADA 2 (VOLTA) */}
+            {/* RODADA 2 */}
             {jogosPorRodada[2].length > 0 && (
               <section className="mb-10">
                 <h2 className="text-xl font-semibold mb-3">Rodada 2 (volta)</h2>
                 <div className="grid gap-4 md:grid-cols-2">
-                  {jogosPorRodada[2].map((jogo) => (
-                    <article key={jogo.id} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
+                  {jogosPorRodada[2].map((j) => (
+                    <article key={j.id} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
                       <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
-                        <span>Ordem #{jogo.ordem}</span>
-                        <span>ID {jogo.id}</span>
+                        <span>Ordem #{j.ordem}</span><span>ID {j.id}</span>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Escudo id={jogo.id_time1} nome={jogo.time1} />
+                        <Escudo url={timesMap[j.id_time1]?.logo_url} alt={timesMap[j.id_time1]?.nome || j.time1} />
                         <div className="flex-1">
-                          <div className="font-medium">{timesMap[jogo.id_time1]?.nome || jogo.time1}</div>
+                          <div className="font-medium">{timesMap[j.id_time1]?.nome || j.time1}</div>
                           <div className="text-xs text-gray-400">Mandante</div>
                         </div>
 
@@ -482,40 +512,38 @@ export default function PlayoffPage() {
                           <input
                             type="number" min={0}
                             className="w-16 text-center text-lg md:text-xl font-bold rounded-lg bg-gray-800 border border-gray-700 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-600"
-                            value={jogo.gols_time1 ?? ''}
-                            disabled={!isAdmin}
+                            value={j.gols_time1 ?? ''} disabled={!isAdmin}
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time1: Number.isNaN(gols as any) ? null : gols } : j))
+                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time1: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                           <span className="text-gray-400 font-semibold">x</span>
                           <input
                             type="number" min={0}
                             className="w-16 text-center text-lg md:text-xl font-bold rounded-lg bg-gray-800 border border-gray-700 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-600"
-                            value={jogo.gols_time2 ?? ''}
-                            disabled={!isAdmin}
+                            value={j.gols_time2 ?? ''} disabled={!isAdmin}
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time2: Number.isNaN(gols as any) ? null : gols } : j))
+                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time2: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                         </div>
 
                         <div className="flex-1 text-right">
-                          <div className="font-medium">{timesMap[jogo.id_time2]?.nome || jogo.time2}</div>
+                          <div className="font-medium">{timesMap[j.id_time2]?.nome || j.time2}</div>
                           <div className="text-xs text-gray-400">Visitante</div>
                         </div>
-                        <Escudo id={jogo.id_time2} nome={jogo.time2} />
+                        <Escudo url={timesMap[j.id_time2]?.logo_url} alt={timesMap[j.id_time2]?.nome || j.time2} />
                       </div>
 
                       {isAdmin && (
                         <div className="mt-4 flex justify-end">
                           <button
                             className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 transition text-sm"
-                            onClick={() => salvarPlacar(jogo)}
+                            onClick={() => salvarPlacar(j)}
                           >
                             Salvar placar
                           </button>
@@ -530,7 +558,7 @@ export default function PlayoffPage() {
         )}
       </div>
 
-      {/* ===== Overlay do Sorteio Ao Vivo (todos assistem) ===== */}
+      {/* ===== Overlay do Sorteio ao Vivo ===== */}
       {sorteioAberto && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-3xl bg-gray-900 rounded-2xl border border-gray-700 shadow-xl p-6">
@@ -539,78 +567,60 @@ export default function PlayoffPage() {
               {isAdmin && (
                 <button
                   className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
-                  onClick={() => {
-                    setSorteioAberto(false)
-                    broadcastState({ sorteioAberto: false })
-                  }}
+                  onClick={() => { setSorteioAberto(false); broadcast({ sorteioAberto: false }) }}
                 >
                   Fechar
                 </button>
               )}
             </div>
 
-            {/* contador e status */}
-            <div className="flex items-center justify-between mb-4">
-              <div className={classNames(
-                'text-4xl font-bold tabular-nums',
-                sorteioAtivo ? 'text-green-400' : 'text-gray-400'
-              )}>
-                {sorteioAtivo ? `Revelando em: ${contador}` : (confirmavel ? 'Sorteio finalizado' : 'Aguardando início')}
+            <div className="flex items-center justify-between mb-5">
+              <div className={`text-3xl font-bold tabular-nums ${sorteioAtivo ? 'text-green-400' : 'text-gray-400'}`}>
+                {sorteioAtivo ? `Revelando em: ${contador}` : (confirmavel ? 'Sorteio finalizado' : 'Aguardando')}
               </div>
 
-              {isAdmin && !sorteioAtivo && !confirmavel && (
+              {!loadingAdmin && isAdmin && !sorteioAtivo && !confirmavel && (
                 <button
                   className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-500"
-                  onClick={iniciarSorteioAoVivo}
+                  onClick={iniciarSorteio}
                 >
                   Reiniciar sorteio
                 </button>
               )}
             </div>
 
-            {/* revelados como "cartas" */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {revelados.map((t, idx) => (
-                <div key={t.id + idx} className="h-20 rounded-xl border border-gray-700 bg-gray-800/60 flex items-center gap-3 px-3">
-                  <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-700 border border-gray-600 flex items-center justify-center">
-                    {t.logo_url
-                      ? <img src={t.logo_url} alt={t.nome} className="w-full h-full object-cover" />
-                      : <span className="text-[10px] text-gray-300">{t.nome.slice(0,3).toUpperCase()}</span>
-                    }
-                  </div>
-                  <div className="text-sm font-medium">{t.nome}</div>
-                </div>
-              ))}
+            {/* Cartas virando */}
+            <div className="grid grid-cols-5 items-center gap-2 mb-6">
+              {/* Carta A */}
+              <FlipCard flipped={flipA} time={parAtual.A} />
+              <div className="text-center text-gray-400">x</div>
+              {/* Carta B */}
+              <FlipCard flipped={flipB} time={parAtual.B} />
+              <div className="col-span-2 text-right text-sm text-gray-400">
+                Restantes: {fila.length}
+              </div>
             </div>
 
-            {/* pares formados */}
+            {/* Lista de pares já formados */}
             <div className="space-y-2">
-              {pares.map(([a, b], i) => (
+              {pares.map(([a,b], i) => (
                 <div key={a.id + b.id + i} className="rounded-xl border border-gray-700 bg-gray-800/60 p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-700 border border-gray-600 flex items-center justify-center">
-                        {a.logo_url
-                          ? <img src={a.logo_url} alt={a.nome} className="w-full h-full object-cover" />
-                          : <span className="text-[10px] text-gray-300">{a.nome.slice(0,3).toUpperCase()}</span>}
-                      </div>
+                      <Escudo url={a.logo_url} alt={a.nome} />
                       <span className="font-medium">{a.nome}</span>
                     </div>
                     <span className="text-gray-400">x</span>
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{b.nome}</span>
-                      <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-700 border border-gray-600 flex items-center justify-center">
-                        {b.logo_url
-                          ? <img src={b.logo_url} alt={b.nome} className="w-full h-full object-cover" />
-                          : <span className="text-[10px] text-gray-300">{b.nome.slice(0,3).toUpperCase()}</span>}
-                      </div>
+                      <Escudo url={b.logo_url} alt={b.nome} />
                     </div>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* ações finais */}
+            {/* Ações finais */}
             <div className="mt-6 flex justify-end gap-2">
               {isAdmin && confirmavel && (
                 <button
@@ -620,21 +630,66 @@ export default function PlayoffPage() {
                   ✅ Confirmar confrontos
                 </button>
               )}
-              {(!loadingAdmin && isAdmin) && (
-                <button
-                  className="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700"
-                  onClick={() => {
-                    setSorteioAberto(false)
-                    broadcastState({ sorteioAberto: false })
-                  }}
-                >
-                  Fechar
-                </button>
-              )}
             </div>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** ====== Componente de carta com flip ====== */
+function FlipCard({ flipped, time }: { flipped: boolean; time: TimeRow | null }) {
+  return (
+    <div className="relative w-full h-28 perspective">
+      <style jsx>{`
+        .perspective { perspective: 1000px; }
+        .flip-inner {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          transition: transform 0.6s;
+          transform-style: preserve-3d;
+        }
+        .flipped { transform: rotateY(180deg); }
+        .flip-face {
+          position: absolute;
+          width: 100%;
+          height: 100%;
+          -webkit-backface-visibility: hidden;
+          backface-visibility: hidden;
+          border-radius: 0.75rem;
+          border: 1px solid rgba(63,63,70,1);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(39,39,42,0.7);
+        }
+        .flip-back { transform: rotateY(180deg); }
+      `}</style>
+
+      <div className={`flip-inner ${flipped ? 'flipped' : ''}`}>
+        {/* Frente (oculta antes do flip) */}
+        <div className="flip-face">
+          <span className="text-gray-400">?</span>
+        </div>
+
+        {/* Verso (aparece após flip) */}
+        <div className="flip-face flip-back px-3">
+          {time ? (
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-700 border border-gray-600 flex items-center justify-center">
+                {time.logo_url
+                  ? <img src={time.logo_url} alt={time.nome} className="w-full h-full object-cover" />
+                  : <span className="text-xs text-gray-300">{time.nome.slice(0,3).toUpperCase()}</span>}
+              </div>
+              <div className="font-medium">{time.nome}</div>
+            </div>
+          ) : (
+            <span className="text-gray-400">—</span>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
