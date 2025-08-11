@@ -65,6 +65,7 @@ export default function PlayoffPage() {
   const [flipA, setFlipA] = useState(false)
   const [flipB, setFlipB] = useState(false)
   const [confirmavel, setConfirmavel] = useState(false)
+  const [confirming, setConfirming] = useState(false) // trava anti duplo clique
 
   // realtime infra
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -218,74 +219,71 @@ export default function PlayoffPage() {
       parAtual: {A:null, B:null}, flipA: false, flipB: false, confirmavel: false
     })
 
-    // inicia loop
+    // inicia loop com HOLD de 3s para cada par
     startTicker(lista)
   }
 
-  /** ====== Loop do sorteio: 3..2..1 -> flip A -> flip B -> commit ====== */
+  /** ====== Loop do sorteio com HOLD de 3s ====== */
+  const HOLD_MS = 3000 // 3 segundos exibindo o par antes de seguir
+
   function startTicker(initialQueue: TimeRow[]) {
     if (tickerRef.current) clearInterval(tickerRef.current)
 
     let queue = [...initialQueue]
-    let step: 'countdown' | 'flipA' | 'flipB' | 'commit' = 'countdown'
-    let localCont = 3
     let localPar: {A: TimeRow | null; B: TimeRow | null} = {A:null, B:null}
     let localPares: Array<[TimeRow, TimeRow]> = []
 
-    tickerRef.current = setInterval(() => {
-      if (step === 'countdown') {
-        if (localCont > 0) {
-          localCont -= 1
-          setContador(localCont)
-          broadcast({ contador: localCont })
-        } else {
-          localPar = { A: queue.shift() || null, B: null }
-          setParAtual(localPar)
-          setFlipA(false); setFlipB(false)
-          broadcast({ parAtual: localPar, flipA: false, flipB: false })
-          step = 'flipA'
+    const nextCountdown = () => {
+      setContador(3); broadcast({ contador: 3 })
+      let c = 3
+      if (tickerRef.current) clearInterval(tickerRef.current)
+      tickerRef.current = setInterval(() => {
+        c -= 1
+        setContador(c); broadcast({ contador: c })
+        if (c <= 0) {
+          clearInterval(tickerRef.current!)
+          revealA()
         }
+      }, 1000)
+    }
+
+    const revealA = () => {
+      localPar = { A: queue.shift() || null, B: null }
+      setParAtual(localPar); setFlipA(false); setFlipB(false)
+      broadcast({ parAtual: localPar, flipA: false, flipB: false })
+      // pequena latência para a animação
+      setTimeout(() => { setFlipA(true); broadcast({ flipA: true }); revealB() }, 300)
+    }
+
+    const revealB = () => {
+      localPar = { ...localPar, B: queue.shift() || null }
+      setParAtual(localPar); broadcast({ parAtual: localPar })
+      setTimeout(() => { setFlipB(true); broadcast({ flipB: true }); holdPair() }, 300)
+    }
+
+    const holdPair = () => {
+      // mantém o par exibido por 3s
+      setTimeout(() => { commitPair() }, HOLD_MS)
+    }
+
+    const commitPair = () => {
+      if (localPar.A && localPar.B) {
+        localPares = [...localPares, [localPar.A, localPar.B]]
+        setPares(localPares); broadcast({ pares: localPares })
+      }
+      if (queue.length === 0) {
+        setSorteioAtivo(false); setConfirmavel(true)
+        broadcast({ sorteioAtivo: false, confirmavel: true })
         return
       }
+      nextCountdown()
+    }
 
-      if (step === 'flipA') {
-        setFlipA(true)
-        broadcast({ flipA: true })
-        step = 'flipB'
-        return
-      }
+    // estado inicial
+    setSorteioAtivo(true); setConfirmavel(false)
+    broadcast({ sorteioAtivo: true, confirmavel: false })
 
-      if (step === 'flipB') {
-        localPar = { ...localPar, B: queue.shift() || null }
-        setParAtual(localPar)
-        broadcast({ parAtual: localPar })
-        setFlipB(true)
-        broadcast({ flipB: true })
-        step = 'commit'
-        return
-      }
-
-      if (step === 'commit') {
-        if (localPar.A && localPar.B) {
-          localPares = [...localPares, [localPar.A, localPar.B]]
-          setPares(localPares)
-          broadcast({ pares: localPares })
-        }
-        if (queue.length === 0) {
-          if (tickerRef.current) clearInterval(tickerRef.current)
-          setSorteioAtivo(false)
-          setConfirmavel(true)
-          broadcast({ sorteioAtivo: false, confirmavel: true })
-        } else {
-          localCont = 3
-          setContador(localCont)
-          broadcast({ contador: localCont })
-          setFlipA(false); setFlipB(false)
-          broadcast({ flipA: false, flipB: false })
-          step = 'countdown'
-        }
-      }
-    }, 1000)
+    nextCountdown()
   }
 
   /** ====== Confirmar confrontos ====== */
@@ -294,6 +292,7 @@ export default function PlayoffPage() {
     if (pares.length !== 8) { toast.error('Sorteio incompleto.'); return }
 
     try {
+      setConfirming(true)
       const novos: Jogo[] = []
       let ordem = 1
       for (const [A, B] of pares) {
@@ -316,11 +315,17 @@ export default function PlayoffPage() {
       toast.success('Confrontos confirmados!')
       setSorteioAberto(false)
       // fecha para todo mundo
-      channelRef.current?.send({ type: 'broadcast', event: 'state', payload: { ...stateRef.current, sorteioAberto: false } })
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'state',
+        payload: { ...stateRef.current, sorteioAberto: false }
+      })
       await carregarJogosELogos()
     } catch (e) {
       console.error(e)
       toast.error('Erro ao confirmar confrontos')
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -559,7 +564,13 @@ export default function PlayoffPage() {
               {isAdmin && (
                 <button
                   className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
-                  onClick={() => { setSorteioAberto(false); channelRef.current?.send({ type:'broadcast', event:'state', payload:{ ...stateRef.current, sorteioAberto:false } }) }}
+                  onClick={() => {
+                    setSorteioAberto(false)
+                    channelRef.current?.send({
+                      type:'broadcast', event:'state',
+                      payload:{ ...stateRef.current, sorteioAberto:false }
+                    })
+                  }}
                 >
                   Fechar
                 </button>
@@ -610,12 +621,18 @@ export default function PlayoffPage() {
             </div>
 
             <div className="mt-6 flex justify-end gap-2">
-              {isAdmin && confirmavel && (
+              {isAdmin && (
                 <button
-                  className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500"
+                  className={`px-4 py-2 rounded-lg ${
+                    pares.length === 8 && !confirming
+                      ? 'bg-green-600 hover:bg-green-500'
+                      : 'bg-green-600/50 cursor-not-allowed'
+                  }`}
+                  disabled={pares.length !== 8 || confirming}
                   onClick={confirmarConfrontos}
+                  title={pares.length !== 8 ? 'Aguarde formar os 8 confrontos' : ''}
                 >
-                  ✅ Confirmar confrontos
+                  {confirming ? 'Gravando…' : '✅ Confirmar confrontos'}
                 </button>
               )}
             </div>
