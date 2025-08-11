@@ -16,7 +16,6 @@ interface TimeRow {
   nome: string
   logo_url: string | null
 }
-
 interface Jogo {
   id?: number
   rodada: 1 | 2
@@ -56,39 +55,50 @@ export default function PlayoffPage() {
   const [loading, setLoading] = useState(true)
   const [timesMap, setTimesMap] = useState<Record<string, TimeRow>>({})
 
-  // ===== Estado do sorteio ao vivo (sincronizado)
-  const [sorteioAberto, setSorteioAberto] = useState(false)  // modal visível para todos
-  const [sorteioAtivo, setSorteioAtivo] = useState(false)    // cronômetro rodando
-  const [contador, setContador] = useState(3)                // 3..2..1
-  const [fila, setFila] = useState<TimeRow[]>([])            // times restantes
-  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // pares já revelados
+  // sorteio ao vivo (sincronizado)
+  const [sorteioAberto, setSorteioAberto] = useState(false)
+  const [sorteioAtivo, setSorteioAtivo] = useState(false)
+  const [contador, setContador] = useState(3)
+  const [fila, setFila] = useState<TimeRow[]>([])
+  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([])
   const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
   const [flipA, setFlipA] = useState(false)
   const [flipB, setFlipB] = useState(false)
   const [confirmavel, setConfirmavel] = useState(false)
 
-  // realtime
+  // realtime infra
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const tickerRef = useRef<NodeJS.Timeout | null>(null)
 
-  /** ====== Mount ====== */
+  // snapshot atual do estado (para evitar closures velhas no broadcast)
+  const stateRef = useRef({
+    sorteioAberto, sorteioAtivo, contador, fila, pares, parAtual, flipA, flipB, confirmavel
+  })
+  useEffect(() => {
+    stateRef.current = { sorteioAberto, sorteioAtivo, contador, fila, pares, parAtual, flipA, flipB, confirmavel }
+  }, [sorteioAberto, sorteioAtivo, contador, fila, pares, parAtual, flipA, flipB, confirmavel])
+
   useEffect(() => {
     carregarJogosELogos()
 
     // canal realtime
     const ch = supabase.channel('playoff-sorteio', { config: { broadcast: { self: true } } })
+
+    // LISTENER COM MERGE DEFENSIVO
     ch.on('broadcast', { event: 'state' }, ({ payload }) => {
       const p = payload || {}
-      setSorteioAberto(!!p.sorteioAberto)
-      setSorteioAtivo(!!p.sorteioAtivo)
-      setContador(typeof p.contador === 'number' ? p.contador : 3)
-      setFila(p.fila || [])
-      setPares(p.pares || [])
-      setParAtual(p.parAtual || { A:null, B:null })
-      setFlipA(!!p.flipA)
-      setFlipB(!!p.flipB)
-      setConfirmavel(!!p.confirmavel)
+
+      if ('sorteioAberto' in p) setSorteioAberto(!!p.sorteioAberto)
+      if ('sorteioAtivo' in p) setSorteioAtivo(!!p.sorteioAtivo)
+      if ('contador' in p) setContador(typeof p.contador === 'number' ? p.contador : 3)
+      if ('fila' in p) setFila(p.fila || [])
+      if ('pares' in p) setPares(p.pares || [])
+      if ('parAtual' in p) setParAtual(p.parAtual || { A:null, B:null })
+      if ('flipA' in p) setFlipA(!!p.flipA)
+      if ('flipB' in p) setFlipB(!!p.flipB)
+      if ('confirmavel' in p) setConfirmavel(!!p.confirmavel)
     })
+
     ch.subscribe()
     channelRef.current = ch
 
@@ -98,21 +108,14 @@ export default function PlayoffPage() {
     }
   }, [])
 
-  /** ====== Helpers broadcast ====== */
+  // BROADCAST COM SNAPSHOT (força sorteioAberto: true durante o sorteio)
   function broadcast(partial: any) {
-    const snapshot = {
-      sorteioAberto,
-      sorteioAtivo,
-      contador,
-      fila,
-      pares,
-      parAtual,
-      flipA,
-      flipB,
-      confirmavel,
-      ...partial
-    }
-    channelRef.current?.send({ type: 'broadcast', event: 'state', payload: snapshot })
+    const base = stateRef.current
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'state',
+      payload: { ...base, ...partial, sorteioAberto: true }
+    })
   }
 
   /** ====== Dados dos jogos ====== */
@@ -150,7 +153,7 @@ export default function PlayoffPage() {
     }
   }
 
-  /** ====== Botão: Apagar confrontos ====== */
+  /** ====== Apagar confrontos ====== */
   async function apagarConfrontos() {
     if (!isAdmin) return
     const temPlacar = jogos.some(j => j.gols_time1 != null || j.gols_time2 != null)
@@ -166,11 +169,11 @@ export default function PlayoffPage() {
     await carregarJogosELogos()
   }
 
-  /** ====== Sorteio ao vivo (admin inicia) ====== */
+  /** ====== Iniciar sorteio ao vivo ====== */
   async function iniciarSorteio() {
     if (!isAdmin) return
 
-    // trava backend: não permitir se ainda há jogos na tabela
+    // trava: só sorteia se não houver jogos
     const { count, error: cErr } = await supabase
       .from('copa_playoff')
       .select('*', { count: 'exact', head: true })
@@ -180,7 +183,6 @@ export default function PlayoffPage() {
       return
     }
 
-    // pega 9º..24º e embaralha
     const { data: classificacao, error } = await supabase
       .from('classificacao')
       .select('id_time, times ( nome, logo_url )')
@@ -191,40 +193,36 @@ export default function PlayoffPage() {
       return
     }
 
-    const faixa = classificacao.slice(8, 24)
+    const faixa = classificacao.slice(8, 24) // 9º..24º
     if (faixa.length !== 16) {
       toast.error('Precisamos de 16 times (9º ao 24º).')
       return
     }
 
     const lista: TimeRow[] = shuffle(
-      faixa.map((r: any) => ({
-        id: r.id_time,
-        nome: nomeRel(r),
-        logo_url: logoRel(r)
-      }))
+      faixa.map((r: any) => ({ id: r.id_time, nome: nomeRel(r), logo_url: logoRel(r) }))
     )
 
-    // reset sorteio
+    // reset estado
     setSorteioAberto(true)
     setSorteioAtivo(true)
     setContador(3)
     setFila(lista)
     setPares([])
     setParAtual({ A:null, B:null })
-    setFlipA(false)
-    setFlipB(false)
+    setFlipA(false); setFlipB(false)
     setConfirmavel(false)
+    // broadcast snapshot inicial
     broadcast({
-      sorteioAberto: true, sorteioAtivo: true, contador: 3, fila: lista,
-      pares: [], parAtual: {A:null, B:null}, flipA: false, flipB: false, confirmavel: false
+      sorteioAtivo: true, contador: 3, fila: lista, pares: [],
+      parAtual: {A:null, B:null}, flipA: false, flipB: false, confirmavel: false
     })
 
     // inicia loop
     startTicker(lista)
   }
 
-  /** Tick do sorteio: 3..2..1 -> vira cartas A e B -> compõe par -> repete */
+  /** ====== Loop do sorteio: 3..2..1 -> flip A -> flip B -> commit ====== */
   function startTicker(initialQueue: TimeRow[]) {
     if (tickerRef.current) clearInterval(tickerRef.current)
 
@@ -241,7 +239,6 @@ export default function PlayoffPage() {
           setContador(localCont)
           broadcast({ contador: localCont })
         } else {
-          // prepara próxima carta A
           localPar = { A: queue.shift() || null, B: null }
           setParAtual(localPar)
           setFlipA(false); setFlipB(false)
@@ -252,7 +249,6 @@ export default function PlayoffPage() {
       }
 
       if (step === 'flipA') {
-        // vira carta A
         setFlipA(true)
         broadcast({ flipA: true })
         step = 'flipB'
@@ -260,7 +256,6 @@ export default function PlayoffPage() {
       }
 
       if (step === 'flipB') {
-        // pega e vira carta B
         localPar = { ...localPar, B: queue.shift() || null }
         setParAtual(localPar)
         broadcast({ parAtual: localPar })
@@ -271,13 +266,11 @@ export default function PlayoffPage() {
       }
 
       if (step === 'commit') {
-        // commit do par revelado
         if (localPar.A && localPar.B) {
           localPares = [...localPares, [localPar.A, localPar.B]]
           setPares(localPares)
           broadcast({ pares: localPares })
         }
-        // prepara próximo ciclo ou finaliza
         if (queue.length === 0) {
           if (tickerRef.current) clearInterval(tickerRef.current)
           setSorteioAtivo(false)
@@ -295,7 +288,7 @@ export default function PlayoffPage() {
     }, 1000)
   }
 
-  /** Confirmar confrontos (grava ida/volta) */
+  /** ====== Confirmar confrontos ====== */
   async function confirmarConfrontos() {
     if (!isAdmin) return
     if (pares.length !== 8) { toast.error('Sorteio incompleto.'); return }
@@ -306,14 +299,12 @@ export default function PlayoffPage() {
       for (const [A, B] of pares) {
         novos.push({
           rodada: 1, ordem: ordem++,
-          id_time1: A.id, id_time2: B.id,
-          time1: A.nome, time2: B.nome,
+          id_time1: A.id, id_time2: B.id, time1: A.nome, time2: B.nome,
           gols_time1: null, gols_time2: null
         })
         novos.push({
           rodada: 2, ordem: ordem++,
-          id_time1: B.id, id_time2: A.id,
-          time1: B.nome, time2: A.nome,
+          id_time1: B.id, id_time2: A.id, time1: B.nome, time2: A.nome,
           gols_time1: null, gols_time2: null
         })
       }
@@ -324,7 +315,8 @@ export default function PlayoffPage() {
 
       toast.success('Confrontos confirmados!')
       setSorteioAberto(false)
-      broadcast({ sorteioAberto: false })
+      // fecha para todo mundo
+      channelRef.current?.send({ type: 'broadcast', event: 'state', payload: { ...stateRef.current, sorteioAberto: false } })
       await carregarJogosELogos()
     } catch (e) {
       console.error(e)
@@ -332,7 +324,7 @@ export default function PlayoffPage() {
     }
   }
 
-  /** Salvar placar + pagar 14mi ao vencedor (idempotente) */
+  /** ====== Salvar placar + pagar 14mi ====== */
   async function salvarPlacar(jogo: Jogo) {
     if (!isAdmin) return
     try {
@@ -567,7 +559,7 @@ export default function PlayoffPage() {
               {isAdmin && (
                 <button
                   className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
-                  onClick={() => { setSorteioAberto(false); broadcast({ sorteioAberto: false }) }}
+                  onClick={() => { setSorteioAberto(false); channelRef.current?.send({ type:'broadcast', event:'state', payload:{ ...stateRef.current, sorteioAberto:false } }) }}
                 >
                   Fechar
                 </button>
@@ -587,21 +579,18 @@ export default function PlayoffPage() {
                   Reiniciar sorteio
                 </button>
               )}
+
+              <div className="text-sm text-gray-400">Restantes: {fila.length}</div>
             </div>
 
             {/* Cartas virando */}
-            <div className="grid grid-cols-5 items-center gap-2 mb-6">
-              {/* Carta A */}
+            <div className="grid grid-cols-3 items-center gap-2 mb-6">
               <FlipCard flipped={flipA} time={parAtual.A} />
               <div className="text-center text-gray-400">x</div>
-              {/* Carta B */}
               <FlipCard flipped={flipB} time={parAtual.B} />
-              <div className="col-span-2 text-right text-sm text-gray-400">
-                Restantes: {fila.length}
-              </div>
             </div>
 
-            {/* Lista de pares já formados */}
+            {/* Pares já formados */}
             <div className="space-y-2">
               {pares.map(([a,b], i) => (
                 <div key={a.id + b.id + i} className="rounded-xl border border-gray-700 bg-gray-800/60 p-3">
@@ -620,7 +609,6 @@ export default function PlayoffPage() {
               ))}
             </div>
 
-            {/* Ações finais */}
             <div className="mt-6 flex justify-end gap-2">
               {isAdmin && confirmavel && (
                 <button
@@ -638,7 +626,7 @@ export default function PlayoffPage() {
   )
 }
 
-/** ====== Componente de carta com flip ====== */
+/** ====== Carta com flip ====== */
 function FlipCard({ flipped, time }: { flipped: boolean; time: TimeRow | null }) {
   return (
     <div className="relative w-full h-28 perspective">
@@ -669,12 +657,9 @@ function FlipCard({ flipped, time }: { flipped: boolean; time: TimeRow | null })
       `}</style>
 
       <div className={`flip-inner ${flipped ? 'flipped' : ''}`}>
-        {/* Frente (oculta antes do flip) */}
         <div className="flip-face">
           <span className="text-gray-400">?</span>
         </div>
-
-        {/* Verso (aparece após flip) */}
         <div className="flip-face flip-back px-3">
           {time ? (
             <div className="flex items-center gap-3">
