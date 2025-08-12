@@ -69,17 +69,7 @@ export default function PlayoffPage() {
 
   // realtime infra
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null) // legado (limpeza)
-  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
-
-  function clearTimers() {
-    if (tickerRef.current) {
-      clearInterval(tickerRef.current)
-      tickerRef.current = null
-    }
-    for (const t of timeoutsRef.current) clearTimeout(t)
-    timeoutsRef.current = []
-  }
+  const tickerRef = useRef<NodeJS.Timeout | null>(null)
 
   // snapshot atual do estado (para evitar closures velhas no broadcast)
   const stateRef = useRef({
@@ -115,7 +105,7 @@ export default function PlayoffPage() {
 
     return () => {
       ch.unsubscribe()
-      clearTimers()
+      if (tickerRef.current) clearInterval(tickerRef.current)
     }
   }, [])
 
@@ -184,8 +174,6 @@ export default function PlayoffPage() {
   async function iniciarSorteio() {
     if (!isAdmin) return
 
-    clearTimers() // garante que nada antigo está rodando
-
     // trava: só sorteia se não houver jogos
     const { count, error: cErr } = await supabase
       .from('copa_playoff')
@@ -235,73 +223,67 @@ export default function PlayoffPage() {
     startTicker(lista)
   }
 
-  /** ====== Loop do sorteio com HOLD de 3s (sequência de timeouts) ====== */
+  /** ====== Loop do sorteio com HOLD de 3s ====== */
   const HOLD_MS = 3000 // 3 segundos exibindo o par antes de seguir
 
   function startTicker(initialQueue: TimeRow[]) {
-    clearTimers() // zera timers anteriores
+    if (tickerRef.current) clearInterval(tickerRef.current)
 
     let queue = [...initialQueue]
     let localPar: {A: TimeRow | null; B: TimeRow | null} = {A:null, B:null}
     let localPares: Array<[TimeRow, TimeRow]> = []
 
-    const schedule = (fn: () => void, ms: number) => {
-      const t = setTimeout(fn, ms)
-      timeoutsRef.current.push(t)
+    const nextCountdown = () => {
+      setContador(3); broadcast({ contador: 3 })
+      let c = 3
+      if (tickerRef.current) clearInterval(tickerRef.current)
+      tickerRef.current = setInterval(() => {
+        c -= 1
+        setContador(c); broadcast({ contador: c })
+        if (c <= 0) {
+          clearInterval(tickerRef.current!)
+          revealA()
+        }
+      }, 1000)
     }
 
-    const runNext = () => {
+    const revealA = () => {
+      localPar = { A: queue.shift() || null, B: null }
+      setParAtual(localPar); setFlipA(false); setFlipB(false)
+      broadcast({ parAtual: localPar, flipA: false, flipB: false })
+      // pequena latência para a animação
+      setTimeout(() => { setFlipA(true); broadcast({ flipA: true }); revealB() }, 300)
+    }
+
+    const revealB = () => {
+      localPar = { ...localPar, B: queue.shift() || null }
+      setParAtual(localPar); broadcast({ parAtual: localPar })
+      setTimeout(() => { setFlipB(true); broadcast({ flipB: true }); holdPair() }, 300)
+    }
+
+    const holdPair = () => {
+      // mantém o par exibido por 3s
+      setTimeout(() => { commitPair() }, HOLD_MS)
+    }
+
+    const commitPair = () => {
+      if (localPar.A && localPar.B) {
+        localPares = [...localPares, [localPar.A, localPar.B]]
+        setPares(localPares); broadcast({ pares: localPares })
+      }
       if (queue.length === 0) {
-        setSorteioAtivo(false)
-        setConfirmavel(true)
+        setSorteioAtivo(false); setConfirmavel(true)
         broadcast({ sorteioAtivo: false, confirmavel: true })
         return
       }
-
-      // ===== Countdown 3..2..1 (3s total) =====
-      setContador(3); broadcast({ contador: 3 })
-      schedule(() => { setContador(2); broadcast({ contador: 2 }) }, 1000)
-      schedule(() => { setContador(1); broadcast({ contador: 1 }) }, 2000)
-
-      // Após 3s: revela A
-      schedule(() => {
-        localPar = { A: queue.shift() || null, B: null }
-        setParAtual(localPar); setFlipA(false); setFlipB(false)
-        setFila([...queue]); broadcast({ parAtual: localPar, flipA: false, flipB: false, fila: [...queue] })
-
-        // 0.3s depois: vira A
-        schedule(() => {
-          setFlipA(true); broadcast({ flipA: true })
-
-          // prepara B
-          localPar = { ...localPar, B: queue.shift() || null }
-          setParAtual(localPar)
-          setFila([...queue])
-          broadcast({ parAtual: localPar, fila: [...queue] })
-
-          // +0.3s: vira B
-          schedule(() => {
-            setFlipB(true); broadcast({ flipB: true })
-
-            // ===== HOLD de 3s com o par completo na tela =====
-            schedule(() => {
-              if (localPar.A && localPar.B) {
-                localPares = [...localPares, [localPar.A, localPar.B]]
-                setPares(localPares); broadcast({ pares: localPares })
-              }
-              // segue para o próximo par
-              runNext()
-            }, HOLD_MS)
-          }, 300)
-        }, 300)
-      }, 3000)
+      nextCountdown()
     }
 
-    // estado inicial do loop
+    // estado inicial
     setSorteioAtivo(true); setConfirmavel(false)
     broadcast({ sorteioAtivo: true, confirmavel: false })
 
-    runNext()
+    nextCountdown()
   }
 
   /** ====== Confirmar confrontos ====== */
@@ -584,7 +566,6 @@ export default function PlayoffPage() {
                   className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
                   onClick={() => {
                     setSorteioAberto(false)
-                    clearTimers()
                     channelRef.current?.send({
                       type:'broadcast', event:'state',
                       payload:{ ...stateRef.current, sorteioAberto:false }
