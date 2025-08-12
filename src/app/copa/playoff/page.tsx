@@ -695,4 +695,3 @@ function FlipCard({ flipped, time }: { flipped: boolean; time: TimeRow | null })
     </div>
   )
 }
-
