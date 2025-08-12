@@ -57,27 +57,25 @@ export default function PlayoffPage() {
 
   // sorteio ao vivo (sincronizado)
   const [sorteioAberto, setSorteioAberto] = useState(false)
-  const [sorteioAtivo, setSorteioAtivo] = useState(false)
-  const [contador, setContador] = useState(3)
+  const [sorteioAtivo, setSorteioAtivo] = useState(false) // só para status visual
   const [fila, setFila] = useState<TimeRow[]>([])
   const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([])
   const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
   const [flipA, setFlipA] = useState(false)
   const [flipB, setFlipB] = useState(false)
-  const [confirmavel, setConfirmavel] = useState(false)
+  const [confirmavel, setConfirmavel] = useState(false) // libera "Gravar confrontos" quando 8 pares
   const [confirming, setConfirming] = useState(false) // trava anti duplo clique
 
   // realtime infra
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  const tickerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // snapshot atual do estado (para evitar closures velhas no broadcast)
+  // snapshot do estado (pro broadcast consistente)
   const stateRef = useRef({
-    sorteioAberto, sorteioAtivo, contador, fila, pares, parAtual, flipA, flipB, confirmavel
+    sorteioAberto, sorteioAtivo, fila, pares, parAtual, flipA, flipB, confirmavel
   })
   useEffect(() => {
-    stateRef.current = { sorteioAberto, sorteioAtivo, contador, fila, pares, parAtual, flipA, flipB, confirmavel }
-  }, [sorteioAberto, sorteioAtivo, contador, fila, pares, parAtual, flipA, flipB, confirmavel])
+    stateRef.current = { sorteioAberto, sorteioAtivo, fila, pares, parAtual, flipA, flipB, confirmavel }
+  }, [sorteioAberto, sorteioAtivo, fila, pares, parAtual, flipA, flipB, confirmavel])
 
   useEffect(() => {
     carregarJogosELogos()
@@ -91,7 +89,6 @@ export default function PlayoffPage() {
 
       if ('sorteioAberto' in p) setSorteioAberto(!!p.sorteioAberto)
       if ('sorteioAtivo' in p) setSorteioAtivo(!!p.sorteioAtivo)
-      if ('contador' in p) setContador(typeof p.contador === 'number' ? p.contador : 3)
       if ('fila' in p) setFila(p.fila || [])
       if ('pares' in p) setPares(p.pares || [])
       if ('parAtual' in p) setParAtual(p.parAtual || { A:null, B:null })
@@ -105,11 +102,10 @@ export default function PlayoffPage() {
 
     return () => {
       ch.unsubscribe()
-      if (tickerRef.current) clearInterval(tickerRef.current)
     }
   }, [])
 
-  // BROADCAST COM SNAPSHOT (força sorteioAberto: true durante o sorteio)
+  // BROADCAST sempre coerente (mantém sorteioAberto: true enquanto durar)
   function broadcast(partial: any) {
     const base = stateRef.current
     channelRef.current?.send({
@@ -170,7 +166,7 @@ export default function PlayoffPage() {
     await carregarJogosELogos()
   }
 
-  /** ====== Iniciar sorteio ao vivo ====== */
+  /** ====== Iniciar sorteio ao vivo (prepara fila 9º–24º) ====== */
   async function iniciarSorteio() {
     if (!isAdmin) return
 
@@ -207,86 +203,84 @@ export default function PlayoffPage() {
     // reset estado
     setSorteioAberto(true)
     setSorteioAtivo(true)
-    setContador(3)
     setFila(lista)
     setPares([])
     setParAtual({ A:null, B:null })
     setFlipA(false); setFlipB(false)
     setConfirmavel(false)
-    // broadcast snapshot inicial
+
     broadcast({
-      sorteioAtivo: true, contador: 3, fila: lista, pares: [],
-      parAtual: {A:null, B:null}, flipA: false, flipB: false, confirmavel: false
+      sorteioAtivo: true,
+      fila: lista,
+      pares: [],
+      parAtual: {A:null, B:null},
+      flipA: false, flipB: false,
+      confirmavel: false
     })
-
-    // inicia loop com HOLD de 3s para cada par
-    startTicker(lista)
   }
 
-  /** ====== Loop do sorteio com HOLD de 3s ====== */
-  const HOLD_MS = 3000 // 3 segundos exibindo o par antes de seguir
+  /** ====== Fluxo manual ====== */
+  function sortearTime1() {
+    if (!isAdmin) return
+    if (parAtual.A) return
+    if (fila.length === 0) return
 
-  function startTicker(initialQueue: TimeRow[]) {
-    if (tickerRef.current) clearInterval(tickerRef.current)
+    // escolhe aleatório da fila
+    const idx = Math.floor(Math.random() * fila.length)
+    const escolhido = fila[idx]
+    const novaFila = [...fila]
+    novaFila.splice(idx, 1)
 
-    let queue = [...initialQueue]
-    let localPar: {A: TimeRow | null; B: TimeRow | null} = {A:null, B:null}
-    let localPares: Array<[TimeRow, TimeRow]> = []
+    const novoPar = { A: escolhido, B: parAtual.B }
+    setFila(novaFila)
+    setParAtual(novoPar)
+    setFlipA(true) // vira carta A
 
-    const nextCountdown = () => {
-      setContador(3); broadcast({ contador: 3 })
-      let c = 3
-      if (tickerRef.current) clearInterval(tickerRef.current)
-      tickerRef.current = setInterval(() => {
-        c -= 1
-        setContador(c); broadcast({ contador: c })
-        if (c <= 0) {
-          clearInterval(tickerRef.current!)
-          revealA()
-        }
-      }, 1000)
-    }
-
-    const revealA = () => {
-      localPar = { A: queue.shift() || null, B: null }
-      setParAtual(localPar); setFlipA(false); setFlipB(false)
-      broadcast({ parAtual: localPar, flipA: false, flipB: false })
-      // pequena latência para a animação
-      setTimeout(() => { setFlipA(true); broadcast({ flipA: true }); revealB() }, 300)
-    }
-
-    const revealB = () => {
-      localPar = { ...localPar, B: queue.shift() || null }
-      setParAtual(localPar); broadcast({ parAtual: localPar })
-      setTimeout(() => { setFlipB(true); broadcast({ flipB: true }); holdPair() }, 300)
-    }
-
-    const holdPair = () => {
-      // mantém o par exibido por 3s
-      setTimeout(() => { commitPair() }, HOLD_MS)
-    }
-
-    const commitPair = () => {
-      if (localPar.A && localPar.B) {
-        localPares = [...localPares, [localPar.A, localPar.B]]
-        setPares(localPares); broadcast({ pares: localPares })
-      }
-      if (queue.length === 0) {
-        setSorteioAtivo(false); setConfirmavel(true)
-        broadcast({ sorteioAtivo: false, confirmavel: true })
-        return
-      }
-      nextCountdown()
-    }
-
-    // estado inicial
-    setSorteioAtivo(true); setConfirmavel(false)
-    broadcast({ sorteioAtivo: true, confirmavel: false })
-
-    nextCountdown()
+    broadcast({ fila: novaFila, parAtual: novoPar, flipA: true })
   }
 
-  /** ====== Confirmar confrontos ====== */
+  function sortearTime2() {
+    if (!isAdmin) return
+    if (!parAtual.A) return
+    if (parAtual.B) return
+    if (fila.length === 0) return
+
+    const idx = Math.floor(Math.random() * fila.length)
+    const escolhido = fila[idx]
+    const novaFila = [...fila]
+    novaFila.splice(idx, 1)
+
+    const novoPar = { A: parAtual.A, B: escolhido }
+    setFila(novaFila)
+    setParAtual(novoPar)
+    setFlipB(true) // vira carta B
+
+    broadcast({ fila: novaFila, parAtual: novoPar, flipB: true })
+  }
+
+  function confirmarPar() {
+    if (!isAdmin) return
+    if (!parAtual.A || !parAtual.B) return
+
+    const novosPares = [...pares, [parAtual.A, parAtual.B] as [TimeRow, TimeRow]]
+    setPares(novosPares)
+    setParAtual({ A:null, B:null })
+    setFlipA(false); setFlipB(false)
+
+    const terminou = novosPares.length === 8
+    setSorteioAtivo(!terminou)
+    setConfirmavel(terminou)
+
+    broadcast({
+      pares: novosPares,
+      parAtual: { A:null, B:null },
+      flipA: false, flipB: false,
+      sorteioAtivo: !terminou,
+      confirmavel: terminou
+    })
+  }
+
+  /** ====== Gravar confrontos no banco (após 8 pares) ====== */
   async function confirmarConfrontos() {
     if (!isAdmin) return
     if (pares.length !== 8) { toast.error('Sorteio incompleto.'); return }
@@ -412,7 +406,7 @@ export default function PlayoffPage() {
                   jogos.length > 0 ? 'bg-green-600/50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500'
                 }`}
               >
-                🎲 Sorteio ao vivo (9º–24º)
+                🎥 Abrir sorteio (9º–24º)
               </button>
             </div>
           )}
@@ -555,7 +549,7 @@ export default function PlayoffPage() {
         )}
       </div>
 
-      {/* ===== Overlay do Sorteio ao Vivo ===== */}
+      {/* ===== Overlay do Sorteio ao Vivo (manual) ===== */}
       {sorteioAberto && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-3xl bg-gray-900 rounded-2xl border border-gray-700 shadow-xl p-6">
@@ -578,28 +572,53 @@ export default function PlayoffPage() {
             </div>
 
             <div className="flex items-center justify-between mb-5">
-              <div className={`text-3xl font-bold tabular-nums ${sorteioAtivo ? 'text-green-400' : 'text-gray-400'}`}>
-                {sorteioAtivo ? `Revelando em: ${contador}` : (confirmavel ? 'Sorteio finalizado' : 'Aguardando')}
+              <div className={`text-lg font-medium ${sorteioAtivo ? 'text-green-400' : 'text-gray-400'}`}>
+                {sorteioAtivo ? 'Sorteio em andamento' : (confirmavel ? 'Pronto para gravar confrontos' : 'Aguardando')}
               </div>
-
-              {!loadingAdmin && isAdmin && !sorteioAtivo && !confirmavel && (
-                <button
-                  className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-500"
-                  onClick={iniciarSorteio}
-                >
-                  Reiniciar sorteio
-                </button>
-              )}
-
               <div className="text-sm text-gray-400">Restantes: {fila.length}</div>
             </div>
 
-            {/* Cartas virando */}
-            <div className="grid grid-cols-3 items-center gap-2 mb-6">
+            {/* Cartas */}
+            <div className="grid grid-cols-3 items-center gap-2 mb-4">
               <FlipCard flipped={flipA} time={parAtual.A} />
-              <div className="text-center text-gray-400">x</div>
+              <div className="text-center text-gray-400 font-semibold">x</div>
               <FlipCard flipped={flipB} time={parAtual.B} />
             </div>
+
+            {/* Controles (apenas admin) */}
+            {!loadingAdmin && isAdmin && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                <button
+                  className={`px-3 py-2 rounded-lg ${
+                    !parAtual.A && fila.length > 0 ? 'bg-blue-600 hover:bg-blue-500' : 'bg-blue-600/50 cursor-not-allowed'
+                  }`}
+                  onClick={sortearTime1}
+                  disabled={!!parAtual.A || fila.length === 0}
+                >
+                  🎲 Sortear time 1
+                </button>
+
+                <button
+                  className={`px-3 py-2 rounded-lg ${
+                    parAtual.A && !parAtual.B && fila.length > 0 ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-indigo-600/50 cursor-not-allowed'
+                  }`}
+                  onClick={sortearTime2}
+                  disabled={!parAtual.A || !!parAtual.B || fila.length === 0}
+                >
+                  🎲 Sortear time 2
+                </button>
+
+                <button
+                  className={`px-3 py-2 rounded-lg ${
+                    parAtual.A && parAtual.B ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-emerald-600/50 cursor-not-allowed'
+                  }`}
+                  onClick={confirmarPar}
+                  disabled={!parAtual.A || !parAtual.B}
+                >
+                  ✅ Confirmar confronto
+                </button>
+              </div>
+            )}
 
             {/* Pares já formados */}
             <div className="space-y-2">
@@ -620,6 +639,7 @@ export default function PlayoffPage() {
               ))}
             </div>
 
+            {/* Gravar confrontos no banco */}
             <div className="mt-6 flex justify-end gap-2">
               {isAdmin && (
                 <button
@@ -630,9 +650,9 @@ export default function PlayoffPage() {
                   }`}
                   disabled={pares.length !== 8 || confirming}
                   onClick={confirmarConfrontos}
-                  title={pares.length !== 8 ? 'Aguarde formar os 8 confrontos' : ''}
+                  title={pares.length !== 8 ? 'Finalize os 8 confrontos' : ''}
                 >
-                  {confirming ? 'Gravando…' : '✅ Confirmar confrontos'}
+                  {confirming ? 'Gravando…' : '✅ Gravar confrontos'}
                 </button>
               )}
             </div>
