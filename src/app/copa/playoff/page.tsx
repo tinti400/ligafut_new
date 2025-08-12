@@ -57,13 +57,13 @@ export default function PlayoffPage() {
 
   // sorteio ao vivo (sincronizado)
   const [sorteioAberto, setSorteioAberto] = useState(false)
-  const [sorteioAtivo, setSorteioAtivo] = useState(false) // só para status visual
+  const [sorteioAtivo, setSorteioAtivo] = useState(false) // status visual
   const [fila, setFila] = useState<TimeRow[]>([])
   const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([])
   const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
   const [flipA, setFlipA] = useState(false)
   const [flipB, setFlipB] = useState(false)
-  const [confirmavel, setConfirmavel] = useState(false) // libera "Gravar confrontos" quando 8 pares
+  const [confirmavel, setConfirmavel] = useState(false) // libera “Gravar confrontos”
   const [confirming, setConfirming] = useState(false) // trava anti duplo clique
 
   // realtime infra
@@ -166,7 +166,7 @@ export default function PlayoffPage() {
     await carregarJogosELogos()
   }
 
-  /** ====== Iniciar sorteio ao vivo (prepara fila 9º–24º) ====== */
+  /** ====== Iniciar sorteio ao vivo (só 9º–24º; 25º+ eliminado) ====== */
   async function iniciarSorteio() {
     if (!isAdmin) return
 
@@ -180,19 +180,34 @@ export default function PlayoffPage() {
       return
     }
 
+    // buscamos campos suficientes para ranquear igual ao front
     const { data: classificacao, error } = await supabase
       .from('classificacao')
-      .select('id_time, times ( nome, logo_url )')
+      .select('id_time, pontos, vitorias, gols_pro, gols_contra, jogos, times ( nome, logo_url )')
       .eq('temporada', 1)
-      .order('pontos', { ascending: false })
     if (error || !classificacao) {
       toast.error('Erro ao buscar classificação')
       return
     }
 
-    const faixa = classificacao.slice(8, 24) // 9º..24º
+    // ordena por: pontos desc, saldo desc, gols_pro desc, vitorias desc, jogos asc, nome asc
+    const ordenada = [...classificacao].sort((a: any, b: any) => {
+      const saldoA = (a.gols_pro ?? 0) - (a.gols_contra ?? 0)
+      const saldoB = (b.gols_pro ?? 0) - (b.gols_contra ?? 0)
+      return (
+        (b.pontos ?? 0) - (a.pontos ?? 0) ||
+        saldoB - saldoA ||
+        (b.gols_pro ?? 0) - (a.gols_pro ?? 0) ||
+        (b.vitorias ?? 0) - (a.vitorias ?? 0) ||
+        (a.jogos ?? 0) - (b.jogos ?? 0) ||
+        (nomeRel(a)).localeCompare(nomeRel(b))
+      )
+    })
+
+    // pega exatamente 9º..24º (índices 8..23); do 25º+ fica fora
+    const faixa = ordenada.slice(8, 24)
     if (faixa.length !== 16) {
-      toast.error('Precisamos de 16 times (9º ao 24º).')
+      toast.error('Precisamos de 16 times entre 9º e 24º.')
       return
     }
 
@@ -225,7 +240,6 @@ export default function PlayoffPage() {
     if (parAtual.A) return
     if (fila.length === 0) return
 
-    // escolhe aleatório da fila
     const idx = Math.floor(Math.random() * fila.length)
     const escolhido = fila[idx]
     const novaFila = [...fila]
@@ -234,7 +248,7 @@ export default function PlayoffPage() {
     const novoPar = { A: escolhido, B: parAtual.B }
     setFila(novaFila)
     setParAtual(novoPar)
-    setFlipA(true) // vira carta A
+    setFlipA(true)
 
     broadcast({ fila: novaFila, parAtual: novoPar, flipA: true })
   }
@@ -253,7 +267,7 @@ export default function PlayoffPage() {
     const novoPar = { A: parAtual.A, B: escolhido }
     setFila(novaFila)
     setParAtual(novoPar)
-    setFlipB(true) // vira carta B
+    setFlipB(true)
 
     broadcast({ fila: novaFila, parAtual: novoPar, flipB: true })
   }
@@ -715,3 +729,4 @@ function FlipCard({ flipped, time }: { flipped: boolean; time: TimeRow | null })
     </div>
   )
 }
+
