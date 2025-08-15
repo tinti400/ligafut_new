@@ -13,9 +13,16 @@ const supabase = createClient(
 // Helpers
 const isObj = (v: any) => v && typeof v === 'object' && !Array.isArray(v)
 const getOferecidoId = (item: any): string => {
+  // aceita string id, ou objetos com várias chaves possíveis
   if (typeof item === 'string') return item
-  if (isObj(item) && typeof item.id === 'string') return item.id
-  return String(item)
+  if (!isObj(item)) return String(item)
+  const cand =
+    item.id ??
+    item.jogador_id ??
+    item.player_id ??
+    item.jogadorId ??
+    item.playerId
+  return typeof cand === 'string' ? cand : String(cand)
 }
 const toBRL = (n: number | null | undefined) =>
   n == null ? '—' : `R$ ${Number(n).toLocaleString('pt-BR')}`
@@ -115,8 +122,8 @@ export default function PropostasRecebidasPage() {
     if (loadingPropostaId === proposta.id) return
     setLoadingPropostaId(proposta.id)
 
-    // Normaliza tipo e valores
-    const tipo: string = proposta.tipo_proposta // 'dinheiro' | 'troca_simples' | 'troca_composta' | 'comprar_percentual'
+    // Normaliza tipo e valores (robusto)
+    const tipo: string = String(proposta.tipo_proposta || '').trim().toLowerCase()
     const dinheiroOferecido: number | null =
       proposta.valor_oferecido == null ? null : Number(proposta.valor_oferecido)
 
@@ -231,28 +238,28 @@ export default function PropostasRecebidasPage() {
       const eAlvo = await supabase.from('elenco').update(updatesAlvo).eq('id', proposta.jogador_id)
       if (eAlvo.error) throw eAlvo.error
 
-      // Oferecidos → vão para o vendedor; zera jogos; NÃO mexe no valor
+      // 3.2) Oferecidos → vão para o vendedor (time ALVO), zera jogos; NÃO mexe no valor
       if (isTrocaSimples || isTrocaComposta) {
-        const oferecidosIds: string[] = (proposta.jogadores_oferecidos || [])
-          .map(getOferecidoId)
-          .filter(Boolean)
-        for (const idJ of oferecidosIds) {
+        const oferecidosIds: string[] = Array.from(
+          new Set((proposta.jogadores_oferecidos || []).map(getOferecidoId).filter(Boolean))
+        )
+        if (oferecidosIds.length) {
           const eOf = await supabase
             .from('elenco')
             .update({ id_time: proposta.id_time_alvo, jogos: 0 })
-            .eq('id', idJ)
+            .in('id', oferecidosIds)
           if (eOf.error) throw eOf.error
         }
       }
 
-      // Notificação
+      // 4) Notificação
       await supabase.from('notificacoes').insert({
         id_time: proposta.id_time_origem,
         titulo: '✅ Proposta aceita!',
         mensagem: `Sua proposta pelo jogador ${jogadorData.nome} foi aceita.`,
       })
 
-      // Atualiza estado local
+      // 5) Atualiza estado local
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
     } catch (err) {
@@ -315,7 +322,7 @@ export default function PropostasRecebidasPage() {
 
         <div className="text-sm font-bold mt-2 text-emerald-400">{valorLabel}</div>
 
-        {['comprar_percentual', 'percentual'].includes(p.tipo_proposta) && (
+        {['comprar_percentual', 'percentual'].includes(String(p.tipo_proposta).toLowerCase()) && (
           <div className="text-xs mt-1 text-gray-300">📊 Percentual: {p.percentual_desejado}%</div>
         )}
 
@@ -361,3 +368,4 @@ export default function PropostasRecebidasPage() {
     </div>
   )
 }
+
