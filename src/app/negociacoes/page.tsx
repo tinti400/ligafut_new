@@ -128,7 +128,7 @@ export default function NegociacoesPage() {
     }))
   }, [elencoMeuTime])
 
-  // Enviar proposta (alinhado ao schema de `propostas_app`)
+  // Enviar proposta
   const enviarProposta = async (jogadorAlvo: Jogador) => {
     const tipo = (tipoProposta[jogadorAlvo.id] || 'dinheiro') as TipoProposta
     const valorStr = valorProposta[jogadorAlvo.id] || ''
@@ -140,7 +140,6 @@ export default function NegociacoesPage() {
       return
     }
 
-    // Confirmação
     if (!window.confirm('Deseja realmente enviar esta proposta?')) return
 
     // Snapshot dos oferecidos (somente meus e com >=3 jogos)
@@ -204,7 +203,7 @@ export default function NegociacoesPage() {
         alert('Selecione ao menos 1 jogador (o dinheiro é opcional).')
         return
       }
-      // valorNumerico pode ser null aqui — sem problemas
+      // valorNumerico pode ser null aqui — sem problemas (vai como NULL)
     }
 
     // Nome do time alvo
@@ -214,40 +213,36 @@ export default function NegociacoesPage() {
       .eq('id', jogadorAlvo.id_time)
       .single()
 
-    // === Regras para valor_oferecido (CRÍTICO para não zerar) ===
-    // - 'dinheiro' e 'comprar_percentual': usa o valor informado (>= 0)
-    // - 'troca_composta': só envia quando > 0; se vazio/0 -> NULL (não altera valor no aceite)
-    // - 'troca_simples': SEMPRE NULL (não altera valor no aceite)
+    // === Regras para valor_oferecido ===
+    // - dinheiro / comprar_percentual: usa valor informado (>= 0)
+    // - troca_composta: se vazio/0 -> NULL (não altera valor); se > 0, usa o valor
+    // - troca_simples: sempre NULL (não redefine valor)
     let valor_oferecido: number | null = null
     if (tipo === 'dinheiro' || tipo === 'comprar_percentual') {
       valor_oferecido = toInt32OrNull(valorNumerico)
     } else if (tipo === 'troca_composta') {
-      if (valorNumerico != null && valorNumerico > 0) {
-        valor_oferecido = toInt32OrNull(valorNumerico)
-      } else {
-        valor_oferecido = null
-      }
+      valor_oferecido = valorNumerico != null && valorNumerico > 0 ? toInt32OrNull(valorNumerico) : null
     } else {
       // troca_simples
       valor_oferecido = null
     }
 
     const payload = {
-      id_time_origem: id_time,                         // uuid (string)
-      nome_time_origem: nome_time,                     // text
-      id_time_alvo: jogadorAlvo.id_time,               // uuid (string)
+      id_time_origem: id_time,
+      nome_time_origem: nome_time,
+      id_time_alvo: jogadorAlvo.id_time,
       nome_time_alvo: timeAlvoData?.nome || 'Indefinido',
 
-      jogador_id: jogadorAlvo.id,                      // uuid
-      tipo_proposta: tipo,                             // text
+      jogador_id: jogadorAlvo.id,
+      tipo_proposta: tipo,
 
-      // AGORA PERMITE NULL
-      valor_oferecido,                                 // int4 | null
+      // crucial: permitir NULL aqui
+      valor_oferecido, // int4 | null
 
-      percentual_desejado: tipo === 'comprar_percentual' ? (percentualNum || 0) : 0, // numeric
-      percentual:          tipo === 'comprar_percentual' ? (percentualNum || 0) : 0, // numeric
+      percentual_desejado: tipo === 'comprar_percentual' ? (percentualNum || 0) : 0,
+      percentual:          tipo === 'comprar_percentual' ? (percentualNum || 0) : 0,
 
-      jogadores_oferecidos: oferecidosDetalhes || [],  // jsonb (array de objetos)
+      jogadores_oferecidos: oferecidosDetalhes || [],
 
       status: 'pendente',
       created_at: new Date().toISOString()
@@ -276,7 +271,6 @@ export default function NegociacoesPage() {
         return
       }
 
-      // Sucesso
       const valorToast =
         valor_oferecido == null
           ? 'Sem redefinir valor (troca).'
@@ -331,18 +325,20 @@ export default function NegociacoesPage() {
           const sel = jogadorSelecionadoId === jogador.id
           const tp = (tipoProposta[jogador.id] || 'dinheiro') as TipoProposta
 
-          // ===== NOVA LÓGICA DE HABILITAÇÃO DO BOTÃO =====
-          const temValor = valorProposta[jogador.id] !== undefined && valorProposta[jogador.id] !== ''
-          const valorInvalido = temValor && isNaN(Number(valorProposta[jogador.id]))
-          const precisaValor = tp === 'dinheiro' || tp === 'comprar_percentual' // troca_composta: opcional
-          const precisaJogadores = tp === 'troca_simples' || tp === 'troca_composta'
-          const jogadoresSelecionadosVazios = precisaJogadores && (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0)
-          const invalidoPercentual = tp === 'comprar_percentual' && (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))
+          const valorStr = valorProposta[jogador.id] ?? ''
+          const precisaValorFixo = tp === 'dinheiro' || tp === 'comprar_percentual' // troca_composta é opcional
+          const valorInvalido = precisaValorFixo && (valorStr === '' || isNaN(Number(valorStr)))
 
-          const disableEnviar =
-            (precisaValor && (!temValor || valorInvalido)) ||
-            invalidoPercentual ||
-            jogadoresSelecionadosVazios
+          const precisaPercentual = tp === 'comprar_percentual'
+          const percStr = percentualDesejado[jogador.id] ?? ''
+          const invalidoPercentual = precisaPercentual && (percStr === '' || isNaN(Number(percStr)))
+
+          const precisaJogadores = tp === 'troca_simples' || tp === 'troca_composta'
+          const jogadoresSelecionados =
+            jogadoresOferecidos[jogador.id] && jogadoresOferecidos[jogador.id].length > 0
+          const jogadoresVazios = precisaJogadores && !jogadoresSelecionados
+
+          const disableEnviar = valorInvalido || invalidoPercentual || jogadoresVazios
 
           return (
             <div key={jogador.id} className="border border-gray-700 rounded p-3 w-[260px] bg-gray-800">
@@ -364,8 +360,8 @@ export default function NegociacoesPage() {
                 onClick={() => {
                   setJogadorSelecionadoId(jogador.id)
                   setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-                  // deixa o valor preenchido apenas como sugestão; se limpar, virará NULL no payload (nas trocas)
-                  setValorProposta((prev) => ({ ...prev, [jogador.id]: String(jogador.valor ?? 0) }))
+                  // valor começa vazio para evitar ruído nas trocas
+                  setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
                   setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
                 }}
               >
