@@ -37,11 +37,20 @@ export default function NegociacoesPage() {
   const [valorProposta, setValorProposta] = useState<Record<string, string>>({})
   const [percentualDesejado, setPercentualDesejado] = useState<Record<string, string>>({})
   const [jogadoresOferecidos, setJogadoresOferecidos] = useState<Record<string, string[]>>({})
-  const [mensagemSucesso, setMensagemSucesso] = useState<Record<string, boolean>>({})
   const [enviando, setEnviando] = useState<Record<string, boolean>>({})
 
   const [id_time, setIdTime] = useState<string | null>(null)
   const [nome_time, setNomeTime] = useState<string | null>(null)
+
+  // Modal de confirmação pós-envio
+  const [modalAberto, setModalAberto] = useState(false)
+  const [modalInfo, setModalInfo] = useState<{
+    jogadorNome?: string
+    tipo?: string
+    valor?: string | null
+    percentual?: string | null
+    qtdOferecidos?: number
+  }>({})
 
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
@@ -58,12 +67,12 @@ export default function NegociacoesPage() {
   useEffect(() => {
     async function buscarTimes() {
       if (!id_time) return
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('times')
         .select('id, nome')
         .neq('id', id_time)
         .order('nome', { ascending: true })
-      if (!error && data) setTimes(data as Time[])
+      if (data) setTimes(data as Time[])
     }
     buscarTimes()
   }, [id_time])
@@ -75,11 +84,11 @@ export default function NegociacoesPage() {
         setElencoAdversario([])
         return
       }
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('elenco')
         .select('*')
         .eq('id_time', timeSelecionado)
-      if (!error && data) setElencoAdversario(data as Jogador[])
+      if (data) setElencoAdversario(data as Jogador[])
     }
     buscarElencoAdversario()
   }, [timeSelecionado])
@@ -88,11 +97,11 @@ export default function NegociacoesPage() {
   useEffect(() => {
     async function buscarElencoMeuTime() {
       if (!id_time) return
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('elenco')
         .select('*')
         .eq('id_time', id_time)
-      if (!error && data) setElencoMeuTime(data as Jogador[])
+      if (data) setElencoMeuTime(data as Jogador[])
     }
     buscarElencoMeuTime()
   }, [id_time])
@@ -119,6 +128,8 @@ export default function NegociacoesPage() {
     if (v < INT32_MIN) return INT32_MIN
     return v
   }
+  const formatBRL = (v: number | null | undefined) =>
+    `R$ ${Number(v || 0).toLocaleString('pt-BR')}`
 
   // bloqueia ofertar jogador com < 3 jogos
   const elencoOfertavel = useMemo(() => {
@@ -127,6 +138,17 @@ export default function NegociacoesPage() {
       podeOferecer: (j.jogos ?? 0) >= 3
     }))
   }, [elencoMeuTime])
+
+  // Toggle seleção no checklist estilizado
+  const toggleOferecido = (alvoId: string, jogadorId: string, podeOferecer: boolean) => {
+    if (!podeOferecer) return
+    setJogadoresOferecidos((prev) => {
+      const atual = new Set(prev[alvoId] || [])
+      if (atual.has(jogadorId)) atual.delete(jogadorId)
+      else atual.add(jogadorId)
+      return { ...prev, [alvoId]: Array.from(atual) }
+    })
+  }
 
   // Enviar proposta
   const enviarProposta = async (jogadorAlvo: Jogador) => {
@@ -140,7 +162,7 @@ export default function NegociacoesPage() {
       return
     }
 
-    if (!window.confirm('Deseja realmente enviar esta proposta?')) return
+    if (!window.confirm('Confirmar envio da proposta?')) return
 
     // Snapshot dos oferecidos (somente meus e com >=3 jogos)
     let oferecidosDetalhes: any[] = []
@@ -213,7 +235,7 @@ export default function NegociacoesPage() {
       .eq('id', jogadorAlvo.id_time)
       .single()
 
-    // === Regras para valor_oferecido ===
+    // Regras para valor_oferecido
     // - dinheiro / comprar_percentual: usa valor informado (>= 0)
     // - troca_composta: se vazio/0 -> NULL (não altera valor); se > 0, usa o valor
     // - troca_simples: sempre NULL (não redefine valor)
@@ -223,7 +245,6 @@ export default function NegociacoesPage() {
     } else if (tipo === 'troca_composta') {
       valor_oferecido = valorNumerico != null && valorNumerico > 0 ? toInt32OrNull(valorNumerico) : null
     } else {
-      // troca_simples
       valor_oferecido = null
     }
 
@@ -236,7 +257,6 @@ export default function NegociacoesPage() {
       jogador_id: jogadorAlvo.id,
       tipo_proposta: tipo,
 
-      // crucial: permitir NULL aqui
       valor_oferecido, // int4 | null
 
       percentual_desejado: tipo === 'comprar_percentual' ? (percentualNum || 0) : 0,
@@ -261,27 +281,26 @@ export default function NegociacoesPage() {
         .insert([payload])
 
       if (insertErr) {
-        console.error('❌ INSERT propostas_app', {
-          code: insertErr.code,
-          message: insertErr.message,
-          details: insertErr.details,
-          hint: insertErr.hint,
-        })
+        console.error('❌ INSERT propostas_app', insertErr)
         toast.error(`Erro ao enviar a proposta: ${insertErr.message}`)
         return
       }
 
-      const valorToast =
+      // Confirmação: toast + modal
+      const labelValor =
         valor_oferecido == null
-          ? 'Sem redefinir valor (troca).'
+          ? '—'
           : `R$ ${Number(valor_oferecido).toLocaleString('pt-BR')}`
+      toast.success('✅ Proposta enviada!')
 
-      toast.success(`Proposta enviada com sucesso! ${valorToast}`)
-
-      setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
-      setTimeout(() => {
-        setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: false }))
-      }, 3000)
+      setModalInfo({
+        jogadorNome: jogadorAlvo.nome,
+        tipo,
+        valor: labelValor,
+        percentual: tipo === 'comprar_percentual' ? String(percentualNum) + '%' : null,
+        qtdOferecidos: oferecidosDetalhes.length
+      })
+      setModalAberto(true)
 
       // Reset dos campos do jogador
       setJogadorSelecionadoId('')
@@ -341,27 +360,26 @@ export default function NegociacoesPage() {
           const disableEnviar = valorInvalido || invalidoPercentual || jogadoresVazios
 
           return (
-            <div key={jogador.id} className="border border-gray-700 rounded p-3 w-[260px] bg-gray-800">
+            <div key={jogador.id} className="border border-gray-700 rounded-lg p-4 w-[280px] bg-gray-800">
               <img
                 src={jogador.imagem_url || '/jogador_padrao.png'}
                 alt={jogador.nome}
-                className="w-16 h-16 rounded-full object-cover mb-2 mx-auto"
+                className="w-16 h-16 rounded-full object-cover mb-3 mx-auto ring-2 ring-gray-700"
               />
               <div className="text-center font-semibold">{jogador.nome}</div>
               <div className="text-xs text-center text-gray-300">
                 {jogador.posicao} • Overall {jogador.overall ?? '-'}
               </div>
-              <div className="text-xs text-center text-green-400 font-bold mb-2">
-                R$ {Number(jogador.valor || 0).toLocaleString('pt-BR')}
+              <div className="text-xs text-center text-green-400 font-bold mb-3">
+                {formatBRL(jogador.valor)}
               </div>
 
               <button
-                className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded w-full"
+                className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1.5 rounded w-full"
                 onClick={() => {
                   setJogadorSelecionadoId(jogador.id)
                   setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-                  // valor começa vazio para evitar ruído nas trocas
-                  setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
+                  setValorProposta((prev) => ({ ...prev, [jogador.id]: '' })) // começa vazio
                   setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
                 }}
               >
@@ -369,29 +387,31 @@ export default function NegociacoesPage() {
               </button>
 
               {sel && (
-                <div className="mt-3 text-xs border-t border-gray-700 pt-2">
-                  <label className="font-semibold block mb-1">Tipo de proposta:</label>
-                  <select
-                    className="border p-1 w-full mb-3 bg-gray-800 border-gray-600 text-white"
-                    value={tp}
-                    onChange={(e) =>
-                      setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value as TipoProposta }))
-                    }
-                  >
-                    <option value="dinheiro">💰 Apenas dinheiro</option>
-                    <option value="troca_simples">🔁 Troca simples</option>
-                    <option value="troca_composta">💶 Troca + dinheiro (opcional)</option>
-                    <option value="comprar_percentual">📈 Comprar percentual</option>
-                  </select>
+                <div className="mt-4 text-xs border-t border-gray-700 pt-3 space-y-3">
+                  <div>
+                    <label className="font-semibold block mb-1">Tipo de proposta</label>
+                    <select
+                      className="border p-2 w-full bg-gray-800 border-gray-600 text-white rounded"
+                      value={tp}
+                      onChange={(e) =>
+                        setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value as TipoProposta }))
+                      }
+                    >
+                      <option value="dinheiro">💰 Apenas dinheiro</option>
+                      <option value="troca_simples">🔁 Troca simples</option>
+                      <option value="troca_composta">💶 Troca + dinheiro (opcional)</option>
+                      <option value="comprar_percentual">📈 Comprar percentual</option>
+                    </select>
+                  </div>
 
                   {(tp === 'dinheiro' || tp === 'troca_composta' || tp === 'comprar_percentual') && (
-                    <div className="mb-3">
+                    <div>
                       <label className="font-semibold">
                         Valor oferecido (R$){tp === 'troca_composta' ? ' — opcional' : ''}:
                       </label>
                       <input
                         type="number"
-                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                        className="border p-2 w-full mt-1 bg-gray-800 border-gray-600 text-white rounded"
                         value={valorProposta[jogador.id] || ''}
                         onChange={(e) =>
                           setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))
@@ -401,13 +421,13 @@ export default function NegociacoesPage() {
                   )}
 
                   {tp === 'comprar_percentual' && (
-                    <div className="mb-3">
-                      <label className="font-semibold">Percentual desejado (%):</label>
+                    <div>
+                      <label className="font-semibold">Percentual desejado (%)</label>
                       <input
                         type="number"
                         min={1}
                         max={100}
-                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
+                        className="border p-2 w-full mt-1 bg-gray-800 border-gray-600 text-white rounded"
                         value={percentualDesejado[jogador.id] || ''}
                         onChange={(e) =>
                           setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: e.target.value }))
@@ -417,31 +437,56 @@ export default function NegociacoesPage() {
                   )}
 
                   {(tp === 'troca_simples' || tp === 'troca_composta') && (
-                    <div className="mb-3">
-                      <label className="font-semibold">
-                        Jogadores oferecidos (mín. 1 / precisam ter ≥ 3 jogos):
+                    <div>
+                      <label className="font-semibold block mb-2">
+                        Jogadores oferecidos (mín. 1 / ≥ 3 jogos)
                       </label>
-                      <select
-                        multiple
-                        className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white h-28"
-                        value={jogadoresOferecidos[jogador.id] || []}
-                        onChange={(e) => {
-                          const selected = Array.from(e.target.selectedOptions)
-                            .filter((opt) => {
-                              const j = elencoOfertavel.find((x) => x.id === opt.value)
-                              return j?.podeOferecer
-                            })
-                            .map((opt) => opt.value)
-                          setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: selected }))
-                        }}
-                      >
-                        {elencoOfertavel.map((j) => (
-                          <option key={j.id} value={j.id} disabled={!j.podeOferecer}>
-                            {j.nome} - {j.posicao} - R$ {Number(j.valor || 0).toLocaleString('pt-BR')}
-                            {!j.podeOferecer ? ' (menos de 3 jogos)' : ''}
-                          </option>
-                        ))}
-                      </select>
+
+                      {/* Novo layout: checklist em grid */}
+                      <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
+                        {elencoOfertavel.map((j) => {
+                          const marcado =
+                            (jogadoresOferecidos[jogador.id] || []).includes(j.id)
+                          const disabled = !j.podeOferecer
+
+                          return (
+                            <label
+                              key={j.id}
+                              className={`flex items-center justify-between gap-2 rounded-lg p-2 border ${
+                                marcado ? 'border-green-500 bg-green-900/20' : 'border-gray-700 bg-gray-800'
+                              } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                              onClick={() => toggleOferecido(jogador.id, j.id, j.podeOferecer)}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={marcado}
+                                  onChange={() => toggleOferecido(jogador.id, j.id, j.podeOferecer)}
+                                  disabled={disabled}
+                                  className="accent-green-600"
+                                />
+                                <div className="flex flex-col">
+                                  <span className="font-semibold text-white text-[13px] leading-4">
+                                    {j.nome} <span className="text-gray-300">• {j.posicao}</span>
+                                  </span>
+                                  <span className="text-[12px] text-gray-300">{formatBRL(j.valor)}</span>
+                                </div>
+                              </div>
+
+                              <span
+                                className={`text-[11px] px-2 py-0.5 rounded-full ${
+                                  j.podeOferecer
+                                    ? 'bg-emerald-700 text-white'
+                                    : 'bg-gray-700 text-gray-300'
+                                }`}
+                                title={j.podeOferecer ? 'Apto para troca' : 'Menos de 3 jogos'}
+                              >
+                                {j.jogos ?? 0} jogos {j.podeOferecer ? '' : '🔒'}
+                              </span>
+                            </label>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
 
@@ -449,22 +494,57 @@ export default function NegociacoesPage() {
                     onClick={() => enviarProposta(jogador)}
                     disabled={disableEnviar || !!enviando[jogador.id]}
                     className={`
-                      w-full text-white font-bold py-1 rounded mt-2 text-xs
-                      ${disableEnviar || enviando[jogador.id] ? 'bg-gray-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}
+                      w-full text-white font-bold py-2 rounded mt-1 text-sm
+                      ${disableEnviar || enviando[jogador.id] ? 'bg-gray-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}
                     `}
                   >
                     {enviando[jogador.id] ? 'Enviando...' : '✅ Enviar Proposta'}
                   </button>
-
-                  {mensagemSucesso[jogador.id] && (
-                    <div className="text-green-400 text-xs mt-2 text-center">✅ Proposta enviada!</div>
-                  )}
                 </div>
               )}
             </div>
           )
         })}
       </div>
+
+      {/* Modal de confirmação */}
+      {modalAberto && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <h2 className="text-lg font-bold mb-2">✅ Proposta enviada!</h2>
+            <p className="text-sm text-zinc-300">
+              Sua proposta para <span className="font-semibold">{modalInfo.jogadorNome}</span> foi enviada.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-zinc-800 rounded-lg p-3 border border-zinc-700">
+                <div className="text-zinc-400">Tipo</div>
+                <div className="font-semibold capitalize">{modalInfo.tipo?.replace('_', ' ')}</div>
+              </div>
+              <div className="bg-zinc-800 rounded-lg p-3 border border-zinc-700">
+                <div className="text-zinc-400">Valor</div>
+                <div className="font-semibold">{modalInfo.valor ?? '—'}</div>
+              </div>
+              <div className="bg-zinc-800 rounded-lg p-3 border border-zinc-700">
+                <div className="text-zinc-400">Percentual</div>
+                <div className="font-semibold">{modalInfo.percentual ?? '—'}</div>
+              </div>
+              <div className="bg-zinc-800 rounded-lg p-3 border border-zinc-700">
+                <div className="text-zinc-400">Oferecidos</div>
+                <div className="font-semibold">{modalInfo.qtdOferecidos ?? 0}</div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600"
+                onClick={() => setModalAberto(false)}
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
