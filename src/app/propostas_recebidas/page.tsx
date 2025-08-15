@@ -163,6 +163,17 @@ export default function PropostasRecebidasPage() {
       valorTransacao = Math.round(Number(jogadorData.valor || 0) * (perc / 100))
     }
 
+    // ——— (NOVO) nomes dos oferecidos para descrever no BID ———
+    const offeredIdsForBid: string[] = extractOfferedIds(proposta.jogadores_oferecidos)
+    let offeredNamesForBid: string[] = []
+    if (offeredIdsForBid.length) {
+      const { data: offeredRows } = await supabase
+        .from('elenco')
+        .select('id, nome')
+        .in('id', offeredIdsForBid)
+      offeredNamesForBid = (offeredRows || []).map(r => r.nome).filter(Boolean)
+    }
+
     try {
       // 1) Status
       const { error: eStatus } = await supabase
@@ -205,9 +216,13 @@ export default function PropostasRecebidasPage() {
           descricao: `Venda de ${jogadorData.nome} via proposta`,
         })
 
+        // ——— BID (compra/venda com valor) com nomes dos oferecidos quando for TROCA COMPOSTA ———
+        const extraTroca = (isTrocaComposta && offeredNamesForBid.length)
+          ? ` + ${offeredNamesForBid.join(', ')}`
+          : ''
         await supabase.from('bid').insert({
           tipo_evento: 'transferencia',
-          descricao: `O ${vendedor.nome} vendeu ${jogadorData.nome} ao ${comprador.nome} por ${toBRL(valorTransacao)}.`,
+          descricao: `O ${vendedor.nome} vendeu ${jogadorData.nome} ao ${comprador.nome} por ${toBRL(valorTransacao)}${extraTroca}.`,
           id_time1: proposta.id_time_alvo,
           id_time2: proposta.id_time_origem,
           valor: valorTransacao,
@@ -221,14 +236,17 @@ export default function PropostasRecebidasPage() {
         const r2 = await supabase.from('times').select('nome').eq('id', proposta.id_time_alvo).single()
         comprador = r1.data
         vendedor  = r2.data
+
+        const listaTroca = offeredNamesForBid.length ? ` + ${offeredNamesForBid.join(', ')}` : ''
         await supabase.from('bid').insert({
           tipo_evento: 'transferencia',
-          descricao: `Troca: ${vendedor?.nome || 'time A'} ↔ ${comprador?.nome || 'time B'} envolvendo ${jogadorData.nome}${(proposta.jogadores_oferecidos || []).length ? ' e outros jogadores' : ''}.`,
+          descricao: `Troca: ${vendedor?.nome || 'time A'} ↔ ${comprador?.nome || 'time B'} envolvendo ${jogadorData.nome}${listaTroca}.`,
           id_time1: proposta.id_time_alvo,
           id_time2: proposta.id_time_origem,
           valor: 0,
           data_evento: new Date().toISOString(),
         })
+
         toast('🔁 Troca realizada sem movimentação de caixa.', { icon: '🤝' })
       }
 
