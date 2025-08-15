@@ -12,7 +12,6 @@ const supabase = createClient(
 // Helpers
 const isObj = (v: any) => v && typeof v === 'object' && !Array.isArray(v)
 const getOferecidoId = (item: any): string => {
-  // aceita tanto array de IDs quanto array de objetos { id, ... }
   if (typeof item === 'string') return item
   if (isObj(item) && typeof item.id === 'string') return item.id
   return String(item)
@@ -35,23 +34,21 @@ export default function PropostasRecebidasPage() {
     if (!id_time) return
 
     const buscarPropostas = async () => {
-      const { data: pendentesData, error: e1 } = await supabase
+      const { data: pendentesData } = await supabase
         .from('propostas_app')
         .select('*')
         .eq('id_time_alvo', id_time)
         .eq('status', 'pendente')
         .order('created_at', { ascending: false })
         .limit(10)
-      if (e1) console.error(e1)
 
-      const { data: concluidasData, error: e2 } = await supabase
+      const { data: concluidasData } = await supabase
         .from('propostas_app')
         .select('*')
         .eq('id_time_alvo', id_time)
         .not('status', 'eq', 'pendente')
         .order('created_at', { ascending: false })
         .limit(5)
-      if (e2) console.error(e2)
 
       if (pendentesData) setPendentes(pendentesData)
       if (concluidasData) setConcluidas(concluidasData)
@@ -64,7 +61,7 @@ export default function PropostasRecebidasPage() {
 
       if (idsJogadores.length > 0) await buscarJogadores(idsJogadores)
 
-      // Jogadores oferecidos (corrigido para array de objetos ou ids)
+      // Jogadores oferecidos (suporta array de objetos ou ids)
       const idsOferecidos = [
         ...(pendentesData?.flatMap((p) => (p.jogadores_oferecidos || []).map(getOferecidoId)) || []),
         ...(concluidasData?.flatMap((p) => (p.jogadores_oferecidos || []).map(getOferecidoId)) || []),
@@ -119,7 +116,7 @@ export default function PropostasRecebidasPage() {
       alert('Erro ao buscar dados do jogador.')
       return
     }
-    if (jogadorData.jogos < 3) {
+    if ((jogadorData.jogos ?? 0) < 3) {
       alert('❌ Este jogador ainda não pode ser negociado. Precisa ter ao menos 3 jogos.')
       return
     }
@@ -129,62 +126,60 @@ export default function PropostasRecebidasPage() {
     if (loadingPropostaId === proposta.id) return
     setLoadingPropostaId(proposta.id)
 
+    // Normaliza tipo e valores
+    const tipo: string = proposta.tipo_proposta // 'dinheiro' | 'troca_simples' | 'troca_composta' | 'comprar_percentual'
+    const dinheiroOferecido: number | null =
+      proposta.valor_oferecido == null ? null : Number(proposta.valor_oferecido)
+
+    const isTrocaSimples  = tipo === 'troca_simples'
+    const isTrocaComposta = tipo === 'troca_composta'
+    const isDinheiro      = tipo === 'dinheiro'
+    const isPercentual    = tipo === 'comprar_percentual' || tipo === 'percentual' // compat
+
+    // Valor para saldos/BID
+    let valorTransacao = 0
+    if (isDinheiro) {
+      valorTransacao = Math.max(0, Number(dinheiroOferecido ?? 0))
+    } else if (isTrocaComposta) {
+      valorTransacao = dinheiroOferecido && dinheiroOferecido > 0 ? Number(dinheiroOferecido) : 0
+    } else if (isPercentual) {
+      const perc = Number(proposta.percentual_desejado || proposta.percentual || 0)
+      valorTransacao = Math.round(Number(jogadorData.valor || 0) * (perc / 100))
+    } // troca_simples => 0
+
     try {
-      // Regras de negócio
-      const tipo: string = proposta.tipo_proposta // 'dinheiro' | 'troca_simples' | 'troca_composta' | 'comprar_percentual'
-      const dinheiroOferecido: number | null =
-        proposta.valor_oferecido == null ? null : Number(proposta.valor_oferecido)
-      const isTrocaSimples = tipo === 'troca_simples'
-      const isTrocaComposta = tipo === 'troca_composta'
-      const isDinheiro = tipo === 'dinheiro'
-      const isPercentual = tipo === 'comprar_percentual' || tipo === 'percentual' // compat
-
-      // Valor da transação (impacta saldos e salário). Nas trocas simples, 0.
-      let valorTransacao = 0
-      if (isDinheiro) {
-        valorTransacao = Math.max(0, Number(dinheiroOferecido ?? 0))
-      } else if (isTrocaComposta) {
-        valorTransacao = dinheiroOferecido && dinheiroOferecido > 0 ? Number(dinheiroOferecido) : 0
-      } else if (isPercentual) {
-        const perc = Number(proposta.percentual_desejado || proposta.percentual || 0)
-        valorTransacao = Math.round(Number(jogadorData.valor || 0) * (perc / 100))
-      } // troca_simples => 0
-
-      // 1) Marca proposta como aceita
+      // 1) Marca como aceita
       const { error: eStatus } = await supabase
         .from('propostas_app')
         .update({ status: 'aceita', aceita_em: new Date().toISOString() })
         .eq('id', proposta.id)
       if (eStatus) throw eStatus
 
-      // 2) Saldos (só quando houver dinheiro)
+      // 2) Saldos e BID
+      let comprador: any = null
+      let vendedor: any  = null
       if (valorTransacao > 0) {
-        const { data: comprador, error: ec } = await supabase
-          .from('times')
-          .select('saldo, nome')
-          .eq('id', proposta.id_time_origem)
-          .single()
-        if (ec) throw ec
-        const { data: vendedor, error: ev } = await supabase
-          .from('times')
-          .select('saldo, nome')
-          .eq('id', proposta.id_time_alvo)
-          .single()
-        if (ev) throw ev
+        const r1 = await supabase.from('times').select('saldo, nome').eq('id', proposta.id_time_origem).single()
+        const r2 = await supabase.from('times').select('saldo, nome').eq('id', proposta.id_time_alvo).single()
+        if (r1.error) throw r1.error
+        if (r2.error) throw r2.error
+        comprador = r1.data
+        vendedor  = r2.data
 
         // debita/credita
-        const { error: eDeb } = await supabase
+        const eDeb = await supabase
           .from('times')
           .update({ saldo: Number(comprador.saldo || 0) - valorTransacao })
           .eq('id', proposta.id_time_origem)
-        if (eDeb) throw eDeb
-        const { error: eCred } = await supabase
+        if (eDeb.error) throw eDeb.error
+
+        const eCred = await supabase
           .from('times')
           .update({ saldo: Number(vendedor.saldo || 0) + valorTransacao })
           .eq('id', proposta.id_time_alvo)
-        if (eCred) throw eCred
+        if (eCred.error) throw eCred.error
 
-        // 2.1) Movimentações
+        // movimentações
         await registrarMovimentacao({
           id_time: proposta.id_time_origem,
           tipo: 'saida',
@@ -198,12 +193,10 @@ export default function PropostasRecebidasPage() {
           descricao: `Venda de ${jogadorData?.nome} via proposta`,
         })
 
-        // 2.2) BID feed
+        // BID (compra/venda com valor)
         await supabase.from('bid').insert({
           tipo_evento: 'transferencia',
-          descricao: `O ${vendedor?.nome || 'time vendedor'} vendeu ${jogadorData?.nome} ao ${
-            comprador?.nome || 'time comprador'
-          } por ${toBRL(valorTransacao)}.`,
+          descricao: `O ${vendedor.nome} vendeu ${jogadorData.nome} ao ${comprador.nome} por ${toBRL(valorTransacao)}.`,
           id_time1: proposta.id_time_alvo,
           id_time2: proposta.id_time_origem,
           valor: valorTransacao,
@@ -211,21 +204,13 @@ export default function PropostasRecebidasPage() {
         })
       } else {
         // BID para trocas sem dinheiro
-        const { data: comprador } = await supabase
-          .from('times')
-          .select('nome')
-          .eq('id', proposta.id_time_origem)
-          .single()
-        const { data: vendedor } = await supabase
-          .from('times')
-          .select('nome')
-          .eq('id', proposta.id_time_alvo)
-          .single()
+        const r1 = await supabase.from('times').select('nome').eq('id', proposta.id_time_origem).single()
+        const r2 = await supabase.from('times').select('nome').eq('id', proposta.id_time_alvo).single()
+        comprador = r1.data
+        vendedor  = r2.data
         await supabase.from('bid').insert({
           tipo_evento: 'transferencia',
-          descricao: `Troca simples: ${vendedor?.nome || 'time A'} ↔ ${comprador?.nome || 'time B'} envolvendo ${
-            jogadores[proposta.jogador_id]?.nome || 'jogador'
-          }${(proposta.jogadores_oferecidos || []).length ? ' e jogadores oferecidos' : ''}.`,
+          descricao: `Troca: ${vendedor?.nome || 'time A'} ↔ ${comprador?.nome || 'time B'} envolvendo ${jogadorData.nome}${(proposta.jogadores_oferecidos || []).length ? ' e outros jogadores' : ''}.`,
           id_time1: proposta.id_time_alvo,
           id_time2: proposta.id_time_origem,
           valor: 0,
@@ -233,46 +218,44 @@ export default function PropostasRecebidasPage() {
         })
       }
 
-      // 3) Transferências de elenco
-      // 3.1) Jogador alvo SEMPRE vai para o comprador (origem); zera jogos
-      //      ATENÇÃO: só atualiza "valor" se for DINHEIRO ou TROCA+DINHEIRO com dinheiro > 0
+      // 3) Atualiza ELENCO do alvo
+      // Vai para o comprador; zera jogos.
+      // Só atualiza "valor" e "salario" quando há dinheiro > 0 (dinheiro / troca+dinheiro).
       const updatesAlvo: any = { id_time: proposta.id_time_origem, jogos: 0 }
       if (isDinheiro || (isTrocaComposta && valorTransacao > 0)) {
-        updatesAlvo.valor = valorTransacao
-        // salário só quando tem dinheiro
+        updatesAlvo.valor   = valorTransacao
         updatesAlvo.salario = Math.round(valorTransacao * 0.007)
       }
-      const { error: eAlvo } = await supabase
-        .from('elenco')
-        .update(updatesAlvo)
-        .eq('id', proposta.jogador_id)
-      if (eAlvo) throw eAlvo
+      const eAlvo = await supabase.from('elenco').update(updatesAlvo).eq('id', proposta.jogador_id)
+      if (eAlvo.error) throw eAlvo.error
 
-      // 3.2) Jogadores oferecidos vão para o vendedor (alvo); não mexe em valor, zera jogos
-      if (['troca_simples', 'troca_composta'].includes(tipo)) {
-        const oferecidosIds: string[] = (proposta.jogadores_oferecidos || []).map(getOferecidoId)
-        for (const idJogador of oferecidosIds) {
-          const { error: eOf } = await supabase
+      // 3.2) Oferecidos → vão para o vendedor; zera jogos; NÃO mexe no valor
+      if (isTrocaSimples || isTrocaComposta) {
+        const oferecidosIds: string[] = (proposta.jogadores_oferecidos || [])
+          .map(getOferecidoId)
+          .filter(Boolean)
+        for (const idJ of oferecidosIds) {
+          const eOf = await supabase
             .from('elenco')
             .update({ id_time: proposta.id_time_alvo, jogos: 0 })
-            .eq('id', idJogador)
-          if (eOf) throw eOf
+            .eq('id', idJ)
+          if (eOf.error) throw eOf.error
         }
       }
 
-      // 4) Notificações
+      // 4) Notificação
       await supabase.from('notificacoes').insert({
         id_time: proposta.id_time_origem,
         titulo: '✅ Proposta aceita!',
         mensagem: `Sua proposta pelo jogador ${jogadorData?.nome} foi aceita.`,
       })
 
-      // 5) Atualiza listas locais
+      // 5) Atualiza estado local
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
-    } catch (err: any) {
+    } catch (err) {
       console.error(err)
-      alert('Erro ao processar a proposta. Veja o console para detalhes.')
+      alert('Erro ao processar a proposta. Veja o console.')
     } finally {
       setLoadingPropostaId(null)
     }
@@ -296,9 +279,7 @@ export default function PropostasRecebidasPage() {
 
   const renderCard = (p: any) => {
     const jog = jogadores[p.jogador_id]
-    // valor_oferecido pode ser null => mostra "—"
     const valorLabel = toBRL(p.valor_oferecido == null ? null : Number(p.valor_oferecido))
-    // lista de oferecidos (suporta objetos)
     const oferecidosNomes =
       (p.jogadores_oferecidos || [])
         .map(getOferecidoId)
