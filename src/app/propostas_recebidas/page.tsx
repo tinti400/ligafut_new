@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import toast from 'react-hot-toast'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 
 const supabase = createClient(
@@ -58,7 +59,6 @@ export default function PropostasRecebidasPage() {
         ...(pendentesData?.map((p) => p.jogador_id) || []),
         ...(concluidasData?.map((p) => p.jogador_id) || []),
       ].filter(Boolean)
-
       if (idsJogadores.length > 0) await buscarJogadores(idsJogadores)
 
       // Jogadores oferecidos (suporta array de objetos ou ids)
@@ -67,19 +67,14 @@ export default function PropostasRecebidasPage() {
         ...(concluidasData?.flatMap((p) => (p.jogadores_oferecidos || []).map(getOferecidoId)) || []),
       ].filter(Boolean)
       const idsOferecidosUnicos = Array.from(new Set(idsOferecidos))
-
       if (idsOferecidosUnicos.length > 0) await buscarJogadoresOferecidos(idsOferecidosUnicos)
     }
 
     const buscarJogadores = async (ids: string[]) => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('elenco')
         .select('id, nome, imagem_url, posicao, valor')
         .in('id', ids)
-      if (error) {
-        console.error(error)
-        return
-      }
       if (data) {
         const dict = Object.fromEntries(data.map((j) => [j.id, j]))
         setJogadores(dict)
@@ -87,14 +82,10 @@ export default function PropostasRecebidasPage() {
     }
 
     const buscarJogadoresOferecidos = async (ids: string[]) => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('elenco')
         .select('id, nome')
         .in('id', ids)
-      if (error) {
-        console.error(error)
-        return
-      }
       if (data) {
         const dict = Object.fromEntries(data.map((j) => [j.id, j.nome]))
         setJogadoresOferecidosData((prev: any) => ({ ...prev, ...dict }))
@@ -105,13 +96,12 @@ export default function PropostasRecebidasPage() {
   }, [])
 
   const aceitarProposta = async (proposta: any) => {
-    // Busca dados atuais do jogador alvo
+    // Dados atuais do jogador alvo
     const { data: jogadorData, error: errorJogador } = await supabase
       .from('elenco')
-      .select('id, nome, jogos, id_time, valor, salario')
+      .select('id, nome, jogos, id_time, valor, salario, imagem_url, posicao')
       .eq('id', proposta.jogador_id)
       .single()
-
     if (errorJogador || !jogadorData) {
       alert('Erro ao buscar dados do jogador.')
       return
@@ -121,8 +111,7 @@ export default function PropostasRecebidasPage() {
       return
     }
 
-    const confirmar = window.confirm(`Aceitar proposta por ${jogadorData?.nome}?`)
-    if (!confirmar) return
+    if (!window.confirm(`Aceitar proposta por ${jogadorData.nome}?`)) return
     if (loadingPropostaId === proposta.id) return
     setLoadingPropostaId(proposta.id)
 
@@ -166,16 +155,21 @@ export default function PropostasRecebidasPage() {
         comprador = r1.data
         vendedor  = r2.data
 
+        const saldoCompradorAntes = Number(comprador.saldo || 0)
+        const saldoVendedorAntes  = Number(vendedor.saldo || 0)
+        const saldoCompradorDepois = saldoCompradorAntes - valorTransacao
+        const saldoVendedorDepois  = saldoVendedorAntes + valorTransacao
+
         // debita/credita
         const eDeb = await supabase
           .from('times')
-          .update({ saldo: Number(comprador.saldo || 0) - valorTransacao })
+          .update({ saldo: saldoCompradorDepois })
           .eq('id', proposta.id_time_origem)
         if (eDeb.error) throw eDeb.error
 
         const eCred = await supabase
           .from('times')
-          .update({ saldo: Number(vendedor.saldo || 0) + valorTransacao })
+          .update({ saldo: saldoVendedorDepois })
           .eq('id', proposta.id_time_alvo)
         if (eCred.error) throw eCred.error
 
@@ -184,13 +178,13 @@ export default function PropostasRecebidasPage() {
           id_time: proposta.id_time_origem,
           tipo: 'saida',
           valor: valorTransacao,
-          descricao: `Compra de ${jogadorData?.nome} via proposta`,
+          descricao: `Compra de ${jogadorData.nome} via proposta`,
         })
         await registrarMovimentacao({
           id_time: proposta.id_time_alvo,
           tipo: 'entrada',
           valor: valorTransacao,
-          descricao: `Venda de ${jogadorData?.nome} via proposta`,
+          descricao: `Venda de ${jogadorData.nome} via proposta`,
         })
 
         // BID (compra/venda com valor)
@@ -201,6 +195,14 @@ export default function PropostasRecebidasPage() {
           id_time2: proposta.id_time_origem,
           valor: valorTransacao,
           data_evento: new Date().toISOString(),
+        })
+
+        // ✅ Toasts de caixa (antes → depois)
+        toast.success(
+          `💰 Caixa do ${vendedor.nome}: ${toBRL(saldoVendedorAntes)} → ${toBRL(saldoVendedorDepois)}`
+        )
+        toast(`💸 Caixa do ${comprador.nome}: ${toBRL(saldoCompradorAntes)} → ${toBRL(saldoCompradorDepois)}`, {
+          icon: '🏦'
         })
       } else {
         // BID para trocas sem dinheiro
@@ -216,11 +218,11 @@ export default function PropostasRecebidasPage() {
           valor: 0,
           data_evento: new Date().toISOString(),
         })
+
+        toast('🔁 Troca realizada sem movimentação de caixa.', { icon: '🤝' })
       }
 
-      // 3) Atualiza ELENCO do alvo
-      // Vai para o comprador; zera jogos.
-      // Só atualiza "valor" e "salario" quando há dinheiro > 0 (dinheiro / troca+dinheiro).
+      // 3) Atualiza ELENCO do alvo (sem zerar valor indevidamente)
       const updatesAlvo: any = { id_time: proposta.id_time_origem, jogos: 0 }
       if (isDinheiro || (isTrocaComposta && valorTransacao > 0)) {
         updatesAlvo.valor   = valorTransacao
@@ -229,7 +231,7 @@ export default function PropostasRecebidasPage() {
       const eAlvo = await supabase.from('elenco').update(updatesAlvo).eq('id', proposta.jogador_id)
       if (eAlvo.error) throw eAlvo.error
 
-      // 3.2) Oferecidos → vão para o vendedor; zera jogos; NÃO mexe no valor
+      // Oferecidos → vão para o vendedor; zera jogos; NÃO mexe no valor
       if (isTrocaSimples || isTrocaComposta) {
         const oferecidosIds: string[] = (proposta.jogadores_oferecidos || [])
           .map(getOferecidoId)
@@ -243,19 +245,19 @@ export default function PropostasRecebidasPage() {
         }
       }
 
-      // 4) Notificação
+      // Notificação
       await supabase.from('notificacoes').insert({
         id_time: proposta.id_time_origem,
         titulo: '✅ Proposta aceita!',
-        mensagem: `Sua proposta pelo jogador ${jogadorData?.nome} foi aceita.`,
+        mensagem: `Sua proposta pelo jogador ${jogadorData.nome} foi aceita.`,
       })
 
-      // 5) Atualiza estado local
+      // Atualiza estado local
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
     } catch (err) {
       console.error(err)
-      alert('Erro ao processar a proposta. Veja o console.')
+      toast.error('Erro ao processar a proposta.')
     } finally {
       setLoadingPropostaId(null)
     }
@@ -274,6 +276,7 @@ export default function PropostasRecebidasPage() {
       })
       setPendentes((prev) => prev.filter((p) => p.id !== id))
       setConcluidas((prev) => [{ ...recusada, status: 'recusada' }, ...prev].slice(0, 5))
+      toast('Proposta recusada.', { icon: '❌' })
     }
   }
 
@@ -287,28 +290,39 @@ export default function PropostasRecebidasPage() {
         .join(', ') || null
 
     return (
-      <div key={p.id} className="border rounded shadow p-3 w-[240px] flex flex-col items-center bg-white">
+      <div
+        key={p.id}
+        className="border border-gray-700 rounded-lg p-3 w-[260px] flex flex-col items-center bg-gray-800 shadow-sm"
+      >
         <img
           src={jog?.imagem_url || '/jogador_padrao.png'}
-          className="w-16 h-16 rounded-full object-cover mb-2"
+          alt={jog?.nome || 'Jogador'}
+          className="w-16 h-16 rounded-full object-cover mb-2 ring-2 ring-gray-700"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/jogador_padrao.png' }}
         />
-        <div className="text-center text-sm font-semibold">{jog?.nome || 'Jogador'}</div>
-        <div className="text-xs text-gray-700">{jog?.posicao} • De: {p.nome_time_origem}</div>
-        <div className="text-xs text-gray-700 mt-1">
-          Tipo: {p.tipo_proposta} <br />
-          Status: {p.status === 'pendente' ? '⏳' : p.status === 'aceita' ? '✅' : '❌'}
+        <div className="text-center text-sm font-semibold text-white">{jog?.nome || 'Jogador'}</div>
+        <div className="text-xs text-gray-300">
+          {jog?.posicao || '—'} • De: <span className="text-gray-200">{p.nome_time_origem}</span>
         </div>
 
-        <div className="text-sm text-blue-700 font-bold mt-1">{valorLabel}</div>
+        <div className="text-xs text-gray-300 mt-1">
+          Tipo: <span className="capitalize text-gray-100">{String(p.tipo_proposta).replace('_', ' ')}</span><br />
+          Status:{' '}
+          {p.status === 'pendente' ? <span className="text-yellow-400">⏳</span> :
+           p.status === 'aceita'   ? <span className="text-emerald-400">✅</span> :
+                                     <span className="text-red-400">❌</span>}
+        </div>
+
+        <div className="text-sm font-bold mt-2 text-emerald-400">{valorLabel}</div>
 
         {['comprar_percentual', 'percentual'].includes(p.tipo_proposta) && (
-          <div className="text-xs mt-1">📊 Percentual: {p.percentual_desejado}%</div>
+          <div className="text-xs mt-1 text-gray-300">📊 Percentual: {p.percentual_desejado}%</div>
         )}
 
         {oferecidosNomes && (
-          <div className="text-xs mt-2 text-center">
+          <div className="text-xs mt-2 text-center text-gray-300">
             🧩 Oferecidos:<br />
-            {oferecidosNomes}
+            <span className="text-gray-100">{oferecidosNomes}</span>
           </div>
         )}
 
@@ -316,14 +330,14 @@ export default function PropostasRecebidasPage() {
           <div className="flex gap-2 mt-3">
             <button
               onClick={() => aceitarProposta(p)}
-              className="bg-green-600 text-white text-xs px-3 py-1 rounded disabled:opacity-50"
+              className="bg-green-600 hover:bg-green-700 text-white text-xs px-3 py-1 rounded disabled:opacity-50"
               disabled={loadingPropostaId === p.id}
             >
               {loadingPropostaId === p.id ? '⏳' : '✅ Aceitar'}
             </button>
             <button
               onClick={() => recusarProposta(p.id)}
-              className="bg-red-600 text-white text-xs px-3 py-1 rounded"
+              className="bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1 rounded"
             >
               ❌ Recusar
             </button>
@@ -334,15 +348,15 @@ export default function PropostasRecebidasPage() {
   }
 
   return (
-    <div className="p-4">
+    <div className="p-4 bg-gray-900 text-white min-h-screen">
       <h1 className="text-xl font-bold mb-4">📥 Propostas Recebidas</h1>
 
       <h2 className="text-md font-semibold mb-2">⏳ Pendentes (últimas 10)</h2>
-      {pendentes.length === 0 && <p className="text-gray-500">Nenhuma proposta pendente.</p>}
+      {pendentes.length === 0 && <p className="text-gray-400">Nenhuma proposta pendente.</p>}
       <div className="flex flex-wrap gap-4">{pendentes.map(renderCard)}</div>
 
       <h2 className="text-md font-semibold my-4">📜 Concluídas (últimas 5)</h2>
-      {concluidas.length === 0 && <p className="text-gray-500">Nenhuma proposta concluída.</p>}
+      {concluidas.length === 0 && <p className="text-gray-400">Nenhuma proposta concluída.</p>}
       <div className="flex flex-wrap gap-4">{concluidas.map(renderCard)}</div>
     </div>
   )
