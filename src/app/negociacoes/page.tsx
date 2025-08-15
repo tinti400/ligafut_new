@@ -104,14 +104,15 @@ export default function NegociacoesPage() {
 
   // Utils
   const parseNumberOrNull = (v: string): number | null => {
-    if (v == null) return null
+    if (v == null || v === '') return null
     const n = Number(v)
     return Number.isFinite(n) ? n : null
   }
   const isUUID = (s?: string | null) =>
     !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
-  const toInt32Safe = (n: number | null | undefined) => {
-    const v = Math.trunc(Number(n || 0))
+  const toInt32OrNull = (n: number | null | undefined) => {
+    if (n == null) return null
+    const v = Math.trunc(Number(n))
     const INT32_MAX = 2147483647
     const INT32_MIN = -2147483648
     if (v > INT32_MAX) return INT32_MAX
@@ -130,8 +131,8 @@ export default function NegociacoesPage() {
   // Enviar proposta (alinhado ao schema de `propostas_app`)
   const enviarProposta = async (jogadorAlvo: Jogador) => {
     const tipo = (tipoProposta[jogadorAlvo.id] || 'dinheiro') as TipoProposta
-    const valor = valorProposta[jogadorAlvo.id] || ''
-    const perc = percentualDesejado[jogadorAlvo.id] || ''
+    const valorStr = valorProposta[jogadorAlvo.id] || ''
+    const percStr = percentualDesejado[jogadorAlvo.id] || ''
     const idsOferecidos = jogadoresOferecidos[jogadorAlvo.id] || []
 
     if (!id_time || !nome_time) {
@@ -171,28 +172,39 @@ export default function NegociacoesPage() {
       }
     }
 
-    // Valores oferecidos / percentuais
-    const valorNumerico = parseNumberOrNull(valor)
-    const valor_oferecido =
-      ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo) ? valorNumerico : 0
-    const percentualNum =
-      tipo === 'comprar_percentual' ? parseNumberOrNull(perc) : 0
+    // Converte valores numéricos
+    const valorNumerico = parseNumberOrNull(valorStr)
+    const percentualNum = tipo === 'comprar_percentual' ? parseNumberOrNull(percStr) : null
 
-    // Validações de front
-    if (
-      ['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tipo) &&
-      (valor_oferecido == null || valor_oferecido < 0)
-    ) {
-      alert('Informe um valor válido.')
-      return
+    // Validações por tipo
+    if (tipo === 'dinheiro') {
+      if (valorNumerico == null || valorNumerico < 0) {
+        alert('Informe um valor válido.')
+        return
+      }
     }
-    if (tipo === 'comprar_percentual' && (!percentualNum || percentualNum <= 0 || percentualNum > 100)) {
-      alert('Percentual inválido (1 a 100).')
-      return
+    if (tipo === 'comprar_percentual') {
+      if (valorNumerico == null || valorNumerico < 0) {
+        alert('Informe um valor válido.')
+        return
+      }
+      if (percentualNum == null || percentualNum <= 0 || percentualNum > 100) {
+        alert('Percentual inválido (1 a 100).')
+        return
+      }
     }
-    if (['troca_simples', 'troca_composta'].includes(tipo) && oferecidosDetalhes.length === 0) {
-      alert('Selecione ao menos 1 jogador para a troca.')
-      return
+    if (tipo === 'troca_simples') {
+      if (oferecidosDetalhes.length === 0) {
+        alert('Selecione ao menos 1 jogador para a troca.')
+        return
+      }
+    }
+    if (tipo === 'troca_composta') {
+      if (oferecidosDetalhes.length === 0) {
+        alert('Selecione ao menos 1 jogador (o dinheiro é opcional).')
+        return
+      }
+      // valorNumerico pode ser null aqui — sem problemas
     }
 
     // Nome do time alvo
@@ -202,7 +214,24 @@ export default function NegociacoesPage() {
       .eq('id', jogadorAlvo.id_time)
       .single()
 
-    // Monta payload conforme tabela propostas_app
+    // === Regras para valor_oferecido (CRÍTICO para não zerar) ===
+    // - 'dinheiro' e 'comprar_percentual': usa o valor informado (>= 0)
+    // - 'troca_composta': só envia quando > 0; se vazio/0 -> NULL (não altera valor no aceite)
+    // - 'troca_simples': SEMPRE NULL (não altera valor no aceite)
+    let valor_oferecido: number | null = null
+    if (tipo === 'dinheiro' || tipo === 'comprar_percentual') {
+      valor_oferecido = toInt32OrNull(valorNumerico)
+    } else if (tipo === 'troca_composta') {
+      if (valorNumerico != null && valorNumerico > 0) {
+        valor_oferecido = toInt32OrNull(valorNumerico)
+      } else {
+        valor_oferecido = null
+      }
+    } else {
+      // troca_simples
+      valor_oferecido = null
+    }
+
     const payload = {
       id_time_origem: id_time,                         // uuid (string)
       nome_time_origem: nome_time,                     // text
@@ -212,7 +241,8 @@ export default function NegociacoesPage() {
       jogador_id: jogadorAlvo.id,                      // uuid
       tipo_proposta: tipo,                             // text
 
-      valor_oferecido: toInt32Safe(valor_oferecido),   // int4
+      // AGORA PERMITE NULL
+      valor_oferecido,                                 // int4 | null
 
       percentual_desejado: tipo === 'comprar_percentual' ? (percentualNum || 0) : 0, // numeric
       percentual:          tipo === 'comprar_percentual' ? (percentualNum || 0) : 0, // numeric
@@ -221,9 +251,9 @@ export default function NegociacoesPage() {
 
       status: 'pendente',
       created_at: new Date().toISOString()
-    }
+    } as const
 
-    // Valida UUIDs para evitar erro no Postgres
+    // Valida UUIDs
     if (!isUUID(payload.id_time_origem) || !isUUID(payload.id_time_alvo) || !isUUID(payload.jogador_id)) {
       alert('IDs inválidos (uuid). Recarregue e faça login novamente.')
       return
@@ -231,10 +261,9 @@ export default function NegociacoesPage() {
 
     setEnviando((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
     try {
-      const { data: insertData, error: insertErr } = await supabase
-        .from('propostas_app') // nome confirmado
+      const { error: insertErr } = await supabase
+        .from('propostas_app')
         .insert([payload])
-        .select('id')
 
       if (insertErr) {
         console.error('❌ INSERT propostas_app', {
@@ -247,12 +276,14 @@ export default function NegociacoesPage() {
         return
       }
 
-      // ✅ Toast de sucesso com o valor
-      toast.success(
-        `💰 Proposta de valor R$ ${Number(payload.valor_oferecido).toLocaleString('pt-BR')} enviada com sucesso!`
-      )
+      // Sucesso
+      const valorToast =
+        valor_oferecido == null
+          ? 'Sem redefinir valor (troca).'
+          : `R$ ${Number(valor_oferecido).toLocaleString('pt-BR')}`
 
-      // Feedback visual opcional já existente
+      toast.success(`Proposta enviada com sucesso! ${valorToast}`)
+
       setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
       setTimeout(() => {
         setMensagemSucesso((prev) => ({ ...prev, [jogadorAlvo.id]: false }))
@@ -299,13 +330,19 @@ export default function NegociacoesPage() {
         {elencoAdversario.map((jogador) => {
           const sel = jogadorSelecionadoId === jogador.id
           const tp = (tipoProposta[jogador.id] || 'dinheiro') as TipoProposta
+
+          // ===== NOVA LÓGICA DE HABILITAÇÃO DO BOTÃO =====
+          const temValor = valorProposta[jogador.id] !== undefined && valorProposta[jogador.id] !== ''
+          const valorInvalido = temValor && isNaN(Number(valorProposta[jogador.id]))
+          const precisaValor = tp === 'dinheiro' || tp === 'comprar_percentual' // troca_composta: opcional
+          const precisaJogadores = tp === 'troca_simples' || tp === 'troca_composta'
+          const jogadoresSelecionadosVazios = precisaJogadores && (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0)
+          const invalidoPercentual = tp === 'comprar_percentual' && (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))
+
           const disableEnviar =
-            (['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tp) &&
-              (!valorProposta[jogador.id] || isNaN(Number(valorProposta[jogador.id])))) ||
-            (tp === 'comprar_percentual' &&
-              (!percentualDesejado[jogador.id] || isNaN(Number(percentualDesejado[jogador.id])))) ||
-            (['troca_simples', 'troca_composta'].includes(tp) &&
-              (!jogadoresOferecidos[jogador.id] || jogadoresOferecidos[jogador.id].length === 0))
+            (precisaValor && (!temValor || valorInvalido)) ||
+            invalidoPercentual ||
+            jogadoresSelecionadosVazios
 
           return (
             <div key={jogador.id} className="border border-gray-700 rounded p-3 w-[260px] bg-gray-800">
@@ -327,6 +364,7 @@ export default function NegociacoesPage() {
                 onClick={() => {
                   setJogadorSelecionadoId(jogador.id)
                   setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
+                  // deixa o valor preenchido apenas como sugestão; se limpar, virará NULL no payload (nas trocas)
                   setValorProposta((prev) => ({ ...prev, [jogador.id]: String(jogador.valor ?? 0) }))
                   setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
                 }}
@@ -346,13 +384,15 @@ export default function NegociacoesPage() {
                   >
                     <option value="dinheiro">💰 Apenas dinheiro</option>
                     <option value="troca_simples">🔁 Troca simples</option>
-                    <option value="troca_composta">💶 Troca + dinheiro</option>
+                    <option value="troca_composta">💶 Troca + dinheiro (opcional)</option>
                     <option value="comprar_percentual">📈 Comprar percentual</option>
                   </select>
 
-                  {['dinheiro', 'troca_composta', 'comprar_percentual'].includes(tp) && (
+                  {(tp === 'dinheiro' || tp === 'troca_composta' || tp === 'comprar_percentual') && (
                     <div className="mb-3">
-                      <label className="font-semibold">Valor oferecido (R$):</label>
+                      <label className="font-semibold">
+                        Valor oferecido (R$){tp === 'troca_composta' ? ' — opcional' : ''}:
+                      </label>
                       <input
                         type="number"
                         className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white"
@@ -380,9 +420,11 @@ export default function NegociacoesPage() {
                     </div>
                   )}
 
-                  {['troca_simples', 'troca_composta'].includes(tp) && (
+                  {(tp === 'troca_simples' || tp === 'troca_composta') && (
                     <div className="mb-3">
-                      <label className="font-semibold">Jogadores oferecidos (mín. 1 / precisam ter ≥ 3 jogos):</label>
+                      <label className="font-semibold">
+                        Jogadores oferecidos (mín. 1 / precisam ter ≥ 3 jogos):
+                      </label>
                       <select
                         multiple
                         className="border p-1 w-full mt-1 bg-gray-800 border-gray-600 text-white h-28"
@@ -394,7 +436,6 @@ export default function NegociacoesPage() {
                               return j?.podeOferecer
                             })
                             .map((opt) => opt.value)
-                          // 👇 correção: usar o jogador do escopo do map
                           setJogadoresOferecidos((prev) => ({ ...prev, [jogador.id]: selected }))
                         }}
                       >
@@ -431,5 +472,3 @@ export default function NegociacoesPage() {
     </main>
   )
 }
-
-
