@@ -10,22 +10,47 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// Helpers
+// ===== Helpers =====
 const isObj = (v: any) => v && typeof v === 'object' && !Array.isArray(v)
-const getOferecidoId = (item: any): string => {
-  // aceita string id, ou objetos com várias chaves possíveis
-  if (typeof item === 'string') return item
-  if (!isObj(item)) return String(item)
-  const cand =
-    item.id ??
-    item.jogador_id ??
-    item.player_id ??
-    item.jogadorId ??
-    item.playerId
-  return typeof cand === 'string' ? cand : String(cand)
-}
+const isUUID = (s: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+
 const toBRL = (n: number | null | undefined) =>
   n == null ? '—' : `R$ ${Number(n).toLocaleString('pt-BR')}`
+
+// pega id de várias formas e normaliza (trim / uuid)
+const pickAnyId = (obj: any): string | null => {
+  if (!isObj(obj)) return null
+  const cand =
+    obj.id ??
+    obj.jogador_id ??
+    obj.player_id ??
+    obj.elenco_id ??
+    obj.jogadorId ??
+    obj.playerId ??
+    null
+  if (cand == null) return null
+  const s = String(cand).trim()
+  return s || null
+}
+
+const extractOfferedIds = (raw: any): string[] => {
+  // aceita array de strings, array de objetos, misto etc.
+  const arr: any[] = Array.isArray(raw) ? raw : []
+  const ids = arr
+    .map((item) => {
+      if (typeof item === 'string') return item.trim()
+      if (isObj(item)) return pickAnyId(item)
+      return String(item || '').trim()
+    })
+    .filter(Boolean) as string[]
+
+  // normaliza e filtra por uuid válido
+  const unique = Array.from(new Set(ids.map((s) => s.trim())))
+  return unique.filter((s) => isUUID(s))
+}
+
+// ===================
 
 export default function PropostasRecebidasPage() {
   const [pendentes, setPendentes] = useState<any[]>([])
@@ -38,7 +63,6 @@ export default function PropostasRecebidasPage() {
   useEffect(() => {
     const id_time = localStorage.getItem('id_time') || ''
     setIdTime(id_time)
-
     if (!id_time) return
 
     const buscarPropostas = async () => {
@@ -68,13 +92,13 @@ export default function PropostasRecebidasPage() {
       ].filter(Boolean)
       if (idsJogadores.length > 0) await buscarJogadores(idsJogadores)
 
-      // Jogadores oferecidos (suporta array de objetos ou ids)
+      // Jogadores oferecidos (para mostrar nomes)
       const idsOferecidos = [
-        ...(pendentesData?.flatMap((p) => (p.jogadores_oferecidos || []).map(getOferecidoId)) || []),
-        ...(concluidasData?.flatMap((p) => (p.jogadores_oferecidos || []).map(getOferecidoId)) || []),
-      ].filter(Boolean)
-      const idsOferecidosUnicos = Array.from(new Set(idsOferecidos))
-      if (idsOferecidosUnicos.length > 0) await buscarJogadoresOferecidos(idsOferecidosUnicos)
+        ...(pendentesData?.flatMap((p) => extractOfferedIds(p.jogadores_oferecidos)) || []),
+        ...(concluidasData?.flatMap((p) => extractOfferedIds(p.jogadores_oferecidos)) || []),
+      ]
+      const unicos = Array.from(new Set(idsOferecidos))
+      if (unicos.length > 0) await buscarJogadoresOferecidos(unicos)
     }
 
     const buscarJogadores = async (ids: string[]) => {
@@ -82,10 +106,7 @@ export default function PropostasRecebidasPage() {
         .from('elenco')
         .select('id, nome, imagem_url, posicao, valor')
         .in('id', ids)
-      if (data) {
-        const dict = Object.fromEntries(data.map((j) => [j.id, j]))
-        setJogadores(dict)
-      }
+      if (data) setJogadores(Object.fromEntries(data.map((j) => [j.id, j])))
     }
 
     const buscarJogadoresOferecidos = async (ids: string[]) => {
@@ -93,17 +114,17 @@ export default function PropostasRecebidasPage() {
         .from('elenco')
         .select('id, nome')
         .in('id', ids)
-      if (data) {
-        const dict = Object.fromEntries(data.map((j) => [j.id, j.nome]))
-        setJogadoresOferecidosData((prev: any) => ({ ...prev, ...dict }))
-      }
+      if (data) setJogadoresOferecidosData((prev: any) => ({
+        ...prev,
+        ...Object.fromEntries(data.map((j) => [j.id, j.nome]))
+      }))
     }
 
     buscarPropostas()
   }, [])
 
   const aceitarProposta = async (proposta: any) => {
-    // Dados atuais do jogador alvo
+    // Dados do alvo
     const { data: jogadorData, error: errorJogador } = await supabase
       .from('elenco')
       .select('id, nome, jogos, id_time, valor, salario, imagem_url, posicao')
@@ -122,8 +143,8 @@ export default function PropostasRecebidasPage() {
     if (loadingPropostaId === proposta.id) return
     setLoadingPropostaId(proposta.id)
 
-    // Normaliza tipo e valores (robusto)
-    const tipo: string = String(proposta.tipo_proposta || '').trim().toLowerCase()
+    // Tipo e valores
+    const tipo = String(proposta.tipo_proposta || '').trim().toLowerCase()
     const dinheiroOferecido: number | null =
       proposta.valor_oferecido == null ? null : Number(proposta.valor_oferecido)
 
@@ -132,7 +153,6 @@ export default function PropostasRecebidasPage() {
     const isDinheiro      = tipo === 'dinheiro'
     const isPercentual    = tipo === 'comprar_percentual' || tipo === 'percentual' // compat
 
-    // Valor para saldos/BID
     let valorTransacao = 0
     if (isDinheiro) {
       valorTransacao = Math.max(0, Number(dinheiroOferecido ?? 0))
@@ -141,17 +161,17 @@ export default function PropostasRecebidasPage() {
     } else if (isPercentual) {
       const perc = Number(proposta.percentual_desejado || proposta.percentual || 0)
       valorTransacao = Math.round(Number(jogadorData.valor || 0) * (perc / 100))
-    } // troca_simples => 0
+    }
 
     try {
-      // 1) Marca como aceita
+      // 1) Status
       const { error: eStatus } = await supabase
         .from('propostas_app')
         .update({ status: 'aceita', aceita_em: new Date().toISOString() })
         .eq('id', proposta.id)
       if (eStatus) throw eStatus
 
-      // 2) Saldos e BID
+      // 2) Saldos / BID
       let comprador: any = null
       let vendedor: any  = null
       if (valorTransacao > 0) {
@@ -167,20 +187,11 @@ export default function PropostasRecebidasPage() {
         const saldoCompradorDepois = saldoCompradorAntes - valorTransacao
         const saldoVendedorDepois  = saldoVendedorAntes + valorTransacao
 
-        // debita/credita
-        const eDeb = await supabase
-          .from('times')
-          .update({ saldo: saldoCompradorDepois })
-          .eq('id', proposta.id_time_origem)
+        const eDeb = await supabase.from('times').update({ saldo: saldoCompradorDepois }).eq('id', proposta.id_time_origem)
         if (eDeb.error) throw eDeb.error
-
-        const eCred = await supabase
-          .from('times')
-          .update({ saldo: saldoVendedorDepois })
-          .eq('id', proposta.id_time_alvo)
+        const eCred = await supabase.from('times').update({ saldo: saldoVendedorDepois }).eq('id', proposta.id_time_alvo)
         if (eCred.error) throw eCred.error
 
-        // movimentações
         await registrarMovimentacao({
           id_time: proposta.id_time_origem,
           tipo: 'saida',
@@ -194,7 +205,6 @@ export default function PropostasRecebidasPage() {
           descricao: `Venda de ${jogadorData.nome} via proposta`,
         })
 
-        // BID (compra/venda com valor)
         await supabase.from('bid').insert({
           tipo_evento: 'transferencia',
           descricao: `O ${vendedor.nome} vendeu ${jogadorData.nome} ao ${comprador.nome} por ${toBRL(valorTransacao)}.`,
@@ -204,15 +214,9 @@ export default function PropostasRecebidasPage() {
           data_evento: new Date().toISOString(),
         })
 
-        // ✅ Toasts de caixa (antes → depois)
-        toast.success(
-          `💰 Caixa do ${vendedor.nome}: ${toBRL(saldoVendedorAntes)} → ${toBRL(saldoVendedorDepois)}`
-        )
-        toast(`💸 Caixa do ${comprador.nome}: ${toBRL(saldoCompradorAntes)} → ${toBRL(saldoCompradorDepois)}`, {
-          icon: '🏦'
-        })
+        toast.success(`💰 Caixa do ${vendedor.nome}: ${toBRL(saldoVendedorAntes)} → ${toBRL(saldoVendedorDepois)}`)
+        toast(`💸 Caixa do ${comprador.nome}: ${toBRL(saldoCompradorAntes)} → ${toBRL(saldoCompradorDepois)}`, { icon: '🏦' })
       } else {
-        // BID para trocas sem dinheiro
         const r1 = await supabase.from('times').select('nome').eq('id', proposta.id_time_origem).single()
         const r2 = await supabase.from('times').select('nome').eq('id', proposta.id_time_alvo).single()
         comprador = r1.data
@@ -225,11 +229,10 @@ export default function PropostasRecebidasPage() {
           valor: 0,
           data_evento: new Date().toISOString(),
         })
-
         toast('🔁 Troca realizada sem movimentação de caixa.', { icon: '🤝' })
       }
 
-      // 3) Atualiza ELENCO do alvo (sem zerar valor indevidamente)
+      // 3) Alvo → vai para o comprador
       const updatesAlvo: any = { id_time: proposta.id_time_origem, jogos: 0 }
       if (isDinheiro || (isTrocaComposta && valorTransacao > 0)) {
         updatesAlvo.valor   = valorTransacao
@@ -238,28 +241,39 @@ export default function PropostasRecebidasPage() {
       const eAlvo = await supabase.from('elenco').update(updatesAlvo).eq('id', proposta.jogador_id)
       if (eAlvo.error) throw eAlvo.error
 
-      // 3.2) Oferecidos → vão para o vendedor (time ALVO), zera jogos; NÃO mexe no valor
+      // 4) Oferecidos → vão para o vendedor (time ALVO)
       if (isTrocaSimples || isTrocaComposta) {
-        const oferecidosIds: string[] = Array.from(
-          new Set((proposta.jogadores_oferecidos || []).map(getOferecidoId).filter(Boolean))
-        )
+        const oferecidosIds = extractOfferedIds(proposta.jogadores_oferecidos)
+
         if (oferecidosIds.length) {
-          const eOf = await supabase
+          // update em lote + returning pra conferir quem moveu
+          const { data: moved, error: eOf } = await supabase
             .from('elenco')
             .update({ id_time: proposta.id_time_alvo, jogos: 0 })
             .in('id', oferecidosIds)
-          if (eOf.error) throw eOf.error
+            .select('id') // <= retorna os ids atualizados
+          if (eOf) throw eOf
+
+          const movedSet = new Set((moved || []).map((r) => r.id))
+          const notMoved = oferecidosIds.filter((id) => !movedSet.has(id))
+
+          if (notMoved.length) {
+            // tenta descobrir nomes para o aviso
+            const nomes = notMoved.map((id) => jogadoresOferecidosData[id] || id)
+            toast.error(`⚠️ Alguns oferecidos não foram transferidos: ${nomes.join(', ')}`)
+            console.warn('Ids não movidos (oferecidos):', notMoved)
+          }
         }
       }
 
-      // 4) Notificação
+      // 5) Notificação
       await supabase.from('notificacoes').insert({
         id_time: proposta.id_time_origem,
         titulo: '✅ Proposta aceita!',
         mensagem: `Sua proposta pelo jogador ${jogadorData.nome} foi aceita.`,
       })
 
-      // 5) Atualiza estado local
+      // 6) Estado local
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
     } catch (err) {
@@ -290,11 +304,10 @@ export default function PropostasRecebidasPage() {
   const renderCard = (p: any) => {
     const jog = jogadores[p.jogador_id]
     const valorLabel = toBRL(p.valor_oferecido == null ? null : Number(p.valor_oferecido))
-    const oferecidosNomes =
-      (p.jogadores_oferecidos || [])
-        .map(getOferecidoId)
-        .map((id: string) => jogadoresOferecidosData[id] || id)
-        .join(', ') || null
+
+    // nomes dos oferecidos para exibir
+    const offeredIds = extractOfferedIds(p.jogadores_oferecidos)
+    const oferecidosNomes = offeredIds.map((id) => jogadoresOferecidosData[id] || id).join(', ') || null
 
     return (
       <div
