@@ -1,17 +1,20 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// Se ainda não tiver, instale: npm i framer-motion
+// Se ainda não tiver, instale: npm i @supabase/supabase-js framer-motion react-hot-toast
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
+// Ajuste aqui se tiver múltiplas temporadas
+const TEMPORADA_ATUAL = 1
 
 /** ========= Tipos ========= */
 interface TimeRow {
@@ -74,6 +77,64 @@ export default function OitavasPage() {
   const [animA, setAnimA] = useState<TimeRow | null>(null)
   const [animB, setAnimB] = useState<TimeRow | null>(null)
 
+  // ===== Realtime =====
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const stateRef = useRef({
+    sorteioAberto,
+    filaA,
+    filaB,
+    parAtual,
+    pares,
+    animA,
+    animB,
+  })
+  useEffect(() => {
+    stateRef.current = { sorteioAberto, filaA, filaB, parAtual, pares, animA, animB }
+  }, [sorteioAberto, filaA, filaB, parAtual, pares, animA, animB])
+
+  // cria/assina canal ao montar
+  useEffect(() => {
+    const ch = supabase.channel('oitavas-sorteio', { config: { broadcast: { self: true } } })
+
+    ch.on('broadcast', { event: 'state' }, ({ payload }) => {
+      const p = payload || {}
+      if ('sorteioAberto' in p) setSorteioAberto(!!p.sorteioAberto)
+      if ('filaA' in p) setFilaA(p.filaA || [])
+      if ('filaB' in p) setFilaB(p.filaB || [])
+      if ('parAtual' in p) setParAtual(p.parAtual || { A: null, B: null })
+      if ('pares' in p) setPares(p.pares || [])
+      if ('animA' in p) setAnimA(p.animA || null)
+      if ('animB' in p) setAnimB(p.animB || null)
+    })
+
+    ch.subscribe()
+    channelRef.current = ch
+    return () => { ch.unsubscribe() }
+  }, [])
+
+  function broadcast(partial: any) {
+    const base = stateRef.current
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'state',
+      payload: { ...base, ...partial },
+    })
+  }
+
+  // limpa animações também quando vindas via broadcast
+  useEffect(() => {
+    if (animA) {
+      const t = setTimeout(() => setAnimA(null), 900)
+      return () => clearTimeout(t)
+    }
+  }, [animA])
+  useEffect(() => {
+    if (animB) {
+      const t = setTimeout(() => setAnimB(null), 900)
+      return () => clearTimeout(t)
+    }
+  }, [animB])
+
   useEffect(() => {
     buscarJogos()
     buscarClassificacao()
@@ -96,11 +157,12 @@ export default function OitavasPage() {
     setLoading(false)
   }
 
-  /** ====== Mapa de pontos da classificação ====== */
+  /** ====== Mapa de pontos da classificação (mesma temporada) ====== */
   async function buscarClassificacao() {
     const { data, error } = await supabase
       .from('classificacao')
       .select('id_time, pontos')
+      .eq('temporada', TEMPORADA_ATUAL)
 
     if (!error && data) {
       const mapa: Record<string, number> = {}
@@ -114,7 +176,7 @@ export default function OitavasPage() {
     const { data, error } = await supabase
       .from('classificacao')
       .select('id_time, pontos, vitorias, gols_pro, gols_contra, jogos, times ( nome, logo_url )')
-      .eq('temporada', 1)
+      .eq('temporada', TEMPORADA_ATUAL)
 
     if (error || !data) {
       toast.error('Erro ao buscar classificação para o Pote A')
@@ -168,26 +230,30 @@ export default function OitavasPage() {
       rodada: 1 | 2
     }
 
+    // agrupa ida/volta do mesmo confronto (independente da ordem dos times)
     const grupos = new Map<string, Linha[]>()
-
     for (const r of data as any as Linha[]) {
-      const key =
-        r.id_time1 < r.id_time2
-          ? `${r.id_time1}__${r.id_time2}`
-          : `${r.id_time2}__${r.id_time1}`
+      const key = r.id_time1 < r.id_time2
+        ? `${r.id_time1}__${r.id_time2}`
+        : `${r.id_time2}__${r.id_time1}`
       if (!grupos.has(key)) grupos.set(key, [])
       grupos.get(key)!.push(r)
     }
 
+    // bloqueia se houver jogo sem placar (precisa finalizar o playoff)
+    const temIncompleto = Array.from(grupos.values())
+      .some(ps => ps.some(p => p.gols_time1 == null || p.gols_time2 == null))
+    if (temIncompleto) {
+      toast.error('Finalize TODOS os placares do playoff antes de montar o Pote B.')
+      return []
+    }
+
     const vencedores: TimeRow[] = []
 
+    // calcula vencedor pela soma dos gols; empate = desempate por pontos (mesma temporada)
     grupos.forEach((partidas) => {
-      let idA = ''
-      let idB = ''
-      let nomeA = ''
-      let nomeB = ''
-      let golsA = 0
-      let golsB = 0
+      let idA = '', idB = '', nomeA = '', nomeB = ''
+      let golsA = 0, golsB = 0
 
       for (const p of partidas) {
         const aId = p.id_time1 < p.id_time2 ? p.id_time1 : p.id_time2
@@ -200,12 +266,10 @@ export default function OitavasPage() {
 
         const g1 = p.gols_time1 ?? 0
         const g2 = p.gols_time2 ?? 0
-        if (p.id_time1 === idA) { golsA += g1; golsB += g2 }
-        else { golsA += g2; golsB += g1 }
+        if (p.id_time1 === idA) { golsA += g1; golsB += g2 } else { golsA += g2; golsB += g1 }
       }
 
-      let vencedorId = ''
-      let vencedorNome = ''
+      let vencedorId: string, vencedorNome: string
       if (golsA > golsB) { vencedorId = idA; vencedorNome = nomeA }
       else if (golsB > golsA) { vencedorId = idB; vencedorNome = nomeB }
       else {
@@ -219,10 +283,11 @@ export default function OitavasPage() {
     })
 
     if (vencedores.length !== 8) {
-      toast.error('Precisamos de 8 vencedores do playoff para o Pote B.')
+      toast.error('Precisamos de exatamente 8 vencedores do playoff para o Pote B.')
       return []
     }
 
+    // pega os logos
     const ids = vencedores.map(v => v.id)
     const { data: timesData } = await supabase
       .from('times')
@@ -247,14 +312,23 @@ export default function OitavasPage() {
     const a = await montarPoteA(); if (a.length !== 8) return
     const b = await montarPoteB(); if (b.length !== 8) return
 
-    setPoteA(a)
-    setPoteB(b)
-    setFilaA([...a])
-    setFilaB(shuffle(b))
+    setPoteA(a); setPoteB(b)
+    setFilaA([...a]); setFilaB(shuffle(b))
     setParAtual({A:null, B:null})
     setPares([])
     setSorteioAberto(true)
     setAnimA(null); setAnimB(null)
+
+    // abre para todo mundo
+    broadcast({
+      sorteioAberto: true,
+      filaA: [...a],
+      filaB: shuffle(b),
+      parAtual: { A: null, B: null },
+      pares: [],
+      animA: null,
+      animB: null,
+    })
   }
 
   /** ====== Controles de sorteio ====== */
@@ -265,16 +339,21 @@ export default function OitavasPage() {
 
     const idx = Math.floor(Math.random() * filaA.length)
     const escolhido = filaA[idx]
-    const nova = [...filaA]
-    nova.splice(idx, 1)
+    const nova = [...filaA]; nova.splice(idx, 1)
     setFilaA(nova)
 
-    // anima a bolinha saindo do pote esquerdo
+    // anima a bolinha saindo do pote esquerdo (e transmite)
     setAnimA(escolhido)
+    broadcast({ animA: escolhido, filaA: nova })
+
     setTimeout(() => {
       setParAtual(prev => ({ ...prev, A: escolhido }))
       setTimeout(() => setAnimA(null), 400)
-    }, 900) // tempo da animação
+      broadcast({
+        parAtual: { ...stateRef.current.parAtual, A: escolhido },
+        animA: null,
+      })
+    }, 900)
   }
 
   function sortearDoPoteB() {
@@ -287,19 +366,26 @@ export default function OitavasPage() {
     const nova = filaB.slice(1)
     setFilaB(nova)
 
-    // anima a bolinha saindo do pote direito
     setAnimB(escolhido)
+    broadcast({ animB: escolhido, filaB: nova })
+
     setTimeout(() => {
       setParAtual(prev => ({ ...prev, B: escolhido }))
       setTimeout(() => setAnimB(null), 400)
+      broadcast({
+        parAtual: { ...stateRef.current.parAtual, B: escolhido },
+        animB: null,
+      })
     }, 900)
   }
 
   function confirmarConfronto() {
     if (!isAdmin) return
     if (!parAtual.A || !parAtual.B) return
-    setPares(prev => [...prev, [parAtual.A!, parAtual.B!]])
+    const novos = [...pares, [parAtual.A!, parAtual.B!] as [TimeRow, TimeRow]]
+    setPares(novos)
     setParAtual({A:null, B:null})
+    broadcast({ pares: novos, parAtual: { A: null, B: null } })
   }
 
   /** ====== Gravar confrontos ====== */
@@ -327,6 +413,7 @@ export default function OitavasPage() {
 
       toast.success('Oitavas sorteadas e gravadas!')
       setSorteioAberto(false)
+      broadcast({ sorteioAberto: false }) // fecha para todo mundo
       await buscarJogos()
     } catch (e) {
       console.error(e)
@@ -369,7 +456,7 @@ export default function OitavasPage() {
       }
     }
 
-    // ✅ Corrigido: são 8 vencedores (um por confronto)
+    // 8 vencedores (um por confronto)
     if (classificados.length !== 8) {
       toast.error('Complete os 8 confrontos.')
       return
@@ -412,7 +499,7 @@ export default function OitavasPage() {
         <h1 className="text-xl font-bold">🥇 Oitavas de Final</h1>
         {isAdmin && (
           <button className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded" onClick={abrirSorteio}>
-            🎥 Abrir sorteio (Potes + Animação)
+            🎥 Abrir sorteio (Potes + Animação | Ao vivo)
           </button>
         )}
       </header>
@@ -466,7 +553,15 @@ export default function OitavasPage() {
           <div className="w-full max-w-6xl bg-gray-950 rounded-2xl border border-gray-800 shadow-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-semibold">🎥 Sorteio Oitavas — Show ao vivo</h3>
-              <button className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700" onClick={() => setSorteioAberto(false)}>Fechar</button>
+              <button
+                className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
+                onClick={() => {
+                  setSorteioAberto(false)
+                  if (isAdmin) broadcast({ sorteioAberto: false })
+                }}
+              >
+                Fechar
+              </button>
             </div>
 
             {/* Palco */}
