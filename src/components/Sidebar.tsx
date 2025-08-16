@@ -1,4 +1,4 @@
-// Atualizado: Sidebar com Painel de Punições
+// Atualizado: Sidebar com Empréstimos (Admin)
 
 'use client'
 
@@ -83,10 +83,12 @@ export default function Sidebar() {
         {isOpen && logado && (
           <>
             <div className="mb-2 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
-              💰 Caixa: <span className="text-green-400">R$ {parseInt(saldoTime).toLocaleString('pt-BR')}</span>
+              💰 Caixa:{' '}
+              <span className="text-green-400">R$ {parseInt(saldoTime).toLocaleString('pt-BR')}</span>
             </div>
             <div className="mb-6 px-3 py-2 rounded bg-gray-700 text-white text-xs font-semibold text-center">
-              🧩 Salários: <span className="text-yellow-400">R$ {parseInt(totalSalarios).toLocaleString('pt-BR')}</span>
+              🧩 Salários:{' '}
+              <span className="text-yellow-400">R$ {parseInt(totalSalarios).toLocaleString('pt-BR')}</span>
             </div>
           </>
         )}
@@ -196,6 +198,10 @@ export default function Sidebar() {
                 <Link href="/admin/times" className="block hover:text-green-400">📝 Admin Times</Link>
                 <Link href="/admin/evento_roubo_admin" className="block hover:text-green-400">🕵️ Evento Roubo (Admin)</Link>
                 <Link href="/admin/punicoes" className="block hover:text-green-400">🚫 Painel de Punições</Link>
+
+                {/* 🔹 Novo link: Empréstimos (Admin) */}
+                <Link href="/admin/emprestimos" className="block hover:text-green-400">🏦 Empréstimos</Link>
+
                 <Link href="/admin" className="block hover:text-green-400">🗂️ Administração Geral</Link>
               </div>
             )}
