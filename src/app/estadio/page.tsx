@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
+  NIVEL_MAXIMO,
   capacidadePorNivel,
   setoresBase,
   precosPadrao,
@@ -10,7 +11,10 @@ import {
   calcularPublicoSetor,
   calcularMelhoriaEstadio,
   mensagemDesempenho,
-  calcularMoralTecnico
+  calcularMoralTecnico,
+  sugerirPrecoParaSetor,
+  precoReferencia,
+  brl,
 } from '@/utils/estadioUtils'
 
 const supabase = createClient(
@@ -18,19 +22,37 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+type EstadioRow = {
+  id_time: string
+  nome: string
+  nivel: number
+  capacidade: number
+  // os campos preco_<setor> são dinâmicos
+  [k: `preco_${string}`]: number | any
+}
+
 export default function EstadioPage() {
-  const [estadio, setEstadio] = useState<any>(null)
-  const [precos, setPrecos] = useState<Record<string, number>>({})
+  const [estadio, setEstadio] = useState<EstadioRow | null>(null)
+  const [precos, setPrecos] = useState<Record<keyof typeof setoresBase, number>>({ ...precosPadrao })
   const [publicoTotal, setPublicoTotal] = useState(0)
   const [rendaTotal, setRendaTotal] = useState(0)
   const [saldo, setSaldo] = useState(0)
-  const [desempenho, setDesempenho] = useState(0)
+
+  const [pontos, setPontos] = useState(0)
   const [moralTecnico, setMoralTecnico] = useState(10)
   const [moralTorcida, setMoralTorcida] = useState(50)
 
-  const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') : ''
-  const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : ''
+  // Contexto de simulação
+  const [jogoImportante, setJogoImportante] = useState(false)
+  const [classico, setClassico] = useState(false)
+  const [chuva, setChuva] = useState(false)
 
+  const idTime =
+    typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
+  const nomeTime =
+    typeof window !== 'undefined' ? localStorage.getItem('nome_time') || '' : ''
+
+  /** ======= Carregamentos ======= */
   useEffect(() => {
     if (!idTime) return
     buscarEstadio()
@@ -38,46 +60,82 @@ export default function EstadioPage() {
     buscarDesempenhoEMoral()
   }, [idTime])
 
-  const buscarEstadio = async () => {
-    const { data } = await supabase.from('estadios').select('*').eq('id_time', idTime).single()
+  async function buscarEstadio() {
+    const { data } = await supabase
+      .from('estadios')
+      .select('*')
+      .eq('id_time', idTime)
+      .maybeSingle()
+
     if (!data) {
-      const novo = {
+      const novo: EstadioRow = {
         id_time: idTime,
-        nome: `Estádio ${nomeTime}`,
+        nome: nomeTime ? `Estádio ${nomeTime}` : 'Estádio da LigaFut',
         nivel: 1,
         capacidade: capacidadePorNivel[1],
-        ...Object.fromEntries(Object.entries(precosPadrao).map(([k, v]) => [`preco_${k}`, v]))
+        ...Object.fromEntries(
+          (Object.keys(setoresBase) as (keyof typeof setoresBase)[]).map((k) => [
+            `preco_${k}`,
+            precosPadrao[k],
+          ])
+        ),
       }
       await supabase.from('estadios').insert(novo)
       setEstadio(novo)
-      setPrecos(precosPadrao)
-    } else {
-      setEstadio(data)
-      setPrecos(Object.fromEntries(
-        Object.keys(setoresBase).map((s) => [s, data[`preco_${s}`] || precosPadrao[s as keyof typeof precosPadrao]])
-      ))
+      setPrecos(
+        Object.fromEntries(
+          (Object.keys(setoresBase) as (keyof typeof setoresBase)[]).map((k) => [
+            k,
+            precosPadrao[k],
+          ])
+        ) as any
+      )
+      return
     }
+
+    // Garantir campos de preço (caso antigos registros não possuam)
+    const patch: Partial<EstadioRow> = {}
+    const precosCarregados: Record<keyof typeof setoresBase, number> = { ...precosPadrao }
+    ;(Object.keys(setoresBase) as (keyof typeof setoresBase)[]).forEach((k) => {
+      const coluna = `preco_${k}` as const
+      const val = (data as any)[coluna]
+      if (typeof val !== 'number' || Number.isNaN(val)) {
+        patch[coluna] = precosPadrao[k]
+        precosCarregados[k] = precosPadrao[k]
+      } else {
+        precosCarregados[k] = val
+      }
+    })
+
+    if (Object.keys(patch).length) {
+      await supabase.from('estadios').update(patch).eq('id_time', idTime)
+    }
+
+    setEstadio(data as EstadioRow)
+    setPrecos(precosCarregados)
   }
 
-  const buscarSaldo = async () => {
-    const { data } = await supabase.from('times').select('saldo').eq('id', idTime).single()
-    if (data) setSaldo(data.saldo)
+  async function buscarSaldo() {
+    const { data } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', idTime)
+      .maybeSingle()
+    if (data?.saldo != null) setSaldo(data.saldo)
   }
 
-  const buscarDesempenhoEMoral = async () => {
+  async function buscarDesempenhoEMoral() {
     const { data: classData } = await supabase
       .from('classificacao')
       .select('pontos')
       .eq('id_time', idTime)
-      .single()
+      .maybeSingle()
 
     if (classData) {
-      const pontos = classData.pontos || 0
-      setDesempenho(pontos)
-
-      const novaMoral = calcularMoralTecnico(pontos)
+      const pts = classData.pontos || 0
+      setPontos(pts)
+      const novaMoral = calcularMoralTecnico(pts)
       setMoralTecnico(novaMoral)
-
       await supabase.from('times').update({ moral_tecnico: novaMoral }).eq('id', idTime)
     }
 
@@ -85,158 +143,440 @@ export default function EstadioPage() {
       .from('times')
       .select('moral_torcida')
       .eq('id', idTime)
-      .single()
+      .maybeSingle()
 
     if (moralData) {
-      setMoralTorcida(moralData.moral_torcida || 50)
+      setMoralTorcida(moralData.moral_torcida ?? 50)
     }
   }
 
-  const atualizarPreco = async (setor: string, novoPreco: number) => {
-    setPrecos((prev) => ({ ...prev, [setor]: novoPreco }))
-    await supabase.from('estadios').update({ [`preco_${setor}`]: novoPreco }).eq('id_time', idTime)
-  }
+  /** ======= Helpers ======= */
+  const nivel = estadio?.nivel ?? 1
+  const capacidade = capacidadePorNivel[nivel]
+  const contexto = useMemo(
+    () => ({
+      importancia: jogoImportante ? 1.2 : 1.0,
+      classico,
+      clima: chuva ? ('chuva' as const) : ('bom' as const),
+    }),
+    [jogoImportante, classico, chuva]
+  )
 
-  const calcularTotais = () => {
+  /** ======= Simulação ======= */
+  useEffect(() => {
     if (!estadio) return
-    const capacidade = capacidadePorNivel[estadio.nivel]
     let totalPublico = 0
     let totalRenda = 0
 
-    Object.entries(setoresBase).forEach(([setor, proporcao]) => {
-      const lugares = Math.floor(capacidade * proporcao)
-      const preco = precos[setor] || precosPadrao[setor as keyof typeof precosPadrao]
-      const { publicoEstimado, renda } = calcularPublicoSetor(
-        lugares,
-        preco,
-        desempenho,
-        5, // posição fictícia
-        2, // vitórias fictícias
-        1, // derrotas fictícias
-        estadio.nivel,
-        moralTecnico,
-        moralTorcida
-      )
-      totalPublico += publicoEstimado
-      totalRenda += renda
-    })
+    ;(Object.entries(setoresBase) as [keyof typeof setoresBase, number][]).forEach(
+      ([setor, proporcao]) => {
+        const lugares = Math.floor(capacidade * proporcao)
+        const preco = precos[setor] ?? 0
+
+        const { publicoPara } = calcularPublicoSetor(
+          lugares,
+          preco,
+          pontos,
+          0,
+          0,
+          0,
+          nivel,
+          moralTecnico,
+          moralTorcida,
+          contexto
+        )
+        const { publicoEstimado, renda } = publicoPara(setor)
+        totalPublico += publicoEstimado
+        totalRenda += renda
+      }
+    )
 
     setPublicoTotal(totalPublico)
     setRendaTotal(totalRenda)
+  }, [precos, estadio, pontos, moralTecnico, moralTorcida, contexto, capacidade, nivel])
+
+  /** ======= Ações ======= */
+  function setPreco(setor: keyof typeof setoresBase, v: number) {
+    setPrecos((p) => ({ ...p, [setor]: Number.isFinite(v) ? v : 0 }))
   }
 
-  useEffect(() => {
-    calcularTotais()
-  }, [precos, estadio, desempenho, moralTecnico, moralTorcida])
+  async function salvarPrecos() {
+    if (!estadio) return
+    const updateObj: any = {}
+    ;(Object.keys(setoresBase) as (keyof typeof setoresBase)[]).forEach((k) => {
+      updateObj[`preco_${k}`] = precos[k]
+    })
+    await supabase.from('estadios').update(updateObj).eq('id_time', idTime)
+    alert('💾 Preços salvos!')
+  }
 
-  const melhorarEstadio = async () => {
-    const custo = calcularMelhoriaEstadio(estadio.nivel)
+  function resetarParaReferencia() {
+    if (!estadio) return
+    const next: any = {}
+    ;(Object.keys(setoresBase) as (keyof typeof setoresBase)[]).forEach((k) => {
+      next[k] = precoReferencia(k, nivel)
+    })
+    setPrecos(next)
+  }
+
+  function ajustarPercentual(deltaPct: number) {
+    setPrecos((p) => {
+      const out: any = {}
+      ;(Object.keys(p) as (keyof typeof setoresBase)[]).forEach((k) => {
+        const novo = Math.max(1, Math.round(p[k] * (1 + deltaPct / 100)))
+        out[k] = novo
+      })
+      return out
+    })
+  }
+
+  function autoPrecoMaxRenda() {
+    const out: any = {}
+    ;(Object.entries(setoresBase) as [keyof typeof setoresBase, number][]).forEach(
+      ([setor, proporcao]) => {
+        const lugares = Math.floor(capacidade * proporcao)
+        const limite = limitesPrecos[nivel][setor]
+        out[setor] = sugerirPrecoParaSetor(
+          setor,
+          nivel,
+          lugares,
+          pontos,
+          moralTecnico,
+          moralTorcida,
+          limite,
+          contexto
+        )
+      }
+    )
+    setPrecos(out)
+  }
+
+  async function melhorarEstadio() {
+    if (!estadio) return
+    if (nivel >= NIVEL_MAXIMO) return
+
+    const custo = calcularMelhoriaEstadio(nivel)
     if (saldo < custo) {
       alert('💸 Saldo insuficiente para melhorar o estádio!')
       return
     }
-    await supabase.from('estadios').update({ nivel: estadio.nivel + 1, capacidade: capacidadePorNivel[estadio.nivel + 1] }).eq('id_time', idTime)
-    await supabase.from('times').update({ saldo: saldo - custo }).eq('id', idTime)
+
+    const proxNivel = nivel + 1
+    const novaCapacidade = capacidadePorNivel[proxNivel]
+
+    // Atualiza estádio e saldo
+    const [{ error: e1 }, { error: e2 }] = await Promise.all([
+      supabase
+        .from('estadios')
+        .update({ nivel: proxNivel, capacidade: novaCapacidade })
+        .eq('id_time', idTime),
+      supabase.from('times').update({ saldo: saldo - custo }).eq('id', idTime),
+    ])
+
+    if (e1 || e2) {
+      alert('Não foi possível melhorar agora. Tente novamente.')
+      return
+    }
+
     alert('✅ Estádio melhorado com sucesso!')
-    buscarEstadio()
-    buscarSaldo()
+    await Promise.all([buscarEstadio(), buscarSaldo()])
+    // Ajusta preços para referência do novo nível (opcional)
+    resetarParaReferencia()
   }
 
-  if (!estadio) return <div className="p-4 text-white">🔄 Carregando informações do estádio...</div>
+  if (!estadio)
+    return <div className="p-6 text-white">🔄 Carregando informações do estádio...</div>
 
+  /** ======= UI ======= */
   return (
-    <div className="p-4 max-w-2xl mx-auto text-white">
-      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
-        <h1 className="text-2xl font-bold text-center mb-2">🏟️ {estadio.nome}</h1>
-        <p className="text-center text-gray-300">
-          <strong>Nível:</strong> {estadio.nivel} | <strong>Capacidade:</strong> {estadio.capacidade.toLocaleString()} lugares
-        </p>
-      </div>
-
-      <div className="bg-gray-900 rounded p-4 text-center mb-4 border border-yellow-400">
-        <h2 className="text-lg font-bold mb-2 text-yellow-300">📣 Aviso Importante</h2>
-        <p>{mensagemDesempenho(desempenho)}</p>
-      </div>
-
-      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
-        <h2 className="text-lg font-bold mb-2 text-center text-green-300">🔥 Moral do Clube</h2>
-
-        <div className="mb-3">
-          <p className="text-sm text-gray-300 mb-1">🎯 Técnico</p>
-          <div className="w-full h-5 bg-gray-700 rounded">
-            <div
-              className="h-5 bg-green-600 rounded transition-all duration-300"
-              style={{ width: `${(moralTecnico / 10) * 100}%` }}
-            ></div>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Header */}
+      <div className="relative overflow-hidden border-b border-zinc-800">
+        <div className="mx-auto max-w-6xl p-6">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-extrabold">
+                🏟️ {estadio.nome}
+              </h1>
+              <p className="text-zinc-400">
+                Nível <b>{nivel}</b> de {NIVEL_MAXIMO} • Capacidade{' '}
+                <b>{capacidade.toLocaleString()}</b> lugares
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <ResumoKPI label="Público estimado" value={publicoTotal.toLocaleString()}/>
+              <ResumoKPI label="Renda estimada" value={brl(rendaTotal)}/>
+            </div>
           </div>
-          <p className="text-xs text-right text-gray-400 mt-1">{moralTecnico.toFixed(1)}/10</p>
-        </div>
-
-        <div>
-          <p className="text-sm text-gray-300 mb-1">🙌 Torcida</p>
-          <div className="w-full h-5 bg-gray-700 rounded">
-            <div
-              className="h-5 bg-green-400 rounded transition-all duration-300"
-              style={{ width: `${moralTorcida}%` }}
-            ></div>
-          </div>
-          <p className="text-xs text-right text-gray-400 mt-1">{moralTorcida.toFixed(0)}%</p>
         </div>
       </div>
 
-      <div className="bg-gray-800 rounded p-4 text-center mb-4 border border-gray-700">
-        <h2 className="text-lg font-bold mb-2">🏟️ Visualização da Lotação</h2>
-        <div className="grid grid-cols-10 gap-1 justify-center">
-          {[...Array(100)].map((_, idx) => {
-            const ocupado = idx < Math.round((publicoTotal / estadio.capacidade) * 100)
-            return (
-              <div key={idx} className={`w-4 h-4 rounded ${ocupado ? 'bg-red-500' : 'bg-gray-500'}`}></div>
-            )
-          })}
-        </div>
-        <p className="text-xs text-gray-400 mt-2">
-          {publicoTotal.toLocaleString()} / {estadio.capacidade.toLocaleString()} lugares ocupados
-        </p>
-      </div>
+      <div className="mx-auto max-w-6xl p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Coluna principal */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Aviso desempenho e moral */}
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+            <h2 className="text-lg font-bold text-yellow-300 mb-2">📣 Clima e Desempenho</h2>
+            <p className="text-zinc-300">{mensagemDesempenho(pontos)}</p>
 
-      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
-        <h2 className="text-lg font-bold mb-2 text-center">💵 Preços dos Setores</h2>
-        <div className="grid grid-cols-2 gap-2">
-          {Object.entries(setoresBase).map(([setor, _]) => {
-            const limite = limitesPrecos[estadio.nivel][setor] || 5000
-            return (
-              <div key={setor} className="flex flex-col border border-gray-700 rounded p-2 bg-gray-900">
-                <span className="font-semibold capitalize text-sm">{setor}</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={limite}
-                  value={precos[setor] || 0}
-                  onChange={(e) => atualizarPreco(setor, parseFloat(e.target.value))}
-                  className="border border-gray-700 rounded p-1 mt-1 text-sm bg-gray-800 text-white"
-                />
-                <span className="text-xs text-gray-400 mt-1">Limite: R$ {limite}</span>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <Gauge label="Moral do técnico" perc={(moralTecnico / 10) * 100} text={`${moralTecnico.toFixed(1)}/10`} />
+              <Gauge label="Moral da torcida" perc={moralTorcida} text={`${moralTorcida.toFixed(0)}%`} />
+              <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl p-3">
+                <p className="text-sm text-zinc-400 mb-2">🎮 Contexto de jogo</p>
+                <div className="flex flex-wrap gap-2">
+                  <Toggle label="Importante" on={jogoImportante} setOn={setJogoImportante}/>
+                  <Toggle label="Clássico" on={classico} setOn={setClassico}/>
+                  <Toggle label="Chuva" on={chuva} setOn={setChuva}/>
+                </div>
               </div>
-            )
-          })}
+            </div>
+          </div>
+
+          {/* Preços por setor */}
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl">
+            <div className="p-4 border-b border-zinc-800 flex flex-wrap items-center gap-2 justify-between">
+              <h2 className="text-lg font-bold">💵 Preços por setor</h2>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => ajustarPercentual(-10)}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm"
+                >
+                  −10%
+                </button>
+                <button
+                  onClick={() => ajustarPercentual(10)}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm"
+                >
+                  +10%
+                </button>
+                <button
+                  onClick={resetarParaReferencia}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm"
+                >
+                  Ref. do nível
+                </button>
+                <button
+                  onClick={autoPrecoMaxRenda}
+                  className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-sm font-semibold"
+                >
+                  Auto-preço (max renda)
+                </button>
+                <button
+                  onClick={salvarPrecos}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
+                >
+                  Salvar tudo
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(Object.entries(setoresBase) as [keyof typeof setoresBase, number][])
+                .map(([setor, proporcao]) => {
+                  const limite = limitesPrecos[nivel][setor]
+                  const lugares = Math.floor(capacidade * proporcao)
+                  const preco = precos[setor] ?? 0
+
+                  const { publicoPara } = calcularPublicoSetor(
+                    lugares,
+                    preco,
+                    pontos,
+                    0, 0, 0,
+                    nivel,
+                    moralTecnico,
+                    moralTorcida,
+                    contexto
+                  )
+                  const { publicoEstimado, renda, ocupacao } = publicoPara(setor)
+
+                  const pRef = precoReferencia(setor, nivel)
+                  const pctRef = preco > 0 ? (preco / pRef) : 0
+
+                  return (
+                    <div key={setor} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="font-semibold capitalize">{labelSetor(setor)}</div>
+                        <div className="text-xs text-zinc-400">
+                          Ref: {brl(pRef)}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={limite}
+                          value={preco}
+                          onChange={(e) => setPreco(setor, Math.min(limite, Math.max(1, Math.round(Number(e.target.value) || 0))))}
+                          className="w-28 border border-zinc-800 rounded-lg bg-zinc-900 px-2 py-1.5 text-sm outline-none"
+                        />
+                        <span className="text-xs text-zinc-400">Limite: {brl(limite)}</span>
+                      </div>
+
+                      <div className="mt-3">
+                        <Bar label="Ocupação" value={ocupacao} />
+                        <div className="text-xs text-zinc-400 mt-1">
+                          Público: <b className="text-zinc-200">{publicoEstimado.toLocaleString()}</b> /
+                          {lugares.toLocaleString()} • Renda: <b className="text-zinc-200">{brl(renda)}</b>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 text-[11px] text-zinc-400">
+                        {pctRef >= 1
+                          ? `+${Math.round((pctRef - 1) * 100)}% acima`
+                          : `${Math.round((1 - pctRef) * 100)}% abaixo`} do preço de referência
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+
+          {/* Visualização de lotação total */}
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-2">🎟️ Lotação total</h2>
+            <Bar label="Geral" value={publicoTotal / Math.max(capacidade, 1)} />
+            <p className="text-xs text-zinc-400 mt-2">
+              {publicoTotal.toLocaleString()} / {capacidade.toLocaleString()} lugares ocupados
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="bg-gray-800 rounded-xl shadow p-4 mb-4 border border-gray-700">
-        <h2 className="text-lg font-bold mb-2 text-center">📊 Estimativas</h2>
-        <p>👥 <strong>Público total:</strong> {publicoTotal.toLocaleString()} pessoas</p>
-        <p>💰 <strong>Renda estimada:</strong> R$ {rendaTotal.toLocaleString()}</p>
-      </div>
+        {/* Coluna lateral (resumo & upgrade) */}
+        <aside className="space-y-6">
+          {/* Resumo */}
+          <div className="sticky top-6 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+            <h3 className="text-lg font-bold">📊 Resumo da Simulação</h3>
+            <div className="mt-3 space-y-2 text-sm">
+              <LinhaKV k="Pontos" v={pontos.toString()} />
+              <LinhaKV k="Moral técnico" v={`${moralTecnico.toFixed(1)}/10`} />
+              <LinhaKV k="Moral torcida" v={`${moralTorcida.toFixed(0)}%`} />
+              <LinhaKV k="Contexto"
+                v={[
+                  jogoImportante ? 'Importante' : 'Normal',
+                  classico ? 'Clássico' : null,
+                  chuva ? 'Chuva' : 'Tempo bom',
+                ].filter(Boolean).join(' • ')}/>
+            </div>
+            <div className="mt-4 border-t border-zinc-800 pt-3 space-y-1">
+              <LinhaKV k="Público total" v={publicoTotal.toLocaleString()} />
+              <LinhaKV k="Renda estimada" v={brl(rendaTotal)} />
+            </div>
+          </div>
 
-      {estadio.nivel < 5 ? (
-        <button onClick={melhorarEstadio} className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
-          Melhorar Estádio (Custo: R$ {calcularMelhoriaEstadio(estadio.nivel).toLocaleString()})
-        </button>
-      ) : (
-        <div className="text-center text-green-400 font-bold">🏆 Estádio já está no nível máximo!</div>
-      )}
+          {/* Upgrade */}
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+            <h3 className="text-lg font-bold">🏗️ Evoluir Estádio</h3>
+            {nivel < NIVEL_MAXIMO ? (
+              <>
+                <p className="text-sm text-zinc-300 mt-1">
+                  Próximo nível: <b>{nivel + 1}</b> • Capacidade:{' '}
+                  <b>{capacidadePorNivel[nivel + 1].toLocaleString()}</b>
+                </p>
+                <p className="text-sm text-zinc-300">Custo: <b>{brl(calcularMelhoriaEstadio(nivel))}</b></p>
+                <p className="text-xs text-zinc-500 mt-1">Saldo atual: {brl(saldo)}</p>
+                <button
+                  onClick={melhorarEstadio}
+                  className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold"
+                >
+                  Melhorar Estádio
+                </button>
+              </>
+            ) : (
+              <div className="text-green-400 font-semibold">🏆 Estádio já está no nível máximo!</div>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }
 
+/** ======= Componentes visuais ======= */
+function ResumoKPI({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
+      <div className="text-xs uppercase tracking-wider text-zinc-400">{label}</div>
+      <div className="text-lg font-bold">{value}</div>
+    </div>
+  )
+}
 
+function LinhaKV({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-zinc-400">{k}</span>
+      <span className="font-semibold">{v}</span>
+    </div>
+  )
+}
+
+function Bar({ label, value }: { label: string; value: number }) {
+  const pct = Math.max(0, Math.min(1, value))
+  return (
+    <div>
+      <div className="flex items-center justify-between text-sm mb-1">
+        <span className="text-zinc-300">{label}</span>
+        <span className="text-zinc-400">{Math.round(pct * 100)}%</span>
+      </div>
+      <div className="w-full h-3 bg-zinc-800 rounded-lg overflow-hidden">
+        <div
+          className="h-3 bg-emerald-500"
+          style={{ width: `${pct * 100}%`, transition: 'width 250ms ease' }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function Gauge({ label, perc, text }: { label: string; perc: number; text: string }) {
+  const pct = Math.max(0, Math.min(100, perc))
+  return (
+    <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl p-3">
+      <div className="text-sm text-zinc-400">{label}</div>
+      <div className="mt-2 w-full h-3 bg-zinc-800 rounded">
+        <div
+          className="h-3 bg-emerald-500 rounded"
+          style={{ width: `${pct}%`, transition: 'width 250ms ease' }}
+        />
+      </div>
+      <div className="text-xs text-zinc-400 mt-1 text-right">{text}</div>
+    </div>
+  )
+}
+
+function Toggle({
+  label,
+  on,
+  setOn,
+}: {
+  label: string
+  on: boolean
+  setOn: (v: boolean) => void
+}) {
+  return (
+    <button
+      onClick={() => setOn(!on)}
+      className={`px-3 py-1.5 rounded-lg text-sm border ${
+        on
+          ? 'bg-emerald-600/20 border-emerald-600 text-emerald-300'
+          : 'bg-zinc-900 border-zinc-700 text-zinc-300'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+function labelSetor(s: keyof typeof setoresBase) {
+  const map: Record<keyof typeof setoresBase, string> = {
+    popular: 'Popular',
+    norte: 'Arquibancada Norte',
+    sul: 'Arquibancada Sul',
+    leste: 'Leste',
+    oeste: 'Oeste',
+    camarote: 'Camarotes / VIP',
+  }
+  return map[s]
+}
