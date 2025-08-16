@@ -9,8 +9,8 @@ import {
 import { motion } from 'framer-motion'
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_NEXT_PUBLIC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 type BidEvent = {
@@ -21,7 +21,7 @@ type BidEvent = {
   id_time1?: string | null // vendedor
   id_time2?: string | null // comprador
   valor?: number | null
-  // novos campos para “arte”
+  // campos extras p/ “arte”
   jogador_id?: string | null
   jogador_nome?: string | null
   jogador_imagem_url?: string | null
@@ -33,6 +33,14 @@ type TimeRow = {
   saldo?: number | null
   total_salarios?: number | null
   escudo_url?: string | null
+}
+
+type RankedTime = {
+  id: string
+  nome: string
+  saldo: number
+  total_salarios: number
+  escudo_url: string | null
 }
 
 export default function HomePage() {
@@ -65,8 +73,14 @@ export default function HomePage() {
       try {
         setLoading(true)
         const [bidRes, timesRes] = await Promise.all([
-          supabase.from('bid').select('id, descricao, data_evento, tipo_evento, id_time1, id_time2, valor, jogador_id, jogador_nome, jogador_imagem_url').order('data_evento', { ascending: false }).limit(10),
-          supabase.from('times').select('id, nome, saldo, total_salarios, escudo_url')
+          supabase
+            .from('bid')
+            .select('id, descricao, data_evento, tipo_evento, id_time1, id_time2, valor, jogador_id, jogador_nome, jogador_imagem_url')
+            .order('data_evento', { ascending: false })
+            .limit(10),
+          supabase
+            .from('times')
+            .select('id, nome, saldo, total_salarios, escudo_url')
         ])
         if (!bidRes.error) setEventosBID(bidRes.data || [])
         if (!timesRes.error) setTimes(timesRes.data || [])
@@ -99,33 +113,54 @@ export default function HomePage() {
   const formatarValor = (valor: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 
-  const safeTimes = useMemo<Required<Pick<TimeRow, 'id' | 'nome'>> & { saldo: number, total_salarios: number, escudo_url?: string | null }[]>(
-    () => times.map((t) => ({
-      id: t.id,
-      nome: t.nome,
-      saldo: Number(t.saldo ?? 0),
-      total_salarios: Number(t.total_salarios ?? 0),
-      escudo_url: t.escudo_url ?? null
-    })), [times]
+  const safeTimes = useMemo<RankedTime[]>(
+    () =>
+      times.map((t) => ({
+        id: t.id,
+        nome: t.nome,
+        saldo: Number(t.saldo ?? 0),
+        total_salarios: Number(t.total_salarios ?? 0),
+        escudo_url: t.escudo_url ?? null,
+      })),
+    [times]
   )
 
   const top = useMemo(() => ({
-    saldoDesc: [...safeTimes].sort((a,b)=>b.saldo - a.saldo).slice(0,3),
-    saldoAsc:  [...safeTimes].sort((a,b)=>a.saldo - b.saldo).slice(0,3),
-    salDesc:   [...safeTimes].sort((a,b)=>b.total_salarios - a.total_salarios).slice(0,3),
-    salAsc:    [...safeTimes].sort((a,b)=>a.total_salarios - b.total_salarios).slice(0,3),
+    saldoDesc: [...safeTimes].sort((a, b) => b.saldo - a.saldo).slice(0, 3),
+    saldoAsc:  [...safeTimes].sort((a, b) => a.saldo - b.saldo).slice(0, 3),
+    salDesc:   [...safeTimes].sort((a, b) => b.total_salarios - a.total_salarios).slice(0, 3),
+    salAsc:    [...safeTimes].sort((a, b) => a.total_salarios - b.total_salarios).slice(0, 3),
   }), [safeTimes])
 
-  const CardRanking = ({ titulo, lista, cor, Icone }:{
-    titulo: string, lista: typeof top.saldoDesc, cor: string, Icone: any
+  const CardRanking = ({
+    titulo, lista, cor, Icone
+  }: {
+    titulo: string
+    lista: RankedTime[]
+    cor: string
+    Icone: any
   }) => (
-    <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
-      className="bg-black/60 p-4 rounded shadow-md">
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+      className="bg-black/60 p-4 rounded shadow-md"
+    >
       <h3 className={`text-xl font-bold ${cor} mb-2 flex items-center gap-2`}><Icone /> {titulo}</h3>
       {lista.map((time, index) => (
         <div key={time.id} className={`flex items-center gap-2 ${time.nome === nomeTime ? 'text-yellow-400 font-semibold' : ''}`}>
-          {time.escudo_url && <img src={time.escudo_url} alt={`Escudo do ${time.nome}`} className="w-5 h-5 rounded-sm object-contain" />}
-          <p>{index + 1}. {time.nome} — {formatarValor((titulo.includes('Salário') ? time.total_salarios : time.saldo))}</p>
+          {time.escudo_url && (
+            <img
+              src={time.escudo_url}
+              alt={`Escudo do ${time.nome}`}
+              className="w-5 h-5 rounded-sm object-contain"
+            />
+          )}
+          <p>
+            {index + 1}. {time.nome} — {
+              formatarValor(titulo.includes('Salário') ? time.total_salarios : time.saldo)
+            }
+          </p>
         </div>
       ))}
     </motion.div>
@@ -145,7 +180,7 @@ export default function HomePage() {
       ? 'from-indigo-700/40 via-purple-700/30 to-pink-600/30'
       : tipo.includes('percent') || tipo.includes('comprar_percentual')
       ? 'from-cyan-700/40 via-teal-700/30 to-emerald-600/30'
-      : 'from-emerald-700/40 via-green-700/30 to-lime-600/30' // transferencia com dinheiro
+      : 'from-emerald-700/40 via-green-700/30 to-lime-600/30' // transferência com dinheiro
 
     // Ícone por tipo
     const TipoIcon = tipo.includes('troca')
