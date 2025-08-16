@@ -1,40 +1,102 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
+import { motion, AnimatePresence } from 'framer-motion'
+
+// Se ainda não tiver, instale: npm i framer-motion
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ========= Tipos ========= */
+interface TimeRow {
+  id: string
+  nome: string
+  logo_url: string | null
+}
+
+type JogoOitavas = {
+  id: number
+  id_time1: string
+  id_time2: string
+  time1: string
+  time2: string
+  gols_time1: number | null
+  gols_time2: number | null
+  gols_time1_volta: number | null
+  gols_time2_volta: number | null
+}
+
+/** ========= Utils ========= */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+function nomeRel(reg: any): string {
+  const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
+  return t?.nome ?? 'Time'
+}
+function logoRel(reg: any): string | null {
+  const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
+  return t?.logo_url ?? null
+}
+
+/** ========= Componente ========= */
 export default function OitavasPage() {
   const { isAdmin } = useAdmin()
-  const [jogos, setJogos] = useState<any[]>([])
-  const [classificacao, setClassificacao] = useState<Record<string, number>>({})
+
+  // dados
+  const [jogos, setJogos] = useState<JogoOitavas[]>([])
+  const [classificacaoPontos, setClassificacaoPontos] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+
+  // potes / sorteio
+  const [poteA, setPoteA] = useState<TimeRow[]>([])
+  const [poteB, setPoteB] = useState<TimeRow[]>([])
+
+  const [sorteioAberto, setSorteioAberto] = useState(false)
+  const [filaA, setFilaA] = useState<TimeRow[]>([])
+  const [filaB, setFilaB] = useState<TimeRow[]>([])
+  const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
+  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // [A,B]
+  const [confirming, setConfirming] = useState(false)
+
+  // animação das "bolinhas" saindo do pote
+  const [animA, setAnimA] = useState<TimeRow | null>(null)
+  const [animB, setAnimB] = useState<TimeRow | null>(null)
 
   useEffect(() => {
     buscarJogos()
     buscarClassificacao()
   }, [])
 
+  /** ====== Buscar jogos já existentes ====== */
   async function buscarJogos() {
+    setLoading(true)
     const { data, error } = await supabase
       .from('copa_oitavas')
       .select('*')
       .order('id', { ascending: true })
 
     if (error) {
-      toast.error('Erro ao buscar jogos')
-      return
+      toast.error('Erro ao buscar jogos das Oitavas')
+      setJogos([])
+    } else {
+      setJogos((data || []) as JogoOitavas[])
     }
-    setJogos(data || [])
     setLoading(false)
   }
 
+  /** ====== Mapa de pontos da classificação ====== */
   async function buscarClassificacao() {
     const { data, error } = await supabase
       .from('classificacao')
@@ -42,14 +104,240 @@ export default function OitavasPage() {
 
     if (!error && data) {
       const mapa: Record<string, number> = {}
-      data.forEach((item) => {
-        mapa[item.id_time] = item.pontos
-      })
-      setClassificacao(mapa)
+      data.forEach((item) => { mapa[item.id_time] = item.pontos ?? 0 })
+      setClassificacaoPontos(mapa)
     }
   }
 
-  async function salvarPlacar(jogo: any) {
+  /** ====== Montar Pote A (1º ao 8º) ====== */
+  async function montarPoteA(): Promise<TimeRow[]> {
+    const { data, error } = await supabase
+      .from('classificacao')
+      .select('id_time, pontos, vitorias, gols_pro, gols_contra, jogos, times ( nome, logo_url )')
+      .eq('temporada', 1)
+
+    if (error || !data) {
+      toast.error('Erro ao buscar classificação para o Pote A')
+      return []
+    }
+
+    const ordenada = [...data].sort((a: any, b: any) => {
+      const saldoA = (a.gols_pro ?? 0) - (a.gols_contra ?? 0)
+      const saldoB = (b.gols_pro ?? 0) - (b.gols_contra ?? 0)
+      return (
+        (b.pontos ?? 0) - (a.pontos ?? 0) ||
+        saldoB - saldoA ||
+        (b.gols_pro ?? 0) - (a.gols_pro ?? 0) ||
+        (b.vitorias ?? 0) - (a.vitorias ?? 0) ||
+        (a.jogos ?? 0) - (b.jogos ?? 0) ||
+        (nomeRel(a)).localeCompare(nomeRel(b))
+      )
+    })
+
+    const top8 = ordenada.slice(0, 8).map((r: any) => ({
+      id: r.id_time,
+      nome: nomeRel(r),
+      logo_url: logoRel(r)
+    })) as TimeRow[]
+
+    if (top8.length !== 8) {
+      toast.error('Precisamos de 8 times no Pote A (top 8 da liga).')
+      return []
+    }
+    return top8
+  }
+
+  /** ====== Montar Pote B (8 vencedores do playoff) ====== */
+  async function montarPoteB(): Promise<TimeRow[]> {
+    const { data, error } = await supabase
+      .from('copa_playoff')
+      .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2, rodada')
+
+    if (error || !data) {
+      toast.error('Erro ao buscar dados do playoff para o Pote B')
+      return []
+    }
+
+    type Linha = {
+      id_time1: string
+      id_time2: string
+      time1: string
+      time2: string
+      gols_time1: number | null
+      gols_time2: number | null
+      rodada: 1 | 2
+    }
+
+    const grupos = new Map<string, Linha[]>()
+
+    for (const r of data as any as Linha[]) {
+      const key =
+        r.id_time1 < r.id_time2
+          ? `${r.id_time1}__${r.id_time2}`
+          : `${r.id_time2}__${r.id_time1}`
+      if (!grupos.has(key)) grupos.set(key, [])
+      grupos.get(key)!.push(r)
+    }
+
+    const vencedores: TimeRow[] = []
+
+    grupos.forEach((partidas) => {
+      let idA = ''
+      let idB = ''
+      let nomeA = ''
+      let nomeB = ''
+      let golsA = 0
+      let golsB = 0
+
+      for (const p of partidas) {
+        const aId = p.id_time1 < p.id_time2 ? p.id_time1 : p.id_time2
+        const bId = p.id_time1 < p.id_time2 ? p.id_time2 : p.id_time1
+        const aNome = p.id_time1 < p.id_time2 ? p.time1 : p.time2
+        const bNome = p.id_time1 < p.id_time2 ? p.time2 : p.time1
+
+        if (!idA) { idA = aId; nomeA = aNome }
+        if (!idB) { idB = bId; nomeB = bNome }
+
+        const g1 = p.gols_time1 ?? 0
+        const g2 = p.gols_time2 ?? 0
+        if (p.id_time1 === idA) { golsA += g1; golsB += g2 }
+        else { golsA += g2; golsB += g1 }
+      }
+
+      let vencedorId = ''
+      let vencedorNome = ''
+      if (golsA > golsB) { vencedorId = idA; vencedorNome = nomeA }
+      else if (golsB > golsA) { vencedorId = idB; vencedorNome = nomeB }
+      else {
+        const pA = classificacaoPontos[idA] ?? 0
+        const pB = classificacaoPontos[idB] ?? 0
+        if (pA >= pB) { vencedorId = idA; vencedorNome = nomeA }
+        else { vencedorId = idB; vencedorNome = nomeB }
+      }
+
+      vencedores.push({ id: vencedorId, nome: vencedorNome, logo_url: null })
+    })
+
+    if (vencedores.length !== 8) {
+      toast.error('Precisamos de 8 vencedores do playoff para o Pote B.')
+      return []
+    }
+
+    const ids = vencedores.map(v => v.id)
+    const { data: timesData } = await supabase
+      .from('times')
+      .select('id, logo_url')
+      .in('id', ids)
+
+    const logos = new Map<string, string | null>()
+    ;(timesData || []).forEach((t: any) => logos.set(t.id, t.logo_url ?? null))
+    return vencedores.map(v => ({ ...v, logo_url: logos.get(v.id) ?? null }))
+  }
+
+  /** ====== Abrir Sorteio: monta potes e inicia ====== */
+  async function abrirSorteio() {
+    if (!isAdmin) return
+
+    const { count, error: cErr } = await supabase
+      .from('copa_oitavas')
+      .select('*', { count: 'exact', head: true })
+    if (cErr) { toast.error('Erro ao checar Oitavas'); return }
+    if ((count ?? 0) > 0) { toast.error('Já existem confrontos. Apague antes de sortear.'); return }
+
+    const a = await montarPoteA(); if (a.length !== 8) return
+    const b = await montarPoteB(); if (b.length !== 8) return
+
+    setPoteA(a)
+    setPoteB(b)
+    setFilaA([...a])
+    setFilaB(shuffle(b))
+    setParAtual({A:null, B:null})
+    setPares([])
+    setSorteioAberto(true)
+    setAnimA(null); setAnimB(null)
+  }
+
+  /** ====== Controles de sorteio ====== */
+  function sortearDoPoteA() {
+    if (!isAdmin) return
+    if (parAtual.A) return
+    if (filaA.length === 0) return
+
+    const idx = Math.floor(Math.random() * filaA.length)
+    const escolhido = filaA[idx]
+    const nova = [...filaA]
+    nova.splice(idx, 1)
+    setFilaA(nova)
+
+    // anima a bolinha saindo do pote esquerdo
+    setAnimA(escolhido)
+    setTimeout(() => {
+      setParAtual(prev => ({ ...prev, A: escolhido }))
+      setTimeout(() => setAnimA(null), 400)
+    }, 900) // tempo da animação
+  }
+
+  function sortearDoPoteB() {
+    if (!isAdmin) return
+    if (!parAtual.A) return
+    if (parAtual.B) return
+    if (filaB.length === 0) return
+
+    const escolhido = filaB[0]
+    const nova = filaB.slice(1)
+    setFilaB(nova)
+
+    // anima a bolinha saindo do pote direito
+    setAnimB(escolhido)
+    setTimeout(() => {
+      setParAtual(prev => ({ ...prev, B: escolhido }))
+      setTimeout(() => setAnimB(null), 400)
+    }, 900)
+  }
+
+  function confirmarConfronto() {
+    if (!isAdmin) return
+    if (!parAtual.A || !parAtual.B) return
+    setPares(prev => [...prev, [parAtual.A!, parAtual.B!]])
+    setParAtual({A:null, B:null})
+  }
+
+  /** ====== Gravar confrontos ====== */
+  async function gravarConfrontos() {
+    if (!isAdmin) return
+    if (pares.length !== 8) { toast.error('Finalize os 8 confrontos.'); return }
+
+    try {
+      setConfirming(true)
+      const { error: delErr } = await supabase.from('copa_oitavas').delete().neq('id', 0)
+      if (delErr) throw delErr
+
+      const payload = pares.map(([A,B]) => ({
+        id_time1: A.id,
+        id_time2: B.id,
+        time1: A.nome,
+        time2: B.nome,
+        gols_time1: null,
+        gols_time2: null,
+        gols_time1_volta: null,
+        gols_time2_volta: null
+      }))
+      const { error: insErr } = await supabase.from('copa_oitavas').insert(payload)
+      if (insErr) throw insErr
+
+      toast.success('Oitavas sorteadas e gravadas!')
+      setSorteioAberto(false)
+      await buscarJogos()
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro ao gravar confrontos')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  /** ====== Salvar placar ====== */
+  async function salvarPlacar(jogo: JogoOitavas) {
     const { error } = await supabase
       .from('copa_oitavas')
       .update({
@@ -64,8 +352,9 @@ export default function OitavasPage() {
     else toast.success('Placar salvo!')
   }
 
+  /** ====== Finalizar Oitavas (gera Quartas) ====== */
   async function finalizarOitavas() {
-    const classificados: any[] = []
+    const classificados: string[] = []
 
     for (const jogo of jogos) {
       const gols1 = (jogo.gols_time1 || 0) + (jogo.gols_time1_volta || 0)
@@ -74,25 +363,31 @@ export default function OitavasPage() {
       if (gols1 > gols2) classificados.push(jogo.id_time1)
       else if (gols2 > gols1) classificados.push(jogo.id_time2)
       else {
-        const pontos1 = classificacao[jogo.id_time1] || 0
-        const pontos2 = classificacao[jogo.id_time2] || 0
-        classificados.push(pontos1 >= pontos2 ? jogo.id_time1 : jogo.id_time2)
+        const p1 = classificacaoPontos[jogo.id_time1] ?? 0
+        const p2 = classificacaoPontos[jogo.id_time2] ?? 0
+        classificados.push(p1 >= p2 ? jogo.id_time1 : jogo.id_time2)
       }
     }
 
-    const novosConfrontos = []
+    // ✅ Corrigido: são 8 vencedores (um por confronto)
+    if (classificados.length !== 8) {
+      toast.error('Complete os 8 confrontos.')
+      return
+    }
+
+    const novos: any[] = []
     for (let i = 0; i < classificados.length; i += 2) {
       const id_time1 = classificados[i]
       const id_time2 = classificados[i + 1]
 
-      const time1 = jogos.find(j => j.id_time1 === id_time1 || j.id_time2 === id_time1)
-      const time2 = jogos.find(j => j.id_time1 === id_time2 || j.id_time2 === id_time2)
+      const j1 = jogos.find(j => j.id_time1 === id_time1 || j.id_time2 === id_time1)
+      const j2 = jogos.find(j => j.id_time1 === id_time2 || j.id_time2 === id_time2)
 
-      novosConfrontos.push({
+      novos.push({
         id_time1,
         id_time2,
-        time1: time1?.id_time1 === id_time1 ? time1.time1 : time1?.time2,
-        time2: time2?.id_time1 === id_time2 ? time2.time1 : time2?.time2,
+        time1: j1?.id_time1 === id_time1 ? j1.time1 : j1?.time2,
+        time2: j2?.id_time1 === id_time2 ? j2.time1 : j2?.time2,
         gols_time1: null,
         gols_time2: null,
         gols_time1_volta: null,
@@ -100,67 +395,58 @@ export default function OitavasPage() {
       })
     }
 
-    for (const confronto of novosConfrontos) {
-      await supabase.from('copa_quartas').insert(confronto)
-    }
+    for (const c of novos) await supabase.from('copa_quartas').insert(c)
 
     toast.success('Classificados para as Quartas!')
   }
 
+  /** ====== Derivados ====== */
+  const podeGravar = useMemo(() => pares.length === 8 && !parAtual.A && !parAtual.B, [pares, parAtual])
+
+  /** ====== Render ====== */
   if (loading) return <div className="p-4">🔄 Carregando...</div>
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">🥇 Oitavas de Final</h1>
+      <header className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-bold">🥇 Oitavas de Final</h1>
+        {isAdmin && (
+          <button className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded" onClick={abrirSorteio}>
+            🎥 Abrir sorteio (Potes + Animação)
+          </button>
+        )}
+      </header>
 
+      {/* Lista de jogos existentes */}
       <div className="space-y-4">
         {jogos.map((jogo) => (
-          <div key={jogo.id} className="flex flex-col gap-2 border p-2 rounded">
+          <div key={jogo.id} className="flex flex-col gap-2 border border-gray-300/30 p-3 rounded">
             <div className="font-semibold">{jogo.time1} x {jogo.time2}</div>
-            <div className="flex gap-2 items-center">
-              <input
-                type="number"
-                className="w-12 border rounded px-1"
-                value={jogo.gols_time1 || ''}
+            <div className="flex flex-wrap gap-2 items-center">
+              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time1 ?? ''}
                 onChange={(e) => {
-                  const v = parseInt(e.target.value)
-                  setJogos((prev) => prev.map(j => j.id === jogo.id ? { ...j, gols_time1: v } : j))
-                }}
-              />
+                  const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
+                  setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time1: Number.isNaN(v as any) ? null : v } : j))
+                }} />
               <span>x</span>
-              <input
-                type="number"
-                className="w-12 border rounded px-1"
-                value={jogo.gols_time2 || ''}
+              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time2 ?? ''}
                 onChange={(e) => {
-                  const v = parseInt(e.target.value)
-                  setJogos((prev) => prev.map(j => j.id === jogo.id ? { ...j, gols_time2: v } : j))
-                }}
-              />
-              <span>– Volta –</span>
-              <input
-                type="number"
-                className="w-12 border rounded px-1"
-                value={jogo.gols_time1_volta || ''}
+                  const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
+                  setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time2: Number.isNaN(v as any) ? null : v } : j))
+                }} />
+              <span className="mx-2 text-sm opacity-70">– Volta –</span>
+              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time1_volta ?? ''}
                 onChange={(e) => {
-                  const v = parseInt(e.target.value)
-                  setJogos((prev) => prev.map(j => j.id === jogo.id ? { ...j, gols_time1_volta: v } : j))
-                }}
-              />
+                  const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
+                  setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time1_volta: Number.isNaN(v as any) ? null : v } : j))
+                }} />
               <span>x</span>
-              <input
-                type="number"
-                className="w-12 border rounded px-1"
-                value={jogo.gols_time2_volta || ''}
+              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time2_volta ?? ''}
                 onChange={(e) => {
-                  const v = parseInt(e.target.value)
-                  setJogos((prev) => prev.map(j => j.id === jogo.id ? { ...j, gols_time2_volta: v } : j))
-                }}
-              />
-              <button
-                className="bg-green-600 text-white px-3 py-1 rounded"
-                onClick={() => salvarPlacar(jogo)}
-              >Salvar</button>
+                  const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
+                  setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time2_volta: Number.isNaN(v as any) ? null : v } : j))
+                }} />
+              <button className="bg-green-600 text-white px-3 py-1 rounded ml-auto" onClick={() => salvarPlacar(jogo)}>Salvar</button>
             </div>
           </div>
         ))}
@@ -168,12 +454,192 @@ export default function OitavasPage() {
 
       {isAdmin && (
         <div className="mt-6">
-          <button
-            className="bg-blue-700 text-white px-4 py-2 rounded"
-            onClick={finalizarOitavas}
-          >🏁 Finalizar Oitavas</button>
+          <button className="bg-blue-700 text-white px-4 py-2 rounded" onClick={finalizarOitavas}>
+            🏁 Finalizar Oitavas
+          </button>
         </div>
       )}
+
+      {/* ===== Overlay do Sorteio por Potes + Animação ===== */}
+      {sorteioAberto && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-6xl bg-gray-950 rounded-2xl border border-gray-800 shadow-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold">🎥 Sorteio Oitavas — Show ao vivo</h3>
+              <button className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700" onClick={() => setSorteioAberto(false)}>Fechar</button>
+            </div>
+
+            {/* Palco */}
+            <div className="grid grid-cols-9 gap-4 items-start">
+              {/* Apresentadora A + Pote A */}
+              <div className="col-span-3 flex flex-col items-center gap-3">
+                <HostCard nome="Apresentadora A" lado="left" />
+                <PoteGlass title="Pote A (Top 8)" teams={filaA} side="left" />
+                <button
+                  className={`px-3 py-2 rounded-lg ${!parAtual.A && filaA.length > 0 ? 'bg-blue-600 hover:bg-blue-500' : 'bg-blue-600/50 cursor-not-allowed'}`}
+                  onClick={sortearDoPoteA}
+                  disabled={!!parAtual.A || filaA.length === 0}
+                >
+                  🎲 Sortear do Pote A
+                </button>
+              </div>
+
+              {/* Centro: Confronto atual e pares */}
+              <div className="col-span-3 flex flex-col items-center">
+                <div className="w-full">
+                  <div className="text-center text-gray-400 mb-2">Confronto atual</div>
+                  <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-4">
+                    <div className="grid grid-cols-3 items-center">
+                      <div className="flex justify-center"><BallLogo team={parAtual.A} size={64} /></div>
+                      <div className="text-center text-gray-400">x</div>
+                      <div className="flex justify-center"><BallLogo team={parAtual.B} size={64} /></div>
+                    </div>
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        className={`px-3 py-2 rounded-lg ${parAtual.A && parAtual.B ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-emerald-600/50 cursor-not-allowed'}`}
+                        onClick={confirmarConfronto}
+                        disabled={!parAtual.A || !parAtual.B}
+                      >
+                        ✅ Confirmar confronto
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pares já formados */}
+                <div className="w-full mt-4 max-h-56 overflow-auto space-y-2">
+                  {pares.map(([a,b], i) => (
+                    <div key={a.id + b.id + i} className="rounded-xl border border-gray-800 bg-gray-900/50 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2"><BallLogo team={a} size={28} /><span className="font-medium">{a.nome}</span></div>
+                        <span className="text-gray-400">x</span>
+                        <div className="flex items-center gap-2"><span className="font-medium">{b.nome}</span><BallLogo team={b} size={28} /></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Gravar */}
+                <div className="w-full mt-4 flex justify-end">
+                  <button
+                    className={`px-4 py-2 rounded-lg ${podeGravar && !confirming ? 'bg-green-600 hover:bg-green-500' : 'bg-green-600/50 cursor-not-allowed'}`}
+                    disabled={!podeGravar || confirming}
+                    onClick={gravarConfrontos}
+                  >
+                    {confirming ? 'Gravando…' : '✅ Gravar confrontos'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Apresentadora B + Pote B */}
+              <div className="col-span-3 flex flex-col items-center gap-3">
+                <HostCard nome="Apresentadora B" lado="right" />
+                <PoteGlass title="Pote B (Playoff)" teams={filaB} side="right" />
+                <button
+                  className={`px-3 py-2 rounded-lg ${parAtual.A && !parAtual.B && filaB.length > 0 ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-indigo-600/50 cursor-not-allowed'}`}
+                  onClick={sortearDoPoteB}
+                  disabled={!parAtual.A || !!parAtual.B || filaB.length === 0}
+                >
+                  🎲 Sortear do Pote B
+                </button>
+              </div>
+            </div>
+
+            {/* Bolinhas animadas saindo dos potes */}
+            <AnimatePresence>
+              {animA && (
+                <motion.div
+                  initial={{ x: -260, y: 80, scale: 0.6, opacity: 0 }}
+                  animate={{ x: 0, y: -10, scale: 1, opacity: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 20, duration: 0.9 }}
+                  className="pointer-events-none fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                >
+                  <BallLogo team={animA} size={72} shiny />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
+              {animB && (
+                <motion.div
+                  initial={{ x: 260, y: 80, scale: 0.6, opacity: 0 }}
+                  animate={{ x: 0, y: -10, scale: 1, opacity: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 20, duration: 0.9 }}
+                  className="pointer-events-none fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                >
+                  <BallLogo team={animB} size={72} shiny />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** ====== Visuais ====== */
+function HostCard({ nome, lado }: { nome: string; lado: 'left'|'right' }) {
+  return (
+    <div className="w-full rounded-2xl border border-gray-800 bg-gradient-to-b from-gray-900 to-gray-950 p-4">
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-pink-500/70 to-blue-500/70 flex items-center justify-center text-white font-bold shadow-lg">
+          {lado === 'left' ? 'A' : 'B'}
+        </div>
+        <div>
+          <div className="text-sm text-gray-400">Apresentadora</div>
+          <div className="font-semibold">{nome}</div>
+        </div>
+      </div>
+      <div className="mt-3 text-xs text-gray-400">
+        Retira as bolinhas do pote {lado === 'left' ? 'A' : 'B'} ao sinal do diretor.
+      </div>
+    </div>
+  )
+}
+
+function PoteGlass({ title, teams, side }: { title: string; teams: TimeRow[]; side: 'left'|'right' }) {
+  return (
+    <div className="w-full flex flex-col items-center">
+      <div className="mb-2 text-sm text-gray-300">{title}</div>
+      <div className="relative w-64 h-40">
+        {/* vidro */}
+        <div className="absolute inset-0 rounded-full [clip-path:ellipse(60%_50%_at_50%_60%)] bg-gradient-to-b from-white/10 to-white/0 border border-white/20 shadow-inner" />
+        {/* base */}
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-56 h-4 rounded-full bg-black/40 blur-sm" />
+        {/* bolinhas restantes */}
+        <div className="absolute inset-0 flex flex-wrap items-end justify-center gap-2 p-6">
+          {teams.map((t) => (
+            <div key={t.id} className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 shadow-md overflow-hidden flex items-center justify-center">
+              <TeamLogo url={t.logo_url} alt={t.nome} size={40} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TeamLogo({ url, alt, size=32 }: { url?: string | null; alt: string; size?: number }) {
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt={alt} style={{ width: size, height: size }} className="object-cover" />
+  ) : (
+    <span className="text-[10px] text-gray-300">{alt.slice(0,3).toUpperCase()}</span>
+  )
+}
+
+function BallLogo({ team, size=56, shiny=false }: { team: TimeRow | null; size?: number; shiny?: boolean }) {
+  if (!team) return (
+    <div className="w-14 h-14 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center">
+      <span className="text-gray-400">?</span>
+    </div>
+  )
+  return (
+    <div className={`rounded-full border ${shiny ? 'border-white/40 shadow-[inset_0_8px_16px_rgba(255,255,255,0.15),0_8px_16px_rgba(0,0,0,0.35)]' : 'border-gray-700 shadow'} bg-gray-900 overflow-hidden flex items-center justify-center`} style={{ width: size, height: size }}>
+      <TeamLogo url={team.logo_url} alt={team.nome} size={size - 8} />
     </div>
   )
 }
