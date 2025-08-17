@@ -22,8 +22,7 @@ interface Jogador {
   nome: string
   posicao: string
   valor: number
-  id_time: string              // normalizado (vem de id_time ou id_time_text)
-  id_time_text?: string | null // opcional no fetch
+  id_time: string
 }
 type RoubosMap = Record<string, Record<string, number>>
 type BloqueadosMap = Record<string, { id?: string; nome: string; posicao: string }[]>
@@ -265,7 +264,7 @@ export default function EventoRouboPage() {
     return null
   }
 
-  /** ========= Carregar jogadores do alvo (sem .or – evita 400) ========= */
+  /** ========= Carregar jogadores do alvo (apenas id_time) ========= */
   async function carregarJogadoresDoAlvo() {
     // abre a área sempre
     setMostrarJogadores(true)
@@ -279,47 +278,19 @@ export default function EventoRouboPage() {
       return
     }
 
-    // 1) tenta por id_time (uuid)
-    let baseRaw: any[] = []
-    let errMsg: string | null = null
-
-    const q1 = await supabase
+    const { data, error } = await supabase
       .from('elenco')
-      .select('id, nome, posicao, valor, id_time, id_time_text')
+      .select('id, nome, posicao, valor, id_time')
       .eq('id_time', targetId)
       .order('nome', { ascending: true })
 
-    if (q1.error) {
-      errMsg = q1.error.message
-    } else {
-      baseRaw = q1.data || []
-      // 2) se não achou nada, tenta por id_time_text
-      if (baseRaw.length === 0) {
-        const q2 = await supabase
-          .from('elenco')
-          .select('id, nome, posicao, valor, id_time, id_time_text')
-          .eq('id_time_text', targetId)
-          .order('nome', { ascending: true })
-        if (q2.error) errMsg = q2.error.message
-        else baseRaw = q2.data || []
-      }
-    }
-
-    if (errMsg) {
+    if (error) {
       setCarregandoJogadores(false)
-      toast.error(`Erro ao carregar jogadores do alvo: ${errMsg}`)
+      toast.error(`Erro ao carregar jogadores do alvo: ${error.message}`)
       return
     }
 
-    // normaliza id_time (usa text se vier vazio)
-    const base: Jogador[] = (baseRaw || []).map((j: any) => ({
-      id: j.id,
-      nome: j.nome,
-      posicao: j.posicao,
-      valor: j.valor,
-      id_time: j.id_time || j.id_time_text,
-      id_time_text: j.id_time_text
-    }))
+    const base = (data || []) as Jogador[]
 
     // bloqueios do evento atual (por time)
     const bloqueiosDoAlvo = (bloqueados[targetId] || [])
@@ -456,33 +427,15 @@ export default function EventoRouboPage() {
         ? valorPagoCalculado
         : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
-      // TRANSFERÊNCIA com trava otimista — sem .or (duas tentativas):
-      // 1) tenta se a linha ainda tem id_time == origem
-      let updated = false
-      const try1 = await supabase
+      // TRANSFERÊNCIA com trava otimista — atualiza apenas se ainda pertence ao time de origem
+      const { data: updJog, error: errJog } = await supabase
         .from('elenco')
-        .update({ id_time: idTime, id_time_text: idTime })
+        .update({ id_time: idTime })
         .eq('id', jogador.id)
         .eq('id_time', jogador.id_time)
         .select('id')
 
-      if (!try1.error && try1.data && try1.data.length > 0) {
-        updated = true
-      } else {
-        // 2) tenta se a linha ainda tem id_time_text == origem
-        const try2 = await supabase
-          .from('elenco')
-          .update({ id_time: idTime, id_time_text: idTime })
-          .eq('id', jogador.id)
-          .eq('id_time_text', jogador.id_time)
-          .select('id')
-
-        if (!try2.error && try2.data && try2.data.length > 0) {
-          updated = true
-        }
-      }
-
-      if (!updated) {
+      if (errJog || !updJog || updJog.length === 0) {
         toast.error('Outro time levou esse jogador primeiro. Atualize a lista.')
         return
       }
