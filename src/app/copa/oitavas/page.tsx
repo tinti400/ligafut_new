@@ -17,7 +17,6 @@ interface TimeRow {
   nome: string
   logo_url: string | null
 }
-
 type JogoOitavas = {
   id: number
   id_time1: string
@@ -30,8 +29,7 @@ type JogoOitavas = {
   gols_time2_volta: number | null
 }
 
-/** ========= Listas FORÇADAS ========= */
-// chaves “lógicas” para facilitar ajustes
+/** ========= POTES FORÇADOS ========= */
 const POTE_A_KEYS = [
   'Belgrano', 'Velez', 'Independiente', 'Boca',
   'Liverpool FC', 'Sporting CP', 'Manchester City', 'Fiorentina'
@@ -42,7 +40,7 @@ const POTE_B_KEYS = [
   'SV Elversberg', 'Barcelona', 'Racing', 'Chelsea'
 ] as const
 
-// aliases por clube (coloque aqui como o nome está na tabela `times`)
+// Ajuste os aliases conforme os nomes na sua tabela `times`
 const TEAM_ALIASES: Record<string, string[]> = {
   // Pote A
   'Belgrano': ['Belgrano'],
@@ -76,7 +74,7 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 async function findTeamByAliases(aliases: string[]): Promise<TimeRow | null> {
-  // 1) tenta exato para cada alias
+  // 1) exato
   for (const alias of aliases) {
     const { data, error } = await supabase
       .from('times')
@@ -86,7 +84,7 @@ async function findTeamByAliases(aliases: string[]): Promise<TimeRow | null> {
       .maybeSingle()
     if (!error && data) return { id: data.id, nome: data.nome, logo_url: data.logo_url ?? null }
   }
-  // 2) tenta ilike contendo o alias
+  // 2) ilike
   for (const alias of aliases) {
     const { data, error } = await supabase
       .from('times')
@@ -135,11 +133,11 @@ export default function OitavasPage() {
   const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // [A,B]
   const [confirming, setConfirming] = useState(false)
 
-  // animação das bolinhas
+  // animação
   const [animA, setAnimA] = useState<TimeRow | null>(null)
   const [animB, setAnimB] = useState<TimeRow | null>(null)
 
-  // realtime (sem complicar tipagem)
+  // realtime
   const channelRef = useRef<any>(null)
   const stateRef = useRef({
     sorteioAberto, filaA, filaB, parAtual, pares, animA, animB,
@@ -188,7 +186,7 @@ export default function OitavasPage() {
     setLoading(false)
   }
 
-  /** ====== Abrir Sorteio com POTES FORÇADOS ====== */
+  /** ====== Abrir Sorteio (com potes forçados) ====== */
   async function abrirSorteio() {
     if (!isAdmin) return
     try {
@@ -201,10 +199,8 @@ export default function OitavasPage() {
         return
       }
 
-      // monta potes exatamente com as listas fornecidas
       const a = await montarPotePorLista(POTE_A_KEYS)
       const b = await montarPotePorLista(POTE_B_KEYS)
-
       if (a.length !== 8 || b.length !== 8) {
         toast.error('Faltou encontrar algum time dos potes. Ajuste os aliases.')
         return
@@ -212,9 +208,8 @@ export default function OitavasPage() {
 
       setPoteA(a)
       setPoteB(b)
-
       setFilaA([...a])
-      setFilaB(shuffle(b)) // embaralha só o B, se quiser tire
+      setFilaB(shuffle(b))
       setParAtual({ A: null, B: null })
       setPares([])
       setSorteioAberto(true)
@@ -235,7 +230,7 @@ export default function OitavasPage() {
     }
   }
 
-  /** ====== Controles de sorteio ====== */
+  /** ====== Controles ====== */
   function sortearDoPoteA() {
     if (!isAdmin || parAtual.A || filaA.length === 0) return
     const idx = Math.floor(Math.random() * filaA.length)
@@ -271,16 +266,24 @@ export default function OitavasPage() {
     broadcast({ pares: novos, parAtual: { A: null, B: null } })
   }
 
-  /** ====== Gravar confrontos ====== */
+  /** ====== Gravar confrontos (fix com .not('id','is',null)) ====== */
   async function gravarConfrontos() {
     if (!isAdmin) return
     if (pares.length !== 8) { toast.error('Finalize os 8 confrontos.'); return }
 
     try {
       setConfirming(true)
-      // limpa tudo
-      const { error: delErr } = await supabase.from('copa_oitavas').delete().neq('id', 0)
-      if (delErr) throw delErr
+
+      // limpa tudo independente do tipo de ID (UUID/serial)
+      const { error: delErr } = await supabase
+        .from('copa_oitavas')
+        .delete()
+        .not('id', 'is', null)
+      if (delErr) {
+        console.error(delErr)
+        toast.error(`Erro ao limpar oitavas: ${delErr.message || delErr}`)
+        return
+      }
 
       const payload = pares.map(([A,B]) => ({
         id_time1: A.id,
@@ -292,16 +295,24 @@ export default function OitavasPage() {
         gols_time1_volta: null,
         gols_time2_volta: null
       }))
-      const { error: insErr } = await supabase.from('copa_oitavas').insert(payload)
-      if (insErr) throw insErr
+
+      const { error: insErr } = await supabase
+        .from('copa_oitavas')
+        .insert(payload)
+        .select()
+      if (insErr) {
+        console.error(insErr)
+        toast.error(`Erro ao inserir confrontos: ${insErr.message || insErr}`)
+        return
+      }
 
       toast.success('Oitavas sorteadas e gravadas!')
       setSorteioAberto(false)
       broadcast({ sorteioAberto: false })
       await buscarJogos()
-    } catch (e) {
+    } catch (e: any) {
       console.error(e)
-      toast.error('Erro ao gravar confrontos')
+      toast.error(`Falha na gravação: ${e?.message || e}`)
     } finally {
       setConfirming(false)
     }
@@ -343,7 +354,7 @@ export default function OitavasPage() {
       const gols2 = (jogo.gols_time2 || 0) + (jogo.gols_time2_volta || 0)
       if (gols1 > gols2) classificados.push(jogo.id_time1)
       else if (gols2 > gols1) classificados.push(jogo.id_time2)
-      else classificados.push(jogo.id_time1) // em caso extremo, mantém o primeiro
+      else classificados.push(jogo.id_time1) // critério simples em caso de empate total
     }
 
     if (classificados.length !== 8) {
@@ -351,7 +362,6 @@ export default function OitavasPage() {
       return
     }
 
-    // pega nomes
     const { data: timesData } = await supabase
       .from('times')
       .select('id, nome')
@@ -448,7 +458,7 @@ export default function OitavasPage() {
         </div>
       )}
 
-      {/* ===== Overlay do Sorteio por Potes + Animação ===== */}
+      {/* ===== Overlay do Sorteio + Animações ===== */}
       {sorteioAberto && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-6xl bg-gray-950 rounded-2xl border border-gray-800 shadow-xl p-6">
@@ -465,15 +475,19 @@ export default function OitavasPage() {
               </button>
             </div>
 
-            {/* prévia dos potes forçados */}
+            {/* Prévia dos potes forçados */}
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div className="rounded-xl border border-gray-800 p-3">
                 <div className="text-sm text-gray-400 mb-2">Pote A (forçado)</div>
-                <div className="flex flex-wrap gap-2">{poteA.map(t => <span key={t.id} className="px-2 py-1 rounded bg-gray-800 text-sm">{t.nome}</span>)}</div>
+                <div className="flex flex-wrap gap-2">
+                  {poteA.map(t => <span key={t.id} className="px-2 py-1 rounded bg-gray-800 text-sm">{t.nome}</span>)}
+                </div>
               </div>
               <div className="rounded-xl border border-gray-800 p-3">
                 <div className="text-sm text-gray-400 mb-2">Pote B (forçado)</div>
-                <div className="flex flex-wrap gap-2">{poteB.map(t => <span key={t.id} className="px-2 py-1 rounded bg-gray-800 text-sm">{t.nome}</span>)}</div>
+                <div className="flex flex-wrap gap-2">
+                  {poteB.map(t => <span key={t.id} className="px-2 py-1 rounded bg-gray-800 text-sm">{t.nome}</span>)}
+                </div>
               </div>
             </div>
 
@@ -482,7 +496,7 @@ export default function OitavasPage() {
               {/* Apresentadora A + Pote A */}
               <div className="col-span-3 flex flex-col items-center gap-3">
                 <HostCard nome="Apresentadora A" lado="left" />
-                <PoteGlass title="Pote A (Top 8)" teams={filaA} side="left" />
+                <PoteGlass title="Pote A" teams={filaA} side="left" />
                 <button
                   className={`px-3 py-2 rounded-lg ${!parAtual.A && filaA.length > 0 ? 'bg-blue-600 hover:bg-blue-500' : 'bg-blue-600/50 cursor-not-allowed'}`}
                   onClick={sortearDoPoteA}
@@ -542,7 +556,7 @@ export default function OitavasPage() {
               {/* Apresentadora B + Pote B */}
               <div className="col-span-3 flex flex-col items-center gap-3">
                 <HostCard nome="Apresentadora B" lado="right" />
-                <PoteGlass title="Pote B (Playoff)" teams={filaB} side="right" />
+                <PoteGlass title="Pote B" teams={filaB} side="right" />
                 <button
                   className={`px-3 py-2 rounded-lg ${parAtual.A && !parAtual.B && filaB.length > 0 ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-indigo-600/50 cursor-not-allowed'}`}
                   onClick={sortearDoPoteB}
@@ -629,6 +643,7 @@ function PoteGlass({ title, teams, side }: { title: string; teams: TimeRow[]; si
 
 function TeamLogo({ url, alt, size=32 }: { url?: string | null; alt: string; size?: number }) {
   return url ? (
+    // eslint-disable-next-line @next/next/no-img-element
     <img src={url} alt={alt} style={{ width: size, height: size }} className="object-cover" />
   ) : (
     <span className="text-[10px] text-gray-300">{alt.slice(0,3).toUpperCase()}</span>
