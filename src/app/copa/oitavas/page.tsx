@@ -26,8 +26,6 @@ type JogoOitavas = {
   time2: string
   gols_time1: number | null
   gols_time2: number | null
-  gols_time1_volta: number | null
-  gols_time2_volta: number | null
 }
 
 /** ========= POTES FORÇADOS ========= */
@@ -41,9 +39,8 @@ const POTE_B_KEYS = [
   'SV Elversberg', 'Barcelona', 'Racing', 'Chelsea'
 ] as const
 
-// Ajuste aqui se o nome no seu banco estiver ligeiramente diferente
+// Ajuste caso o nome no seu banco seja diferente
 const TEAM_ALIASES: Record<string, string[]> = {
-  // Pote A
   'Belgrano': ['Belgrano'],
   'Velez': ['Vélez', 'Velez', 'Vélez Sarsfield', 'Velez Sarsfield'],
   'Independiente': ['Independiente'],
@@ -52,8 +49,6 @@ const TEAM_ALIASES: Record<string, string[]> = {
   'Sporting CP': ['Sporting CP', 'Sporting', 'Sporting Clube de Portugal'],
   'Manchester City': ['Manchester City', 'Man City', 'Manchester City FC'],
   'Fiorentina': ['Fiorentina', 'ACF Fiorentina'],
-
-  // Pote B
   'Santa Clara': ['CD Santa Clara', 'Santa Clara'],
   'Rio Ave': ['Rio Ave'],
   'PSG': ['PSG', 'Paris Saint-Germain', 'Paris Saint Germain'],
@@ -73,45 +68,30 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return a
 }
+const toDBId = (v: string) => (/^[0-9]+$/.test(v) ? Number(v) : v)
 
 async function findTeamByAliases(aliases: string[]): Promise<TimeRow | null> {
-  // 1) exato
   for (const alias of aliases) {
-    const { data, error } = await supabase
-      .from('times')
-      .select('id, nome, logo_url')
-      .eq('nome', alias)
-      .limit(1)
-      .maybeSingle()
-    if (!error && data) return { id: data.id, nome: data.nome, logo_url: data.logo_url ?? null }
+    const { data } = await supabase
+      .from('times').select('id, nome, logo_url').eq('nome', alias).limit(1).maybeSingle()
+    if (data) return { id: data.id, nome: data.nome, logo_url: data.logo_url ?? null }
   }
-  // 2) ilike
   for (const alias of aliases) {
-    const { data, error } = await supabase
-      .from('times')
-      .select('id, nome, logo_url')
-      .ilike('nome', `%${alias}%`)
-      .limit(1)
-      .maybeSingle()
-    if (!error && data) return { id: data.id, nome: data.nome, logo_url: data.logo_url ?? null }
+    const { data } = await supabase
+      .from('times').select('id, nome, logo_url').ilike('nome', `%${alias}%`).limit(1).maybeSingle()
+    if (data) return { id: data.id, nome: data.nome, logo_url: data.logo_url ?? null }
   }
   return null
 }
 
 async function montarPotePorLista(keys: readonly string[]): Promise<TimeRow[]> {
-  const faltantes: string[] = []
   const encontrados: TimeRow[] = []
-
+  const faltantes: string[] = []
   for (const key of keys) {
-    const aliases = TEAM_ALIASES[key] || [key]
-    const t = await findTeamByAliases(aliases)
-    if (t) encontrados.push(t)
-    else faltantes.push(key)
+    const t = await findTeamByAliases(TEAM_ALIASES[key] || [key])
+    if (t) encontrados.push(t); else faltantes.push(key)
   }
-
-  if (faltantes.length) {
-    toast.error(`Times não encontrados: ${faltantes.join(', ')}`)
-  }
+  if (faltantes.length) toast.error(`Times não encontrados: ${faltantes.join(', ')}`)
   return encontrados
 }
 
@@ -119,33 +99,27 @@ async function montarPotePorLista(keys: readonly string[]): Promise<TimeRow[]> {
 export default function OitavasPage() {
   const { isAdmin } = useAdmin()
 
-  // dados
   const [jogos, setJogos] = useState<JogoOitavas[]>([])
   const [loading, setLoading] = useState(true)
 
   // potes / sorteio
   const [poteA, setPoteA] = useState<TimeRow[]>([])
   const [poteB, setPoteB] = useState<TimeRow[]>([])
-
   const [sorteioAberto, setSorteioAberto] = useState(false)
   const [filaA, setFilaA] = useState<TimeRow[]>([])
   const [filaB, setFilaB] = useState<TimeRow[]>([])
   const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
-  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // [A,B]
+  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([])
   const [confirming, setConfirming] = useState(false)
 
   // animações
   const [animA, setAnimA] = useState<TimeRow | null>(null)
   const [animB, setAnimB] = useState<TimeRow | null>(null)
 
-  // realtime simples
+  // realtime
   const channelRef = useRef<any>(null)
-  const stateRef = useRef({
-    sorteioAberto, filaA, filaB, parAtual, pares, animA, animB,
-  })
-  useEffect(() => {
-    stateRef.current = { sorteioAberto, filaA, filaB, parAtual, pares, animA, animB }
-  }, [sorteioAberto, filaA, filaB, parAtual, pares, animA, animB])
+  const stateRef = useRef({ sorteioAberto, filaA, filaB, parAtual, pares, animA, animB })
+  useEffect(() => { stateRef.current = { sorteioAberto, filaA, filaB, parAtual, pares, animA, animB } }, [sorteioAberto, filaA, filaB, parAtual, pares, animA, animB])
 
   useEffect(() => {
     const ch = supabase.channel('oitavas-sorteio', { config: { broadcast: { self: true } } })
@@ -163,20 +137,19 @@ export default function OitavasPage() {
     channelRef.current = ch
     return () => { ch.unsubscribe() }
   }, [])
-
-  function broadcast(partial: any) {
+  const broadcast = (partial: any) => {
     const base = stateRef.current
     channelRef.current?.send({ type: 'broadcast', event: 'state', payload: { ...base, ...partial } })
   }
 
   useEffect(() => { buscarJogos() }, [])
 
-  /** ===== Buscar jogos (ordem ASC) ===== */
+  /** ===== Buscar jogos ===== */
   async function buscarJogos() {
     setLoading(true)
     const { data, error } = await supabase
       .from('copa_oitavas')
-      .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2, gols_time1_volta, gols_time2_volta')
+      .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2')
       .order('ordem', { ascending: true })
 
     if (error) {
@@ -209,10 +182,8 @@ export default function OitavasPage() {
         return
       }
 
-      setPoteA(a)
-      setPoteB(b)
-      setFilaA([...a])
-      setFilaB(shuffle(b))
+      setPoteA(a); setPoteB(b)
+      setFilaA([...a]); setFilaB(shuffle(b))
       setParAtual({ A: null, B: null })
       setPares([])
       setSorteioAberto(true)
@@ -269,7 +240,7 @@ export default function OitavasPage() {
     broadcast({ pares: novos, parAtual: { A: null, B: null } })
   }
 
-  /** ===== Gravar confrontos (com rodada e ordem) ===== */
+  /** ===== Gravar confrontos (rodada/ordem; sem volta) ===== */
   async function gravarConfrontos() {
     if (!isAdmin) return
     if (pares.length !== 8) { toast.error('Finalize os 8 confrontos.'); return }
@@ -277,7 +248,7 @@ export default function OitavasPage() {
     try {
       setConfirming(true)
 
-      // apaga tudo (funciona com id int ou uuid)
+      // limpa (funciona com id int/uuid)
       const { error: delErr } = await supabase
         .from('copa_oitavas')
         .delete()
@@ -288,25 +259,21 @@ export default function OitavasPage() {
         return
       }
 
-      // monta payload com rodada 1 e ordem 1..8
-      const toDBId = (v: string) => (/^[0-9]+$/.test(v) ? Number(v) : v)
       const payload = pares.map(([A,B], idx) => ({
         rodada: 1,
-        ordem: idx + 1,
+        ordem: idx + 1,         // 1..8
         id_time1: toDBId(A.id),
         id_time2: toDBId(B.id),
         time1: A.nome,
         time2: B.nome,
         gols_time1: null,
         gols_time2: null,
-        gols_time1_volta: null,
-        gols_time2_volta: null
       }))
 
       const { data: inserted, error: insErr } = await supabase
         .from('copa_oitavas')
         .insert(payload)
-        .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2, gols_time1_volta, gols_time2_volta')
+        .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2')
 
       if (insErr) {
         console.error('insert oitavas error:', insErr)
@@ -319,7 +286,6 @@ export default function OitavasPage() {
       setSorteioAberto(false)
       broadcast({ sorteioAberto: false })
 
-      // garante que aparece também no Table Editor
       await buscarJogos()
     } catch (e: any) {
       console.error('gravarConfrontos catch:', e)
@@ -329,15 +295,13 @@ export default function OitavasPage() {
     }
   }
 
-  /** ===== Salvar placar ===== */
+  /** ===== Salvar placar (somente ida) ===== */
   async function salvarPlacar(jogo: JogoOitavas) {
     const { error } = await supabase
       .from('copa_oitavas')
       .update({
         gols_time1: jogo.gols_time1,
-        gols_time2: jogo.gols_time2,
-        gols_time1_volta: jogo.gols_time1_volta,
-        gols_time2_volta: jogo.gols_time2_volta
+        gols_time2: jogo.gols_time2
       })
       .eq('id', jogo.id)
 
@@ -345,11 +309,11 @@ export default function OitavasPage() {
     else toast.success('Placar salvo!')
   }
 
-  /** ===== Finalizar Oitavas -> Quartas (simples) ===== */
+  /** ===== Finalizar Oitavas -> Quartas (usando só ida) ===== */
   async function finalizarOitavas() {
     const { data: dataJogos, error: errJ } = await supabase
       .from('copa_oitavas')
-      .select('*')
+      .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2')
       .order('ordem', { ascending: true })
 
     if (errJ || !dataJogos) {
@@ -360,18 +324,13 @@ export default function OitavasPage() {
     const jogosAtual = dataJogos as JogoOitavas[]
     const classificados: string[] = []
 
-    for (const jogo of jogosAtual) {
-      const gols1 = (jogo.gols_time1 || 0) + (jogo.gols_time1_volta || 0)
-      const gols2 = (jogo.gols_time2 || 0) + (jogo.gols_time2_volta || 0)
-      if (gols1 > gols2) classificados.push(jogo.id_time1)
-      else if (gols2 > gols1) classificados.push(jogo.id_time2)
-      else classificados.push(jogo.id_time1) // critério simples
+    for (const j of jogosAtual) {
+      const g1 = j.gols_time1 ?? 0
+      const g2 = j.gols_time2 ?? 0
+      classificados.push(g1 >= g2 ? j.id_time1 : j.id_time2) // empate beneficia time1
     }
 
-    if (classificados.length !== 8) {
-      toast.error('Complete os 8 confrontos.')
-      return
-    }
+    if (classificados.length !== 8) { toast.error('Complete os 8 confrontos.'); return }
 
     const { data: timesData } = await supabase
       .from('times')
@@ -381,19 +340,20 @@ export default function OitavasPage() {
     const nomePorId = new Map<string, string>()
     ;(timesData || []).forEach(t => nomePorId.set(t.id, t.nome))
 
+    // monta quartas (ordem 1..4)
     const novos: any[] = []
     for (let i = 0; i < classificados.length; i += 2) {
       const id_time1 = classificados[i]
       const id_time2 = classificados[i + 1]
       novos.push({
+        rodada: 1,
+        ordem: (i / 2) + 1,
         id_time1,
         id_time2,
         time1: nomePorId.get(id_time1) ?? 'Time',
         time2: nomePorId.get(id_time2) ?? 'Time',
         gols_time1: null,
         gols_time2: null,
-        gols_time1_volta: null,
-        gols_time2_volta: null
       })
     }
 
@@ -409,7 +369,7 @@ export default function OitavasPage() {
     }
   }
 
-  /** ===== Derivados ===== */
+  /** ===== Derivado ===== */
   const podeGravar = useMemo(() => pares.length === 8 && !parAtual.A && !parAtual.B, [pares, parAtual])
 
   /** ===== Render ===== */
@@ -432,30 +392,28 @@ export default function OitavasPage() {
           <div key={jogo.id} className="flex flex-col gap-2 border border-gray-300/30 p-3 rounded">
             <div className="font-semibold">{jogo.ordem}. {jogo.time1} x {jogo.time2}</div>
             <div className="flex flex-wrap gap-2 items-center">
-              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time1 ?? ''}
+              <input
+                type="number"
+                className="w-14 border rounded px-1"
+                value={jogo.gols_time1 ?? ''}
                 onChange={(e) => {
                   const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
                   setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time1: Number.isNaN(v as any) ? null : v } : j))
-                }} />
+                }}
+              />
               <span>x</span>
-              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time2 ?? ''}
+              <input
+                type="number"
+                className="w-14 border rounded px-1"
+                value={jogo.gols_time2 ?? ''}
                 onChange={(e) => {
                   const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
                   setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time2: Number.isNaN(v as any) ? null : v } : j))
-                }} />
-              <span className="mx-2 text-sm opacity-70">– Volta –</span>
-              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time1_volta ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
-                  setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time1_volta: Number.isNaN(v as any) ? null : v } : j))
-                }} />
-              <span>x</span>
-              <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time2_volta ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
-                  setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time2_volta: Number.isNaN(v as any) ? null : v } : j))
-                }} />
-              <button className="bg-green-600 text-white px-3 py-1 rounded ml-auto" onClick={() => salvarPlacar(jogo)}>Salvar</button>
+                }}
+              />
+              <button className="bg-green-600 text-white px-3 py-1 rounded ml-auto" onClick={() => salvarPlacar(jogo)}>
+                Salvar
+              </button>
             </div>
           </div>
         ))}
