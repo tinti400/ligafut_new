@@ -238,7 +238,7 @@ export default function EventoRouboPage() {
     setJogadoresAlvo([])
   }
 
-  /** ========= Resolve ID do alvo de forma robusta ========= */
+  /** ========= Resolve ID do alvo ========= */
   async function resolverAlvoId(): Promise<string | null> {
     if (alvoSelecionado) return alvoSelecionado
     const q = norm(buscaAlvo)
@@ -251,12 +251,12 @@ export default function EventoRouboPage() {
       }
       // fallback: consulta Supabase restrita aos times da ordem
       const idsOrdem = ordem.map(t => t.id)
-      const { data: candidatos, error } = await supabase
+      const { data: candidatos } = await supabase
         .from('times')
         .select('id,nome')
         .ilike('nome', `%${buscaAlvo}%`)
         .in('id', idsOrdem)
-      if (!error && candidatos && candidatos.length) {
+      if (candidatos && candidatos.length) {
         setAlvoSelecionado(candidatos[0].id)
         setBuscaAlvo(candidatos[0].nome)
         return candidatos[0].id
@@ -265,7 +265,7 @@ export default function EventoRouboPage() {
     return null
   }
 
-  /** ========= Carregar jogadores do alvo (suporta id_time_text) ========= */
+  /** ========= Carregar jogadores do alvo (sem .or – evita 400) ========= */
   async function carregarJogadoresDoAlvo() {
     // abre a área sempre
     setMostrarJogadores(true)
@@ -279,21 +279,40 @@ export default function EventoRouboPage() {
       return
     }
 
-    // Busca elenco onde id_time == targetId OU id_time_text == targetId
-    const { data, error } = await supabase
+    // 1) tenta por id_time (uuid)
+    let baseRaw: any[] = []
+    let errMsg: string | null = null
+
+    const q1 = await supabase
       .from('elenco')
       .select('id, nome, posicao, valor, id_time, id_time_text')
-      .or(`id_time.eq.${targetId},id_time_text.eq.${targetId}`)
+      .eq('id_time', targetId)
       .order('nome', { ascending: true })
 
-    if (error) {
+    if (q1.error) {
+      errMsg = q1.error.message
+    } else {
+      baseRaw = q1.data || []
+      // 2) se não achou nada, tenta por id_time_text
+      if (baseRaw.length === 0) {
+        const q2 = await supabase
+          .from('elenco')
+          .select('id, nome, posicao, valor, id_time, id_time_text')
+          .eq('id_time_text', targetId)
+          .order('nome', { ascending: true })
+        if (q2.error) errMsg = q2.error.message
+        else baseRaw = q2.data || []
+      }
+    }
+
+    if (errMsg) {
       setCarregandoJogadores(false)
-      toast.error(`Erro ao carregar jogadores do alvo: ${error.message}`)
+      toast.error(`Erro ao carregar jogadores do alvo: ${errMsg}`)
       return
     }
 
     // normaliza id_time (usa text se vier vazio)
-    const base: Jogador[] = (data || []).map((j: any) => ({
+    const base: Jogador[] = (baseRaw || []).map((j: any) => ({
       id: j.id,
       nome: j.nome,
       posicao: j.posicao,
@@ -437,16 +456,33 @@ export default function EventoRouboPage() {
         ? valorPagoCalculado
         : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
-      // TRANSFERÊNCIA com trava otimista: atualiza se a linha ainda pertence ao time de origem,
-      // considerando id_time OU id_time_text (mantemos ambos consistentes depois).
-      const cond = `and(id.eq.${jogador.id},id_time.eq.${jogador.id_time}),and(id.eq.${jogador.id},id_time_text.eq.${jogador.id_time})`
-      const { data: updJog, error: errJog } = await supabase
+      // TRANSFERÊNCIA com trava otimista — sem .or (duas tentativas):
+      // 1) tenta se a linha ainda tem id_time == origem
+      let updated = false
+      const try1 = await supabase
         .from('elenco')
         .update({ id_time: idTime, id_time_text: idTime })
-        .or(cond)
+        .eq('id', jogador.id)
+        .eq('id_time', jogador.id_time)
         .select('id')
 
-      if (errJog || !updJog || updJog.length === 0) {
+      if (!try1.error && try1.data && try1.data.length > 0) {
+        updated = true
+      } else {
+        // 2) tenta se a linha ainda tem id_time_text == origem
+        const try2 = await supabase
+          .from('elenco')
+          .update({ id_time: idTime, id_time_text: idTime })
+          .eq('id', jogador.id)
+          .eq('id_time_text', jogador.id_time)
+          .select('id')
+
+        if (!try2.error && try2.data && try2.data.length > 0) {
+          updated = true
+        }
+      }
+
+      if (!updated) {
         toast.error('Outro time levou esse jogador primeiro. Atualize a lista.')
         return
       }
