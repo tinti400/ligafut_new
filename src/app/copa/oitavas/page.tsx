@@ -19,6 +19,7 @@ interface TimeRow {
 }
 type JogoOitavas = {
   id: number
+  ordem: number
   id_time1: string
   id_time2: string
   time1: string
@@ -40,11 +41,11 @@ const POTE_B_KEYS = [
   'SV Elversberg', 'Barcelona', 'Racing', 'Chelsea'
 ] as const
 
-// Ajuste os aliases conforme os nomes na sua tabela `times`
+// Ajuste aqui se o nome no seu banco estiver ligeiramente diferente
 const TEAM_ALIASES: Record<string, string[]> = {
   // Pote A
   'Belgrano': ['Belgrano'],
-  'Velez': ['Velez', 'Vélez', 'Vélez Sarsfield', 'Velez Sarsfield'],
+  'Velez': ['Vélez', 'Velez', 'Vélez Sarsfield', 'Velez Sarsfield'],
   'Independiente': ['Independiente'],
   'Boca': ['Boca Jrs', 'Boca Juniors', 'Boca'],
   'Liverpool FC': ['Liverpool FC', 'Liverpool'],
@@ -133,11 +134,11 @@ export default function OitavasPage() {
   const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // [A,B]
   const [confirming, setConfirming] = useState(false)
 
-  // animação
+  // animações
   const [animA, setAnimA] = useState<TimeRow | null>(null)
   const [animB, setAnimB] = useState<TimeRow | null>(null)
 
-  // realtime
+  // realtime simples
   const channelRef = useRef<any>(null)
   const stateRef = useRef({
     sorteioAberto, filaA, filaB, parAtual, pares, animA, animB,
@@ -170,15 +171,17 @@ export default function OitavasPage() {
 
   useEffect(() => { buscarJogos() }, [])
 
+  /** ===== Buscar jogos (ordem ASC) ===== */
   async function buscarJogos() {
     setLoading(true)
     const { data, error } = await supabase
       .from('copa_oitavas')
-      .select('*')
-      .order('id', { ascending: true })
+      .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2, gols_time1_volta, gols_time2_volta')
+      .order('ordem', { ascending: true })
 
     if (error) {
-      toast.error('Erro ao buscar jogos das Oitavas')
+      console.error('buscarJogos error:', error)
+      toast.error(`Erro ao buscar Oitavas: ${error.message || error}`)
       setJogos([])
     } else {
       setJogos((data || []) as JogoOitavas[])
@@ -186,7 +189,7 @@ export default function OitavasPage() {
     setLoading(false)
   }
 
-  /** ====== Abrir Sorteio (com potes forçados) ====== */
+  /** ===== Abrir sorteio (potes forçados) ===== */
   async function abrirSorteio() {
     if (!isAdmin) return
     try {
@@ -230,7 +233,7 @@ export default function OitavasPage() {
     }
   }
 
-  /** ====== Controles ====== */
+  /** ===== Sorteio ===== */
   function sortearDoPoteA() {
     if (!isAdmin || parAtual.A || filaA.length === 0) return
     const idx = Math.floor(Math.random() * filaA.length)
@@ -266,7 +269,7 @@ export default function OitavasPage() {
     broadcast({ pares: novos, parAtual: { A: null, B: null } })
   }
 
-  /** ====== Gravar confrontos (fix com .not('id','is',null)) ====== */
+  /** ===== Gravar confrontos (com rodada e ordem) ===== */
   async function gravarConfrontos() {
     if (!isAdmin) return
     if (pares.length !== 8) { toast.error('Finalize os 8 confrontos.'); return }
@@ -274,20 +277,24 @@ export default function OitavasPage() {
     try {
       setConfirming(true)
 
-      // limpa tudo independente do tipo de ID (UUID/serial)
+      // apaga tudo (funciona com id int ou uuid)
       const { error: delErr } = await supabase
         .from('copa_oitavas')
         .delete()
         .not('id', 'is', null)
       if (delErr) {
-        console.error(delErr)
+        console.error('delete oitavas error:', delErr)
         toast.error(`Erro ao limpar oitavas: ${delErr.message || delErr}`)
         return
       }
 
-      const payload = pares.map(([A,B]) => ({
-        id_time1: A.id,
-        id_time2: B.id,
+      // monta payload com rodada 1 e ordem 1..8
+      const toDBId = (v: string) => (/^[0-9]+$/.test(v) ? Number(v) : v)
+      const payload = pares.map(([A,B], idx) => ({
+        rodada: 1,
+        ordem: idx + 1,
+        id_time1: toDBId(A.id),
+        id_time2: toDBId(B.id),
         time1: A.nome,
         time2: B.nome,
         gols_time1: null,
@@ -296,29 +303,33 @@ export default function OitavasPage() {
         gols_time2_volta: null
       }))
 
-      const { error: insErr } = await supabase
+      const { data: inserted, error: insErr } = await supabase
         .from('copa_oitavas')
         .insert(payload)
-        .select()
+        .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2, gols_time1_volta, gols_time2_volta')
+
       if (insErr) {
-        console.error(insErr)
+        console.error('insert oitavas error:', insErr)
         toast.error(`Erro ao inserir confrontos: ${insErr.message || insErr}`)
         return
       }
 
-      toast.success('Oitavas sorteadas e gravadas!')
+      setJogos((inserted || []) as JogoOitavas[])
+      toast.success(`Oitavas gravadas: ${inserted?.length ?? 0} confrontos`)
       setSorteioAberto(false)
       broadcast({ sorteioAberto: false })
+
+      // garante que aparece também no Table Editor
       await buscarJogos()
     } catch (e: any) {
-      console.error(e)
+      console.error('gravarConfrontos catch:', e)
       toast.error(`Falha na gravação: ${e?.message || e}`)
     } finally {
       setConfirming(false)
     }
   }
 
-  /** ====== Salvar placar ====== */
+  /** ===== Salvar placar ===== */
   async function salvarPlacar(jogo: JogoOitavas) {
     const { error } = await supabase
       .from('copa_oitavas')
@@ -334,12 +345,12 @@ export default function OitavasPage() {
     else toast.success('Placar salvo!')
   }
 
-  /** ====== Finalizar Oitavas (gera Quartas) ====== */
+  /** ===== Finalizar Oitavas -> Quartas (simples) ===== */
   async function finalizarOitavas() {
     const { data: dataJogos, error: errJ } = await supabase
       .from('copa_oitavas')
       .select('*')
-      .order('id', { ascending: true })
+      .order('ordem', { ascending: true })
 
     if (errJ || !dataJogos) {
       toast.error('Erro ao buscar confrontos das Oitavas')
@@ -354,7 +365,7 @@ export default function OitavasPage() {
       const gols2 = (jogo.gols_time2 || 0) + (jogo.gols_time2_volta || 0)
       if (gols1 > gols2) classificados.push(jogo.id_time1)
       else if (gols2 > gols1) classificados.push(jogo.id_time2)
-      else classificados.push(jogo.id_time1) // critério simples em caso de empate total
+      else classificados.push(jogo.id_time1) // critério simples
     }
 
     if (classificados.length !== 8) {
@@ -398,10 +409,10 @@ export default function OitavasPage() {
     }
   }
 
-  /** ====== Derivados ====== */
+  /** ===== Derivados ===== */
   const podeGravar = useMemo(() => pares.length === 8 && !parAtual.A && !parAtual.B, [pares, parAtual])
 
-  /** ====== Render ====== */
+  /** ===== Render ===== */
   if (loading) return <div className="p-4">🔄 Carregando...</div>
 
   return (
@@ -419,7 +430,7 @@ export default function OitavasPage() {
       <div className="space-y-4">
         {jogos.map((jogo) => (
           <div key={jogo.id} className="flex flex-col gap-2 border border-gray-300/30 p-3 rounded">
-            <div className="font-semibold">{jogo.time1} x {jogo.time2}</div>
+            <div className="font-semibold">{jogo.ordem}. {jogo.time1} x {jogo.time2}</div>
             <div className="flex flex-wrap gap-2 items-center">
               <input type="number" className="w-14 border rounded px-1" value={jogo.gols_time1 ?? ''}
                 onChange={(e) => {
@@ -458,7 +469,7 @@ export default function OitavasPage() {
         </div>
       )}
 
-      {/* ===== Overlay do Sorteio + Animações ===== */}
+      {/* ===== Overlay do Sorteio por Potes + Animação ===== */}
       {sorteioAberto && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-6xl bg-gray-950 rounded-2xl border border-gray-800 shadow-xl p-6">
