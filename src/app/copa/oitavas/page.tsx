@@ -6,14 +6,12 @@ import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// Se ainda não tiver, instale: npm i @supabase/supabase-js framer-motion react-hot-toast
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// Ajuste aqui se tiver múltiplas temporadas
+// ajuste se usa multi-temporadas
 const TEMPORADA_ATUAL = 1
 
 /** ========= Tipos ========= */
@@ -44,14 +42,6 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return a
 }
-function nomeRel(reg: any): string {
-  const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
-  return t?.nome ?? 'Time'
-}
-function logoRel(reg: any): string | null {
-  const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
-  return t?.logo_url ?? null
-}
 
 /** ========= Componente ========= */
 export default function OitavasPage() {
@@ -59,7 +49,6 @@ export default function OitavasPage() {
 
   // dados
   const [jogos, setJogos] = useState<JogoOitavas[]>([])
-  const [classificacaoPontos, setClassificacaoPontos] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
   // potes / sorteio
@@ -73,11 +62,11 @@ export default function OitavasPage() {
   const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // [A,B]
   const [confirming, setConfirming] = useState(false)
 
-  // animação das "bolinhas" saindo do pote
+  // animações
   const [animA, setAnimA] = useState<TimeRow | null>(null)
   const [animB, setAnimB] = useState<TimeRow | null>(null)
 
-  // ===== Realtime =====
+  // realtime
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const stateRef = useRef({
     sorteioAberto,
@@ -92,10 +81,8 @@ export default function OitavasPage() {
     stateRef.current = { sorteioAberto, filaA, filaB, parAtual, pares, animA, animB }
   }, [sorteioAberto, filaA, filaB, parAtual, pares, animA, animB])
 
-  // cria/assina canal ao montar
   useEffect(() => {
     const ch = supabase.channel('oitavas-sorteio', { config: { broadcast: { self: true } } })
-
     ch.on('broadcast', { event: 'state' }, ({ payload }) => {
       const p = payload || {}
       if ('sorteioAberto' in p) setSorteioAberto(!!p.sorteioAberto)
@@ -106,7 +93,6 @@ export default function OitavasPage() {
       if ('animA' in p) setAnimA(p.animA || null)
       if ('animB' in p) setAnimB(p.animB || null)
     })
-
     ch.subscribe()
     channelRef.current = ch
     return () => { ch.unsubscribe() }
@@ -121,7 +107,6 @@ export default function OitavasPage() {
     })
   }
 
-  // limpa animações também quando vindas via broadcast
   useEffect(() => {
     if (animA) {
       const t = setTimeout(() => setAnimA(null), 900)
@@ -137,15 +122,78 @@ export default function OitavasPage() {
 
   useEffect(() => {
     buscarJogos()
-    buscarClassificacao()
   }, [])
 
-  /** ====== Buscar jogos já existentes ====== */
+  /** ====== helpers de dados (Classificação + Times) ====== */
+  type LinhaClassificacao = {
+    id_time: string
+    posicao?: number | null
+    pontos?: number | null
+    vitorias?: number | null
+    gols_pro?: number | null
+    gols_contra?: number | null
+    jogos?: number | null
+  }
+
+  async function getClassificacaoOrdenada(): Promise<LinhaClassificacao[]> {
+    const { data, error } = await supabase
+      .from('classificacao')
+      .select('id_time, posicao, pontos, vitorias, gols_pro, gols_contra, jogos')
+      .eq('temporada', TEMPORADA_ATUAL)
+
+    if (error || !data) return []
+
+    // Se tiver posicao, ordena por ela; senão, calcula ordem por critérios
+    if (data.some((r: any) => typeof r.posicao === 'number')) {
+      return [...data].sort((a, b) => (a.posicao ?? 9999) - (b.posicao ?? 9999))
+    }
+
+    return [...data].sort((a, b) => {
+      const saldoA = (a.gols_pro ?? 0) - (a.gols_contra ?? 0)
+      const saldoB = (b.gols_pro ?? 0) - (b.gols_contra ?? 0)
+      return (
+        (b.pontos ?? 0) - (a.pontos ?? 0) ||
+        saldoB - saldoA ||
+        (b.gols_pro ?? 0) - (a.gols_pro ?? 0) ||
+        (b.vitorias ?? 0) - (a.vitorias ?? 0) ||
+        (a.jogos ?? 0) - (b.jogos ?? 0)
+      )
+    })
+  }
+
+  /** rankMap: id_time -> posição (1 = melhor) */
+  async function getRankMap(): Promise<Record<string, number>> {
+    const ordenada = await getClassificacaoOrdenada()
+    const map: Record<string, number> = {}
+    let pos = 1
+    for (const r of ordenada) {
+      if (!map[r.id_time]) {
+        map[r.id_time] = pos++
+      }
+    }
+    return map
+  }
+
+  async function getTimesMap(ids: string[]): Promise<Record<string, {nome: string, logo_url: string | null}>> {
+    if (!ids.length) return {}
+    const { data, error } = await supabase
+      .from('times')
+      .select('id, nome, logo_url')
+      .in('id', ids)
+
+    if (error || !data) return {}
+    const map: Record<string, {nome: string, logo_url: string | null}> = {}
+    data.forEach(t => { map[t.id] = { nome: t.nome, logo_url: t.logo_url ?? null } })
+    return map
+  }
+
+  /** ====== Buscar jogos Oitavas (temporada atual) ====== */
   async function buscarJogos() {
     setLoading(true)
     const { data, error } = await supabase
       .from('copa_oitavas')
       .select('*')
+      .eq('temporada', TEMPORADA_ATUAL)
       .order('id', { ascending: true })
 
     if (error) {
@@ -157,63 +205,32 @@ export default function OitavasPage() {
     setLoading(false)
   }
 
-  /** ====== Mapa de pontos da classificação (mesma temporada) ====== */
-  async function buscarClassificacao() {
-    const { data, error } = await supabase
-      .from('classificacao')
-      .select('id_time, pontos')
-      .eq('temporada', TEMPORADA_ATUAL)
-
-    if (!error && data) {
-      const mapa: Record<string, number> = {}
-      data.forEach((item) => { mapa[item.id_time] = item.pontos ?? 0 })
-      setClassificacaoPontos(mapa)
-    }
-  }
-
-  /** ====== Montar Pote A (1º ao 8º) ====== */
+  /** ====== Pote A: TOP 8 da liga (mesma temporada) ====== */
   async function montarPoteA(): Promise<TimeRow[]> {
-    const { data, error } = await supabase
-      .from('classificacao')
-      .select('id_time, pontos, vitorias, gols_pro, gols_contra, jogos, times ( nome, logo_url )')
-      .eq('temporada', TEMPORADA_ATUAL)
-
-    if (error || !data) {
-      toast.error('Erro ao buscar classificação para o Pote A')
-      return []
+    const ordenada = await getClassificacaoOrdenada()
+    const top8Ids: string[] = []
+    for (const r of ordenada) {
+      if (r.id_time && !top8Ids.includes(r.id_time)) top8Ids.push(r.id_time)
+      if (top8Ids.length === 8) break
     }
-
-    const ordenada = [...data].sort((a: any, b: any) => {
-      const saldoA = (a.gols_pro ?? 0) - (a.gols_contra ?? 0)
-      const saldoB = (b.gols_pro ?? 0) - (b.gols_contra ?? 0)
-      return (
-        (b.pontos ?? 0) - (a.pontos ?? 0) ||
-        saldoB - saldoA ||
-        (b.gols_pro ?? 0) - (a.gols_pro ?? 0) ||
-        (b.vitorias ?? 0) - (a.vitorias ?? 0) ||
-        (a.jogos ?? 0) - (b.jogos ?? 0) ||
-        (nomeRel(a)).localeCompare(nomeRel(b))
-      )
-    })
-
-    const top8 = ordenada.slice(0, 8).map((r: any) => ({
-      id: r.id_time,
-      nome: nomeRel(r),
-      logo_url: logoRel(r)
-    })) as TimeRow[]
-
-    if (top8.length !== 8) {
+    if (top8Ids.length !== 8) {
       toast.error('Precisamos de 8 times no Pote A (top 8 da liga).')
       return []
     }
-    return top8
+    const timesMap = await getTimesMap(top8Ids)
+    return top8Ids.map((id) => ({
+      id,
+      nome: timesMap[id]?.nome ?? 'Time',
+      logo_url: timesMap[id]?.logo_url ?? null
+    }))
   }
 
-  /** ====== Montar Pote B (8 vencedores do playoff) ====== */
+  /** ====== Pote B: 8 vencedores do playoff (ida + volta) ====== */
   async function montarPoteB(): Promise<TimeRow[]> {
     const { data, error } = await supabase
       .from('copa_playoff')
-      .select('id, ordem, id_time1, id_time2, time1, time2, gols_time1, gols_time2, rodada')
+      .select('id_time1, id_time2, gols_time1, gols_time2, rodada, temporada')
+      .eq('temporada', TEMPORADA_ATUAL)
 
     if (error || !data) {
       toast.error('Erro ao buscar dados do playoff para o Pote B')
@@ -223,14 +240,12 @@ export default function OitavasPage() {
     type Linha = {
       id_time1: string
       id_time2: string
-      time1: string
-      time2: string
       gols_time1: number | null
       gols_time2: number | null
       rodada: 1 | 2
     }
 
-    // agrupa ida/volta do mesmo confronto (independente da ordem dos times)
+    // agrupa ida/volta do mesmo confronto (ordem lexicográfica estável)
     const grupos = new Map<string, Linha[]>()
     for (const r of data as any as Linha[]) {
       const key = r.id_time1 < r.id_time2
@@ -240,90 +255,85 @@ export default function OitavasPage() {
       grupos.get(key)!.push(r)
     }
 
-    // bloqueia se houver jogo sem placar (precisa finalizar o playoff)
     const temIncompleto = Array.from(grupos.values())
-      .some(ps => ps.some(p => p.gols_time1 == null || p.gols_time2 == null))
+      .some(ps => ps.length < 2 || ps.some(p => p.gols_time1 == null || p.gols_time2 == null))
     if (temIncompleto) {
-      toast.error('Finalize TODOS os placares do playoff antes de montar o Pote B.')
+      toast.error('Finalize TODOS os placares (ida e volta) do playoff antes de montar o Pote B.')
       return []
     }
 
-    const vencedores: TimeRow[] = []
+    const rankMap = await getRankMap()
 
-    // calcula vencedor pela soma dos gols; empate = desempate por pontos (mesma temporada)
+    const vencedoresIds: string[] = []
     grupos.forEach((partidas) => {
-      let idA = '', idB = '', nomeA = '', nomeB = ''
+      // define idA/idB fixos pelo menor/maior id
+      const idA = partidas[0].id_time1 < partidas[0].id_time2 ? partidas[0].id_time1 : partidas[0].id_time2
+      const idB = partidas[0].id_time1 < partidas[0].id_time2 ? partidas[0].id_time2 : partidas[0].id_time1
+
       let golsA = 0, golsB = 0
-
       for (const p of partidas) {
-        const aId = p.id_time1 < p.id_time2 ? p.id_time1 : p.id_time2
-        const bId = p.id_time1 < p.id_time2 ? p.id_time2 : p.id_time1
-        const aNome = p.id_time1 < p.id_time2 ? p.time1 : p.time2
-        const bNome = p.id_time1 < p.id_time2 ? p.time2 : p.time1
-
-        if (!idA) { idA = aId; nomeA = aNome }
-        if (!idB) { idB = bId; nomeB = bNome }
-
         const g1 = p.gols_time1 ?? 0
         const g2 = p.gols_time2 ?? 0
-        if (p.id_time1 === idA) { golsA += g1; golsB += g2 } else { golsA += g2; golsB += g1 }
+        if (p.id_time1 === idA && p.id_time2 === idB) { golsA += g1; golsB += g2 }
+        else if (p.id_time1 === idB && p.id_time2 === idA) { golsA += g2; golsB += g1 }
+        else { golsA += g1; golsB += g2 }
       }
 
-      let vencedorId: string, vencedorNome: string
-      if (golsA > golsB) { vencedorId = idA; vencedorNome = nomeA }
-      else if (golsB > golsA) { vencedorId = idB; vencedorNome = nomeB }
+      if (golsA > golsB) vencedoresIds.push(idA)
+      else if (golsB > golsA) vencedoresIds.push(idB)
       else {
-        const pA = classificacaoPontos[idA] ?? 0
-        const pB = classificacaoPontos[idB] ?? 0
-        if (pA >= pB) { vencedorId = idA; vencedorNome = nomeA }
-        else { vencedorId = idB; vencedorNome = nomeB }
+        // desempate: melhor posição na liga (rank menor = melhor)
+        const rA = rankMap[idA] ?? 9999
+        const rB = rankMap[idB] ?? 9999
+        vencedoresIds.push(rA <= rB ? idA : idB)
       }
-
-      vencedores.push({ id: vencedorId, nome: vencedorNome, logo_url: null })
     })
 
-    if (vencedores.length !== 8) {
+    const unicos = Array.from(new Set(vencedoresIds))
+    if (unicos.length !== 8) {
       toast.error('Precisamos de exatamente 8 vencedores do playoff para o Pote B.')
       return []
     }
 
-    // pega os logos
-    const ids = vencedores.map(v => v.id)
-    const { data: timesData } = await supabase
-      .from('times')
-      .select('id, logo_url')
-      .in('id', ids)
-
-    const logos = new Map<string, string | null>()
-    ;(timesData || []).forEach((t: any) => logos.set(t.id, t.logo_url ?? null))
-    return vencedores.map(v => ({ ...v, logo_url: logos.get(v.id) ?? null }))
+    const timesMap = await getTimesMap(unicos)
+    return unicos.map((id) => ({
+      id,
+      nome: timesMap[id]?.nome ?? 'Time',
+      logo_url: timesMap[id]?.logo_url ?? null
+    }))
   }
 
   /** ====== Abrir Sorteio: monta potes e inicia ====== */
   async function abrirSorteio() {
     if (!isAdmin) return
 
+    // impede abrir se já houver confrontos da temporada atual
     const { count, error: cErr } = await supabase
       .from('copa_oitavas')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
+      .eq('temporada', TEMPORADA_ATUAL)
     if (cErr) { toast.error('Erro ao checar Oitavas'); return }
-    if ((count ?? 0) > 0) { toast.error('Já existem confrontos. Apague antes de sortear.'); return }
+    if ((count ?? 0) > 0) { toast.error('Já existem confrontos desta temporada. Apague antes de sortear.'); return }
 
     const a = await montarPoteA(); if (a.length !== 8) return
     const b = await montarPoteB(); if (b.length !== 8) return
 
     setPoteA(a); setPoteB(b)
-    setFilaA([...a]); setFilaB(shuffle(b))
+
+    // filas (B embaralhado)
+    const filaBEmbaralhada = shuffle(b)
+    setFilaA([...a])
+    setFilaB(filaBEmbaralhada)
     setParAtual({A:null, B:null})
     setPares([])
     setSorteioAberto(true)
     setAnimA(null); setAnimB(null)
 
-    // abre para todo mundo
+    // broadcast
     broadcast({
       sorteioAberto: true,
       filaA: [...a],
-      filaB: shuffle(b),
+      filaB: filaBEmbaralhada,
       parAtual: { A: null, B: null },
       pares: [],
       animA: null,
@@ -342,7 +352,6 @@ export default function OitavasPage() {
     const nova = [...filaA]; nova.splice(idx, 1)
     setFilaA(nova)
 
-    // anima a bolinha saindo do pote esquerdo (e transmite)
     setAnimA(escolhido)
     broadcast({ animA: escolhido, filaA: nova })
 
@@ -388,17 +397,17 @@ export default function OitavasPage() {
     broadcast({ pares: novos, parAtual: { A: null, B: null } })
   }
 
-  /** ====== Gravar confrontos ====== */
+  /** ====== Gravar confrontos (temporada atual) ====== */
   async function gravarConfrontos() {
     if (!isAdmin) return
     if (pares.length !== 8) { toast.error('Finalize os 8 confrontos.'); return }
 
     try {
       setConfirming(true)
-      const { error: delErr } = await supabase.from('copa_oitavas').delete().neq('id', 0)
-      if (delErr) throw delErr
+      await supabase.from('copa_oitavas').delete().eq('temporada', TEMPORADA_ATUAL)
 
       const payload = pares.map(([A,B]) => ({
+        temporada: TEMPORADA_ATUAL,
         id_time1: A.id,
         id_time2: B.id,
         time1: A.nome,
@@ -413,7 +422,7 @@ export default function OitavasPage() {
 
       toast.success('Oitavas sorteadas e gravadas!')
       setSorteioAberto(false)
-      broadcast({ sorteioAberto: false }) // fecha para todo mundo
+      broadcast({ sorteioAberto: false })
       await buscarJogos()
     } catch (e) {
       console.error(e)
@@ -434,6 +443,7 @@ export default function OitavasPage() {
         gols_time2_volta: jogo.gols_time2_volta
       })
       .eq('id', jogo.id)
+      .eq('temporada', TEMPORADA_ATUAL)
 
     if (error) toast.error('Erro ao salvar')
     else toast.success('Placar salvo!')
@@ -441,40 +451,50 @@ export default function OitavasPage() {
 
   /** ====== Finalizar Oitavas (gera Quartas) ====== */
   async function finalizarOitavas() {
+    const { data: dataJogos, error: errJ } = await supabase
+      .from('copa_oitavas')
+      .select('*')
+      .eq('temporada', TEMPORADA_ATUAL)
+      .order('id', { ascending: true })
+
+    if (errJ || !dataJogos) {
+      toast.error('Erro ao buscar confrontos das Oitavas')
+      return
+    }
+
+    const jogosAtual = dataJogos as JogoOitavas[]
+    const rankMap = await getRankMap()
     const classificados: string[] = []
 
-    for (const jogo of jogos) {
+    for (const jogo of jogosAtual) {
       const gols1 = (jogo.gols_time1 || 0) + (jogo.gols_time1_volta || 0)
       const gols2 = (jogo.gols_time2 || 0) + (jogo.gols_time2_volta || 0)
 
       if (gols1 > gols2) classificados.push(jogo.id_time1)
       else if (gols2 > gols1) classificados.push(jogo.id_time2)
       else {
-        const p1 = classificacaoPontos[jogo.id_time1] ?? 0
-        const p2 = classificacaoPontos[jogo.id_time2] ?? 0
-        classificados.push(p1 >= p2 ? jogo.id_time1 : jogo.id_time2)
+        const r1 = rankMap[jogo.id_time1] ?? 9999
+        const r2 = rankMap[jogo.id_time2] ?? 9999
+        classificados.push(r1 <= r2 ? jogo.id_time1 : jogo.id_time2)
       }
     }
 
-    // 8 vencedores (um por confronto)
     if (classificados.length !== 8) {
       toast.error('Complete os 8 confrontos.')
       return
     }
 
+    const timesMap = await getTimesMap(classificados)
     const novos: any[] = []
     for (let i = 0; i < classificados.length; i += 2) {
       const id_time1 = classificados[i]
       const id_time2 = classificados[i + 1]
-
-      const j1 = jogos.find(j => j.id_time1 === id_time1 || j.id_time2 === id_time1)
-      const j2 = jogos.find(j => j.id_time1 === id_time2 || j.id_time2 === id_time2)
-
       novos.push({
+        temporada: TEMPORADA_ATUAL,
         id_time1,
         id_time2,
-        time1: j1?.id_time1 === id_time1 ? j1.time1 : j1?.time2,
-        time2: j2?.id_time1 === id_time2 ? j2.time1 : j2?.time2,
+        time1: timesMap[id_time1]?.nome ?? 'Time',
+        time2: timesMap[id_time2]?.nome ?? 'Time',
         gols_time1: null,
         gols_time2: null,
         gols_time1_volta: null,
@@ -482,9 +502,16 @@ export default function OitavasPage() {
       })
     }
 
-    for (const c of novos) await supabase.from('copa_quartas').insert(c)
-
-    toast.success('Classificados para as Quartas!')
+    try {
+      for (const c of novos) {
+        const { error } = await supabase.from('copa_quartas').insert(c)
+        if (error) throw error
+      }
+      toast.success('Classificados para as Quartas!')
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro ao gerar Quartas')
+    }
   }
 
   /** ====== Derivados ====== */
@@ -547,7 +574,7 @@ export default function OitavasPage() {
         </div>
       )}
 
-      {/* ===== Overlay do Sorteio por Potes + Animação ===== */}
+      {/* ===== Overlay do Sorteio + Prévia dos Potes ===== */}
       {sorteioAberto && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-6xl bg-gray-950 rounded-2xl border border-gray-800 shadow-xl p-6">
@@ -562,6 +589,26 @@ export default function OitavasPage() {
               >
                 Fechar
               </button>
+            </div>
+
+            {/* Pré-visualização dos potes */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="rounded-xl border border-gray-800 p-3">
+                <div className="text-sm text-gray-400 mb-2">Pote A (Top 8 liga)</div>
+                <div className="flex flex-wrap gap-2">
+                  {poteA.map(t => (
+                    <span key={t.id} className="px-2 py-1 rounded bg-gray-800 text-sm">{t.nome}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-800 p-3">
+                <div className="text-sm text-gray-400 mb-2">Pote B (Vencedores Playoff)</div>
+                <div className="flex flex-wrap gap-2">
+                  {poteB.map(t => (
+                    <span key={t.id} className="px-2 py-1 rounded bg-gray-800 text-sm">{t.nome}</span>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Palco */}
@@ -640,7 +687,7 @@ export default function OitavasPage() {
               </div>
             </div>
 
-            {/* Bolinhas animadas saindo dos potes */}
+            {/* Bolinhas animadas */}
             <AnimatePresence>
               {animA && (
                 <motion.div
@@ -700,11 +747,8 @@ function PoteGlass({ title, teams, side }: { title: string; teams: TimeRow[]; si
     <div className="w-full flex flex-col items-center">
       <div className="mb-2 text-sm text-gray-300">{title}</div>
       <div className="relative w-64 h-40">
-        {/* vidro */}
         <div className="absolute inset-0 rounded-full [clip-path:ellipse(60%_50%_at_50%_60%)] bg-gradient-to-b from-white/10 to-white/0 border border-white/20 shadow-inner" />
-        {/* base */}
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-56 h-4 rounded-full bg-black/40 blur-sm" />
-        {/* bolinhas restantes */}
         <div className="absolute inset-0 flex flex-wrap items-end justify-center gap-2 p-6">
           {teams.map((t) => (
             <div key={t.id} className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 shadow-md overflow-hidden flex items-center justify-center">
@@ -719,7 +763,6 @@ function PoteGlass({ title, teams, side }: { title: string; teams: TimeRow[]; si
 
 function TeamLogo({ url, alt, size=32 }: { url?: string | null; alt: string; size?: number }) {
   return url ? (
-    // eslint-disable-next-line @next/next/no-img-element
     <img src={url} alt={alt} style={{ width: size, height: size }} className="object-cover" />
   ) : (
     <span className="text-[10px] text-gray-300">{alt.slice(0,3).toUpperCase()}</span>
