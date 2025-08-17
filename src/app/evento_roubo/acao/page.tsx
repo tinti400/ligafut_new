@@ -207,6 +207,15 @@ export default function EventoRouboPage() {
     [ordem, idTime, roubos, limitePerda, limiteRoubosPorTime]
   )
 
+  /** ========= Índice nome→Time para resolver o alvo por texto ========= */
+  const indexAlvos = useMemo(() => {
+    const m = new Map<string, Time>()
+    for (const t of ordem.filter(tt => tt.id !== idTime)) {
+      m.set(norm(t.nome), t)
+    }
+    return m
+  }, [ordem, idTime])
+
   /** ========= Combo pesquisável de Time-Alvo (topo) ========= */
   const comboRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -237,36 +246,38 @@ export default function EventoRouboPage() {
     setJogadoresAlvo([])
   }
 
-  /** ========= Resolve ID do alvo ========= */
+  /** ========= Resolve ID do alvo (não depende do dropdown) ========= */
   async function resolverAlvoId(): Promise<string | null> {
     if (alvoSelecionado) return alvoSelecionado
     const q = norm(buscaAlvo)
-    if (q) {
-      const inOrdem = ordem.find(t => norm(t.nome) === q) || ordem.find(t => norm(t.nome).includes(q))
-      if (inOrdem) {
-        setAlvoSelecionado(inOrdem.id)
-        setBuscaAlvo(inOrdem.nome)
-        return inOrdem.id
-      }
-      // fallback: consulta Supabase restrita aos times da ordem
-      const idsOrdem = ordem.map(t => t.id)
-      const { data: candidatos } = await supabase
-        .from('times')
-        .select('id,nome')
-        .ilike('nome', `%${buscaAlvo}%`)
-        .in('id', idsOrdem)
-      if (candidatos && candidatos.length) {
-        setAlvoSelecionado(candidatos[0].id)
-        setBuscaAlvo(candidatos[0].nome)
-        return candidatos[0].id
-      }
+    if (!q) return null
+
+    // 1) match exato
+    const exato = indexAlvos.get(q)
+    if (exato) return exato.id
+
+    // 2) match parcial entre alvos permitidos
+    for (const t of indexAlvos.values()) {
+      if (norm(t.nome).includes(q)) return t.id
+    }
+
+    // 3) fallback: procurar no banco, mas restringindo aos IDs da ordem
+    const idsOrdem = ordem.map(t => t.id)
+    const { data: candidatos, error } = await supabase
+      .from('times')
+      .select('id,nome')
+      .ilike('nome', `%${buscaAlvo}%`)
+      .in('id', idsOrdem)
+
+    if (!error && candidatos && candidatos.length) {
+      return candidatos[0].id
     }
     return null
   }
 
   /** ========= Carregar jogadores do alvo (apenas id_time) ========= */
   async function carregarJogadoresDoAlvo() {
-    // abre a área sempre
+    // abre a área sempre (para o usuário ver alguma resposta)
     setMostrarJogadores(true)
     setCarregandoJogadores(true)
 
@@ -274,7 +285,7 @@ export default function EventoRouboPage() {
     if (!targetId) {
       setJogadoresAlvo([])
       setCarregandoJogadores(false)
-      toast('Selecione um time da lista acima.')
+      toast('Selecione um time válido na lista acima.')
       return
     }
 
