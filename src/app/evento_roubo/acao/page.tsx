@@ -24,6 +24,8 @@ type ConfigEvento = {
   roubos: RoubosMap | null
   bloqueios: BloqueadosMap | null
   limite_perda?: number | null
+  // em alguns bancos o campo chama "limite_roubo"
+  limite_roubo?: number | null
   limite_roubos_por_time?: number | null
   ativo?: boolean | null
   fase?: string | null
@@ -135,7 +137,7 @@ export default function EventoRouboPage() {
   const [roubosDaRodada, setRoubosDaRodada] = useState<Array<{ id: string; nome: string; posicao: string; de: string; para: string; valor: number }>>([])
   const [resumoFinal, setResumoFinal] = useState<typeof roubosDaRodada>([])
 
-  // modal comparativo antes × depois
+  // NOVO: modal comparativo antes × depois
   const [comparativo, setComparativo] = useState<null | {
     jogador: { id: string; nome: string; posicao: string; valor: number }
     de: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
@@ -173,28 +175,49 @@ export default function EventoRouboPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('configuracoes')
-      .select('*')
+      .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, roubo_evento_num, bloqueios_persistentes, fase')
       .eq('id', CONFIG_ID)
       .single<ConfigEvento>()
 
-    if (error) { setLoading(false); toast.error('Erro ao carregar evento.'); return }
+    if (error) {
+      setLoading(false)
+      toast.error('Erro ao carregar evento.')
+      return
+    }
 
     setVez(Number(data.vez ?? 0) || 0)
     setRoubos((data.roubos || {}) as RoubosMap)
     setBloqueados((data.bloqueios || {}) as BloqueadosMap)
     setLimitePerda(data.limite_perda ?? LIMITE_PERDA_DEFAULT)
-    setLimiteRoubosPorTime(data.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
+    // aceita limite_roubo/limite_roubos_por_time como fallback
+    setLimiteRoubosPorTime(
+      (data.limite_roubos_por_time as any) ?? (data.limite_roubo as any) ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
+    )
     setEventoNum(Number(data.roubo_evento_num ?? 0))
     setBloqPersist((data.bloqueios_persistentes || {}) as BloqPersistMap)
     setEventoFinalizado((data.fase || '') === 'finalizado')
 
     if (data.ordem?.length) {
-      const { data: times, error: errTimes } = await supabase.from('times').select('id, nome, logo_url').in('id', data.ordem)
+      const { data: times, error: errTimes } = await supabase
+        .from('times')
+        .select('id, nome, logo_url')
+        .in('id', data.ordem)
+
       if (!errTimes && times) {
-        const ordemCompleta = (data.ordem as string[]).map((id) => (times as Time[]).find((t) => t.id === id)).filter(Boolean) as Time[]
-        setOrdem(ordemCompleta); setOrdemSorteada(true)
-      } else { setOrdem([]); setOrdemSorteada(false) }
-    } else { setOrdem([]); setOrdemSorteada(false) }
+        const ordemCompleta = (data.ordem as string[])
+          .map((id) => times.find((t) => t.id === id))
+          .filter(Boolean) as Time[]
+        setOrdem(ordemCompleta)
+        setOrdemSorteada(true)
+      } else {
+        setOrdem([])
+        setOrdemSorteada(false)
+      }
+    } else {
+      setOrdem([])
+      setOrdemSorteada(false)
+    }
+
     setLoading(false)
   }
 
@@ -304,80 +327,43 @@ export default function EventoRouboPage() {
 
     setProcessandoRoubo(true); setBloqueioBotao(true)
     try {
-      const { data: cfg } = await supabase
+      // lê config com colunas válidas
+      const { data: cfg, error: cfgErr } = await supabase
         .from('configuracoes')
-        .select('ordem,vez,roubos,limite_perda,limite_roubos_por_time,bloqueios,roubo_evento_num,bloqueios_persistentes')
+        .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, roubo_evento_num, bloqueios_persistentes')
         .eq('id', CONFIG_ID)
         .single<ConfigEvento>()
+      if (cfgErr) { toast.error('Falha ao ler configuração.'); return }
 
       const vezAtual = Number(cfg?.vez ?? 0)
       const ordemIds = cfg?.ordem || []
       const idDaVezServidor = ordemIds?.[vezAtual]
-      if (!idDaVezServidor || idDaVezServidor !== idTime) {
-        toast.error('A vez mudou. Atualize a página.')
-        fecharConfirmacao()
-        return
-      }
+      if (!idDaVezServidor || idDaVezServidor !== idTime) { toast.error('A vez mudou. Atualize a página.'); return }
 
       const roubosSrv = (cfg?.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
       const limitePerdaSrv = cfg?.limite_perda ?? LIMITE_PERDA_DEFAULT
-      const limiteRoubosPorTimeSrv = cfg?.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
+      const limiteRoubosPorTimeSrv =
+        (cfg as any).limite_roubos_por_time ?? (cfg as any).limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
-      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); fecharConfirmacao(); return }
-      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); fecharConfirmacao(); return }
-      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); fecharConfirmacao(); return }
+      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); return }
+      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); return }
+      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); return }
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
       // ===== 1) Transferência de elenco (condicional ao id_time original)
-      let transferOk = false
-      let idTimeOriginal = jogador.id_time
-
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
         .eq('id', jogador.id)
-        .eq('id_time', idTimeOriginal)
+        .eq('id_time', jogador.id_time)
         .select('id')
-
-      if (!errJog && updJog && updJog.length === 1) {
-        transferOk = true
-      } else {
-        // Fallback: checa quem ficou com o jogador
-        const { data: atual, error: errCheck } = await supabase
-          .from('elenco')
-          .select('id_time')
-          .eq('id', jogador.id)
-          .single<{ id_time: string }>()
-        if (!errCheck && atual) {
-          if (atual.id_time === idTime) {
-            // Já está comigo (pode ter sido atualizado mas sem retorno por RLS)
-            transferOk = true
-          } else if (atual.id_time !== idTimeOriginal) {
-            toast.error('Outro time levou esse jogador primeiro.')
-            fecharConfirmacao()
-            return
-          } else {
-            toast.error('Não foi possível transferir o jogador. Tente novamente.')
-            fecharConfirmacao()
-            return
-          }
-        } else {
-          toast.error('Falha ao verificar a transferência do jogador.')
-          fecharConfirmacao()
-          return
-        }
-      }
-
-      if (!transferOk) {
-        toast.error('Não foi possível concluir a transferência.')
-        fecharConfirmacao()
-        return
-      }
+      if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro. Atualize a lista.'); return }
 
       // Salvar nomes e saldos ANTES
+      const idTimeOriginal = jogador.id_time
       const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
         supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTimeOriginal).single(),
         supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTime).single()
@@ -441,7 +427,7 @@ export default function EventoRouboPage() {
       setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
       setRoubosDaRodada((prev) => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
 
-      // Modal Antes × Depois
+      // NOVO: abrir modal Antes × Depois
       setComparativo({
         jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
         de: {
@@ -473,7 +459,6 @@ export default function EventoRouboPage() {
     } catch (e) {
       console.error(e)
       toast.error('Erro ao processar roubo.')
-      fecharConfirmacao()
     } finally {
       setProcessandoRoubo(false)
       setBloqueioBotao(false)
@@ -683,7 +668,7 @@ export default function EventoRouboPage() {
 
         {/* Cabeçalho */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">⚔️ Evento de Roubo</h1>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">⚔ Evento de Roubo</h1>
           {ordem.length > 0 && (
             <div className="text-right">
               <p className="text-sm opacity-80">Agora:</p>
@@ -865,7 +850,7 @@ export default function EventoRouboPage() {
               )}
             </>
           ) : (
-            <p className="text-center text-yellow-300 font-bold">⚠️ Sorteie a ordem para iniciar o evento!</p>
+            <p className="text-center text-yellow-300 font-bold">⚠ Sorteie a ordem para iniciar o evento!</p>
           )}
         </Card>
       </div>
@@ -898,7 +883,7 @@ export default function EventoRouboPage() {
         </div>
       )}
 
-      {/* ===== Modal Antes × Depois ===== */}
+      {/* ===== NOVO: Modal Antes × Depois ===== */}
       {comparativo && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
@@ -962,4 +947,3 @@ export default function EventoRouboPage() {
     </div>
   )
 }
-
