@@ -220,7 +220,7 @@ export default function EventoRouboPage() {
   }, [totalPerdasDoAlvo, jaRoubouDesseAlvo, totalRoubosDoMeuTime, limitePerda, limiteRoubosPorTime])
 
   const idTimeDaVez = ordem[vez]?.id || ''
-  const nomeTimeDaVez = ordem[vez]?.nome || ''
+  the const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
   const alvosListados = useMemo(() => ordem.filter((t) => t.id !== idTime), [ordem, idTime])
@@ -349,7 +349,7 @@ export default function EventoRouboPage() {
       // ===== 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
       const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, saldoAlvoAntes)
-      if (!debitei || !credit ei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
+      if (!debitei || !creditei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
 
       // Buscar saldos DEPOIS para mostrar no comparativo
       const { data: timesFresh } = await supabase
@@ -639,7 +639,7 @@ export default function EventoRouboPage() {
 
         {/* Cabeçalho */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">⚔ Evento de Roubo</h1>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">⚔️ Evento de Roubo</h1>
           {ordem.length > 0 && (
             <div className="text-right">
               <p className="text-sm opacity-80">Agora:</p>
@@ -821,7 +821,7 @@ export default function EventoRouboPage() {
               )}
             </>
           ) : (
-            <p className="text-center text-yellow-300 font-bold">⚠ Sorteie a ordem para iniciar o evento!</p>
+            <p className="text-center text-yellow-300 font-bold">⚠️ Sorteie a ordem para iniciar o evento!</p>
           )}
         </Card>
       </div>
