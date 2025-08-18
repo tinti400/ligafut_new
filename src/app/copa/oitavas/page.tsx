@@ -27,7 +27,7 @@ type JogoOitavas = {
   time2: string
   gols_time1: number | null
   gols_time2: number | null
-  // podem não existir no schema — opcionais para evitar erro no build
+  // colunas de volta podem não existir no schema — opcionais
   gols_time1_volta?: number | null
   gols_time2_volta?: number | null
 }
@@ -48,7 +48,7 @@ const TEAM_ALIASES: Record<string, string[]> = {
   'Belgrano': ['Belgrano'],
   'Velez': ['Velez', 'Vélez', 'Vélez Sarsfield', 'Velez Sarsfield'],
   'Independiente': ['Independiente'],
-  'Boca': ['Boca Jrs', 'Boca Juniors', 'Boca'],
+  'Boca': ['Boca', 'Boca Jrs', 'Boca Juniors'],
   'Liverpool FC': ['Liverpool FC', 'Liverpool'],
   'Sporting CP': ['Sporting CP', 'Sporting', 'Sporting Clube de Portugal'],
   'Manchester City': ['Manchester City', 'Man City', 'Manchester City FC'],
@@ -80,12 +80,14 @@ const mentionsVolta = (msg?: string) => {
 const toDBId = (v: string) => (/^[0-9]+$/.test(v) ? Number(v) : v)
 
 async function findTeamByAliases(aliases: string[]): Promise<TimeRow | null> {
+  // exato
   for (const alias of aliases) {
     const { data } = await supabase
       .from('times').select('id, nome, logo_url').eq('nome', alias)
       .limit(1).maybeSingle()
     if (data) return { id: data.id, nome: data.nome, logo_url: data.logo_url ?? null }
   }
+  // ilike
   for (const alias of aliases) {
     const { data } = await supabase
       .from('times').select('id, nome, logo_url').ilike('nome', `%${alias}%`)
@@ -170,7 +172,6 @@ export default function OitavasPage() {
       .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
       .order('ordem', { ascending: true })
 
-    // usar variáveis locais para evitar conflito de tipos no fallback
     let data: any[] | null = q1.data as any
     let error = q1.error
 
@@ -364,6 +365,7 @@ export default function OitavasPage() {
       } else {
         setSupportsVolta(true)
         setJogos((ins1.data || []) as JogoOitavas[])
+
       }
 
       toast.success('Oitavas sorteadas e gravadas!')
@@ -469,9 +471,15 @@ export default function OitavasPage() {
   if (loading) return <div className="p-4">🔄 Carregando...</div>
 
   return (
-    <div className="p-4">
+    <div className="relative p-4 sm:p-6 max-w-7xl mx-auto">
+      {/* brilhos suaves de fundo */}
+      <div className="pointer-events-none absolute -top-40 -right-40 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
+
       <header className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">Oitavas de Final</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+          Oitavas de Final
+        </h1>
         {isAdmin && (
           <div className="flex gap-2">
             <button className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl shadow" onClick={abrirSorteio}>
@@ -484,7 +492,7 @@ export default function OitavasPage() {
         )}
       </header>
 
-      {/* Lista de jogos com layout bonito e logos */}
+      {/* Lista de jogos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {jogos.map((jogo, idx) => (
           <MatchCard
@@ -638,7 +646,9 @@ export default function OitavasPage() {
 }
 
 /** ====== Cartão de Jogo com logos e agregado ====== */
-function MatchCard({ jogo, supportsVolta, logosById, onChange, onSave }:{
+function MatchCard({
+  jogo, supportsVolta, logosById, onChange, onSave
+}:{
   jogo: JogoOitavas
   supportsVolta: boolean
   logosById: Record<string, string | null>
@@ -651,17 +661,29 @@ function MatchCard({ jogo, supportsVolta, logosById, onChange, onSave }:{
   const vol2 = supportsVolta ? (jogo.gols_time2_volta ?? 0) : 0
   const agg1 = ida1 + vol1
   const agg2 = ida2 + vol2
-  const lead = agg1 === agg2 ? 'empate' : (agg1 > agg2 ? 't1' : 't2')
+  const lead: 'empate' | 't1' | 't2' = agg1 === agg2 ? 'empate' : (agg1 > agg2 ? 't1' : 't2')
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-4 shadow-xl">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-sm text-white/60">Jogo {jogo.ordem ?? '-'} · Oitavas</div>
-        <div className={`px-2 py-0.5 rounded-full text-xs ${lead==='t1'? 'bg-emerald-600/30 text-emerald-300' : lead==='t2' ? 'bg-indigo-600/30 text-indigo-300' : 'bg-white/10 text-white/70'}`}>Agregado {agg1}–{agg2}</div>
+    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-xl">
+      <div className="pointer-events-none absolute -top-20 -right-16 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
+
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-[13px] text-white/60">Jogo {jogo.ordem ?? '-'} · Oitavas</div>
+        <div
+          title={`Ida ${ida1}-${ida2}${supportsVolta ? ` · Volta ${vol1}-${vol2}` : ''}`}
+          className={[
+            "px-3 py-1 rounded-full text-xs font-medium backdrop-blur border",
+            lead==='t1' ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
+            : lead==='t2' ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/25"
+            : "bg-white/10 text-white/70 border-white/10"
+          ].join(" ")}
+        >
+          Agregado {agg1}–{agg2}
+        </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-3 items-center">
-        <TeamBadge name={jogo.time1} logo={logosById[jogo.id_time1]} align="right" />
+      <div className="grid grid-cols-5 gap-4 items-center">
+        <TeamBadge name={jogo.time1} logo={logosById[jogo.id_time1]} align="right" highlight={lead==='t1'} />
         <ScoreBox
           label="Ida"
           a={jogo.gols_time1}
@@ -669,7 +691,8 @@ function MatchCard({ jogo, supportsVolta, logosById, onChange, onSave }:{
           onA={(v)=>onChange({ ...jogo, gols_time1: v })}
           onB={(v)=>onChange({ ...jogo, gols_time2: v })}
         />
-        <TeamBadge name={jogo.time2} logo={logosById[jogo.id_time2]} align="left" />
+        <TeamBadge name={jogo.time2} logo={logosById[jogo.id_time2]} align="left" highlight={lead==='t2'} />
+
         {supportsVolta && (
           <div className="col-span-5 sm:col-span-3 sm:col-start-2">
             <ScoreBox
@@ -683,41 +706,57 @@ function MatchCard({ jogo, supportsVolta, logosById, onChange, onSave }:{
         )}
       </div>
 
-      <div className="mt-3 flex justify-end">
-        <button onClick={onSave} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow">Salvar</button>
+      <div className="mt-4 flex justify-end">
+        <button onClick={onSave} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow focus:outline-none focus:ring-2 focus:ring-emerald-400/50">
+          Salvar
+        </button>
       </div>
     </div>
   )
 }
 
-function ScoreBox({ label, a, b, onA, onB }:{
-  label: string
-  a: number | null | undefined
-  b: number | null | undefined
-  onA: (n: number | null)=>void
-  onB: (n: number | null)=>void
-}) {
+function ScoreBox({
+  label, a, b, onA, onB
+}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void }) {
   const norm = (val: string): number | null => val === '' ? null : Math.max(0, parseInt(val))
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-      <div className="text-xs text-white/60 mb-1">{label}</div>
-      <div className="flex items-center gap-2">
-        <input type="number" className="w-16 rounded-lg border border-white/10 bg-slate-900/60 px-2 py-1"
-          value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))} />
-        <span className="text-white/60">x</span>
-        <input type="number" className="w-16 rounded-lg border border-white/10 bg-slate-900/60 px-2 py-1"
-          value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))} />
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-2 pl-3 pr-3">
+      <div className="flex items-center gap-3">
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">{label}</span>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            className="w-18 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+          />
+          <span className="text-white/60">x</span>
+          <input
+            type="number"
+            className="w-18 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+          />
+        </div>
       </div>
     </div>
   )
 }
 
-function TeamBadge({ name, logo, align }:{ name: string, logo?: string | null, align: 'left'|'right' }) {
+function TeamBadge({ name, logo, align, highlight }:{
+  name: string, logo?: string | null, align: 'left'|'right', highlight?: boolean
+}) {
   return (
     <div className={`col-span-2 flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3`}>
-      {align==='left' && <TeamLogo url={logo || null} alt={name} size={36} />}
-      <div className="font-semibold truncate">{name}</div>
-      {align==='right' && <TeamLogo url={logo || null} alt={name} size={36} />}
+      {align==='left' && (
+        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
+          <TeamLogo url={logo || null} alt={name} size={40} />
+        </div>
+      )}
+      <div className={`font-semibold truncate ${highlight? 'text-white' : 'text-white/90'}`}>{name}</div>
+      {align==='right' && (
+        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
+          <TeamLogo url={logo || null} alt={name} size={40} />
+        </div>
+      )}
     </div>
   )
 }
