@@ -57,12 +57,12 @@ const posColor: Record<string,string> = {
   SA: 'bg-orange-500/20 text-orange-200 border-orange-400/30',
   CA: 'bg-red-500/20 text-red-200 border-red-400/30',
 }
-// Evita “travamentos silenciosos”
-function withTimeout<T>(p: Promise<T>, ms = 15000) {
+/** >>> CORREÇÃO: tipar o retorno do withTimeout <<< */
+function withTimeout<T>(p: Promise<T>, ms = 15000): Promise<T> {
   return Promise.race([
     p,
     new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Tempo esgotado. Verifique a conexão.')), ms))
-  ])
+  ]) as Promise<T>
 }
 
 /** ===== Cronômetro ===== */
