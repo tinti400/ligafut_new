@@ -1,4 +1,4 @@
-segue o arquivo **completo**, com **apenas** a alteração pedida (reset do `limite_perda` para 3 ao finalizar e o `setLimitePerda` na UI):
+aqui está o arquivo completo com **apenas** a inserção pedida (resetar `limite_perda` para 3 ao finalizar o evento + refletir na UI com `setLimitePerda(LIMITE_PERDA_DEFAULT)`):
 
 ```tsx
 'use client'
@@ -379,7 +379,7 @@ export default function EventoRouboPage() {
       // ===== 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
       const creditei = await ajustarSaldoCompareAndSwap(idTimeOriginal, +valorPago, saldoAlvoAntes)
-      if (!debitei ou !creditei) {
+      if (!debitei || !creditei) {
         toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
       }
 
@@ -530,7 +530,7 @@ export default function EventoRouboPage() {
     const novoPersist: BloqPersistMap = {}
     for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
 
-    // <<< ALTERAÇÃO: reset do limite_perda para 3 >>>
+    // >>> ALTERAÇÃO: resetar limite_perda para 3 na configuração
     const { error: updErr } = await supabase
       .from('configuracoes')
       .update({
@@ -544,7 +544,7 @@ export default function EventoRouboPage() {
       .eq('id', CONFIG_ID)
     if (updErr) { toast.error('Erro ao finalizar evento.'); return }
 
-    // refletir na UI imediatamente
+    // refletir imediatamente na UI
     setLimitePerda(LIMITE_PERDA_DEFAULT)
 
     setEventoFinalizado(true)
@@ -652,7 +652,7 @@ export default function EventoRouboPage() {
                     onClick={() => onEscolher(t)}
                     className={cls('w-full text-left rounded-lg p-2 flex items-center gap-3 border transition',
                       'bg-white/5 hover:bg-white/10 border-white/10',
-                      bloqueadoPorRegra && 'opacity-60')}
+                      bloqueadoPorRegra e 'opacity-60')}
                   >
                     {t.logo_url
                       ? <img src={t.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
