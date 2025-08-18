@@ -220,7 +220,7 @@ export default function EventoRouboPage() {
   }, [totalPerdasDoAlvo, jaRoubouDesseAlvo, totalRoubosDoMeuTime, limitePerda, limiteRoubosPorTime])
 
   const idTimeDaVez = ordem[vez]?.id || ''
-  the const nomeTimeDaVez = ordem[vez]?.nome || ''
+  const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
   const alvosListados = useMemo(() => ordem.filter((t) => t.id !== idTime), [ordem, idTime])
