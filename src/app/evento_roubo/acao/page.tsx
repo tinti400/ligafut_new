@@ -135,7 +135,7 @@ export default function EventoRouboPage() {
   const [roubosDaRodada, setRoubosDaRodada] = useState<Array<{ id: string; nome: string; posicao: string; de: string; para: string; valor: number }>>([])
   const [resumoFinal, setResumoFinal] = useState<typeof roubosDaRodada>([])
 
-  // NOVO: modal comparativo antes × depois
+  // modal comparativo antes × depois
   const [comparativo, setComparativo] = useState<null | {
     jogador: { id: string; nome: string; posicao: string; valor: number }
     de: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
@@ -313,7 +313,11 @@ export default function EventoRouboPage() {
       const vezAtual = Number(cfg?.vez ?? 0)
       const ordemIds = cfg?.ordem || []
       const idDaVezServidor = ordemIds?.[vezAtual]
-      if (!idDaVezServidor || idDaVezServidor !== idTime) { toast.error('A vez mudou. Atualize a página.'); return }
+      if (!idDaVezServidor || idDaVezServidor !== idTime) {
+        toast.error('A vez mudou. Atualize a página.')
+        fecharConfirmacao()
+        return
+      }
 
       const roubosSrv = (cfg?.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
@@ -321,24 +325,61 @@ export default function EventoRouboPage() {
       const limiteRoubosPorTimeSrv = cfg?.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
-      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); return }
-      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); return }
-      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); return }
+      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); fecharConfirmacao(); return }
+      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); fecharConfirmacao(); return }
+      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); fecharConfirmacao(); return }
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
       // ===== 1) Transferência de elenco (condicional ao id_time original)
+      let transferOk = false
+      let idTimeOriginal = jogador.id_time
+
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
         .eq('id', jogador.id)
-        .eq('id_time', jogador.id_time)
+        .eq('id_time', idTimeOriginal)
         .select('id')
-      if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro. Atualize a lista.'); return }
+
+      if (!errJog && updJog && updJog.length === 1) {
+        transferOk = true
+      } else {
+        // Fallback: checa quem ficou com o jogador
+        const { data: atual, error: errCheck } = await supabase
+          .from('elenco')
+          .select('id_time')
+          .eq('id', jogador.id)
+          .single<{ id_time: string }>()
+        if (!errCheck && atual) {
+          if (atual.id_time === idTime) {
+            // Já está comigo (pode ter sido atualizado mas sem retorno por RLS)
+            transferOk = true
+          } else if (atual.id_time !== idTimeOriginal) {
+            toast.error('Outro time levou esse jogador primeiro.')
+            fecharConfirmacao()
+            return
+          } else {
+            toast.error('Não foi possível transferir o jogador. Tente novamente.')
+            fecharConfirmacao()
+            return
+          }
+        } else {
+          toast.error('Falha ao verificar a transferência do jogador.')
+          fecharConfirmacao()
+          return
+        }
+      }
+
+      if (!transferOk) {
+        toast.error('Não foi possível concluir a transferência.')
+        fecharConfirmacao()
+        return
+      }
 
       // Salvar nomes e saldos ANTES
       const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
-        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', jogador.id_time).single(),
+        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTimeOriginal).single(),
         supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTime).single()
       ])
       const nomeAlvo = alvoInfo?.nome || 'Time Alvo'
@@ -348,25 +389,27 @@ export default function EventoRouboPage() {
 
       // ===== 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
-      const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, saldoAlvoAntes)
-      if (!debitei || !creditei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
+      const creditei = await ajustarSaldoCompareAndSwap(idTimeOriginal, +valorPago, saldoAlvoAntes)
+      if (!debitei || !credit ei) {
+        toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
+      }
 
       // Buscar saldos DEPOIS para mostrar no comparativo
       const { data: timesFresh } = await supabase
         .from('times')
         .select('id,nome,logo_url,saldo')
-        .in('id', [idTime, jogador.id_time])
+        .in('id', [idTime, idTimeOriginal])
 
       const freshMeu = timesFresh?.find(t => t.id === idTime)
-      const freshAlvo = timesFresh?.find(t => t.id === jogador.id_time)
+      const freshAlvo = timesFresh?.find(t => t.id === idTimeOriginal)
       const saldoMeuDepois = Number(freshMeu?.saldo ?? (saldoMeuAntes - valorPago))
       const saldoAlvoDepois = Number(freshAlvo?.saldo ?? (saldoAlvoAntes + valorPago))
 
       // ===== 3) Atualiza contadores/bloqueios
       const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
-      if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
-      atualizado[idTime][jogador.id_time]++
+      if (!atualizado[idTime][idTimeOriginal]) atualizado[idTime][idTimeOriginal] = 0
+      atualizado[idTime][idTimeOriginal]++
 
       const bloqAtual: BloqueadosMap = { ...(cfg?.bloqueios || {}) }
       const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
@@ -390,7 +433,7 @@ export default function EventoRouboPage() {
         tipo_evento: 'roubo',
         descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
         id_time1: idTime,
-        id_time2: jogador.id_time,
+        id_time2: idTimeOriginal,
         valor: valorPago
       })
 
@@ -398,13 +441,13 @@ export default function EventoRouboPage() {
       setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
       setRoubosDaRodada((prev) => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
 
-      // NOVO: abrir modal Antes × Depois
+      // Modal Antes × Depois
       setComparativo({
         jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
         de: {
-          id: jogador.id_time,
+          id: idTimeOriginal,
           nome: nomeAlvo,
-          logo_url: freshAlvo?.logo_url ?? (ordem.find(t => t.id === jogador.id_time)?.logo_url ?? null),
+          logo_url: freshAlvo?.logo_url ?? (ordem.find(t => t.id === idTimeOriginal)?.logo_url ?? null),
           saldoAntes: saldoAlvoAntes,
           saldoDepois: saldoAlvoDepois
         },
@@ -430,6 +473,7 @@ export default function EventoRouboPage() {
     } catch (e) {
       console.error(e)
       toast.error('Erro ao processar roubo.')
+      fecharConfirmacao()
     } finally {
       setProcessandoRoubo(false)
       setBloqueioBotao(false)
@@ -854,7 +898,7 @@ export default function EventoRouboPage() {
         </div>
       )}
 
-      {/* ===== NOVO: Modal Antes × Depois ===== */}
+      {/* ===== Modal Antes × Depois ===== */}
       {comparativo && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
@@ -918,3 +962,4 @@ export default function EventoRouboPage() {
     </div>
   )
 }
+
