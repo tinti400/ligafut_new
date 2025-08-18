@@ -32,7 +32,7 @@ interface Time {
 
 type Comentario = {
   id: string
-  id_evento: string      // SEMPRE string no client
+  id_evento: string
   id_time: string
   nome_time: string
   comentario: string
@@ -41,7 +41,7 @@ type Comentario = {
 
 type Reacao = {
   id: string
-  id_evento: string      // SEMPRE string no client
+  id_evento: string
   id_time: string
   emoji: string
   criado_em: string
@@ -93,7 +93,6 @@ export default function BIDPage() {
   /** ====== Identidade do time (robusto) ====== */
   useEffect(() => {
     if (typeof window === 'undefined') return
-    // chaves diretas
     let id = localStorage.getItem('id_time') || localStorage.getItem('idTime') || null
     let nome = localStorage.getItem('nome_time') || localStorage.getItem('nomeTime') || null
 
@@ -106,8 +105,7 @@ export default function BIDPage() {
         if (!nome) nome = obj?.nome_time || obj?.nomeTime || obj?.nome || null
       } catch {}
     }
-    // objetos comuns
-    ['user','usuario','usuario_atual','perfil','account'].forEach(tentar)
+    ;['user','usuario','usuario_atual','perfil','account'].forEach(tentar)
 
     if (id) setIdTimeLogado(String(id))
     if (nome) setNomeTimeLogado(String(nome))
@@ -170,6 +168,41 @@ export default function BIDPage() {
     }
   }
 
+  /** ====== EXCLUIR EVENTO (ADMIN) ====== */
+  async function excluirEvento(idEvento: string) {
+    const ok = window.confirm('Tem certeza que deseja excluir este evento do BID?')
+    if (!ok) return
+
+    try {
+      const { error } = await supabase.from('bid').delete().eq('id', idEvento)
+      if (error) throw error
+
+      setEventos((prev) => prev.filter((ev) => String(ev.id) !== idEvento))
+
+      // limpar comentários e reações deste card na UI
+      setComentariosMap((prev) => {
+        const novo = { ...prev }
+        delete novo[idEvento]
+        return novo
+      })
+      setReacoesCount((prev) => {
+        const novo = { ...prev }
+        delete novo[idEvento]
+        return novo
+      })
+      setMinhasReacoes((prev) => {
+        const novo = { ...prev }
+        delete novo[idEvento]
+        return novo
+      })
+
+      toast.success('Evento excluído com sucesso!')
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Erro ao excluir evento: ${err?.message || 'desconhecido'}`)
+    }
+  }
+
   /** ====== Comentários ====== */
   async function carregarComentariosParaEventos(idsEventoStr: string[]) {
     if (!idsEventoStr.length) { setComentariosMap({}); return }
@@ -209,7 +242,7 @@ export default function BIDPage() {
       const { data, error } = await supabase
         .from('bid_comentarios')
         .insert({
-          id_evento: idEvento,            // sempre string
+          id_evento: idEvento,
           id_time: idTimeLogado,
           nome_time: nomeTimeLogado,
           comentario: texto
@@ -287,11 +320,9 @@ export default function BIDPage() {
     if (reagindo[idEvento]) return
 
     setReagindo((p) => ({ ...p, [idEvento]: true }))
-
     const jaReagiu = !!minhasReacoes[idEvento]?.[emoji]
     try {
       if (jaReagiu) {
-        // remover
         const { error } = await supabase
           .from('bid_reacoes')
           .delete()
@@ -312,7 +343,6 @@ export default function BIDPage() {
           }
         }))
       } else {
-        // inserir
         const { error } = await supabase
           .from('bid_reacoes')
           .insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
