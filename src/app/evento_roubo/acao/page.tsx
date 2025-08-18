@@ -57,12 +57,17 @@ const posColor: Record<string,string> = {
   SA: 'bg-orange-500/20 text-orange-200 border-orange-400/30',
   CA: 'bg-red-500/20 text-red-200 border-red-400/30',
 }
-/** >>> CORREÇÃO: tipar o retorno do withTimeout <<< */
+// timeout p/ evitar ficar presa em chamada externa
 function withTimeout<T>(p: Promise<T>, ms = 15000): Promise<T> {
   return Promise.race([
     p,
     new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Tempo esgotado. Verifique a conexão.')), ms))
   ]) as Promise<T>
+}
+// >>> mantém o shape { data, error } do Supabase nas chamadas com timeout
+type SupaResp<T> = { data: T | null; error: any }
+async function supa<T>(p: Promise<any>, ms = 15000): Promise<SupaResp<T>> {
+  return await withTimeout<SupaResp<T>>(p as unknown as Promise<SupaResp<T>>, ms)
 }
 
 /** ===== Cronômetro ===== */
@@ -320,7 +325,7 @@ export default function EventoRouboPage() {
 
     try {
       // 1) Snapshot config (servidor)
-      const { data: cfg, error: cfgErr } = await withTimeout(
+      const { data: cfg, error: cfgErr } = await supa<ConfigEvento>(
         supabase.from('configuracoes')
           .select('ordem,vez,roubos,limite_perda,limite_roubos_por_time,bloqueios,roubo_evento_num,bloqueios_persistentes')
           .eq('id', CONFIG_ID)
@@ -351,7 +356,7 @@ export default function EventoRouboPage() {
       const timeOrigemId = jogador.id_time // salvar antes
 
       // 3) Transferência de elenco
-      const { data: updJog, error: errJog } = await withTimeout(
+      const { data: updJog, error: errJog } = await supa<{id:string}[]>(
         supabase.from('elenco')
           .update({ id_time: idTime })
           .eq('id', jogador.id)
@@ -363,8 +368,8 @@ export default function EventoRouboPage() {
 
       // 4) Saldos (antes)
       const [{ data: alvoInfo, error: alvoErr }, { data: meuInfo, error: meuErr }] = await Promise.all([
-        withTimeout(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', timeOrigemId).single()),
-        withTimeout(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', idTime).single())
+        supa<{id:string; nome:string; logo_url:string|null; saldo:number}>(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', timeOrigemId).single()),
+        supa<{id:string; nome:string; logo_url:string|null; saldo:number}>(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', idTime).single())
       ])
       if (alvoErr) { setErroConfirm('Erro ao ler saldo do time alvo: ' + alvoErr.message); return }
       if (meuErr)  { setErroConfirm('Erro ao ler saldo do seu time: ' + meuErr.message); return }
@@ -380,7 +385,7 @@ export default function EventoRouboPage() {
       if (!debitei || !creditei) { setErroConfirm('Conflito ao atualizar saldos.'); return }
 
       // 6) Saldos (depois) para o modal Antes × Depois
-      const { data: timesFresh, error: freshErr } = await withTimeout(
+      const { data: timesFresh, error: freshErr } = await supa<Array<{id:string; nome:string; logo_url:string|null; saldo:number}>>(
         supabase.from('times').select('id,nome,logo_url,saldo').in('id', [idTime, timeOrigemId])
       )
       if (freshErr) { setErroConfirm('Erro ao ler saldos atualizados: ' + freshErr.message); return }
@@ -405,7 +410,7 @@ export default function EventoRouboPage() {
       const persist: BloqPersistMap = { ...(cfg?.bloqueios_persistentes || {}) }
       persist[jogador.id] = Number(cfg?.roubo_evento_num ?? 0) + 1
 
-      const { error: cfgUpdErr } = await withTimeout(
+      const { error: cfgUpdErr } = await supa<unknown>(
         supabase.from('configuracoes')
           .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
           .eq('id', CONFIG_ID)
@@ -413,7 +418,7 @@ export default function EventoRouboPage() {
       if (cfgUpdErr) { setErroConfirm('Erro ao salvar configuração: ' + cfgUpdErr.message); return }
 
       // 8) BID
-      const { error: bidErr } = await withTimeout(
+      const { error: bidErr } = await supa<unknown>(
         supabase.from('bid').insert({
           tipo_evento: 'roubo',
           descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
