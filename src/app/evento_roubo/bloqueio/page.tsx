@@ -1,115 +1,200 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
+/** ================== Supabase ================== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
+/** ================== Tipos ================== */
 interface Jogador {
   id: string
   nome: string
   posicao: string
 }
 
+interface Bloqueado {
+  id: string
+  nome: string
+  posicao: string
+}
+
+/**
+ * Estrutura esperada do documento em `configuracoes` (id fixo do evento):
+ * {
+ *   id: '56f3af29-a4ac-4a76-aeb3-35400aa2a773',
+ *   limite_bloqueios: number,
+ *   bloqueios: Record<id_time, Bloqueado[]>,
+ *   bloqueios_anteriores: Record<id_time, Bloqueado[]>
+ * }
+ */
+const CONFIG_ID = '56f3af29-a4ac-4a76-aeb3-35400aa2a773'
+
 export default function BloqueioPage() {
   const [jogadores, setJogadores] = useState<Jogador[]>([])
-  const [bloqueados, setBloqueados] = useState<Jogador[]>([])
-  const [bloqueadosAnteriores, setBloqueadosAnteriores] = useState<Jogador[]>([])
-  const [selecionados, setSelecionados] = useState<string[]>([])
-  const [limiteBloqueios, setLimiteBloqueios] = useState(3)
+  const [bloqueadosAtuais, setBloqueadosAtuais] = useState<Bloqueado[]>([])
+  const [bloqueadosAnteriores, setBloqueadosAnteriores] = useState<Bloqueado[]>([])
+  const [selecionados, setSelecionados] = useState<string[]>([]) // guarda IDs
+  const [limiteBloqueios, setLimiteBloqueios] = useState<number>(3)
   const [loading, setLoading] = useState(true)
+  const [salvando, setSalvando] = useState(false)
 
-  const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') : ''
+  const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
 
+  /** ================== Carregamento ================== */
   useEffect(() => {
-    if (idTime) {
-      carregarConfig()
-      carregarElenco()
-    }
+    if (!idTime) return
+
+    ;(async () => {
+      setLoading(true)
+      await Promise.all([carregarConfig(), carregarElenco()])
+      setLoading(false)
+    })()
   }, [idTime])
 
   async function carregarConfig() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('configuracoes')
       .select('*')
-      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+      .eq('id', CONFIG_ID)
       .single()
 
-    if (data) {
-      setLimiteBloqueios(data.limite_bloqueios || 3)
-
-      // Bloqueios da rodada atual
-      if (idTime && data.bloqueios?.[idTime]) {
-        setBloqueados(data.bloqueios[idTime])
-      }
-
-      // Bloqueios de rodadas anteriores
-      if (idTime && data.bloqueios_anteriores?.[idTime]) {
-        setBloqueadosAnteriores(data.bloqueios_anteriores[idTime])
-      }
+    if (error) {
+      console.error('Erro ao carregar configuracoes:', error)
+      return
     }
 
-    setLoading(false)
+    if (data) {
+      setLimiteBloqueios(data.limite_bloqueios ?? 3)
+
+      // Bloqueios da rodada atual
+      const atual: Record<string, Bloqueado[]> = data.bloqueios || {}
+      setBloqueadosAtuais((atual && idTime && atual[idTime]) ? atual[idTime] : [])
+
+      // Bloqueios de rodadas anteriores (cooldown)
+      const anteriores: Record<string, Bloqueado[]> = data.bloqueios_anteriores || {}
+      setBloqueadosAnteriores((anteriores && idTime && anteriores[idTime]) ? anteriores[idTime] : [])
+    }
   }
 
   async function carregarElenco() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('elenco')
       .select('id, nome, posicao')
       .eq('id_time', idTime)
+      .order('nome', { ascending: true })
 
-    if (data) {
-      setJogadores(data)
+    if (error) {
+      console.error('Erro ao carregar elenco:', error)
+      return
+    }
+    setJogadores(data || [])
+  }
+
+  /** ================== Derivados ================== */
+  const setIdsBloqueadosAtuais = useMemo(
+    () => new Set(bloqueadosAtuais.map((b) => b.id)),
+    [bloqueadosAtuais]
+  )
+  const setIdsBloqueadosAnteriores = useMemo(
+    () => new Set(bloqueadosAnteriores.map((b) => b.id)),
+    [bloqueadosAnteriores]
+  )
+
+  // Disponíveis para selecionar (não podem ter sido bloqueados nesta ou na anterior)
+  const jogadoresDisponiveis = useMemo(() => {
+    return jogadores.filter(
+      (j) => !setIdsBloqueadosAtuais.has(j.id) && !setIdsBloqueadosAnteriores.has(j.id)
+    )
+  }, [jogadores, setIdsBloqueadosAtuais, setIdsBloqueadosAnteriores])
+
+  const totalJaMarcados = bloqueadosAtuais.length + selecionados.length
+  const restantes = Math.max(limiteBloqueios - totalJaMarcados, 0)
+
+  /** ================== Interações ================== */
+  function toggleSelecionado(id: string) {
+    // Não deixa exceder o limite
+    if (!selecionados.includes(id)) {
+      if (totalJaMarcados >= limiteBloqueios) return
+      setSelecionados((prev) => [...prev, id])
+    } else {
+      setSelecionados((prev) => prev.filter((x) => x !== id))
     }
   }
 
   async function confirmarBloqueio() {
+    if (!idTime) {
+      alert('⚠️ ID do time não encontrado. Faça login novamente.')
+      return
+    }
     if (selecionados.length === 0) {
       alert('Selecione pelo menos um jogador!')
       return
     }
 
-    const novosBloqueios = selecionados.map(nome => {
-      const jogador = jogadores.find(j => j.nome === nome)
-      return { nome: jogador?.nome || '', posicao: jogador?.posicao || '' }
-    })
+    // Monta novos bloqueios a partir dos IDs selecionados
+    const mapaJogador = new Map(jogadores.map((j) => [j.id, j]))
+    const novosBloqueios: Bloqueado[] = selecionados
+      .map((id) => {
+        const j = mapaJogador.get(id)
+        return j ? { id: j.id, nome: j.nome, posicao: j.posicao } : null
+      })
+      .filter(Boolean) as Bloqueado[]
 
-    const { data: configAtual } = await supabase
+    setSalvando(true)
+
+    // Lê a configuração atual para mesclar de forma segura
+    const { data: cfg, error: errCfg } = await supabase
       .from('configuracoes')
-      .select('*')
-      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
+      .select('bloqueios')
+      .eq('id', CONFIG_ID)
       .single()
 
-    const atual = configAtual?.bloqueios || {}
-    atual[idTime!] = [...(atual[idTime!] || []), ...novosBloqueios]
-
-    await supabase
-      .from('configuracoes')
-      .update({ bloqueios: atual })
-      .eq('id', '56f3af29-a4ac-4a76-aeb3-35400aa2a773')
-
-    alert('✅ Jogadores bloqueados com sucesso!')
-    window.location.reload()
-  }
-
-  const jogadoresJaBloqueadosAntes = new Set(bloqueadosAnteriores.map(j => j.nome))
-  const jogadoresJaBloqueadosAgora = new Set(bloqueados.map(j => j.nome))
-
-  const jogadoresDisponiveis = jogadores.filter(
-    j => !jogadoresJaBloqueadosAntes.has(j.nome) && !jogadoresJaBloqueadosAgora.has(j.nome)
-  )
-
-  const toggleSelecionado = (nome: string) => {
-    if (selecionados.includes(nome)) {
-      setSelecionados(selecionados.filter(n => n !== nome))
-    } else if (selecionados.length + bloqueados.length < limiteBloqueios) {
-      setSelecionados([...selecionados, nome])
+    if (errCfg) {
+      console.error('Erro ao ler config atual:', errCfg)
+      setSalvando(false)
+      alert('Erro ao salvar. Tente novamente.')
+      return
     }
+
+    const atual: Record<string, Bloqueado[]> = (cfg?.bloqueios || {}) as any
+    const listaAtualDoTime = Array.isArray(atual[idTime]) ? atual[idTime] : []
+
+    // Evita duplicados por ID
+    const setExistentes = new Set(listaAtualDoTime.map((b) => b.id))
+    const mesclados = [
+      ...listaAtualDoTime,
+      ...novosBloqueios.filter((b) => !setExistentes.has(b.id))
+    ]
+
+    // Garante respeito ao limite (corta extras se necessário)
+    const respeitandoLimite = mesclados.slice(0, limiteBloqueios)
+
+    const novoObjeto = { ...atual, [idTime]: respeitandoLimite }
+
+    const { error: errUpdate } = await supabase
+      .from('configuracoes')
+      .update({ bloqueios: novoObjeto })
+      .eq('id', CONFIG_ID)
+
+    setSalvando(false)
+
+    if (errUpdate) {
+      console.error('Erro ao atualizar bloqueios:', errUpdate)
+      alert('Erro ao salvar bloqueios. Tente novamente.')
+      return
+    }
+
+    // Atualiza estado local sem recarregar a página
+    setBloqueadosAtuais(respeitandoLimite)
+    setSelecionados([])
+    alert('✅ Jogadores bloqueados com sucesso!')
   }
 
+  /** ================== UI ================== */
   return (
     <div className="p-6 text-white max-w-2xl mx-auto">
       <h1 className="text-3xl font-bold mb-4 text-center">🛡️ Bloqueio de Jogadores</h1>
@@ -125,12 +210,12 @@ export default function BloqueioPage() {
               Você pode bloquear até <strong>{limiteBloqueios}</strong> jogadores.
             </p>
 
-            {bloqueados.length > 0 && (
+            {bloqueadosAtuais.length > 0 && (
               <div className="bg-gray-800 p-3 rounded mb-2">
                 <p className="font-semibold mb-2 text-green-400">🔒 Já bloqueados nesta rodada:</p>
                 <ul className="flex flex-wrap gap-2 justify-center">
-                  {bloqueados.map((j, idx) => (
-                    <li key={idx} className="bg-green-700 px-2 py-1 rounded text-xs">
+                  {bloqueadosAtuais.map((j) => (
+                    <li key={j.id} className="bg-green-700 px-2 py-1 rounded text-xs">
                       {j.nome} ({j.posicao})
                     </li>
                   ))}
@@ -140,52 +225,77 @@ export default function BloqueioPage() {
 
             {bloqueadosAnteriores.length > 0 && (
               <div className="bg-gray-900 p-3 rounded mb-2 border border-yellow-600">
-                <p className="font-semibold mb-2 text-yellow-400">⚠️ Jogadores protegidos no evento anterior:</p>
+                <p className="font-semibold mb-2 text-yellow-400">⚠️ Protegidos no evento anterior (não podem ser bloqueados novamente agora):</p>
                 <ul className="flex flex-wrap gap-2 justify-center">
-                  {bloqueadosAnteriores.map((j, idx) => (
-                    <li key={idx} className="bg-yellow-700 px-2 py-1 rounded text-xs">
+                  {bloqueadosAnteriores.map((j) => (
+                    <li key={j.id} className="bg-yellow-700 px-2 py-1 rounded text-xs">
                       {j.nome} ({j.posicao})
                     </li>
                   ))}
                 </ul>
               </div>
             )}
+
+            <p className="text-sm text-gray-300">Restantes nesta rodada: <strong>{restantes}</strong></p>
           </div>
 
-          {bloqueados.length >= limiteBloqueios ? (
+          {bloqueadosAtuais.length >= limiteBloqueios ? (
             <div className="text-center text-green-400 font-bold">
               ✅ Você já atingiu o limite de bloqueios!
             </div>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-2 mb-4">
-                {jogadoresDisponiveis.map(j => (
-                  <div
-                    key={j.id}
-                    onClick={() => toggleSelecionado(j.nome)}
-                    className={`p-2 rounded border cursor-pointer text-center ${
-                      selecionados.includes(j.nome)
-                        ? 'bg-green-600 border-green-400'
-                        : 'bg-gray-800 border-gray-600 hover:bg-gray-700'
-                    }`}
-                  >
-                    <p className="font-semibold">{j.nome}</p>
-                    <p className="text-xs text-gray-300">{j.posicao}</p>
+                {jogadoresDisponiveis.map((j) => {
+                  const selecionado = selecionados.includes(j.id)
+                  return (
+                    <button
+                      key={j.id}
+                      type="button"
+                      onClick={() => toggleSelecionado(j.id)}
+                      className={`p-2 rounded border cursor-pointer text-center transition-colors ${
+                        selecionado
+                          ? 'bg-green-600 border-green-400'
+                          : 'bg-gray-800 border-gray-600 hover:bg-gray-700'
+                      }`}
+                    >
+                      <p className="font-semibold">{j.nome}</p>
+                      <p className="text-xs text-gray-300">{j.posicao}</p>
+                    </button>
+                  )
+                })}
+
+                {jogadoresDisponiveis.length === 0 && (
+                  <div className="col-span-2 text-center text-gray-300 py-6">
+                    Nenhum jogador disponível para bloqueio.
                   </div>
-                ))}
+                )}
               </div>
 
               <button
                 onClick={confirmarBloqueio}
-                disabled={selecionados.length === 0}
-                className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded font-bold"
+                disabled={selecionados.length === 0 || salvando}
+                className={`w-full text-white py-2 rounded font-bold ${
+                  selecionados.length === 0 || salvando
+                    ? 'bg-gray-600 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
               >
-                ✅ Confirmar Bloqueio
+                {salvando ? 'Salvando...' : '✅ Confirmar Bloqueio'}
               </button>
             </>
           )}
         </>
       )}
+
+      {/* ====== Dica para a fase de ROUBO ======
+        No componente da fase de ROUBO, para garantir que jogadores bloqueados NÃO apareçam,
+        carregue o mesmo documento de `configuracoes` e aplique este filtro no elenco do time-alvo:
+
+        const setBloqueadosDoAlvo = new Set((config.bloqueios?.[id_time_alvo] || []).map((b: Bloqueado) => b.id))
+        const setCooldownDoAlvo = new Set((config.bloqueios_anteriores?.[id_time_alvo] || []).map((b: Bloqueado) => b.id))
+        const elencoDisponivel = elencoAlvo.filter((j: Jogador) => !setBloqueadosDoAlvo.has(j.id) && !setCooldownDoAlvo.has(j.id))
+      */}
     </div>
   )
 }
