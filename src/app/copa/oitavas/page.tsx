@@ -644,7 +644,7 @@ export default function OitavasPage() {
   )
 }
 
-/** ====== Cartão de Jogo (layout “trilho” central) ====== */
+/** ====== Cartão de Jogo com “mandante × visitante” e volta invertida ====== */
 function MatchCard({
   jogo, supportsVolta, logosById, onChange, onSave
 }:{
@@ -683,46 +683,31 @@ function MatchCard({
         </div>
       </div>
 
-      {/* times + trilho de placar central */}
-      <div className="grid grid-cols-12 items-center gap-x-4 gap-y-3">
-        <TeamBadge
-          className="col-span-6 md:col-span-4"
-          name={jogo.time1}
-          logo={logosById[jogo.id_time1]}
-          align="right"
-          highlight={lead==='t1'}
-        />
+      {/* Jogo de IDA — time1 (mandante) x time2 (visitante) */}
+      <LegRow
+        label="Ida"
+        left={{ id:jogo.id_time1, name:jogo.time1, logo:logosById[jogo.id_time1], role:'Mandante' }}
+        right={{ id:jogo.id_time2, name:jogo.time2, logo:logosById[jogo.id_time2], role:'Visitante' }}
+        a={jogo.gols_time1}
+        b={jogo.gols_time2}
+        onA={(v)=>onChange({ ...jogo, gols_time1: v })}
+        onB={(v)=>onChange({ ...jogo, gols_time2: v })}
+      />
 
-        <div className="col-span-12 md:col-span-4">
-          <ScoreRail
-            label="Ida"
-            a={jogo.gols_time1}
-            b={jogo.gols_time2}
-            onA={(v)=>onChange({ ...jogo, gols_time1: v })}
-            onB={(v)=>onChange({ ...jogo, gols_time2: v })}
+      {/* Jogo de VOLTA — invertido: time2 (mandante) x time1 (visitante) */}
+      {supportsVolta && (
+        <div className="mt-3">
+          <LegRow
+            label="Volta"
+            left={{ id:jogo.id_time2, name:jogo.time2, logo:logosById[jogo.id_time2], role:'Mandante' }}
+            right={{ id:jogo.id_time1, name:jogo.time1, logo:logosById[jogo.id_time1], role:'Visitante' }}
+            a={jogo.gols_time2_volta as any}   // esquerda é do time2
+            b={jogo.gols_time1_volta as any}   // direita é do time1
+            onA={(v)=>onChange({ ...jogo, gols_time2_volta: v as any })}
+            onB={(v)=>onChange({ ...jogo, gols_time1_volta: v as any })}
           />
         </div>
-
-        <TeamBadge
-          className="col-span-6 md:col-span-4"
-          name={jogo.time2}
-          logo={logosById[jogo.id_time2]}
-          align="left"
-          highlight={lead==='t2'}
-        />
-
-        {supportsVolta && (
-          <div className="col-span-12 md:col-span-8 md:col-start-3">
-            <ScoreRail
-              label="Volta"
-              a={jogo.gols_time1_volta as any}
-              b={jogo.gols_time2_volta as any}
-              onA={(v)=>onChange({ ...jogo, gols_time1_volta: v })}
-              onB={(v)=>onChange({ ...jogo, gols_time2_volta: v })}
-            />
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ação */}
       <div className="mt-4 flex justify-end">
@@ -736,37 +721,63 @@ function MatchCard({
   )
 }
 
+/** Linha de um jogo (lado-esquerdo mandante, lado-direito visitante) */
+function LegRow({
+  label,
+  left, right,
+  a, b,
+  onA, onB,
+}:{
+  label: string
+  left: { id: string, name: string, logo?: string | null, role: 'Mandante'|'Visitante' }
+  right:{ id: string, name: string, logo?: string | null, role: 'Mandante'|'Visitante' }
+  a: number | null | undefined
+  b: number | null | undefined
+  onA: (n: number | null)=>void
+  onB: (n: number | null)=>void
+}) {
+  return (
+    <div className="grid grid-cols-12 items-center gap-x-4">
+      <TeamSide name={left.name} logo={left.logo} align="right" role={left.role} />
+      <ScoreRail label={label} a={a} b={b} onA={onA} onB={onB} className="col-span-12 md:col-span-4" />
+      <TeamSide name={right.name} logo={right.logo} align="left" role={right.role} />
+    </div>
+  )
+}
+
 /** Trilho de placar (selo flutuante + inputs centralizados) */
 function ScoreRail({
-  label, a, b, onA, onB
-}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void }) {
+  label, a, b, onA, onB, className=''
+}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void, className?: string }) {
   const norm = (val: string): number | null => val === '' ? null : Math.max(0, parseInt(val))
   return (
-    <div className="relative">
-      {/* selo */}
-      <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
-        {label}
-      </span>
+    <div className={`col-span-12 md:col-span-4 ${className}`}>
+      <div className="relative">
+        {/* selo */}
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
+          {label}
+        </span>
 
-      {/* trilho */}
-      <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
-        <input
-          type="number"
-          className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-          value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
-        />
-        <span className="text-white/60">x</span>
-        <input
-          type="number"
-          className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-          value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
-        />
+        {/* trilho */}
+        <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
+          <input
+            type="number"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+          />
+          <span className="text-white/60">x</span>
+          <input
+            type="number"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+          />
+        </div>
       </div>
     </div>
   )
 }
 
-/** ========= Visuais ========= */
+/** ====== Visuais ====== */
 function HostCard({ nome, lado }:{ nome: string; lado: 'left'|'right' }) {
   return (
     <div className="w-full rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 to-slate-950 p-4">
@@ -846,31 +857,18 @@ function BallLogo({ team, size=56, shiny=false }:{ team: TimeRow | null; size?: 
   )
 }
 
-/** Badge de time (aceita className para grid) */
-function TeamBadge({
-  name, logo, align, highlight, className=''
-}:{
-  name: string
-  logo?: string | null
-  align: 'left'|'right'
-  highlight?: boolean
-  className?: string
-}) {
+/** Lado do time com logo + papel (Mandante/Visitante) */
+function TeamSide({
+  name, logo, align, role
+}:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
   return (
-    <div className={`flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3 ${className}`}>
-      {align==='left' && (
-        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
-          <TeamLogo url={logo || null} alt={name} size={40} />
-        </div>
-      )}
-      <div className={`font-semibold truncate ${highlight? 'text-white' : 'text-white/90'}`}>
-        {name}
+    <div className={`col-span-6 md:col-span-4 flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3`}>
+      {align==='left' && <TeamLogo url={logo || null} alt={name} size={40} />}
+      <div className={`${align==='left'?'text-left':'text-right'}`}>
+        <div className="font-semibold leading-5">{name}</div>
+        <div className="text-[11px] text-white/60">{role}</div>
       </div>
-      {align==='right' && (
-        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
-          <TeamLogo url={logo || null} alt={name} size={40} />
-        </div>
-      )}
+      {align==='right' && <TeamLogo url={logo || null} alt={name} size={40} />}
     </div>
   )
 }
