@@ -110,7 +110,7 @@ export default function EventoRouboPage() {
 
   // estado do evento
   const [ordem, setOrdem] = useState<Time[]>([])
-  const [vez, setVez] = useState<number>(0)
+  the const [vez, setVez] = useState<number>(0)
   const [ordemSorteada, setOrdemSorteada] = useState(false)
 
   const [roubos, setRoubos] = useState<RoubosMap>({})
@@ -527,7 +527,7 @@ export default function EventoRouboPage() {
     const novoPersist: BloqPersistMap = {}
     for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
 
-    // >>> ALTERAÇÃO: resetar limite_perda para 3 na configuração
+    // RESETA limite_perda para 3 ao finalizar o evento
     const { error: updErr } = await supabase
       .from('configuracoes')
       .update({
@@ -647,9 +647,11 @@ export default function EventoRouboPage() {
                   <button
                     key={t.id}
                     onClick={() => onEscolher(t)}
-                    className={cls('w-full text-left rounded-lg p-2 flex items-center gap-3 border transition',
+                    className={cls(
+                      'w-full text-left rounded-lg p-2 flex items-center gap-3 border transition',
                       'bg-white/5 hover:bg-white/10 border-white/10',
-                      bloqueadoPorRegra e 'opacity-60')}
+                      bloqueadoPorRegra && 'opacity-60'
+                    )}
                   >
                     {t.logo_url
                       ? <img src={t.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
