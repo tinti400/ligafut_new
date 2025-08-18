@@ -120,8 +120,8 @@ export default function BIDPage() {
   async function carregarDados(paginaAtual = 1) {
     setLoading(true)
     setErro(null)
-
     const offset = (paginaAtual - 1) * limite
+
     try {
       const { count, error: errorCount } = await supabase
         .from('bid')
@@ -172,29 +172,14 @@ export default function BIDPage() {
   async function excluirEvento(idEvento: string) {
     const ok = window.confirm('Tem certeza que deseja excluir este evento do BID?')
     if (!ok) return
-
     try {
       const { error } = await supabase.from('bid').delete().eq('id', idEvento)
       if (error) throw error
 
       setEventos((prev) => prev.filter((ev) => String(ev.id) !== idEvento))
-
-      // limpar comentários e reações deste card na UI
-      setComentariosMap((prev) => {
-        const novo = { ...prev }
-        delete novo[idEvento]
-        return novo
-      })
-      setReacoesCount((prev) => {
-        const novo = { ...prev }
-        delete novo[idEvento]
-        return novo
-      })
-      setMinhasReacoes((prev) => {
-        const novo = { ...prev }
-        delete novo[idEvento]
-        return novo
-      })
+      setComentariosMap((prev) => { const n = { ...prev }; delete n[idEvento]; return n })
+      setReacoesCount((prev) => { const n = { ...prev }; delete n[idEvento]; return n })
+      setMinhasReacoes((prev) => { const n = { ...prev }; delete n[idEvento]; return n })
 
       toast.success('Evento excluído com sucesso!')
     } catch (err: any) {
@@ -241,12 +226,7 @@ export default function BIDPage() {
     try {
       const { data, error } = await supabase
         .from('bid_comentarios')
-        .insert({
-          id_evento: idEvento,
-          id_time: idTimeLogado,
-          nome_time: nomeTimeLogado,
-          comentario: texto
-        })
+        .insert({ id_evento: idEvento, id_time: idTimeLogado, nome_time: nomeTimeLogado, comentario: texto })
         .select('*')
         .single()
       if (error) throw error
@@ -314,52 +294,35 @@ export default function BIDPage() {
     setMinhasReacoes(mineMap)
   }
 
+  // Toggle robusto: verifica se já existe; se sim, exclui; se não, cria. Depois recarrega contadores.
   async function toggleReacao(idEventoRaw: IDEvt, emoji: Emoji) {
     const idEvento = String(idEventoRaw)
     if (!idTimeLogado) { toast.error('Faça login no seu time para reagir.'); return }
     if (reagindo[idEvento]) return
 
     setReagindo((p) => ({ ...p, [idEvento]: true }))
-    const jaReagiu = !!minhasReacoes[idEvento]?.[emoji]
     try {
-      if (jaReagiu) {
-        const { error } = await supabase
-          .from('bid_reacoes')
-          .delete()
-          .eq('id_evento', idEvento)
-          .eq('id_time', idTimeLogado)
-          .eq('emoji', emoji)
-        if (error) throw error
+      const { data: existente, error: selErr } = await supabase
+        .from('bid_reacoes')
+        .select('id')
+        .eq('id_evento', idEvento)
+        .eq('id_time', idTimeLogado)
+        .eq('emoji', emoji)
+        .maybeSingle()
+      if (selErr) throw selErr
 
-        setMinhasReacoes((prev) => ({
-          ...prev,
-          [idEvento]: { ...(prev[idEvento] || {}), [emoji]: false }
-        }))
-        setReacoesCount((prev) => ({
-          ...prev,
-          [idEvento]: {
-            ...(prev[idEvento] || {}),
-            [emoji]: Math.max(0, (prev[idEvento]?.[emoji] || 0) - 1)
-          }
-        }))
+      if (existente) {
+        const { error: delErr } = await supabase.from('bid_reacoes').delete().eq('id', existente.id)
+        if (delErr) throw delErr
       } else {
-        const { error } = await supabase
+        const { error: insErr } = await supabase
           .from('bid_reacoes')
           .insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
-        if (error) throw error
-
-        setMinhasReacoes((prev) => ({
-          ...prev,
-          [idEvento]: { ...(prev[idEvento] || {}), [emoji]: true }
-        }))
-        setReacoesCount((prev) => ({
-          ...prev,
-          [idEvento]: {
-            ...(prev[idEvento] || {}),
-            [emoji]: (prev[idEvento]?.[emoji] || 0) + 1
-          }
-        }))
+        if (insErr) throw insErr
       }
+
+      // Recarrega contadores e minhas reações somente desse evento
+      await carregarReacoesParaEventos([idEvento])
     } catch (err: any) {
       console.error(err)
       toast.error(`Não foi possível reagir: ${err?.message || 'erro'}`)
@@ -372,12 +335,10 @@ export default function BIDPage() {
   function capitalizar(str: string) {
     return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : ''
   }
-
   function calcularEstrelas(valor: number | null | undefined) {
     if (!valor || valor <= 0) return 0
     return Math.min(Math.ceil(valor / 50_000_000), 10)
   }
-
   function renderEstrelas(qtd: number, valor: number) {
     const total = 10
     const estrelas = '★'.repeat(qtd) + '☆'.repeat(total - qtd)
@@ -389,7 +350,6 @@ export default function BIDPage() {
     else cor = 'text-emerald-400'
     return <span className={`font-bold ${cor}`} title={`Valor: R$${valor.toLocaleString('pt-BR')}`}>{estrelas}</span>
   }
-
   function iconeTipo(tipo: string) {
     const t = tipo.toLowerCase()
     if (t.includes('transfer')) return '💸'
@@ -400,7 +360,6 @@ export default function BIDPage() {
     if (t.includes('bonus')) return '🎁'
     return '📝'
   }
-
   function corFundo(tipo: string) {
     const t = tipo.toLowerCase()
     if (t.includes('transfer')) return 'bg-purple-700'
