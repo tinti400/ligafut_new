@@ -27,7 +27,7 @@ type JogoOitavas = {
   time2: string
   gols_time1: number | null
   gols_time2: number | null
-  // colunas de volta podem não existir no schema — opcionais
+  // podem não existir no schema — opcionais para evitar erro no build
   gols_time1_volta?: number | null
   gols_time2_volta?: number | null
 }
@@ -365,7 +365,6 @@ export default function OitavasPage() {
       } else {
         setSupportsVolta(true)
         setJogos((ins1.data || []) as JogoOitavas[])
-
       }
 
       toast.success('Oitavas sorteadas e gravadas!')
@@ -492,8 +491,8 @@ export default function OitavasPage() {
         )}
       </header>
 
-      {/* Lista de jogos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Lista de jogos com gap maior */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {jogos.map((jogo, idx) => (
           <MatchCard
             key={jogo.id}
@@ -645,7 +644,7 @@ export default function OitavasPage() {
   )
 }
 
-/** ====== Cartão de Jogo com logos e agregado ====== */
+/** ====== Cartão de Jogo (layout “trilho” central) ====== */
 function MatchCard({
   jogo, supportsVolta, logosById, onChange, onSave
 }:{
@@ -661,12 +660,14 @@ function MatchCard({
   const vol2 = supportsVolta ? (jogo.gols_time2_volta ?? 0) : 0
   const agg1 = ida1 + vol1
   const agg2 = ida2 + vol2
-  const lead: 'empate' | 't1' | 't2' = agg1 === agg2 ? 'empate' : (agg1 > agg2 ? 't1' : 't2')
+  const lead: 'empate'|'t1'|'t2' = agg1 === agg2 ? 'empate' : (agg1 > agg2 ? 't1' : 't2')
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-xl">
+      {/* glow decorativo */}
       <div className="pointer-events-none absolute -top-20 -right-16 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
 
+      {/* cabeçalho */}
       <div className="flex items-center justify-between mb-4">
         <div className="text-[13px] text-white/60">Jogo {jogo.ordem ?? '-'} · Oitavas</div>
         <div
@@ -682,20 +683,37 @@ function MatchCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-4 items-center">
-        <TeamBadge name={jogo.time1} logo={logosById[jogo.id_time1]} align="right" highlight={lead==='t1'} />
-        <ScoreBox
-          label="Ida"
-          a={jogo.gols_time1}
-          b={jogo.gols_time2}
-          onA={(v)=>onChange({ ...jogo, gols_time1: v })}
-          onB={(v)=>onChange({ ...jogo, gols_time2: v })}
+      {/* times + trilho de placar central */}
+      <div className="grid grid-cols-12 items-center gap-x-4 gap-y-3">
+        <TeamBadge
+          className="col-span-6 md:col-span-4"
+          name={jogo.time1}
+          logo={logosById[jogo.id_time1]}
+          align="right"
+          highlight={lead==='t1'}
         />
-        <TeamBadge name={jogo.time2} logo={logosById[jogo.id_time2]} align="left" highlight={lead==='t2'} />
+
+        <div className="col-span-12 md:col-span-4">
+          <ScoreRail
+            label="Ida"
+            a={jogo.gols_time1}
+            b={jogo.gols_time2}
+            onA={(v)=>onChange({ ...jogo, gols_time1: v })}
+            onB={(v)=>onChange({ ...jogo, gols_time2: v })}
+          />
+        </div>
+
+        <TeamBadge
+          className="col-span-6 md:col-span-4"
+          name={jogo.time2}
+          logo={logosById[jogo.id_time2]}
+          align="left"
+          highlight={lead==='t2'}
+        />
 
         {supportsVolta && (
-          <div className="col-span-5 sm:col-span-3 sm:col-start-2">
-            <ScoreBox
+          <div className="col-span-12 md:col-span-8 md:col-start-3">
+            <ScoreRail
               label="Volta"
               a={jogo.gols_time1_volta as any}
               b={jogo.gols_time2_volta as any}
@@ -706,8 +724,11 @@ function MatchCard({
         )}
       </div>
 
+      {/* ação */}
       <div className="mt-4 flex justify-end">
-        <button onClick={onSave} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow focus:outline-none focus:ring-2 focus:ring-emerald-400/50">
+        <button
+          onClick={onSave}
+          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow focus:outline-none focus:ring-2 focus:ring-emerald-400/50">
           Salvar
         </button>
       </div>
@@ -715,48 +736,32 @@ function MatchCard({
   )
 }
 
-function ScoreBox({
+/** Trilho de placar (selo flutuante + inputs centralizados) */
+function ScoreRail({
   label, a, b, onA, onB
 }:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void }) {
   const norm = (val: string): number | null => val === '' ? null : Math.max(0, parseInt(val))
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-2 pl-3 pr-3">
-      <div className="flex items-center gap-3">
-        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">{label}</span>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            className="w-18 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-            value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
-          />
-          <span className="text-white/60">x</span>
-          <input
-            type="number"
-            className="w-18 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-            value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
+    <div className="relative">
+      {/* selo */}
+      <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
+        {label}
+      </span>
 
-function TeamBadge({ name, logo, align, highlight }:{
-  name: string, logo?: string | null, align: 'left'|'right', highlight?: boolean
-}) {
-  return (
-    <div className={`col-span-2 flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3`}>
-      {align==='left' && (
-        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
-          <TeamLogo url={logo || null} alt={name} size={40} />
-        </div>
-      )}
-      <div className={`font-semibold truncate ${highlight? 'text-white' : 'text-white/90'}`}>{name}</div>
-      {align==='right' && (
-        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
-          <TeamLogo url={logo || null} alt={name} size={40} />
-        </div>
-      )}
+      {/* trilho */}
+      <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
+        <input
+          type="number"
+          className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+          value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+        />
+        <span className="text-white/60">x</span>
+        <input
+          type="number"
+          className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+          value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+        />
+      </div>
     </div>
   )
 }
@@ -837,6 +842,35 @@ function BallLogo({ team, size=56, shiny=false }:{ team: TimeRow | null; size?: 
   return (
     <div className={`rounded-full border ${shiny ? 'border-white/40 shadow-[inset_0_8px_16px_rgba(255,255,255,0.15),0_8px_16px_rgba(0,0,0,0.35)]' : 'border-slate-700 shadow'} bg-slate-900 overflow-hidden flex items-center justify-center`} style={{ width: size, height: size }}>
       <TeamLogo url={team.logo_url} alt={team.nome} size={size - 8} />
+    </div>
+  )
+}
+
+/** Badge de time (aceita className para grid) */
+function TeamBadge({
+  name, logo, align, highlight, className=''
+}:{
+  name: string
+  logo?: string | null
+  align: 'left'|'right'
+  highlight?: boolean
+  className?: string
+}) {
+  return (
+    <div className={`flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3 ${className}`}>
+      {align==='left' && (
+        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
+          <TeamLogo url={logo || null} alt={name} size={40} />
+        </div>
+      )}
+      <div className={`font-semibold truncate ${highlight? 'text-white' : 'text-white/90'}`}>
+        {name}
+      </div>
+      {align==='right' && (
+        <div className={`rounded-full p-0.5 ${highlight? 'ring-2 ring-emerald-400/50' : ''}`}>
+          <TeamLogo url={logo || null} alt={name} size={40} />
+        </div>
+      )}
     </div>
   )
 }
