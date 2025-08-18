@@ -12,7 +12,7 @@ const supabase = createClient(
 )
 
 /** ===== Tipos ===== */
-interface Time { id: string; nome: string; logo_url: string | null }
+interface Time { id: string; nome: string; logo_url: string | null; saldo?: number }
 interface Jogador { id: string; nome: string; posicao: string; valor: number; id_time: string }
 type RoubosMap = Record<string, Record<string, number>>
 type BloqueadosMap = Record<string, { id?: string; nome: string; posicao: string }[]>
@@ -24,39 +24,34 @@ type ConfigEvento = {
   roubos: RoubosMap | null
   bloqueios: BloqueadosMap | null
   limite_perda?: number | null
+  // sua base usa `limite_roubo`; algumas versões usam `limite_roubos_por_time`
+  limite_roubo?: number | null
   limite_roubos_por_time?: number | null
   ativo?: boolean | null
   fase?: string | null
   roubo_evento_num?: number | null
+  // sua base pode ter um dos dois:
   bloqueios_persistentes?: BloqPersistMap | null
+  rebloqueio_ate_evento?: BloqPersistMap | null
+  // flags auxiliares na sua tabela:
+  evento_roubo?: boolean | null
+  tipo?: string | null
 }
 
 /** ===== Regras/Constantes ===== */
-const CONFIG_ID = '56f3af29-a4ac-4a76-aeb3-35400aa2a773'
+// Mantenho um ID padrão (caso exista), mas passo a buscar dinamicamente se não encontrar.
+const CONFIG_ID_DEFAULT = '56f3af29-a4ac-4a76-aeb3-35400aa2a773'
 const TEMPO_POR_VEZ = 240
 const LIMITE_POR_ALVO_POR_TIME = 2
 const LIMITE_PERDA_DEFAULT = 3
 const LIMITE_ROUBOS_POR_TIME_DEFAULT = 3
 const PERCENTUAL_ROUBO = 0.5
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
-
-// helper p/ iniciais
 const initials = (nome: string) => nome.split(' ').slice(0,2).map(p=>p[0]).join('').toUpperCase()
 
-/** ===== Cronômetro isolado (não re-renderiza a página inteira) ===== */
-function Cronometro({
-  ativo,
-  isAdmin,
-  onTimeout,
-  start = TEMPO_POR_VEZ,
-}: {
-  ativo: boolean
-  isAdmin: boolean
-  onTimeout: () => void
-  start?: number
-}) {
+/** ===== Cronômetro ===== */
+function Cronometro({ ativo, isAdmin, onTimeout, start = TEMPO_POR_VEZ }: { ativo: boolean; isAdmin: boolean; onTimeout: () => void; start?: number }) {
   const [s, setS] = useState(start)
-
   useEffect(() => {
     if (!ativo) return
     let alive = true
@@ -71,18 +66,19 @@ function Cronometro({
         return prev - 1
       })
     }, 1000)
-    return () => {
-      alive = false
-      clearInterval(id)
-    }
+    return () => { alive = false; clearInterval(id) }
   }, [ativo, isAdmin, onTimeout])
-
   return <b>{s}s</b>
 }
 
 export default function EventoRouboPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
+
+  // id do meu time
   const [idTime, setIdTime] = useState<string>('')
+
+  // id real da configuração (descoberto dinamicamente)
+  const [configId, setConfigId] = useState<string>('')
 
   // estado do evento
   const [ordem, setOrdem] = useState<Time[]>([])
@@ -115,7 +111,7 @@ export default function EventoRouboPage() {
   const [roubosDaRodada, setRoubosDaRodada] = useState<Array<{ id: string; nome: string; posicao: string; de: string; para: string; valor: number }>>([])
   const [resumoFinal, setResumoFinal] = useState<typeof roubosDaRodada>([])
 
-  // modal Antes × Depois
+  // modal Antes×Depois
   const [comparativo, setComparativo] = useState<null | {
     jogador: { id: string; nome: string; posicao: string; valor: number }
     de: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
@@ -125,9 +121,23 @@ export default function EventoRouboPage() {
 
   const [loading, setLoading] = useState(true)
   const [bloqueioBotao, setBloqueioBotao] = useState(false)
-
-  // banner pós-finalização
   const [eventoFinalizado, setEventoFinalizado] = useState(false)
+
+  /** ===== Helpers ===== */
+  async function findConfigRow(): Promise<ConfigEvento | null> {
+    // 1) tenta ID conhecido (env ou default)
+    const knownId = configId || process.env.NEXT_PUBLIC_EVENTO_ROUBO_CONFIG_ID || CONFIG_ID_DEFAULT
+    if (knownId) {
+      const { data } = await supabase.from('configuracoes').select('*').eq('id', knownId).maybeSingle()
+      if (data) return data as ConfigEvento
+    }
+    // 2) cai para a linha marcada como evento_roubo = TRUE
+    const { data } = await supabase.from('configuracoes').select('*').eq('evento_roubo', true).maybeSingle()
+    if (data) return data as ConfigEvento
+    // 3) último fallback: tipo = 'geral'
+    const { data: geral } = await supabase.from('configuracoes').select('*').eq('tipo', 'geral').maybeSingle()
+    return (geral as ConfigEvento) || null
+  }
 
   /** ===== Init / Realtime ===== */
   useEffect(() => {
@@ -135,64 +145,57 @@ export default function EventoRouboPage() {
     if (id) setIdTime(id)
     carregarEvento()
 
+    // sem filtro por id para não perder atualizações se o ID mudar
     const canal = supabase
       .channel('evento-roubo')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'configuracoes', filter: `id=eq.${CONFIG_ID}` },
-        () => carregarEvento()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, () => carregarEvento())
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(canal)
-    }
+    return () => { supabase.removeChannel(canal) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** ===== Carregar estado do evento ===== */
   async function carregarEvento() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('configuracoes')
-      .select('*')
-      .eq('id', CONFIG_ID)
-      .single<ConfigEvento>()
 
-    if (error) {
+    const cfg = await findConfigRow()
+    if (!cfg) {
       setLoading(false)
-      toast.error('Erro ao carregar evento.')
+      toast.error('Configuração do evento não encontrada (cheque o ID/flag evento_roubo).')
       return
     }
+    setConfigId(cfg.id)
 
-    setVez(Number(data.vez ?? 0) || 0)
-    setRoubos((data.roubos || {}) as RoubosMap)
-    setBloqueados((data.bloqueios || {}) as BloqueadosMap)
-    setLimitePerda(data.limite_perda ?? LIMITE_PERDA_DEFAULT)
-    setLimiteRoubosPorTime(data.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
-    setEventoNum(Number(data.roubo_evento_num ?? 0))
-    setBloqPersist((data.bloqueios_persistentes || {}) as BloqPersistMap)
-    setEventoFinalizado((data.fase || '') === 'finalizado')
+    setVez(Number(cfg.vez ?? 0) || 0)
+    setRoubos((cfg.roubos || {}) as RoubosMap)
+    setBloqueados((cfg.bloqueios || {}) as BloqueadosMap)
+    setLimitePerda(cfg.limite_perda ?? LIMITE_PERDA_DEFAULT)
+    setLimiteRoubosPorTime(
+      (cfg.limite_roubos_por_time ?? cfg.limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
+    )
+    setEventoNum(Number(cfg.roubo_evento_num ?? 0))
+    const persist = (cfg.bloqueios_persistentes ?? cfg.rebloqueio_ate_evento ?? {}) as BloqPersistMap
+    setBloqPersist(persist)
+    setEventoFinalizado((cfg.fase || '') === 'finalizado')
 
-    if (data.ordem?.length) {
+    if (cfg.ordem?.length) {
       const { data: times, error: errTimes } = await supabase
         .from('times')
         .select('id, nome, logo_url')
-        .in('id', data.ordem)
+        .in('id', cfg.ordem)
 
       if (!errTimes && times) {
-        const ordemCompleta = (data.ordem as string[])
+        const ordemCompleta = (cfg.ordem as string[])
           .map((id) => times.find((t) => t.id === id))
           .filter(Boolean) as Time[]
         setOrdem(ordemCompleta)
         setOrdemSorteada(true)
       } else {
-        setOrdem([])
-        setOrdemSorteada(false)
+        setOrdem([]); setOrdemSorteada(false)
       }
     } else {
-      setOrdem([])
-      setOrdemSorteada(false)
+      setOrdem([]); setOrdemSorteada(false)
     }
 
     setLoading(false)
@@ -223,26 +226,13 @@ export default function EventoRouboPage() {
   const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
-  // *** LISTO SEM FILTRAR POR REGRAS para nunca ficar vazio; mostro motivos no rótulo ***
-  const alvosListados = useMemo(
-    () => ordem.filter((t) => t.id !== idTime),
-    [ordem, idTime]
-  )
+  const alvosListados = useMemo(() => ordem.filter((t) => t.id !== idTime), [ordem, idTime])
+  const nomeAlvoSelecionado = useMemo(() => ordem.find(t => t.id === alvoSelecionado)?.nome || '', [ordem, alvoSelecionado])
 
-  const nomeAlvoSelecionado = useMemo(
-    () => ordem.find(t => t.id === alvoSelecionado)?.nome || '',
-    [ordem, alvoSelecionado]
-  )
-
-  /** ===== Carregar jogadores do alvo (APENAS por id_time) ===== */
+  /** ===== Carregar jogadores do alvo ===== */
   async function carregarJogadoresDoAlvo() {
-    if (!alvoSelecionado) {
-      toast('Selecione um time-alvo.')
-      return
-    }
-
-    setMostrarJogadores(true)
-    setCarregandoJogadores(true)
+    if (!alvoSelecionado) { toast('Selecione um time-alvo.'); return }
+    setMostrarJogadores(true); setCarregandoJogadores(true)
 
     const { data, error } = await supabase
       .from('elenco')
@@ -250,22 +240,14 @@ export default function EventoRouboPage() {
       .eq('id_time', alvoSelecionado)
       .order('nome', { ascending: true })
 
-    if (error) {
-      setCarregandoJogadores(false)
-      toast.error(`Erro ao carregar jogadores do alvo: ${error.message}`)
-      return
-    }
+    if (error) { setCarregandoJogadores(false); toast.error(`Erro ao carregar jogadores do alvo: ${error.message}`); return }
 
     const base = (data || []) as Jogador[]
-
     const bloqueiosDoAlvo = (bloqueados[alvoSelecionado] || [])
     const idsBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.id).filter(Boolean))
     const nomesBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.nome))
 
-    const semBloqueadosDoTime = base.filter((j) =>
-      (idsBloqueados.size ? !idsBloqueados.has(j.id) : !nomesBloqueados.has(j.nome))
-    )
-
+    const semBloqueadosDoTime = base.filter((j) => (idsBloqueados.size ? !idsBloqueados.has(j.id) : !nomesBloqueados.has(j.nome)))
     const filtrados = semBloqueadosDoTime.filter((j) => {
       const ate = bloqPersist[j.id]
       return !(ate != null && ate >= eventoNum)
@@ -274,21 +256,17 @@ export default function EventoRouboPage() {
     setJogadoresAlvo(filtrados)
     setCarregandoJogadores(false)
 
-    if (base.length === 0) {
-      toast('Esse time não tem jogadores cadastrados.')
-    } else if (filtrados.length === 0) {
-      toast('Todos os jogadores desse time estão bloqueados no momento.')
-    } else {
-      toast.success(`✅ ${filtrados.length} jogador(es) disponíveis.`)
-    }
+    if (base.length === 0) toast('Esse time não tem jogadores cadastrados.')
+    else if (filtrados.length === 0) toast('Todos os jogadores desse time estão bloqueados no momento.')
+    else toast.success(`✅ ${filtrados.length} jogador(es) disponíveis.`)
   }
 
-  /** ===== Saldo: CAS com retry ===== */
+  /** ===== Saldo: CAS ===== */
   async function ajustarSaldoCompareAndSwap(timeId: string, delta: number, saldoAtualEsperado?: number) {
     let esperado = saldoAtualEsperado
     if (esperado == null) {
       const { data: t } = await supabase.from('times').select('saldo').eq('id', timeId).single()
-      esperado = t?.saldo ?? 0
+      esperado = (t as any)?.saldo ?? 0
     }
     const { data: upd, error } = await supabase
       .from('times')
@@ -296,17 +274,17 @@ export default function EventoRouboPage() {
       .eq('id', timeId)
       .eq('saldo', esperado)
       .select('id')
-    if (!error && upd && upd.length === 1) return true
+    if (!error && upd && (upd as any[]).length === 1) return true
 
     const { data: fresh } = await supabase.from('times').select('saldo').eq('id', timeId).single()
-    const freshSaldo = fresh?.saldo ?? 0
+    const freshSaldo = (fresh as any)?.saldo ?? 0
     const { data: upd2 } = await supabase
       .from('times')
       .update({ saldo: freshSaldo + delta })
       .eq('id', timeId)
       .eq('saldo', freshSaldo)
       .select('id')
-    return !!(upd2 && upd2.length === 1)
+    return !!(upd2 && (upd2 as any[]).length === 1)
   }
 
   /** ===== Modal ===== */
@@ -316,135 +294,108 @@ export default function EventoRouboPage() {
     setConfirmJogador(j)
     setConfirmValor(valor)
   }
-  function fecharConfirmacao() {
-    setConfirmJogador(null)
-    setConfirmValor(0)
-    setErroConfirm(null)
-  }
+  function fecharConfirmacao() { setConfirmJogador(null); setConfirmValor(0); setErroConfirm(null) }
 
   /** ===== Roubar ===== */
-  async function confirmarRoubo() {
-    if (!confirmJogador) return
-    await roubarJogador(confirmJogador, confirmValor)
-  }
+  async function confirmarRoubo() { if (confirmJogador) await roubarJogador(confirmJogador, confirmValor) }
 
   async function roubarJogador(jogador: Jogador, valorPagoCalculado?: number) {
     if (bloqueioBotao || processandoRoubo) return
     setErroConfirm(null)
 
-    if (!idTime) {
-      setErroConfirm('Identidade do time não encontrada.')
-      return
-    }
+    if (!idTime) { setErroConfirm('Identidade do time não encontrada.'); return }
     const timeDaVez = ordem[vez]?.id
-    if (!timeDaVez || timeDaVez !== idTime) {
-      setErroConfirm('A vez mudou. Atualizando estado…')
-      fecharConfirmacao()
-      await carregarEvento()
-      return
-    }
+    if (!timeDaVez || timeDaVez !== idTime) { setErroConfirm('A vez mudou. Atualizando…'); fecharConfirmacao(); await carregarEvento(); return }
 
-    setProcessandoRoubo(true)
-    setBloqueioBotao(true)
+    setProcessandoRoubo(true); setBloqueioBotao(true)
     try {
-      // Snapshot config
-      const { data: cfg, error: cfgErr } = await supabase
-        .from('configuracoes')
-        .select('ordem,vez,roubos,limite_perda,limite_roubos_por_time,bloqueios,roubo_evento_num,bloqueios_persistentes')
-        .eq('id', CONFIG_ID)
-        .single<ConfigEvento>()
+      const cfg = await findConfigRow()
+      if (!cfg) { setErroConfirm('Falha ao ler configuração.'); fecharConfirmacao(); await carregarEvento(); return }
+      const thisConfigId = cfg.id
+      if (thisConfigId !== configId) setConfigId(thisConfigId)
 
-      if (cfgErr) { setErroConfirm('Falha ao ler configuração.'); return }
+      // garante vez no servidor
+      const vezAtual = Number(cfg.vez ?? 0)
+      const ordemIds = cfg.ordem || []
+      const idDaVezServidor = ordemIds[vezAtual]
+      if (!idDaVezServidor || idDaVezServidor !== idTime) { setErroConfirm('A vez mudou no servidor.'); fecharConfirmacao(); await carregarEvento(); return }
 
-      const vezAtual = Number(cfg?.vez ?? 0)
-      const ordemIds = cfg?.ordem || []
-      const idDaVezServidor = ordemIds?.[vezAtual]
-      if (!idDaVezServidor || idDaVezServidor !== idTime) {
-        setErroConfirm('A vez mudou no servidor.')
-        fecharConfirmacao()
-        await carregarEvento()
-        return
-      }
-
-      const roubosSrv = (cfg?.roubos || {}) as RoubosMap
+      // regras
+      const roubosSrv = (cfg.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
-      const limitePerdaSrv = cfg?.limite_perda ?? LIMITE_PERDA_DEFAULT
-      const limiteRoubosPorTimeSrv = cfg?.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
+      const limitePerdaSrv = cfg.limite_perda ?? LIMITE_PERDA_DEFAULT
+      const limiteRoubosPorTimeSrv = (cfg.limite_roubos_por_time ?? cfg.limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
 
-      if (totalPerdasSrv + 1 > limitePerdaSrv) { setErroConfirm('Esse time não pode perder mais jogadores neste evento.'); return }
-      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { setErroConfirm('Você já atingiu o limite contra esse alvo (2).'); return }
-      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { setErroConfirm('Você atingiu o limite total de roubos neste evento.'); return }
+      if (totalPerdasSrv + 1 > limitePerdaSrv) { setErroConfirm('Esse time não pode perder mais jogadores.'); return }
+      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { setErroConfirm('Limite contra esse alvo (2) alcançado.'); return }
+      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { setErroConfirm('Limite total de roubos alcançado.'); return }
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
       const timeOrigemId = jogador.id_time
 
-      // Transferência no elenco (condicionada ao id_time original)
+      // transferir jogador (CAS por id_time original)
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
         .eq('id', jogador.id)
         .eq('id_time', timeOrigemId)
         .select('id')
-      if (errJog || !updJog || updJog.length === 0) {
-        setErroConfirm('Outro time levou esse jogador primeiro.')
-        fecharConfirmacao()
-        await carregarEvento()
-        return
-      }
+      if (errJog || !updJog || (updJog as any[]).length === 0) { setErroConfirm('Outro time levou primeiro.'); fecharConfirmacao(); await carregarEvento(); return }
 
-      // Saldos (antes)
+      // saldos ANTES
       const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
         supabase.from('times').select('id,nome,logo_url,saldo').eq('id', timeOrigemId).single(),
         supabase.from('times').select('id,nome,logo_url,saldo').eq('id', idTime).single()
       ])
       if (!alvoInfo || !meuInfo) { setErroConfirm('Falha ao ler saldos.'); return }
 
-      const nomeAlvo = alvoInfo.nome || 'Time Alvo'
-      const nomeMeu  = meuInfo.nome  || 'Seu Time'
-      const saldoAlvoAntes = Number(alvoInfo.saldo || 0)
-      const saldoMeuAntes  = Number(meuInfo.saldo  || 0)
+      const nomeAlvo = (alvoInfo as any).nome || 'Time Alvo'
+      const nomeMeu  = (meuInfo  as any).nome || 'Seu Time'
+      const saldoAlvoAntes = Number((alvoInfo as any).saldo || 0)
+      const saldoMeuAntes  = Number((meuInfo  as any).saldo || 0)
 
-      // Débito / Crédito (CAS)
+      // débito/crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
       const creditei = await ajustarSaldoCompareAndSwap(timeOrigemId, +valorPago, saldoAlvoAntes)
       if (!debitei || !creditei) { setErroConfirm('Conflito ao atualizar saldos.'); return }
 
-      // Saldos (depois) para o modal Antes × Depois
-      const { data: timesFresh } = await supabase
-        .from('times')
-        .select('id,nome,logo_url,saldo')
-        .in('id', [idTime, timeOrigemId])
-
-      const freshMeu  = timesFresh?.find(t => t.id === idTime)
-      const freshAlvo = timesFresh?.find(t => t.id === timeOrigemId)
+      // saldos DEPOIS
+      const { data: timesFresh } = await supabase.from('times').select('id,nome,logo_url,saldo').in('id', [idTime, timeOrigemId])
+      const freshMeu  = (timesFresh as any[])?.find(t => t.id === idTime)
+      const freshAlvo = (timesFresh as any[])?.find(t => t.id === timeOrigemId)
       const saldoMeuDepois  = Number(freshMeu?.saldo  ?? (saldoMeuAntes  - valorPago))
       const saldoAlvoDepois = Number(freshAlvo?.saldo ?? (saldoAlvoAntes + valorPago))
 
-      // Config: contadores/bloqueios
-      const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
+      // atualizar config (contadores/bloqueios)
+      const atualizado: RoubosMap = { ...(cfg.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
       if (!atualizado[idTime][timeOrigemId]) atualizado[idTime][timeOrigemId] = 0
       atualizado[idTime][timeOrigemId]++
 
-      // bloqueio do jogador no novo time (evento atual)
-      const bloqAtual: BloqueadosMap = { ...(cfg?.bloqueios || {}) }
+      const bloqAtual: BloqueadosMap = { ...(cfg.bloqueios || {}) }
       const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
-      const existe = listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))
-      if (!existe) {
+      if (!listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))) {
         listaNovo.push({ id: jogador.id, nome: jogador.nome, posicao: jogador.posicao })
         bloqAtual[idTime] = listaNovo
       }
 
-      // bloqueio persistente até o próximo evento
-      const persist: BloqPersistMap = { ...(cfg?.bloqueios_persistentes || {}) }
-      const atualEvento = Number(cfg?.roubo_evento_num ?? 0)
+      const persistRaw = (cfg.bloqueios_persistentes ?? cfg.rebloqueio_ate_evento ?? {}) as BloqPersistMap
+      const persist: BloqPersistMap = { ...persistRaw }
+      const atualEvento = Number(cfg.roubo_evento_num ?? 0)
       persist[jogador.id] = atualEvento + 1
 
       await supabase.from('configuracoes')
-        .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
-        .eq('id', CONFIG_ID)
+        .update({
+          roubos: atualizado,
+          bloqueios: bloqAtual,
+          // persiste no mesmo campo que já existir
+          ...(cfg.bloqueios_persistentes != null
+            ? { bloqueios_persistentes: persist }
+            : { rebloqueio_ate_evento: persist })
+        })
+        .eq('id', thisConfigId)
 
       // BID
       await supabase.from('bid').insert({
@@ -460,39 +411,45 @@ export default function EventoRouboPage() {
       setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
       setRoubosDaRodada(prev => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
 
-      // Fecha confirmação e mostra comparativo
       fecharConfirmacao()
       setComparativo({
         jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
-        de:   { id: timeOrigemId, nome: nomeAlvo, logo_url: alvoInfo.logo_url ?? (ordem.find(t=>t.id===timeOrigemId)?.logo_url ?? null), saldoAntes: saldoAlvoAntes, saldoDepois: saldoAlvoDepois },
-        para: { id: idTime,       nome: nomeMeu,  logo_url: meuInfo.logo_url  ?? (ordem.find(t=>t.id===idTime)?.logo_url ?? null),  saldoAntes: saldoMeuAntes,  saldoDepois: saldoMeuDepois },
+        de:   { id: timeOrigemId, nome: nomeAlvo, logo_url: (alvoInfo as any).logo_url ?? (ordem.find(t=>t.id===timeOrigemId)?.logo_url ?? null), saldoAntes: saldoAlvoAntes, saldoDepois: saldoAlvoDepois },
+        para: { id: idTime,       nome: nomeMeu,  logo_url: (meuInfo  as any).logo_url  ?? (ordem.find(t=>t.id===idTime)?.logo_url ?? null),  saldoAntes: saldoMeuAntes,  saldoDepois: saldoMeuDepois },
         valorPago
       })
 
       toast.success(`✅ Você roubou o jogador ${jogador.nome}.`)
-      // limpa UI da lista
-      setMostrarJogadores(false)
-      setAlvoSelecionado('')
-      setJogadoresAlvo([])
-    } catch (e) {
+      setMostrarJogadores(false); setAlvoSelecionado(''); setJogadoresAlvo([])
+    } catch (e: any) {
       console.error(e)
-      setErroConfirm('Erro ao processar roubo.')
+      setErroConfirm(`Erro ao processar roubo${e?.message ? `: ${e.message}` : ''}`)
     } finally {
-      setProcessandoRoubo(false)
-      setBloqueioBotao(false)
+      setProcessandoRoubo(false); setBloqueioBotao(false)
     }
   }
 
   /** ===== Admin: ordem/vez/limpar/finalizar ===== */
+  async function ensureConfigIdOrFail() {
+    if (!configId) {
+      const cfg = await findConfigRow()
+      if (!cfg) { toast.error('Configuração do evento não encontrada.'); return null }
+      setConfigId(cfg.id)
+      return cfg.id
+    }
+    return configId
+  }
+
   async function sortearOrdem() {
+    const id = await ensureConfigIdOrFail(); if (!id) return
+
     const { data: times, error } = await supabase.from('times').select('id, nome, logo_url')
     if (error || !times) { toast.error('Erro ao buscar times.'); return }
 
-    const { data: cfg } = await supabase
-      .from('configuracoes').select('roubo_evento_num').eq('id', CONFIG_ID).single()
-    const novoNum = Number(cfg?.roubo_evento_num ?? 0) + 1
+    const { data: cfg } = await supabase.from('configuracoes').select('roubo_evento_num').eq('id', id).maybeSingle()
+    const novoNum = Number((cfg as any)?.roubo_evento_num ?? 0) + 1
 
-    const embaralhado: Time[] = [...times]
+    const embaralhado: Time[] = [...(times as any[])]
       .map((t) => ({ ...t, r: Math.random() }))
       .sort((a, b) => a.r - b.r)
       .map(({ r, ...rest }) => rest)
@@ -500,69 +457,59 @@ export default function EventoRouboPage() {
     const ids = embaralhado.map((t) => t.id)
     const { error: errUpd } = await supabase
       .from('configuracoes')
-      .update({ ordem: ids, vez: '0', roubo_evento_num: novoNum, ativo: true, fase: 'acao' })
-      .eq('id', CONFIG_ID)
+      .update({ ordem: ids, vez: '0', roubo_evento_num: novoNum, ativo: true, fase: 'acao', evento_roubo: true })
+      .eq('id', id)
     if (errUpd) { toast.error('Erro ao sortear a ordem.'); return }
 
     setEventoFinalizado(false)
-    setResumoFinal([])
-    setRoubosDaRodada([])
-    setUltimoRoubo(null)
+    setResumoFinal([]); setRoubosDaRodada([]); setUltimoRoubo(null)
 
-    setOrdem(embaralhado)
-    setVez(0)
-    setOrdemSorteada(true)
-    setEventoNum(novoNum)
+    setOrdem(embaralhado); setVez(0); setOrdemSorteada(true); setEventoNum(novoNum)
     toast.success('🎲 Ordem sorteada! Boa sorte.')
   }
 
   async function passarVez() {
+    const id = await ensureConfigIdOrFail(); if (!id) return
     const novaVez = vez + 1
-    await supabase.from('configuracoes').update({ vez: String(novaVez) }).eq('id', CONFIG_ID)
-    setVez(novaVez)
-    setAlvoSelecionado('')
-    setJogadoresAlvo([])
-    setMostrarJogadores(false)
+    await supabase.from('configuracoes').update({ vez: String(novaVez) }).eq('id', id)
+    setVez(novaVez); setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false)
   }
 
   async function limparSorteio() {
-    await supabase.from('configuracoes').update({ ordem: null, vez: '0' }).eq('id', CONFIG_ID)
-    setOrdem([])
-    setOrdemSorteada(false)
-    setVez(0)
-    setResumoFinal([])
-    setRoubosDaRodada([])
-    setUltimoRoubo(null)
+    const id = await ensureConfigIdOrFail(); if (!id) return
+    await supabase.from('configuracoes').update({ ordem: null, vez: '0' }).eq('id', id)
+    setOrdem([]); setOrdemSorteada(false); setVez(0)
+    setResumoFinal([]); setRoubosDaRodada([]); setUltimoRoubo(null)
     toast('🧹 Sorteio limpo.')
   }
 
   async function finalizarEvento() {
-    // salva resumo antes de limpar
+    const id = await ensureConfigIdOrFail(); if (!id) return
     setResumoFinal(roubosDaRodada)
 
     const { data: cfg, error } = await supabase
       .from('configuracoes')
-      .select('roubo_evento_num,bloqueios_persistentes')
-      .eq('id', CONFIG_ID)
-      .single<ConfigEvento>()
+      .select('roubo_evento_num,bloqueios_persistentes,rebloqueio_ate_evento')
+      .eq('id', id)
+      .maybeSingle<ConfigEvento>()
     if (error) { toast.error('Erro ao carregar configuração.'); return }
 
-    const ev = Number(cfg?.roubo_evento_num ?? 0)
-    const persist = (cfg?.bloqueios_persistentes ?? {}) as BloqPersistMap
+    const ev = Number((cfg as any)?.roubo_evento_num ?? 0)
+    const persistRaw = ((cfg as any)?.bloqueios_persistentes ?? (cfg as any)?.rebloqueio_ate_evento ?? {}) as BloqPersistMap
     const novoPersist: BloqPersistMap = {}
-    for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
+    for (const [jid, ate] of Object.entries(persistRaw)) if ((ate as number) >= ev) novoPersist[jid] = ate as number
 
-    const { error: updErr } = await supabase
-      .from('configuracoes')
-      .update({ ativo: false, fase: 'finalizado', roubos: {}, bloqueios: {}, bloqueios_persistentes: novoPersist })
-      .eq('id', CONFIG_ID)
+    const updatePayload: any = { ativo: false, fase: 'finalizado', roubos: {}, bloqueios: {} }
+    if ((cfg as any)?.bloqueios_persistentes != null) updatePayload.bloqueios_persistentes = novoPersist
+    else updatePayload.rebloqueio_ate_evento = novoPersist
+
+    const { error: updErr } = await supabase.from('configuracoes').update(updatePayload).eq('id', id)
     if (updErr) { toast.error('Erro ao finalizar evento.'); return }
 
     setEventoFinalizado(true)
     setOrdem([]); setOrdemSorteada(false); setVez(0)
     setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false)
     setRoubosDaRodada([]); setUltimoRoubo(null)
-
     toast.success('✅ Evento finalizado! Resumo abaixo.')
   }
 
@@ -615,7 +562,7 @@ export default function EventoRouboPage() {
               <p className="text-sm opacity-80">Agora:</p>
               <div className="flex items-center gap-2 justify-end">
                 {ordem[vez]?.logo_url && <img src={ordem[vez]!.logo_url!} className="h-7 w-7 rounded-full object-cover" alt="" />}
-                <p className="text-lg font-semibold text-green-300">{nomeTimeDaVez || '—'}</p>
+                <p className="text-lg font-semibold text-green-300">{ordem[vez]?.nome || '—'}</p>
               </div>
               <p className="text-sm mt-1">⏳ Tempo restante: <Cronometro key={vez} ativo={ordemSorteada} isAdmin={!!isAdmin} onTimeout={passarVez} /></p>
             </div>
@@ -668,7 +615,7 @@ export default function EventoRouboPage() {
           </Card>
         )}
 
-        {/* Seletor de time-alvo (sempre mostra times) */}
+        {/* Seletor de time-alvo */}
         <Card>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
@@ -687,9 +634,7 @@ export default function EventoRouboPage() {
               const restante = Math.max(0, limitePerda - perdas)
               const jaRoubei = jaRoubouDesseAlvo(time.id)
               const bloqueadoPorRegra = !podeRoubar(time.id)
-              const labelMotivo = bloqueadoPorRegra
-                ? ` (limite atingido)`
-                : ''
+              const labelMotivo = bloqueadoPorRegra ? ` (limite atingido)` : ''
               return (
                 <option key={time.id} value={time.id}>
                   {time.nome} — pode perder {restante}/{limitePerda} • você: {jaRoubei}/{LIMITE_POR_ALVO_POR_TIME}{labelMotivo}
@@ -709,31 +654,21 @@ export default function EventoRouboPage() {
           </div>
         </Card>
 
-        {/* Ações do Admin / Jogador */}
+        {/* Ações Admin / Jogador */}
         {!loading && !loadingAdmin && (
           <div className="grid md:grid-cols-4 gap-3">
             {isAdmin ? (
               <>
-                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">
-                  🎲 Sortear Ordem
-                </button>
-                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">
-                  ⏭️ Passar Vez
-                </button>
-                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">
-                  🛑 Finalizar Evento
-                </button>
-                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">
-                  🧹 Limpar Sorteio
-                </button>
+                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear Ordem</button>
+                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭️ Passar Vez</button>
+                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Finalizar Evento</button>
+                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">🧹 Limpar Sorteio</button>
               </>
             ) : (
               <>
                 <div className="md:col-span-3" />
                 {minhaVez && (
-                  <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">
-                    ⏭️ Encerrar Minha Vez
-                  </button>
+                  <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭️ Encerrar Minha Vez</button>
                 )}
               </>
             )}
@@ -787,9 +722,7 @@ export default function EventoRouboPage() {
                   )}
                 </>
               ) : (
-                <div className="text-center py-6 opacity-80">
-                  Aguarde sua vez. Time da vez: <b>{nomeTimeDaVez || '—'}</b>.
-                </div>
+                <div className="text-center py-6 opacity-80">Aguarde sua vez. Time da vez: <b>{ordem[vez]?.nome || '—'}</b>.</div>
               )}
             </>
           ) : (
@@ -807,26 +740,18 @@ export default function EventoRouboPage() {
               Você está prestes a roubar <b>{confirmJogador.nome}</b> ({confirmJogador.posicao}).<br />
               O valor será <b>{brl(confirmValor)}</b>, descontado do seu caixa.
             </p>
-
             <div className="flex items-center justify-between mt-4 text-sm">
               <Chip>Preço do jogador: {brl(confirmJogador.valor)}</Chip>
               <Chip>Você paga: {brl(confirmValor)}</Chip>
             </div>
-
             <div className="grid grid-cols-2 gap-3 mt-5">
-              <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">
-                Cancelar
-              </button>
+              <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">Cancelar</button>
               <button onClick={confirmarRoubo} disabled={processandoRoubo} className="rounded-xl py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold">
                 {processandoRoubo ? 'Processando...' : 'Confirmar Roubo'}
               </button>
             </div>
-
             {erroConfirm && <p className="text-sm text-red-300 mt-3">{erroConfirm}</p>}
-
-            <p className="text-xs opacity-70 mt-3">
-              * Após a confirmação, o jogador será transferido para o seu elenco e não poderá ser roubado novamente neste e no próximo evento.
-            </p>
+            <p className="text-xs opacity-70 mt-3">* Após a confirmação, o jogador será transferido para o seu elenco e não poderá ser roubado novamente neste e no próximo evento.</p>
           </div>
         </div>
       )}
@@ -839,51 +764,34 @@ export default function EventoRouboPage() {
             <p className="text-sm opacity-90 mb-4">
               Você roubou <b>{comparativo.jogador.nome}</b> ({comparativo.jogador.posicao}) por <b>{brl(comparativo.valorPago)}</b>.
             </p>
-
             <div className="grid md:grid-cols-2 gap-4">
-              {/* De */}
               <div className="rounded-xl p-4 bg-white/5 border border-white/10">
                 <div className="flex items-center gap-3 mb-3">
-                  {comparativo.de.logo_url
-                    ? <img src={comparativo.de.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
-                    : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(comparativo.de.nome)}</div>}
-                  <div>
-                    <div className="text-xs opacity-70">De</div>
-                    <div className="font-semibold">{comparativo.de.nome}</div>
-                  </div>
+                  {comparativo.de.logo_url ? <img src={comparativo.de.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" /> : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(comparativo.de.nome)}</div>}
+                  <div><div className="text-xs opacity-70">De</div><div className="font-semibold">{comparativo.de.nome}</div></div>
                 </div>
                 <div className="text-sm">
                   <div className="opacity-80 mb-1">Saldo</div>
                   <div className="flex items-center gap-2">
-                    <Chip>{brl(comparativo.de.saldoAntes)}</Chip>
-                    <span className="opacity-70">→</span>
+                    <Chip>{brl(comparativo.de.saldoAntes)}</Chip><span className="opacity-70">→</span>
                     <Chip className="bg-green-500/20 border-green-400/40 text-green-200">{brl(comparativo.de.saldoDepois)}</Chip>
                   </div>
                 </div>
               </div>
-
-              {/* Para */}
               <div className="rounded-xl p-4 bg-white/5 border border-white/10">
                 <div className="flex items-center gap-3 mb-3">
-                  {comparativo.para.logo_url
-                    ? <img src={comparativo.para.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
-                    : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(comparativo.para.nome)}</div>}
-                  <div>
-                    <div className="text-xs opacity-70">Para</div>
-                    <div className="font-semibold">{comparativo.para.nome}</div>
-                  </div>
+                  {comparativo.para.logo_url ? <img src={comparativo.para.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" /> : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(comparativo.para.nome)}</div>}
+                  <div><div className="text-xs opacity-70">Para</div><div className="font-semibold">{comparativo.para.nome}</div></div>
                 </div>
                 <div className="text-sm">
                   <div className="opacity-80 mb-1">Saldo</div>
                   <div className="flex items-center gap-2">
-                    <Chip className="bg-red-500/20 border-red-400/40 text-red-200">{brl(comparativo.para.saldoAntes)}</Chip>
-                    <span className="opacity-70">→</span>
+                    <Chip className="bg-red-500/20 border-red-400/40 text-red-200">{brl(comparativo.para.saldoAntes)}</Chip><span className="opacity-70">→</span>
                     <Chip>{brl(comparativo.para.saldoDepois)}</Chip>
                   </div>
                 </div>
               </div>
             </div>
-
             <div className="grid grid-cols-2 gap-3 mt-5">
               <button onClick={()=>setComparativo(null)} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">Fechar</button>
               <button onClick={()=>setComparativo(null)} className="rounded-xl py-2 bg-green-600 hover:bg-green-700 transition font-semibold">OK</button>
