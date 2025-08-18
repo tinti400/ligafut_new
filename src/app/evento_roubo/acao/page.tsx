@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, ReactNode } from 'react'
+import { useEffect, useMemo, useState, ReactNode } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import { useAdmin } from '@/hooks/useAdmin'
@@ -51,8 +51,6 @@ const LIMITE_ROUBOS_POR_TIME_DEFAULT = 3
 const PERCENTUAL_ROUBO = 0.5
 
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
-const norm = (s: string) =>
-  (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
 
 export default function EventoRouboPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
@@ -76,8 +74,6 @@ export default function EventoRouboPage() {
 
   // alvo / jogadores
   const [alvoSelecionado, setAlvoSelecionado] = useState<string>('')
-  const [buscaAlvo, setBuscaAlvo] = useState('')
-  const [dropAberto, setDropAberto] = useState(false)
   const [jogadoresAlvo, setJogadoresAlvo] = useState<Jogador[]>([])
   const [mostrarJogadores, setMostrarJogadores] = useState(false)
   const [carregandoJogadores, setCarregandoJogadores] = useState(false)
@@ -207,92 +203,20 @@ export default function EventoRouboPage() {
     [ordem, idTime, roubos, limitePerda, limiteRoubosPorTime]
   )
 
-  /** ========= Índice nome→Time para resolver o alvo por texto ========= */
-  const indexAlvos = useMemo(() => {
-    const m = new Map<string, Time>()
-    for (const t of ordem.filter(tt => tt.id !== idTime)) {
-      m.set(norm(t.nome), t)
-    }
-    return m
-  }, [ordem, idTime])
-
-  /** ========= Combo pesquisável de Time-Alvo (topo) ========= */
-  const comboRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (comboRef.current && !comboRef.current.contains(e.target as Node)) setDropAberto(false)
-    }
-    document.addEventListener('mousedown', onClickOutside)
-    return () => document.removeEventListener('mousedown', onClickOutside)
-  }, [])
-
-  const opcoesFiltradas = useMemo(() => {
-    const q = norm(buscaAlvo)
-    if (!q) return opcoesDeAlvo
-    return opcoesDeAlvo.filter((o) => norm(o.nome).includes(q))
-  }, [buscaAlvo, opcoesDeAlvo])
-
-  function labelAlvo(t: Time) {
-    const perdas = totalPerdasDoAlvo(t.id)
-    const restante = Math.max(0, limitePerda - perdas)
-    const jaRoubei = jaRoubouDesseAlvo(t.id)
-    return `${t.nome} — pode perder ${restante}/${limitePerda} • você: ${jaRoubei}/${LIMITE_POR_ALVO_POR_TIME}`
-  }
-  function selecionarAlvo(t: Time) {
-    setAlvoSelecionado(t.id)
-    setBuscaAlvo(t.nome)
-    setDropAberto(false)
-    setMostrarJogadores(false)
-    setJogadoresAlvo([])
-  }
-
-  /** ========= Resolve ID do alvo (não depende do dropdown) ========= */
-  async function resolverAlvoId(): Promise<string | null> {
-    if (alvoSelecionado) return alvoSelecionado
-    const q = norm(buscaAlvo)
-    if (!q) return null
-
-    // 1) match exato
-    const exato = indexAlvos.get(q)
-    if (exato) return exato.id
-
-    // 2) match parcial entre alvos permitidos
-    for (const t of indexAlvos.values()) {
-      if (norm(t.nome).includes(q)) return t.id
-    }
-
-    // 3) fallback: procurar no banco, mas restringindo aos IDs da ordem
-    const idsOrdem = ordem.map(t => t.id)
-    const { data: candidatos, error } = await supabase
-      .from('times')
-      .select('id,nome')
-      .ilike('nome', `%${buscaAlvo}%`)
-      .in('id', idsOrdem)
-
-    if (!error && candidatos && candidatos.length) {
-      return candidatos[0].id
-    }
-    return null
-  }
-
   /** ========= Carregar jogadores do alvo (apenas id_time) ========= */
   async function carregarJogadoresDoAlvo() {
-    // abre a área sempre (para o usuário ver alguma resposta)
-    setMostrarJogadores(true)
-    setCarregandoJogadores(true)
-
-    const targetId = await resolverAlvoId()
-    if (!targetId) {
-      setJogadoresAlvo([])
-      setCarregandoJogadores(false)
-      toast('Selecione um time válido na lista acima.')
+    if (!alvoSelecionado) {
+      toast('Selecione um time-alvo.')
       return
     }
+
+    setMostrarJogadores(true)
+    setCarregandoJogadores(true)
 
     const { data, error } = await supabase
       .from('elenco')
       .select('id, nome, posicao, valor, id_time')
-      .eq('id_time', targetId)
+      .eq('id_time', alvoSelecionado)
       .order('nome', { ascending: true })
 
     if (error) {
@@ -304,7 +228,7 @@ export default function EventoRouboPage() {
     const base = (data || []) as Jogador[]
 
     // bloqueios do evento atual (por time)
-    const bloqueiosDoAlvo = (bloqueados[targetId] || [])
+    const bloqueiosDoAlvo = (bloqueados[alvoSelecionado] || [])
     const idsBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.id).filter(Boolean))
     const nomesBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.nome))
 
@@ -673,6 +597,11 @@ export default function EventoRouboPage() {
     </Card>
   )
 
+  const nomeAlvoSelecionado = useMemo(
+    () => ordem.find(t => t.id === alvoSelecionado)?.nome || '',
+    [ordem, alvoSelecionado]
+  )
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] text-white">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
@@ -703,84 +632,39 @@ export default function EventoRouboPage() {
           </Card>
         )}
 
-        {/* Seletor de time-alvo (TOPO) */}
+        {/* Seletor de time-alvo (simples) */}
         <Card>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
             <Chip>Seu limite total: {limiteRoubosPorTime} • Já roubou: {totalRoubosDoMeuTime()}</Chip>
           </div>
 
-          <div ref={comboRef} className="relative">
-            <div className={`flex items-center gap-2 p-2 rounded-xl border ${minhaVez ? 'border-white/20 bg-white/10' : 'border-white/10 bg-white/5 opacity-60'} focus-within:border-white/40`}>
-              <input
-                value={buscaAlvo}
-                onChange={(e) => { setBuscaAlvo(e.target.value); setDropAberto(true) }}
-                onFocus={() => setDropAberto(true)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (opcoesFiltradas.length > 0) {
-                      selecionarAlvo(opcoesFiltradas[0])
-                    } else {
-                      carregarJogadoresDoAlvo()
-                    }
-                  }
-                }}
-                placeholder={minhaVez ? 'Digite para buscar...' : 'Aguarde sua vez para selecionar'}
-                className="flex-1 bg-transparent outline-none text-sm"
-                disabled={!minhaVez || !ordemSorteada}
-              />
-              {buscaAlvo && (
-                <button
-                  type="button"
-                  onClick={() => { setBuscaAlvo(''); setAlvoSelecionado(''); }}
-                  className="text-xs px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20"
-                  disabled={!minhaVez || !ordemSorteada}
-                >
-                  Limpar
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setDropAberto((v) => !v)}
-                className="text-xs px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20"
-                disabled={!minhaVez || !ordemSorteada}
-              >
-                ▼
-              </button>
-            </div>
-
-            {dropAberto && minhaVez && ordemSorteada && (
-              <div className="absolute z-[60] mt-2 w-full max-h-64 overflow-auto rounded-xl border border-white/10 bg-[#101826] shadow-xl">
-                {opcoesFiltradas.length === 0 ? (
-                  <div className="px-3 py-2 text-sm opacity-70">Nenhum time encontrado.</div>
-                ) : opcoesFiltradas.map((t) => (
-                  <button
-                    key={t.id}
-                    onMouseDown={(e) => { e.preventDefault(); selecionarAlvo(t) }}
-                    className="w-full text-left px-3 py-2 hover:bg-white/10 flex items-center gap-3"
-                  >
-                    {t.logo_url ? <img src={t.logo_url} className="h-6 w-6 rounded-full" alt="" /> : <div className="h-6 w-6 rounded-full bg-white/10" />}
-                    <div className="flex-1">
-                      <div className="text-sm font-medium">{t.nome}</div>
-                      <div className="text-xs opacity-70">{labelAlvo(t)}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {(alvoSelecionado || buscaAlvo) && (
-            <div className="mt-2 text-xs opacity-80">Alvo: <b>{buscaAlvo || '—'}</b></div>
-          )}
+          <select
+            value={alvoSelecionado}
+            onChange={(e) => { setAlvoSelecionado(e.target.value); setMostrarJogadores(false); setJogadoresAlvo([]) }}
+            className="w-full p-3 rounded-xl bg-white/10 border border-white/10 focus:outline-none"
+            disabled={!minhaVez || !ordemSorteada}
+          >
+            <option value="">Selecione um time...</option>
+            {opcoesDeAlvo.map((time) => {
+              const perdas = totalPerdasDoAlvo(time.id)
+              const restante = Math.max(0, limitePerda - perdas)
+              const jaRoubei = jaRoubouDesseAlvo(time.id)
+              return (
+                <option key={time.id} value={time.id}>
+                  {time.nome} — pode perder {restante}/{limitePerda} • você: {jaRoubei}/{LIMITE_POR_ALVO_POR_TIME}
+                </option>
+              )
+            })}
+          </select>
 
           <div className="mt-3">
             <button
               onClick={carregarJogadoresDoAlvo}
-              disabled={!minhaVez}
+              disabled={!minhaVez || !alvoSelecionado}
               className="w-full rounded-xl py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed transition font-semibold"
             >
-              🔎 Ver jogadores do {buscaAlvo || 'time selecionado'}
+              🔎 Ver jogadores disponíveis {nomeAlvoSelecionado ? `de ${nomeAlvoSelecionado}` : ''}
             </button>
           </div>
         </Card>
@@ -829,7 +713,7 @@ export default function EventoRouboPage() {
                 <>
                   {!mostrarJogadores ? (
                     <div className="text-center py-6 opacity-80">
-                      Selecione um <b>time-alvo</b> acima e clique em <b>“Ver jogadores”</b>.
+                      Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores disponíveis”</b>.
                     </div>
                   ) : carregandoJogadores ? (
                     <p className="text-center opacity-80">Carregando elenco...</p>
