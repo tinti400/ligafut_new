@@ -27,7 +27,7 @@ type JogoOitavas = {
   time2: string
   gols_time1: number | null
   gols_time2: number | null
-  // podem não existir no schema — opcionais para evitar erro no build
+  // opcionais, o schema pode não ter
   gols_time1_volta?: number | null
   gols_time2_volta?: number | null
 }
@@ -323,7 +323,7 @@ export default function OitavasPage() {
     broadcast({ pares: novos, parAtual: { A: null, B: null } })
   }
 
-  /** ====== Gravar confrontos ====== */
+  /** ====== Gravar confrontos das Oitavas ====== */
   async function gravarConfrontos() {
     if (!isAdmin) return
     if (pares.length !== 8) { toast.error('Finalize os 8 confrontos.'); return }
@@ -399,7 +399,17 @@ export default function OitavasPage() {
     else toast.success('Placar salvo!')
   }
 
-  /** ====== Finalizar Oitavas (gera Quartas) ====== */
+  /** ===== Helper: checar se todos os jogos têm placar preenchido ===== */
+  const oitavasCompletas = useMemo(() => {
+    if (jogos.length !== 8) return false
+    return jogos.every(j =>
+      j.gols_time1 !== null &&
+      j.gols_time2 !== null &&
+      (!supportsVolta || ((j as any).gols_time1_volta !== null && (j as any).gols_time2_volta !== null))
+    )
+  }, [jogos, supportsVolta])
+
+  /** ====== FINALIZAR OITAVAS (sequencial) — mantém caso queira usar ====== */
   async function finalizarOitavas() {
     const { data: dataJogos, error: errJ } = await supabase
       .from('copa_oitavas')
@@ -452,14 +462,131 @@ export default function OitavasPage() {
     }
 
     try {
-      for (const c of novos) {
-        const { error } = await supabase.from('copa_quartas').insert(c)
-        if (error) throw error
+      // opcional: limpar antes
+      await supabase.from('copa_quartas').delete().neq('id', 0).throwOnError()
+
+      // tenta com volta; se falhar, insere sem volta
+      const ins1 = await supabase
+        .from('copa_quartas')
+        .insert(novos.map(n => ({ ...n, gols_time1_volta: null, gols_time2_volta: null })))
+      if (ins1.error && mentionsVolta(ins1.error.message)) {
+        const ins2 = await supabase.from('copa_quartas').insert(novos)
+        if (ins2.error) throw ins2.error
+      } else if (ins1.error) {
+        throw ins1.error
       }
-      toast.success('Classificados para as Quartas!')
+
+      toast.success('Classificados para as Quartas (ordem sequencial).')
     } catch (e) {
       console.error(e)
       toast.error('Erro ao gerar Quartas')
+    }
+  }
+
+  /** ====== NOVO: Sortear Quartas com POTE ÚNICO ====== */
+  async function sortearQuartasPoteUnico() {
+    if (!isAdmin) return
+
+    // buscar confrontos das oitavas (com/sem volta)
+    let hasVolta = true
+    let data: any[] | null = null
+    {
+      const q1 = await supabase
+        .from('copa_oitavas')
+        .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
+        .order('ordem', { ascending: true })
+      if (q1.error && mentionsVolta(q1.error.message)) {
+        hasVolta = false
+        const q2 = await supabase
+          .from('copa_oitavas')
+          .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2')
+          .order('ordem', { ascending: true })
+        if (q2.error) { toast.error('Erro ao ler Oitavas'); return }
+        data = q2.data as any
+      } else if (q1.error) {
+        toast.error('Erro ao ler Oitavas')
+        return
+      } else {
+        data = q1.data as any
+      }
+    }
+
+    const jogosAtual = (data || []) as JogoOitavas[]
+    if (jogosAtual.length !== 8) {
+      toast.error('É preciso ter 8 confrontos nas Oitavas.')
+      return
+    }
+
+    // validar completos
+    const incompletos = jogosAtual.some(j =>
+      j.gols_time1 === null || j.gols_time2 === null ||
+      (hasVolta && (((j as any).gols_time1_volta ?? null) === null || ((j as any).gols_time2_volta ?? null) === null))
+    )
+    if (incompletos) {
+      toast.error('Preencha todos os placares das Oitavas (ida e volta, se houver).')
+      return
+    }
+
+    // determinar vencedores (empate -> time1)
+    const vencedoresIds: string[] = []
+    for (const j of jogosAtual) {
+      const ida1 = j.gols_time1 || 0
+      const ida2 = j.gols_time2 || 0
+      const vol1 = hasVolta ? ((j as any).gols_time1_volta || 0) : 0
+      const vol2 = hasVolta ? ((j as any).gols_time2_volta || 0) : 0
+      const total1 = ida1 + vol1
+      const total2 = ida2 + vol2
+      vencedoresIds.push(total1 >= total2 ? j.id_time1 : j.id_time2)
+    }
+
+    // buscar nomes
+    const { data: timesData, error: tErr } = await supabase
+      .from('times')
+      .select('id, nome')
+      .in('id', vencedoresIds)
+    if (tErr) { toast.error('Erro ao buscar nomes dos classificados.'); return }
+    const nomePorId = new Map<string, string>()
+    ;(timesData || []).forEach(t => nomePorId.set(t.id, t.nome))
+
+    // embaralhar pote único
+    const poteUnico = shuffle([...vencedoresIds])
+
+    // formar 4 confrontos
+    const quartas: any[] = []
+    for (let i = 0; i < 8; i += 2) {
+      const id1 = poteUnico[i]
+      const id2 = poteUnico[i + 1]
+      quartas.push({
+        rodada: 1,
+        ordem: (i / 2) + 1,
+        id_time1: id1,
+        id_time2: id2,
+        time1: nomePorId.get(id1) ?? 'Time',
+        time2: nomePorId.get(id2) ?? 'Time',
+        gols_time1: null,
+        gols_time2: null,
+      })
+    }
+
+    try {
+      // limpar quartas anteriores
+      await supabase.from('copa_quartas').delete().neq('id', 0).throwOnError()
+
+      // tentar inserir com colunas de volta, senão sem volta
+      const ins1 = await supabase
+        .from('copa_quartas')
+        .insert(quartas.map(q => ({ ...q, gols_time1_volta: null, gols_time2_volta: null })))
+      if (ins1.error && mentionsVolta(ins1.error.message)) {
+        const ins2 = await supabase.from('copa_quartas').insert(quartas)
+        if (ins2.error) throw ins2.error
+      } else if (ins1.error) {
+        throw ins1.error
+      }
+
+      toast.success('Quartas sorteadas (pote único) e gravadas!')
+    } catch (e: any) {
+      console.error(e)
+      toast.error(`Erro ao sortear as Quartas: ${e?.message || e}`)
     }
   }
 
@@ -500,7 +627,7 @@ export default function OitavasPage() {
             supportsVolta={supportsVolta}
             logosById={logosById}
             onChange={(next) => setJogos(prev => prev.map(j => j.id === jogo.id ? next : j))}
-            onSave={() => salvarPlacar(jogo)}
+            onSave={(updated) => salvarPlacar(updated)}
           />
         ))}
       </div>
@@ -508,7 +635,16 @@ export default function OitavasPage() {
       {isAdmin && (
         <div className="mt-8 flex flex-wrap gap-3">
           <button className="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-xl" onClick={finalizarOitavas}>
-            🏁 Finalizar Oitavas
+            🏁 Finalizar Oitavas (sequencial)
+          </button>
+
+          <button
+            className={`px-4 py-2 rounded-xl ${oitavasCompletas ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600/50 text-white/70 cursor-not-allowed'}`}
+            disabled={!oitavasCompletas}
+            onClick={sortearQuartasPoteUnico}
+            title={oitavasCompletas ? 'Sortear Quartas com pote único' : 'Preencha todos os placares das Oitavas para habilitar'}
+          >
+            🎲 Sortear Quartas (pote único)
           </button>
         </div>
       )}
@@ -652,7 +788,7 @@ function MatchCard({
   supportsVolta: boolean
   logosById: Record<string, string | null>
   onChange: (next: JogoOitavas) => void
-  onSave: () => void
+  onSave: (j: JogoOitavas) => void
 }) {
   const ida1 = jogo.gols_time1 ?? 0
   const ida2 = jogo.gols_time2 ?? 0
@@ -712,7 +848,7 @@ function MatchCard({
       {/* ação */}
       <div className="mt-4 flex justify-end">
         <button
-          onClick={onSave}
+          onClick={()=>onSave(jogo)}
           className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow focus:outline-none focus:ring-2 focus:ring-emerald-400/50">
           Salvar
         </button>
