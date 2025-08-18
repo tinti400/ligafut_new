@@ -1,9 +1,6 @@
-Você colou meu texto explicativo dentro do arquivo e o build quebrou. Abaixo está o **código completo, sem comentários extras**, pronto para colar em `src/app/evento_roubo/acao/page.tsx`:
-
-```tsx
 'use client'
 
-import { useEffect, useMemo, useState, ReactNode, useCallback } from 'react'
+import { useEffect, useMemo, useState, ReactNode, useCallback, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import { useAdmin } from '@/hooks/useAdmin'
@@ -15,7 +12,7 @@ const supabase = createClient(
 )
 
 /** ===== Tipos ===== */
-interface Time { id: string; nome: string; logo_url: string | null; saldo?: number }
+interface Time { id: string; nome: string; logo_url: string | null }
 interface Jogador { id: string; nome: string; posicao: string; valor: number; id_time: string }
 type RoubosMap = Record<string, Record<string, number>>
 type BloqueadosMap = Record<string, { id?: string; nome: string; posicao: string }[]>
@@ -28,18 +25,14 @@ type ConfigEvento = {
   bloqueios: BloqueadosMap | null
   limite_perda?: number | null
   limite_roubos_por_time?: number | null
-  limite_roubo?: number | null
   ativo?: boolean | null
   fase?: string | null
   roubo_evento_num?: number | null
   bloqueios_persistentes?: BloqPersistMap | null
-  rebloqueio_ate_evento?: BloqPersistMap | null
-  evento_roubo?: boolean | null
-  tipo?: string | null
 }
 
 /** ===== Regras/Constantes ===== */
-const CONFIG_ID_FALLBACK = '56f3af29-a4ac-4a76-aeb3-35400aa2a773'
+const CONFIG_ID = '56f3af29-a4ac-4a76-aeb3-35400aa2a773'
 const TEMPO_POR_VEZ = 240
 const LIMITE_POR_ALVO_POR_TIME = 2
 const LIMITE_PERDA_DEFAULT = 3
@@ -47,20 +40,29 @@ const LIMITE_ROUBOS_POR_TIME_DEFAULT = 3
 const PERCENTUAL_ROUBO = 0.5
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
 
+/** ===== Util ===== */
+function cls(...v: (string | false | null | undefined)[]) { return v.filter(Boolean).join(' ') }
+function initials(nome: string) { return nome.split(' ').slice(0,2).map(p=>p[0]).join('').toUpperCase() }
+const posColor: Record<string,string> = {
+  GL: 'bg-blue-500/20 text-blue-200 border-blue-400/30',
+  ZAG: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30',
+  LD: 'bg-teal-500/20 text-teal-200 border-teal-400/30',
+  LE: 'bg-teal-500/20 text-teal-200 border-teal-400/30',
+  VOL: 'bg-indigo-500/20 text-indigo-200 border-indigo-400/30',
+  MC: 'bg-indigo-500/20 text-indigo-200 border-indigo-400/30',
+  MD: 'bg-purple-500/20 text-purple-200 border-purple-400/30',
+  ME: 'bg-purple-500/20 text-purple-200 border-purple-400/30',
+  PD: 'bg-pink-500/20 text-pink-200 border-pink-400/30',
+  PE: 'bg-pink-500/20 text-pink-200 border-pink-400/30',
+  SA: 'bg-orange-500/20 text-orange-200 border-orange-400/30',
+  CA: 'bg-red-500/20 text-red-200 border-red-400/30',
+}
+
 /** ===== Cronômetro ===== */
-function Cronometro({
-  ativo,
-  isAdmin,
-  onTimeout,
-  start = TEMPO_POR_VEZ,
-}: {
-  ativo: boolean
-  isAdmin: boolean
-  onTimeout: () => void
-  start?: number
+function Cronometro({ ativo, isAdmin, onTimeout, start = TEMPO_POR_VEZ }:{
+  ativo:boolean; isAdmin:boolean; onTimeout:()=>void; start?:number
 }) {
   const [s, setS] = useState(start)
-
   useEffect(() => {
     if (!ativo) return
     let alive = true
@@ -75,21 +77,34 @@ function Cronometro({
         return prev - 1
       })
     }, 1000)
-    return () => {
-      alive = false
-      clearInterval(id)
-    }
+    return () => { alive = false; clearInterval(id) }
   }, [ativo, isAdmin, onTimeout])
-
   return <b>{s}s</b>
+}
+
+/** ===== UI helpers ===== */
+function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={cls('rounded-2xl p-4 shadow-lg bg-gradient-to-b from-gray-800/80 to-gray-900/80 border border-white/10', className)}>{children}</div>
+}
+function Chip({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <span className={cls('px-3 py-1 rounded-full text-xs font-semibold bg-white/10 border border-white/10', className)}>{children}</span>
+}
+function useClickOutside<T extends HTMLElement>(onOut: () => void) {
+  const ref = useRef<T | null>(null)
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (!ref.current) return
+      if (!ref.current.contains(e.target as Node)) onOut()
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [onOut])
+  return ref
 }
 
 export default function EventoRouboPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
   const [idTime, setIdTime] = useState<string>('')
-
-  // id real da configuração ativa
-  const [configId, setConfigId] = useState<string>('')
 
   // estado do evento
   const [ordem, setOrdem] = useState<Time[]>([])
@@ -110,11 +125,23 @@ export default function EventoRouboPage() {
   const [jogadoresAlvo, setJogadoresAlvo] = useState<Jogador[]>([])
   const [mostrarJogadores, setMostrarJogadores] = useState(false)
   const [carregandoJogadores, setCarregandoJogadores] = useState(false)
+  const [filtroJogador, setFiltroJogador] = useState('')
 
-  // modal de confirmação
+  // confirmação e resumo
   const [confirmJogador, setConfirmJogador] = useState<Jogador | null>(null)
   const [confirmValor, setConfirmValor] = useState<number>(0)
   const [processandoRoubo, setProcessandoRoubo] = useState(false)
+  const [ultimoRoubo, setUltimoRoubo] = useState<{ jogador: string; de: string; para: string; valor: number } | null>(null)
+  const [roubosDaRodada, setRoubosDaRodada] = useState<Array<{ id: string; nome: string; posicao: string; de: string; para: string; valor: number }>>([])
+  const [resumoFinal, setResumoFinal] = useState<typeof roubosDaRodada>([])
+
+  // NOVO: modal comparativo antes × depois
+  const [comparativo, setComparativo] = useState<null | {
+    jogador: { id: string; nome: string; posicao: string; valor: number }
+    de: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
+    para: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
+    valorPago: number
+  }>(null)
 
   const [loading, setLoading] = useState(true)
   const [bloqueioBotao, setBloqueioBotao] = useState(false)
@@ -122,19 +149,7 @@ export default function EventoRouboPage() {
   // banner pós-finalização
   const [eventoFinalizado, setEventoFinalizado] = useState(false)
 
-  async function findConfigRow(): Promise<ConfigEvento | null> {
-    if (configId) {
-      const { data } = await supabase.from('configuracoes').select('*').eq('id', configId).maybeSingle()
-      if (data) return data as ConfigEvento
-    }
-    const { data: byFlag } = await supabase.from('configuracoes').select('*').eq('evento_roubo', true).maybeSingle()
-    if (byFlag) return byFlag as ConfigEvento
-    const { data: byId } = await supabase.from('configuracoes').select('*').eq('id', CONFIG_ID_FALLBACK).maybeSingle()
-    if (byId) return byId as ConfigEvento
-    const { data: geral } = await supabase.from('configuracoes').select('*').eq('tipo', 'geral').maybeSingle()
-    return (geral as ConfigEvento) || null
-  }
-
+  /** ===== Init / Realtime ===== */
   useEffect(() => {
     const id = localStorage.getItem('id_time') || localStorage.getItem('idTime') || ''
     if (id) setIdTime(id)
@@ -142,57 +157,48 @@ export default function EventoRouboPage() {
 
     const canal = supabase
       .channel('evento-roubo')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, () => carregarEvento())
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'configuracoes', filter: `id=eq.${CONFIG_ID}` },
+        () => carregarEvento()
+      )
       .subscribe()
 
     return () => { supabase.removeChannel(canal) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** ===== Carregar estado do evento ===== */
   async function carregarEvento() {
     setLoading(true)
+    const { data, error } = await supabase
+      .from('configuracoes')
+      .select('*')
+      .eq('id', CONFIG_ID)
+      .single<ConfigEvento>()
 
-    const cfg = await findConfigRow()
-    if (!cfg) {
-      setLoading(false)
-      toast.error('Configuração do evento não encontrada.')
-      return
-    }
-    setConfigId(cfg.id)
+    if (error) { setLoading(false); toast.error('Erro ao carregar evento.'); return }
 
-    setVez(Number(cfg.vez ?? 0) || 0)
-    setRoubos((cfg.roubos || {}) as RoubosMap)
-    setBloqueados((cfg.bloqueios || {}) as BloqueadosMap)
-    setLimitePerda(cfg.limite_perda ?? LIMITE_PERDA_DEFAULT)
-    setLimiteRoubosPorTime(
-      (cfg.limite_roubos_por_time ?? cfg.limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
-    )
-    setEventoNum(Number(cfg.roubo_evento_num ?? 0))
-    setBloqPersist(((cfg.bloqueios_persistentes ?? cfg.rebloqueio_ate_evento) || {}) as BloqPersistMap)
-    setEventoFinalizado((cfg.fase || '') === 'finalizado')
+    setVez(Number(data.vez ?? 0) || 0)
+    setRoubos((data.roubos || {}) as RoubosMap)
+    setBloqueados((data.bloqueios || {}) as BloqueadosMap)
+    setLimitePerda(data.limite_perda ?? LIMITE_PERDA_DEFAULT)
+    setLimiteRoubosPorTime(data.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
+    setEventoNum(Number(data.roubo_evento_num ?? 0))
+    setBloqPersist((data.bloqueios_persistentes || {}) as BloqPersistMap)
+    setEventoFinalizado((data.fase || '') === 'finalizado')
 
-    if (cfg.ordem?.length) {
-      const { data: times, error: errTimes } = await supabase
-        .from('times')
-        .select('id, nome, logo_url')
-        .in('id', cfg.ordem)
-
+    if (data.ordem?.length) {
+      const { data: times, error: errTimes } = await supabase.from('times').select('id, nome, logo_url').in('id', data.ordem)
       if (!errTimes && times) {
-        const ordemCompleta = (cfg.ordem as string[])
-          .map((id) => (times as any[]).find((t) => t.id === id))
-          .filter(Boolean) as Time[]
-        setOrdem(ordemCompleta)
-        setOrdemSorteada(true)
-      } else {
-        setOrdem([]); setOrdemSorteada(false)
-      }
-    } else {
-      setOrdem([]); setOrdemSorteada(false)
-    }
-
+        const ordemCompleta = (data.ordem as string[]).map((id) => (times as Time[]).find((t) => t.id === id)).filter(Boolean) as Time[]
+        setOrdem(ordemCompleta); setOrdemSorteada(true)
+      } else { setOrdem([]); setOrdemSorteada(false) }
+    } else { setOrdem([]); setOrdemSorteada(false) }
     setLoading(false)
   }
 
+  /** ===== Regras / Cálculos ===== */
   const totalPerdasDoAlvo = useCallback((alvoId: string) =>
     Object.values(roubos).map(r => r[alvoId] || 0).reduce((a, b) => a + b, 0)
   , [roubos])
@@ -217,24 +223,13 @@ export default function EventoRouboPage() {
   const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
-  const alvosListados = useMemo(
-    () => ordem.filter((t) => t.id !== idTime),
-    [ordem, idTime]
-  )
+  const alvosListados = useMemo(() => ordem.filter((t) => t.id !== idTime), [ordem, idTime])
+  const nomeAlvoSelecionado = useMemo(() => ordem.find(t => t.id === alvoSelecionado)?.nome || '', [ordem, alvoSelecionado])
 
-  const nomeAlvoSelecionado = useMemo(
-    () => ordem.find(t => t.id === alvoSelecionado)?.nome || '',
-    [ordem, alvoSelecionado]
-  )
-
+  /** ===== Carregar jogadores do alvo ===== */
   async function carregarJogadoresDoAlvo() {
-    if (!alvoSelecionado) {
-      toast('Selecione um time-alvo.')
-      return
-    }
-
-    setMostrarJogadores(true)
-    setCarregandoJogadores(true)
+    if (!alvoSelecionado) { toast('Selecione um time-alvo.'); return }
+    setMostrarJogadores(true); setCarregandoJogadores(true)
 
     const { data, error } = await supabase
       .from('elenco')
@@ -242,44 +237,32 @@ export default function EventoRouboPage() {
       .eq('id_time', alvoSelecionado)
       .order('nome', { ascending: true })
 
-    if (error) {
-      setCarregandoJogadores(false)
-      toast.error(`Erro ao carregar jogadores do alvo: ${error.message}`)
-      return
-    }
+    if (error) { setCarregandoJogadores(false); toast.error(`Erro ao carregar jogadores do alvo: ${error.message}`); return }
 
     const base = (data || []) as Jogador[]
-
     const bloqueiosDoAlvo = (bloqueados[alvoSelecionado] || [])
     const idsBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.id).filter(Boolean))
     const nomesBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.nome))
 
-    const semBloqueadosDoTime = base.filter((j) =>
-      (idsBloqueados.size ? !idsBloqueados.has(j.id) : !nomesBloqueados.has(j.nome))
-    )
-
+    const semBloqueadosDoTime = base.filter((j) => (idsBloqueados.size ? !idsBloqueados.has(j.id) : !nomesBloqueados.has(j.nome)))
     const filtrados = semBloqueadosDoTime.filter((j) => {
       const ate = bloqPersist[j.id]
       return !(ate != null && ate >= eventoNum)
     })
 
-    setJogadoresAlvo(filtrados)
-    setCarregandoJogadores(false)
+    setJogadoresAlvo(filtrados); setCarregandoJogadores(false)
 
-    if (base.length === 0) {
-      toast('Esse time não tem jogadores cadastrados.')
-    } else if (filtrados.length === 0) {
-      toast('Todos os jogadores desse time estão bloqueados no momento.')
-    } else {
-      toast.success(`✅ ${filtrados.length} jogador(es) disponíveis.`)
-    }
+    if (base.length === 0) toast('Esse time não tem jogadores cadastrados.')
+    else if (filtrados.length === 0) toast('Todos os jogadores desse time estão bloqueados no momento.')
+    else toast.success(`✅ ${filtrados.length} jogador(es) disponíveis.`)
   }
 
+  /** ===== Saldo: CAS com retry ===== */
   async function ajustarSaldoCompareAndSwap(timeId: string, delta: number, saldoAtualEsperado?: number) {
     let esperado = saldoAtualEsperado
     if (esperado == null) {
       const { data: t } = await supabase.from('times').select('saldo').eq('id', timeId).single()
-      esperado = (t as any)?.saldo ?? 0
+      esperado = t?.saldo ?? 0
     }
     const { data: upd, error } = await supabase
       .from('times')
@@ -287,29 +270,27 @@ export default function EventoRouboPage() {
       .eq('id', timeId)
       .eq('saldo', esperado)
       .select('id')
-    if (!error && upd && (upd as any[]).length === 1) return true
+    if (!error && upd && upd.length === 1) return true
 
     const { data: fresh } = await supabase.from('times').select('saldo').eq('id', timeId).single()
-    const freshSaldo = (fresh as any)?.saldo ?? 0
+    const freshSaldo = fresh?.saldo ?? 0
     const { data: upd2 } = await supabase
       .from('times')
       .update({ saldo: freshSaldo + delta })
       .eq('id', timeId)
       .eq('saldo', freshSaldo)
       .select('id')
-    return !!(upd2 && (upd2 as any[]).length === 1)
+    return !!(upd2 && upd2.length === 1)
   }
 
+  /** ===== Modal confirmar ===== */
   function abrirConfirmacao(j: Jogador) {
     const valor = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
-    setConfirmJogador(j)
-    setConfirmValor(valor)
+    setConfirmJogador(j); setConfirmValor(valor)
   }
-  function fecharConfirmacao() {
-    setConfirmJogador(null)
-    setConfirmValor(0)
-  }
+  function fecharConfirmacao() { setConfirmJogador(null); setConfirmValor(0) }
 
+  /** ===== Roubar ===== */
   async function confirmarRoubo() {
     if (!confirmJogador) return
     await roubarJogador(confirmJogador, confirmValor)
@@ -317,73 +298,77 @@ export default function EventoRouboPage() {
 
   async function roubarJogador(jogador: Jogador, valorPagoCalculado?: number) {
     if (bloqueioBotao || processandoRoubo) return
-    if (!idTime) {
-      toast.error('Identidade do time não encontrada.')
-      return
-    }
+    if (!idTime) { toast.error('Identidade do time não encontrada.'); return }
     const timeDaVez = ordem[vez]?.id
-    if (!timeDaVez || timeDaVez !== idTime) {
-      toast.error('Não é a sua vez.')
-      return
-    }
+    if (!timeDaVez || timeDaVez !== idTime) { toast.error('Não é a sua vez.'); return }
 
-    setProcessandoRoubo(true)
-    setBloqueioBotao(true)
+    setProcessandoRoubo(true); setBloqueioBotao(true)
     try {
-      const cfg = await findConfigRow()
-      if (!cfg) { toast.error('Configuração do evento não encontrada.'); return }
+      const { data: cfg } = await supabase
+        .from('configuracoes')
+        .select('ordem,vez,roubos,limite_perda,limite_roubos_por_time,bloqueios,roubo_evento_num,bloqueios_persistentes')
+        .eq('id', CONFIG_ID)
+        .single<ConfigEvento>()
 
-      const thisConfigId = cfg.id
-
-      const vezAtual = Number(cfg.vez ?? 0)
-      const ordemIds = cfg.ordem || []
+      const vezAtual = Number(cfg?.vez ?? 0)
+      const ordemIds = cfg?.ordem || []
       const idDaVezServidor = ordemIds?.[vezAtual]
-      if (!idDaVezServidor || idDaVezServidor !== idTime) {
-        toast.error('A vez mudou. Atualize a página.')
-        return
-      }
+      if (!idDaVezServidor || idDaVezServidor !== idTime) { toast.error('A vez mudou. Atualize a página.'); return }
 
-      const roubosSrv = (cfg.roubos || {}) as RoubosMap
+      const roubosSrv = (cfg?.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
-      const limitePerdaSrv = cfg.limite_perda ?? LIMITE_PERDA_DEFAULT
-      const limiteRoubosPorTimeSrv = (cfg.limite_roubos_por_time ?? cfg.limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
+      const limitePerdaSrv = cfg?.limite_perda ?? LIMITE_PERDA_DEFAULT
+      const limiteRoubosPorTimeSrv = cfg?.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
-
       if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); return }
       if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); return }
       if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); return }
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
+      // ===== 1) Transferência de elenco (condicional ao id_time original)
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
         .eq('id', jogador.id)
         .eq('id_time', jogador.id_time)
         .select('id')
-      if (errJog || !updJog || (updJog as any[]).length === 0) {
-        toast.error('Outro time levou esse jogador primeiro. Atualize a lista.')
-        return
-      }
+      if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro. Atualize a lista.'); return }
 
+      // Salvar nomes e saldos ANTES
       const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
-        supabase.from('times').select('saldo,nome').eq('id', jogador.id_time).single(),
-        supabase.from('times').select('saldo,nome').eq('id', idTime).single()
+        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', jogador.id_time).single(),
+        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTime).single()
       ])
-      const nomeAlvo = (alvoInfo as any)?.nome || 'Time Alvo'
-      const nomeMeu = (meuInfo as any)?.nome || 'Seu Time'
+      const nomeAlvo = alvoInfo?.nome || 'Time Alvo'
+      const nomeMeu = meuInfo?.nome || 'Seu Time'
+      const saldoAlvoAntes = Number(alvoInfo?.saldo || 0)
+      const saldoMeuAntes = Number(meuInfo?.saldo || 0)
 
-      const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, (meuInfo as any)?.saldo)
-      const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, (alvoInfo as any)?.saldo)
-      if (!debitei || !creditei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
+      // ===== 2) Débito/Crédito
+      const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
+      const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, saldoAlvoAntes)
+      if (!debitei || !credit ei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
 
-      const atualizado: RoubosMap = { ...(cfg.roubos || {}) }
+      // Buscar saldos DEPOIS para mostrar no comparativo
+      const { data: timesFresh } = await supabase
+        .from('times')
+        .select('id,nome,logo_url,saldo')
+        .in('id', [idTime, jogador.id_time])
+
+      const freshMeu = timesFresh?.find(t => t.id === idTime)
+      const freshAlvo = timesFresh?.find(t => t.id === jogador.id_time)
+      const saldoMeuDepois = Number(freshMeu?.saldo ?? (saldoMeuAntes - valorPago))
+      const saldoAlvoDepois = Number(freshAlvo?.saldo ?? (saldoAlvoAntes + valorPago))
+
+      // ===== 3) Atualiza contadores/bloqueios
+      const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
       if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
       atualizado[idTime][jogador.id_time]++
 
-      const bloqAtual: BloqueadosMap = { ...(cfg.bloqueios || {}) }
+      const bloqAtual: BloqueadosMap = { ...(cfg?.bloqueios || {}) }
       const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
       const existe = listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))
       if (!existe) {
@@ -391,21 +376,16 @@ export default function EventoRouboPage() {
         bloqAtual[idTime] = listaNovo
       }
 
-      const persistRaw = (cfg.bloqueios_persistentes ?? cfg.rebloqueio_ate_evento ?? {}) as BloqPersistMap
-      const persist: BloqPersistMap = { ...persistRaw }
-      const atualEvento = Number(cfg.roubo_evento_num ?? 0)
+      // bloqueio persistente até o próximo evento
+      const persist: BloqPersistMap = { ...(cfg?.bloqueios_persistentes || {}) }
+      const atualEvento = Number(cfg?.roubo_evento_num ?? 0)
       persist[jogador.id] = atualEvento + 1
 
       await supabase.from('configuracoes')
-        .update({
-          roubos: atualizado,
-          bloqueios: bloqAtual,
-          ...(cfg.bloqueios_persistentes != null
-            ? { bloqueios_persistentes: persist }
-            : { rebloqueio_ate_evento: persist })
-        })
-        .eq('id', thisConfigId)
+        .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
+        .eq('id', CONFIG_ID)
 
+      // ===== 4) Publicação no BID
       await supabase.from('bid').insert({
         tipo_evento: 'roubo',
         descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
@@ -414,12 +394,39 @@ export default function EventoRouboPage() {
         valor: valorPago
       })
 
+      // ===== 5) Confirmações visuais / histórico
+      setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
+      setRoubosDaRodada((prev) => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
+
+      // NOVO: abrir modal Antes × Depois
+      setComparativo({
+        jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
+        de: {
+          id: jogador.id_time,
+          nome: nomeAlvo,
+          logo_url: freshAlvo?.logo_url ?? (ordem.find(t => t.id === jogador.id_time)?.logo_url ?? null),
+          saldoAntes: saldoAlvoAntes,
+          saldoDepois: saldoAlvoDepois
+        },
+        para: {
+          id: idTime,
+          nome: nomeMeu,
+          logo_url: freshMeu?.logo_url ?? (ordem.find(t => t.id === idTime)?.logo_url ?? null),
+          saldoAntes: saldoMeuAntes,
+          saldoDepois: saldoMeuDepois
+        },
+        valorPago
+      })
+
+      // reset UI
       setRoubos(atualizado)
       setMostrarJogadores(false)
       setAlvoSelecionado('')
       setJogadoresAlvo([])
+      setFiltroJogador('')
       fecharConfirmacao()
-      toast.success(`✅ ${jogador.nome} roubado! ${nomeMeu} pagou ${brl(valorPago)}.`)
+
+      toast.success(`✅ Você roubou o jogador ${jogador.nome}.`)
     } catch (e) {
       console.error(e)
       toast.error('Erro ao processar roubo.')
@@ -429,124 +436,83 @@ export default function EventoRouboPage() {
     }
   }
 
-  async function getConfigIdOrFail(): Promise<string | null> {
-    if (configId) return configId
-    const cfg = await findConfigRow()
-    if (!cfg) { toast.error('Configuração do evento não encontrada.'); return null }
-    setConfigId(cfg.id)
-    return cfg.id
-  }
-
+  /** ===== Admin: ordem/vez/limpar/finalizar ===== */
   async function sortearOrdem() {
-    try {
-      const cid = await getConfigIdOrFail(); if (!cid) return
+    const { data: times, error } = await supabase.from('times').select('id, nome, logo_url')
+    if (error || !times) { toast.error('Erro ao buscar times.'); return }
 
-      const { data: times, error: errTimes } = await supabase
-        .from('times')
-        .select('id, nome, logo_url')
+    const { data: cfg } = await supabase.from('configuracoes').select('roubo_evento_num').eq('id', CONFIG_ID).single()
+    const novoNum = Number(cfg?.roubo_evento_num ?? 0) + 1
 
-      if (errTimes || !times || times.length === 0) {
-        toast.error('Não há times para sortear.')
-        return
-      }
+    const embaralhado: Time[] = [...times]
+      .map((t) => ({ ...t, r: Math.random() }))
+      .sort((a, b) => a.r - b.r)
+      .map(({ r, ...rest }) => rest)
 
-      const ids = [...(times as any[])]
-        .map((t) => ({ ...t, r: Math.random() }))
-        .sort((a, b) => a.r - b.r)
-        .map(({ r, ...rest }) => rest.id as string)
+    const ids = embaralhado.map((t) => t.id)
+    const { error: errUpd } = await supabase
+      .from('configuracoes')
+      .update({ ordem: ids, vez: '0', roubo_evento_num: novoNum, ativo: true, fase: 'acao' })
+      .eq('id', CONFIG_ID)
+    if (errUpd) { toast.error('Erro ao sortear a ordem.'); return }
 
-      const { data: cfgRow } = await supabase
-        .from('configuracoes')
-        .select('roubo_evento_num')
-        .eq('id', cid)
-        .maybeSingle()
+    setEventoFinalizado(false)
+    setResumoFinal([])
+    setRoubosDaRodada([])
+    setUltimoRoubo(null)
 
-      const novoNum = Number((cfgRow as any)?.roubo_evento_num ?? 0) + 1
-
-      const { data: upd, error: updErr } = await supabase
-        .from('configuracoes')
-        .update({
-          ordem: ids,
-          vez: '0',
-          fase: 'acao',
-          ativo: true,
-          evento_roubo: true,
-          roubo_evento_num: novoNum,
-        })
-        .eq('id', cid)
-        .select('id')
-
-      if (updErr || !upd || upd.length !== 1) {
-        console.error('sortearOrdem update error:', updErr, upd)
-        toast.error('Erro ao sortear a ordem (nenhuma linha atualizada).')
-        return
-      }
-
-      await carregarEvento()
-      toast.success('🎲 Ordem sorteada! Boa sorte.')
-    } catch (e: any) {
-      console.error('sortearOrdem exception:', e)
-      toast.error(`Erro ao sortear: ${e?.message || e}`)
-    }
+    setOrdem(embaralhado); setVez(0); setOrdemSorteada(true); setEventoNum(novoNum)
+    toast.success('🎲 Ordem sorteada! Boa sorte.')
   }
 
   async function passarVez() {
-    const cid = await getConfigIdOrFail(); if (!cid) return
     const novaVez = vez + 1
-    await supabase.from('configuracoes').update({ vez: String(novaVez) }).eq('id', cid)
+    await supabase.from('configuracoes').update({ vez: String(novaVez) }).eq('id', CONFIG_ID)
     setVez(novaVez)
     setAlvoSelecionado('')
     setJogadoresAlvo([])
     setMostrarJogadores(false)
+    setFiltroJogador('')
   }
 
   async function limparSorteio() {
-    const cid = await getConfigIdOrFail(); if (!cid) return
-    await supabase.from('configuracoes').update({ ordem: null, vez: '0' }).eq('id', cid)
-    setOrdem([])
-    setOrdemSorteada(false)
-    setVez(0)
+    await supabase.from('configuracoes').update({ ordem: null, vez: '0' }).eq('id', CONFIG_ID)
+    setOrdem([]); setOrdemSorteada(false); setVez(0)
+    setResumoFinal([]); setRoubosDaRodada([]); setUltimoRoubo(null)
     toast('🧹 Sorteio limpo.')
   }
 
   async function finalizarEvento() {
-    const cid = await getConfigIdOrFail(); if (!cid) return
+    // guarda resumo antes de limpar
+    setResumoFinal(roubosDaRodada)
 
     const { data: cfg, error } = await supabase
       .from('configuracoes')
-      .select('roubo_evento_num,bloqueios_persistentes,rebloqueio_ate_evento')
-      .eq('id', cid)
-      .maybeSingle()
+      .select('roubo_evento_num,bloqueios_persistentes')
+      .eq('id', CONFIG_ID)
+      .single<ConfigEvento>()
     if (error) { toast.error('Erro ao carregar configuração.'); return }
 
-    const ev = Number((cfg as any)?.roubo_evento_num ?? 0)
-    const persistRaw = ((cfg as any)?.bloqueios_persistentes ?? (cfg as any)?.rebloqueio_ate_evento ?? {}) as BloqPersistMap
+    const ev = Number(cfg?.roubo_evento_num ?? 0)
+    const persist = (cfg?.bloqueios_persistentes ?? {}) as BloqPersistMap
     const novoPersist: BloqPersistMap = {}
-    for (const [jid, ate] of Object.entries(persistRaw)) if ((ate as number) >= ev) novoPersist[jid] = ate as number
-
-    const updatePayload: any = { ativo: false, fase: 'finalizado', roubos: {}, bloqueios: {} }
-    if ((cfg as any)?.bloqueios_persistentes != null) updatePayload.bloqueios_persistentes = novoPersist
-    else updatePayload.rebloqueio_ate_evento = novoPersist
+    for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
 
     const { error: updErr } = await supabase
       .from('configuracoes')
-      .update(updatePayload)
-      .eq('id', cid)
+      .update({ ativo: false, fase: 'finalizado', roubos: {}, bloqueios: {}, bloqueios_persistentes: novoPersist })
+      .eq('id', CONFIG_ID)
     if (updErr) { toast.error('Erro ao finalizar evento.'); return }
 
     setEventoFinalizado(true)
     setOrdem([]); setOrdemSorteada(false); setVez(0)
-    setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false)
-    toast.success('✅ Evento finalizado! Sorteie a ordem para iniciar um novo evento.')
+    setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false); setFiltroJogador('')
+    setRoubosDaRodada([]); setUltimoRoubo(null)
+
+    toast.success('✅ Evento finalizado! Resumo abaixo.')
   }
 
-  function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-    return <div className={`rounded-2xl p-4 shadow-lg bg-gradient-to-b from-gray-800/80 to-gray-900/80 border border-white/10 ${className}`}>{children}</div>
-  }
-  function Chip({ children, className = '' }: { children: ReactNode; className?: string }) {
-    return <span className={`px-3 py-1 rounded-full text-xs font-semibold bg-white/10 border border-white/10 ${className}`}>{children}</span>
-  }
-
+  /** ===== Componentes Internos ===== */
   const StatusPerdas = () => (
     <Card>
       <div className="flex items-center justify-between mb-3">
@@ -562,8 +528,10 @@ export default function EventoRouboPage() {
             restante === 1 ? 'bg-yellow-500/20 border-yellow-500/30 text-yellow-200' :
             'bg-green-500/20 border-green-500/30 text-green-200'
           return (
-            <div key={t.id} className={`flex items-center gap-3 rounded-xl p-3 border ${cor}`}>
-              {t.logo_url ? <img src={t.logo_url} alt="" className="h-8 w-8 rounded-full" /> : <div className="h-8 w-8 rounded-full bg-white/10" />}
+            <div key={t.id} className={cls('flex items-center gap-3 rounded-xl p-3 border', cor)}>
+              {t.logo_url
+                ? <img src={t.logo_url} alt="" className="h-8 w-8 rounded-full object-cover" />
+                : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(t.nome)}</div>}
               <div className="flex-1">
                 <p className="font-semibold">{t.nome}</p>
                 <p className="text-xs opacity-80">Pode perder: <b>{restante}</b> / {limitePerda}</p>
@@ -576,18 +544,109 @@ export default function EventoRouboPage() {
     </Card>
   )
 
+  const TeamSelect = () => {
+    const [open, setOpen] = useState(false)
+    const [busca, setBusca] = useState('')
+    const ref = useClickOutside<HTMLDivElement>(() => setOpen(false))
+
+    const lista = useMemo(() => {
+      const b = busca.trim().toLowerCase()
+      return b ? alvosListados.filter(t => t.nome.toLowerCase().includes(b)) : alvosListados
+    }, [alvosListados, busca])
+
+    const selecionado = ordem.find(t => t.id === alvoSelecionado) || null
+    function onEscolher(t: Time) {
+      setAlvoSelecionado(t.id)
+      setMostrarJogadores(false)
+      setJogadoresAlvo([])
+      setFiltroJogador('')
+      setOpen(false)
+    }
+
+    return (
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => ordemSorteada && minhaVez && setOpen(!open)}
+          className={cls(
+            'w-full p-3 rounded-xl bg-white/10 border border-white/10 focus:outline-none flex items-center justify-between gap-3',
+            (!minhaVez || !ordemSorteada) && 'opacity-60 cursor-not-allowed'
+          )}
+          disabled={!minhaVez || !ordemSorteada}
+        >
+          <div className="flex items-center gap-3">
+            {selecionado?.logo_url
+              ? <img src={selecionado.logo_url} className="h-7 w-7 rounded-full object-cover" alt="" />
+              : <div className="h-7 w-7 rounded-full bg-white/10 grid place-items-center text-xs">{selecionado ? initials(selecionado.nome) : ' '}</div>}
+            <div className="text-left">
+              <div className="text-sm opacity-80">Time-alvo</div>
+              <div className="font-semibold">{selecionado?.nome || 'Selecione um time...'}</div>
+            </div>
+          </div>
+          <span className="opacity-70">▾</span>
+        </button>
+
+        {open && (
+          <div className="absolute z-40 mt-2 w-full rounded-xl border border-white/10 bg-gray-900/95 backdrop-blur shadow-2xl">
+            <div className="p-2 border-b border-white/10">
+              <input
+                placeholder="Buscar time..."
+                value={busca}
+                onChange={(e)=>setBusca(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:outline-none"
+              />
+            </div>
+            <div className="max-h-72 overflow-auto p-2 space-y-1">
+              {lista.length === 0 && <div className="py-6 text-center text-sm opacity-70">Nenhum time encontrado.</div>}
+              {lista.map((t) => {
+                const perdas = totalPerdasDoAlvo(t.id)
+                const restante = Math.max(0, limitePerda - perdas)
+                const ja = jaRoubouDesseAlvo(t.id)
+                const bloqueadoPorRegra = !podeRoubar(t.id)
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => onEscolher(t)}
+                    className={cls('w-full text-left rounded-lg p-2 flex items-center gap-3 border transition',
+                      'bg-white/5 hover:bg-white/10 border-white/10',
+                      bloqueadoPorRegra && 'opacity-60')}
+                  >
+                    {t.logo_url
+                      ? <img src={t.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
+                      : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(t.nome)}</div>}
+                    <div className="flex-1">
+                      <div className="font-semibold leading-tight">{t.nome}</div>
+                      <div className="text-[11px] opacity-80">
+                        Pode perder {restante}/{limitePerda} • seus roubos: {ja}/{LIMITE_POR_ALVO_POR_TIME}
+                        {bloqueadoPorRegra && <span className="ml-1 text-red-300 font-semibold">• limite atingido</span>}
+                      </div>
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">{perdas} perdidos</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /** ===== Render ===== */
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] text-white">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
 
         {/* Cabeçalho */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">⚔️ Evento de Roubo</h1>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">⚔ Evento de Roubo</h1>
           {ordem.length > 0 && (
             <div className="text-right">
               <p className="text-sm opacity-80">Agora:</p>
               <div className="flex items-center gap-2 justify-end">
-                {ordem[vez]?.logo_url && <img src={ordem[vez]!.logo_url!} className="h-7 w-7 rounded-full" alt="" />}
+                {ordem[vez]?.logo_url
+                  ? <img src={ordem[vez]!.logo_url!} className="h-7 w-7 rounded-full object-cover" alt="" />
+                  : <div className="h-7 w-7 rounded-full bg-white/10 grid place-items-center text-xs">{ordem[vez]?.nome ? initials(ordem[vez]!.nome) : ''}</div>}
                 <p className="text-lg font-semibold text-green-300">{nomeTimeDaVez || '—'}</p>
               </div>
               <p className="text-sm mt-1">⏳ Tempo restante: <Cronometro key={vez} ativo={ordemSorteada} isAdmin={!!isAdmin} onTimeout={passarVez} /></p>
@@ -595,14 +654,48 @@ export default function EventoRouboPage() {
           )}
         </div>
 
-        {/* Banner pós-finalização */}
+        {/* Confirmação fixa após roubo */}
+        {ultimoRoubo && (
+          <Card className="border-green-500/40 bg-green-900/20">
+            <div className="flex items-center justify-between">
+              <div className="text-sm">
+                ✅ <b>Você roubou o jogador {ultimoRoubo.jogador}</b> de <b>{ultimoRoubo.de}</b> por <b>{brl(ultimoRoubo.valor)}</b>.
+              </div>
+              <button onClick={()=>setUltimoRoubo(null)} className="text-xs opacity-70 hover:opacity-100">fechar</button>
+            </div>
+          </Card>
+        )}
+
+        {/* Banner pós-finalização + Resumo */}
         {eventoFinalizado && (
-          <Card className="border-green-500/40 bg-green-900/20 flex items-center justify-between">
-            <div className="text-sm">✅ <b>Evento finalizado!</b> Sorteie a ordem para iniciar um novo evento.</div>
+          <Card className="border-green-500/40 bg-green-900/20">
+            <div className="text-sm mb-3">✅ <b>Evento finalizado!</b> Sorteie a ordem para iniciar um novo evento.</div>
+            <div className="mt-2">
+              <h4 className="font-bold mb-2">📜 Resumo — Jogadores roubados</h4>
+              {resumoFinal.length === 0 ? (
+                <p className="text-sm opacity-80">Nenhum roubo registrado nesta rodada.</p>
+              ) : (
+                <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {resumoFinal.map((r) => (
+                    <div key={r.id} className="rounded-xl p-3 bg-white/5 border border-white/10">
+                      <div className="flex items-start gap-3">
+                        <div className="h-10 w-10 rounded-xl bg-gradient-to-b from-white/10 to-white/5 border border-white/10 grid place-items-center text-xs font-bold">{initials(r.nome)}</div>
+                        <div className="flex-1">
+                          <div className="font-semibold leading-tight">{r.nome}</div>
+                          <div className="text-[11px] opacity-80">{r.posicao}</div>
+                          <div className="text-xs mt-1"><span className="opacity-80">de</span> <b>{r.de}</b> <span className="opacity-80">→ para</span> <b>{r.para}</b></div>
+                        </div>
+                        <Chip>{brl(r.valor)}</Chip>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {isAdmin && (
-              <button onClick={sortearOrdem} className="rounded-xl px-3 py-2 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">
-                🎲 Sortear Ordem
-              </button>
+              <div className="mt-4 flex gap-2">
+                <button onClick={sortearOrdem} className="rounded-xl px-3 py-2 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear nova ordem</button>
+              </div>
             )}
           </Card>
         )}
@@ -613,28 +706,7 @@ export default function EventoRouboPage() {
             <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
             <Chip>Seu limite total: {limiteRoubosPorTime} • Já roubou: {totalRoubosDoMeuTime()}</Chip>
           </div>
-
-          <select
-            value={alvoSelecionado}
-            onChange={(e) => { setAlvoSelecionado(e.target.value); setMostrarJogadores(false); setJogadoresAlvo([]) }}
-            className="w-full p-3 rounded-xl bg-white/10 border border-white/10 focus:outline-none"
-            disabled={!minhaVez || !ordemSorteada}
-          >
-            <option value="">Selecione um time...</option>
-            {alvosListados.map((time) => {
-              const perdas = totalPerdasDoAlvo(time.id)
-              const restante = Math.max(0, limitePerda - perdas)
-              const jaRoubei = jaRoubouDesseAlvo(time.id)
-              const bloqueadoPorRegra = !podeRoubar(time.id)
-              const labelMotivo = bloqueadoPorRegra ? ` (limite atingido)` : ''
-              return (
-                <option key={time.id} value={time.id}>
-                  {time.nome} — pode perder {restante}/{limitePerda} • você: {jaRoubei}/{LIMITE_POR_ALVO_POR_TIME}{labelMotivo}
-                </option>
-              )
-            })}
-          </select>
-
+          <TeamSelect />
           <div className="mt-3">
             <button
               onClick={carregarJogadoresDoAlvo}
@@ -646,38 +718,29 @@ export default function EventoRouboPage() {
           </div>
         </Card>
 
+        {/* Ações do Admin / Jogador */}
         {!loading && !loadingAdmin && (
           <div className="grid md:grid-cols-4 gap-3">
             {isAdmin ? (
               <>
-                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">
-                  🎲 Sortear Ordem
-                </button>
-                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">
-                  ⏭️ Passar Vez
-                </button>
-                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">
-                  🛑 Finalizar Evento
-                </button>
-                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">
-                  🧹 Limpar Sorteio
-                </button>
+                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear Ordem</button>
+                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Passar Vez</button>
+                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Finalizar Evento</button>
+                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">🧹 Limpar Sorteio</button>
               </>
             ) : (
               <>
                 <div className="md:col-span-3" />
-                {minhaVez && (
-                  <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">
-                    ⏭️ Encerrar Minha Vez
-                  </button>
-                )}
+                {minhaVez && <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Encerrar Minha Vez</button>}
               </>
             )}
           </div>
         )}
 
+        {/* Status de perdas */}
         {ordem.length > 0 && <StatusPerdas />}
 
+        {/* Área de ação / elenco */}
         <Card className="space-y-3">
           {loading || loadingAdmin ? (
             <p className="text-center">Carregando...</p>
@@ -686,52 +749,84 @@ export default function EventoRouboPage() {
               {minhaVez ? (
                 <>
                   {!mostrarJogadores ? (
-                    <div className="text-center py-6 opacity-80">
-                      Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores do time”</b>.
-                    </div>
-                  ) : carregandoJogadores ? (
-                    <p className="text-center opacity-80">Carregando elenco...</p>
+                    <div className="text-center py-6 opacity-80">Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores do time”</b>.</div>
                   ) : (
-                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {jogadoresAlvo.length === 0 && (
-                        <p className="col-span-full text-center opacity-80">Nenhum jogador disponível (bloqueado ou já levado).</p>
+                    <>
+                      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                        <h4 className="font-bold text-lg">📋 Jogadores disponíveis — {nomeAlvoSelecionado}</h4>
+                        <input
+                          value={filtroJogador}
+                          onChange={(e)=>setFiltroJogador(e.target.value)}
+                          placeholder="Filtrar por nome/posição..."
+                          className="w-full sm:w-72 px-3 py-2 rounded-xl bg-white/10 border border-white/10 focus:outline-none"
+                        />
+                      </div>
+
+                      {carregandoJogadores ? (
+                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                          {Array.from({length:6}).map((_,i)=>(
+                            <div key={i} className="rounded-xl p-3 border border-white/10 bg-white/5 animate-pulse h-28" />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                          {jogadoresAlvo
+                            .filter(j => {
+                              const f = filtroJogador.trim().toLowerCase()
+                              if (!f) return true
+                              return j.nome.toLowerCase().includes(f) || (j.posicao || '').toLowerCase().includes(f)
+                            })
+                            .map((j) => {
+                              const valorRoubo = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
+                              const posCls = posColor[j.posicao] || 'bg-white/10 text-white/90 border-white/20'
+                              return (
+                                <div key={j.id} className="rounded-xl p-4 bg-white/5 border border-white/10 hover:bg-white/10 transition group">
+                                  <div className="flex items-start gap-3">
+                                    <div className="h-12 w-12 rounded-xl bg-gradient-to-b from-white/10 to-white/5 border border-white/10 grid place-items-center text-sm font-bold">
+                                      {initials(j.nome)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="flex items-center justify-between">
+                                        <p className="font-extrabold leading-tight">{j.nome}</p>
+                                        <Chip className="ml-2">{brl(j.valor)}</Chip>
+                                      </div>
+                                      <div className="mt-1">
+                                        <span className={cls('text-[11px] px-2 py-1 rounded-full border', posCls)}>{j.posicao}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    onClick={() => abrirConfirmacao(j)}
+                                    disabled={bloqueioBotao || !podeRoubar(j.id_time)}
+                                    className={cls(
+                                      'mt-4 w-full rounded-lg py-2 font-semibold transition',
+                                      'bg-green-600 hover:bg-green-700',
+                                      (!podeRoubar(j.id_time) || bloqueioBotao) && 'bg-green-900 cursor-not-allowed hover:bg-green-900'
+                                    )}
+                                  >
+                                    ✅ Roubar por {brl(valorRoubo)}
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          {jogadoresAlvo.length === 0 && <p className="col-span-full text-center opacity-80">Nenhum jogador disponível (bloqueado ou já levou).</p>}
+                        </div>
                       )}
-                      {jogadoresAlvo.map((j) => {
-                        const valorRoubo = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
-                        return (
-                          <div key={j.id} className="rounded-xl p-3 bg-white/5 border border-white/10 hover:bg-white/10 transition">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-bold">{j.nome}</p>
-                                <p className="text-xs opacity-80">{j.posicao}</p>
-                              </div>
-                              <Chip>{brl(j.valor)}</Chip>
-                            </div>
-                            <button
-                              onClick={() => abrirConfirmacao(j)}
-                              disabled={bloqueioBotao || !podeRoubar(j.id_time)}
-                              className="mt-3 w-full rounded-lg py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold"
-                            >
-                              ✅ Roubar por {brl(valorRoubo)}
-                            </button>
-                          </div>
-                        )
-                      })}
-                    </div>
+                    </>
                   )}
                 </>
               ) : (
-                <div className="text-center py-6 opacity-80">
-                  Aguarde sua vez. Time da vez: <b>{nomeTimeDaVez || '—'}</b>.
-                </div>
+                <div className="text-center py-6 opacity-80">Aguarde sua vez. Time da vez: <b>{nomeTimeDaVez || '—'}</b>.</div>
               )}
             </>
           ) : (
-            <p className="text-center text-yellow-300 font-bold">⚠️ Sorteie a ordem para iniciar o evento!</p>
+            <p className="text-center text-yellow-300 font-bold">⚠ Sorteie a ordem para iniciar o evento!</p>
           )}
         </Card>
       </div>
 
+      {/* ===== Modal de Confirmação ===== */}
       {confirmJogador && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
@@ -747,9 +842,7 @@ export default function EventoRouboPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mt-5">
-              <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">
-                Cancelar
-              </button>
+              <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">Cancelar</button>
               <button onClick={confirmarRoubo} disabled={processandoRoubo} className="rounded-xl py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold">
                 {processandoRoubo ? 'Processando...' : 'Confirmar Roubo'}
               </button>
@@ -760,7 +853,68 @@ export default function EventoRouboPage() {
           </div>
         </div>
       )}
+
+      {/* ===== NOVO: Modal Antes × Depois ===== */}
+      {comparativo && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
+            <h3 className="text-xl font-extrabold mb-1">Transferência confirmada</h3>
+            <p className="text-sm opacity-90 mb-4">
+              Você roubou <b>{comparativo.jogador.nome}</b> ({comparativo.jogador.posicao}) por <b>{brl(comparativo.valorPago)}</b>.
+            </p>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* De */}
+              <div className="rounded-xl p-4 bg-white/5 border border-white/10">
+                <div className="flex items-center gap-3 mb-3">
+                  {comparativo.de.logo_url
+                    ? <img src={comparativo.de.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
+                    : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(comparativo.de.nome)}</div>}
+                  <div>
+                    <div className="text-xs opacity-70">De</div>
+                    <div className="font-semibold">{comparativo.de.nome}</div>
+                  </div>
+                </div>
+                <div className="text-sm">
+                  <div className="opacity-80 mb-1">Saldo</div>
+                  <div className="flex items-center gap-2">
+                    <Chip>{brl(comparativo.de.saldoAntes)}</Chip>
+                    <span className="opacity-70">→</span>
+                    <Chip className="bg-green-500/20 border-green-400/40 text-green-200">{brl(comparativo.de.saldoDepois)}</Chip>
+                  </div>
+                </div>
+              </div>
+
+              {/* Para */}
+              <div className="rounded-xl p-4 bg-white/5 border border-white/10">
+                <div className="flex items-center gap-3 mb-3">
+                  {comparativo.para.logo_url
+                    ? <img src={comparativo.para.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
+                    : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(comparativo.para.nome)}</div>}
+                  <div>
+                    <div className="text-xs opacity-70">Para</div>
+                    <div className="font-semibold">{comparativo.para.nome}</div>
+                  </div>
+                </div>
+                <div className="text-sm">
+                  <div className="opacity-80 mb-1">Saldo</div>
+                  <div className="flex items-center gap-2">
+                    <Chip className="bg-red-500/20 border-red-400/40 text-red-200">{brl(comparativo.para.saldoAntes)}</Chip>
+                    <span className="opacity-70">→</span>
+                    <Chip>{brl(comparativo.para.saldoDepois)}</Chip>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button onClick={()=>setComparativo(null)} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">Fechar</button>
+              <button onClick={()=>{ setComparativo(null); setUltimoRoubo(null); }} className="rounded-xl py-2 bg-green-600 hover:bg-green-700 transition font-semibold">OK</button>
+            </div>
+            <p className="text-xs opacity-70 mt-3">Os valores refletem os saldos lidos após a transferência.</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-```
