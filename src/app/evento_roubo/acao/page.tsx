@@ -40,7 +40,7 @@ const LIMITE_ROUBOS_POR_TIME_DEFAULT = 3
 const PERCENTUAL_ROUBO = 0.5
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
 
-/** ===== Util ===== */
+/** ===== Utils ===== */
 function cls(...v: (string | false | null | undefined)[]) { return v.filter(Boolean).join(' ') }
 function initials(nome: string) { return nome.split(' ').slice(0,2).map(p=>p[0]).join('').toUpperCase() }
 const posColor: Record<string,string> = {
@@ -56,6 +56,13 @@ const posColor: Record<string,string> = {
   PE: 'bg-pink-500/20 text-pink-200 border-pink-400/30',
   SA: 'bg-orange-500/20 text-orange-200 border-orange-400/30',
   CA: 'bg-red-500/20 text-red-200 border-red-400/30',
+}
+// Evita “travamentos silenciosos”
+function withTimeout<T>(p: Promise<T>, ms = 15000) {
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Tempo esgotado. Verifique a conexão.')), ms))
+  ])
 }
 
 /** ===== Cronômetro ===== */
@@ -131,11 +138,12 @@ export default function EventoRouboPage() {
   const [confirmJogador, setConfirmJogador] = useState<Jogador | null>(null)
   const [confirmValor, setConfirmValor] = useState<number>(0)
   const [processandoRoubo, setProcessandoRoubo] = useState(false)
+  const [erroConfirm, setErroConfirm] = useState<string | null>(null)
   const [ultimoRoubo, setUltimoRoubo] = useState<{ jogador: string; de: string; para: string; valor: number } | null>(null)
   const [roubosDaRodada, setRoubosDaRodada] = useState<Array<{ id: string; nome: string; posicao: string; de: string; para: string; valor: number }>>([])
   const [resumoFinal, setResumoFinal] = useState<typeof roubosDaRodada>([])
 
-  // NOVO: modal comparativo antes × depois
+  // modal Antes × Depois
   const [comparativo, setComparativo] = useState<null | {
     jogador: { id: string; nome: string; posicao: string; valor: number }
     de: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
@@ -282,9 +290,11 @@ export default function EventoRouboPage() {
   /** ===== Modal confirmar ===== */
   function abrirConfirmacao(j: Jogador) {
     const valor = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
-    setConfirmJogador(j); setConfirmValor(valor)
+    setErroConfirm(null)
+    setConfirmJogador(j)
+    setConfirmValor(valor)
   }
-  function fecharConfirmacao() { setConfirmJogador(null); setConfirmValor(0) }
+  function fecharConfirmacao() { setConfirmJogador(null); setConfirmValor(0); setErroConfirm(null) }
 
   /** ===== Roubar ===== */
   async function confirmarRoubo() {
@@ -294,138 +304,146 @@ export default function EventoRouboPage() {
 
   async function roubarJogador(jogador: Jogador, valorPagoCalculado?: number) {
     if (bloqueioBotao || processandoRoubo) return
-    if (!idTime) { toast.error('Identidade do time não encontrada.'); return }
-    const timeDaVez = ordem[vez]?.id
-    if (!timeDaVez || timeDaVez !== idTime) { toast.error('Não é a sua vez.'); return }
+    setErroConfirm(null)
 
-    setProcessandoRoubo(true); setBloqueioBotao(true)
+    if (!idTime) { setErroConfirm('Identidade do time não encontrada.'); return }
+    const timeDaVez = ordem[vez]?.id
+    if (!timeDaVez || timeDaVez !== idTime) {
+      setErroConfirm('A vez mudou. Recarregando…')
+      fecharConfirmacao()
+      await carregarEvento()
+      return
+    }
+
+    setProcessandoRoubo(true)
+    setBloqueioBotao(true)
+
     try {
-      const { data: cfg } = await supabase
-        .from('configuracoes')
-        .select('ordem,vez,roubos,limite_perda,limite_roubos_por_time,bloqueios,roubo_evento_num,bloqueios_persistentes')
-        .eq('id', CONFIG_ID)
-        .single<ConfigEvento>()
+      // 1) Snapshot config (servidor)
+      const { data: cfg, error: cfgErr } = await withTimeout(
+        supabase.from('configuracoes')
+          .select('ordem,vez,roubos,limite_perda,limite_roubos_por_time,bloqueios,roubo_evento_num,bloqueios_persistentes')
+          .eq('id', CONFIG_ID)
+          .single<ConfigEvento>()
+      )
+      if (cfgErr) throw new Error('Falha ao ler configuração: ' + cfgErr.message)
 
       const vezAtual = Number(cfg?.vez ?? 0)
-      const ordemIds = cfg?.ordem || []
-      const idDaVezServidor = ordemIds?.[vezAtual]
-      if (!idDaVezServidor || idDaVezServidor !== idTime) { toast.error('A vez mudou. Atualize a página.'); return }
+      const idDaVezServidor = (cfg?.ordem || [])[vezAtual]
+      if (!idDaVezServidor || idDaVezServidor !== idTime) {
+        setErroConfirm('A vez mudou no servidor. Atualizei a lista.')
+        fecharConfirmacao(); await carregarEvento(); return
+      }
 
+      // 2) Limites
       const roubosSrv = (cfg?.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
       const limitePerdaSrv = cfg?.limite_perda ?? LIMITE_PERDA_DEFAULT
       const limiteRoubosPorTimeSrv = cfg?.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
-      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); return }
-      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); return }
-      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); return }
+
+      if (totalPerdasSrv + 1 > limitePerdaSrv) { setErroConfirm('Esse time não pode perder mais jogadores neste evento.'); return }
+      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { setErroConfirm('Você já atingiu o limite contra esse alvo (2).'); return }
+      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { setErroConfirm('Você atingiu o limite total de roubos neste evento.'); return }
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
+      const timeOrigemId = jogador.id_time // salvar antes
 
-      // ===== 1) Transferência de elenco (condicional ao id_time original)
-      const { data: updJog, error: errJog } = await supabase
-        .from('elenco')
-        .update({ id_time: idTime })
-        .eq('id', jogador.id)
-        .eq('id_time', jogador.id_time)
-        .select('id')
-      if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro. Atualize a lista.'); return }
+      // 3) Transferência de elenco
+      const { data: updJog, error: errJog } = await withTimeout(
+        supabase.from('elenco')
+          .update({ id_time: idTime })
+          .eq('id', jogador.id)
+          .eq('id_time', timeOrigemId)
+          .select('id')
+      )
+      if (errJog) { setErroConfirm('Falha ao transferir jogador (elenco): ' + errJog.message); return }
+      if (!updJog || updJog.length === 0) { setErroConfirm('Outro time levou esse jogador primeiro.'); await carregarEvento(); return }
 
-      // Salvar nomes e saldos ANTES
-      const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
-        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', jogador.id_time).single(),
-        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTime).single()
+      // 4) Saldos (antes)
+      const [{ data: alvoInfo, error: alvoErr }, { data: meuInfo, error: meuErr }] = await Promise.all([
+        withTimeout(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', timeOrigemId).single()),
+        withTimeout(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', idTime).single())
       ])
+      if (alvoErr) { setErroConfirm('Erro ao ler saldo do time alvo: ' + alvoErr.message); return }
+      if (meuErr)  { setErroConfirm('Erro ao ler saldo do seu time: ' + meuErr.message); return }
+
       const nomeAlvo = alvoInfo?.nome || 'Time Alvo'
-      const nomeMeu = meuInfo?.nome || 'Seu Time'
+      const nomeMeu  = meuInfo?.nome  || 'Seu Time'
       const saldoAlvoAntes = Number(alvoInfo?.saldo || 0)
-      const saldoMeuAntes = Number(meuInfo?.saldo || 0)
+      const saldoMeuAntes  = Number(meuInfo?.saldo  || 0)
 
-      // ===== 2) Débito/Crédito
-      const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
-      const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, saldoAlvoAntes)
-      if (!debitei || !creditei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
+      // 5) Débito / Crédito (CAS)
+      const debitei = await withTimeout(ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes))
+      const creditei = await withTimeout(ajustarSaldoCompareAndSwap(timeOrigemId, +valorPago, saldoAlvoAntes))
+      if (!debitei || !creditei) { setErroConfirm('Conflito ao atualizar saldos.'); return }
 
-      // Buscar saldos DEPOIS para mostrar no comparativo
-      const { data: timesFresh } = await supabase
-        .from('times')
-        .select('id,nome,logo_url,saldo')
-        .in('id', [idTime, jogador.id_time])
-
-      const freshMeu = timesFresh?.find(t => t.id === idTime)
-      const freshAlvo = timesFresh?.find(t => t.id === jogador.id_time)
-      const saldoMeuDepois = Number(freshMeu?.saldo ?? (saldoMeuAntes - valorPago))
+      // 6) Saldos (depois) para o modal Antes × Depois
+      const { data: timesFresh, error: freshErr } = await withTimeout(
+        supabase.from('times').select('id,nome,logo_url,saldo').in('id', [idTime, timeOrigemId])
+      )
+      if (freshErr) { setErroConfirm('Erro ao ler saldos atualizados: ' + freshErr.message); return }
+      const freshMeu  = timesFresh?.find(t => t.id === idTime)
+      const freshAlvo = timesFresh?.find(t => t.id === timeOrigemId)
+      const saldoMeuDepois  = Number(freshMeu?.saldo  ?? (saldoMeuAntes  - valorPago))
       const saldoAlvoDepois = Number(freshAlvo?.saldo ?? (saldoAlvoAntes + valorPago))
 
-      // ===== 3) Atualiza contadores/bloqueios
+      // 7) Config: contadores/bloqueios
       const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
-      if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
-      atualizado[idTime][jogador.id_time]++
+      if (!atualizado[idTime][timeOrigemId]) atualizado[idTime][timeOrigemId] = 0
+      atualizado[idTime][timeOrigemId]++
 
       const bloqAtual: BloqueadosMap = { ...(cfg?.bloqueios || {}) }
       const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
-      const existe = listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))
-      if (!existe) {
+      if (!listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))) {
         listaNovo.push({ id: jogador.id, nome: jogador.nome, posicao: jogador.posicao })
         bloqAtual[idTime] = listaNovo
       }
 
-      // bloqueio persistente até o próximo evento
       const persist: BloqPersistMap = { ...(cfg?.bloqueios_persistentes || {}) }
-      const atualEvento = Number(cfg?.roubo_evento_num ?? 0)
-      persist[jogador.id] = atualEvento + 1
+      persist[jogador.id] = Number(cfg?.roubo_evento_num ?? 0) + 1
 
-      await supabase.from('configuracoes')
-        .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
-        .eq('id', CONFIG_ID)
+      const { error: cfgUpdErr } = await withTimeout(
+        supabase.from('configuracoes')
+          .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
+          .eq('id', CONFIG_ID)
+      )
+      if (cfgUpdErr) { setErroConfirm('Erro ao salvar configuração: ' + cfgUpdErr.message); return }
 
-      // ===== 4) Publicação no BID
-      await supabase.from('bid').insert({
-        tipo_evento: 'roubo',
-        descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
-        id_time1: idTime,
-        id_time2: jogador.id_time,
-        valor: valorPago
-      })
+      // 8) BID
+      const { error: bidErr } = await withTimeout(
+        supabase.from('bid').insert({
+          tipo_evento: 'roubo',
+          descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
+          id_time1: idTime,
+          id_time2: timeOrigemId,
+          valor: valorPago
+        })
+      )
+      if (bidErr) { setErroConfirm('Erro ao publicar no BID: ' + bidErr.message); return }
 
-      // ===== 5) Confirmações visuais / histórico
+      // 9) Feedbacks & modal Antes × Depois
       setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
-      setRoubosDaRodada((prev) => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
+      setRoubosDaRodada(prev => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
+      setRoubos(atualizado)
 
-      // NOVO: abrir modal Antes × Depois
       setComparativo({
         jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
-        de: {
-          id: jogador.id_time,
-          nome: nomeAlvo,
-          logo_url: freshAlvo?.logo_url ?? (ordem.find(t => t.id === jogador.id_time)?.logo_url ?? null),
-          saldoAntes: saldoAlvoAntes,
-          saldoDepois: saldoAlvoDepois
-        },
-        para: {
-          id: idTime,
-          nome: nomeMeu,
-          logo_url: freshMeu?.logo_url ?? (ordem.find(t => t.id === idTime)?.logo_url ?? null),
-          saldoAntes: saldoMeuAntes,
-          saldoDepois: saldoMeuDepois
-        },
+        de:   { id: timeOrigemId, nome: nomeAlvo, logo_url: freshAlvo?.logo_url ?? (ordem.find(t => t.id === timeOrigemId)?.logo_url ?? null), saldoAntes: saldoAlvoAntes, saldoDepois: saldoAlvoDepois },
+        para: { id: idTime,       nome: nomeMeu,  logo_url: freshMeu?.logo_url ?? (ordem.find(t => t.id === idTime)?.logo_url ?? null),  saldoAntes: saldoMeuAntes,  saldoDepois: saldoMeuDepois },
         valorPago
       })
 
-      // reset UI
-      setRoubos(atualizado)
-      setMostrarJogadores(false)
-      setAlvoSelecionado('')
-      setJogadoresAlvo([])
-      setFiltroJogador('')
+      // limpa UI
       fecharConfirmacao()
+      setMostrarJogadores(false); setAlvoSelecionado(''); setJogadoresAlvo([]); setFiltroJogador('')
 
       toast.success(`✅ Você roubou o jogador ${jogador.nome}.`)
-    } catch (e) {
+    } catch (e: any) {
       console.error(e)
-      toast.error('Erro ao processar roubo.')
+      setErroConfirm(e?.message || 'Erro inesperado ao processar roubo.')
     } finally {
       setProcessandoRoubo(false)
       setBloqueioBotao(false)
@@ -843,6 +861,10 @@ export default function EventoRouboPage() {
                 {processandoRoubo ? 'Processando...' : 'Confirmar Roubo'}
               </button>
             </div>
+
+            {/* ERRO visível no próprio modal */}
+            {erroConfirm && <p className="text-sm text-red-300 mt-3">{erroConfirm}</p>}
+
             <p className="text-xs opacity-70 mt-3">
               * Após a confirmação, o jogador será transferido para o seu elenco e não poderá ser roubado novamente neste e no próximo evento.
             </p>
@@ -850,7 +872,7 @@ export default function EventoRouboPage() {
         </div>
       )}
 
-      {/* ===== NOVO: Modal Antes × Depois ===== */}
+      {/* ===== Modal Antes × Depois ===== */}
       {comparativo && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
