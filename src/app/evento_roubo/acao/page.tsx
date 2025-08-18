@@ -390,7 +390,7 @@ export default function EventoRouboPage() {
       // ===== 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
       const creditei = await ajustarSaldoCompareAndSwap(idTimeOriginal, +valorPago, saldoAlvoAntes)
-      if (!debitei || !credit ei) {
+      if (!debitei || !creditei) {
         toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
       }
 
