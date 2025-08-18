@@ -15,20 +15,22 @@ const supabase = createClient(
 interface Time { id: string; nome: string; logo_url: string | null }
 interface Jogador { id: string; nome: string; posicao: string; valor: number; id_time: string }
 type RoubosMap = Record<string, Record<string, number>>
-interface Bloqueado { id?: string; nome: string; posicao: string }
-type BloqueadosMap = Record<string, Bloqueado[]>
+type BloqueadosMap = Record<string, { id?: string; nome: string; posicao: string }[]>
+type BloqPersistMap = Record<string, number>
 type ConfigEvento = {
   id: string
   ordem: string[] | null
   vez: string | number | null
   roubos: RoubosMap | null
   bloqueios: BloqueadosMap | null
-  bloqueios_anteriores?: BloqueadosMap | null
   limite_perda?: number | null
+  // em alguns bancos o campo chama "limite_roubo"
   limite_roubo?: number | null
   limite_roubos_por_time?: number | null
   ativo?: boolean | null
   fase?: string | null
+  roubo_evento_num?: number | null
+  bloqueios_persistentes?: BloqPersistMap | null
 }
 
 /** ===== Regras/Constantes ===== */
@@ -116,6 +118,10 @@ export default function EventoRouboPage() {
   const [limitePerda, setLimitePerda] = useState<number>(LIMITE_PERDA_DEFAULT)
   const [limiteRoubosPorTime, setLimiteRoubosPorTime] = useState<number>(LIMITE_ROUBOS_POR_TIME_DEFAULT)
 
+  // bloqueio persistente
+  const [eventoNum, setEventoNum] = useState<number>(0)
+  const [bloqPersist, setBloqPersist] = useState<BloqPersistMap>({})
+
   // alvo / jogadores
   const [alvoSelecionado, setAlvoSelecionado] = useState<string>('')
   const [jogadoresAlvo, setJogadoresAlvo] = useState<Jogador[]>([])
@@ -131,7 +137,7 @@ export default function EventoRouboPage() {
   const [roubosDaRodada, setRoubosDaRodada] = useState<Array<{ id: string; nome: string; posicao: string; de: string; para: string; valor: number }>>([])
   const [resumoFinal, setResumoFinal] = useState<typeof roubosDaRodada>([])
 
-  // modal comparativo antes × depois
+  // NOVO: modal comparativo antes × depois
   const [comparativo, setComparativo] = useState<null | {
     jogador: { id: string; nome: string; posicao: string; valor: number }
     de: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
@@ -169,7 +175,7 @@ export default function EventoRouboPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('configuracoes')
-      .select('ordem, vez, roubos, bloqueios, bloqueios_anteriores, limite_perda, limite_roubo, limite_roubos_por_time, fase, ativo')
+      .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, roubo_evento_num, bloqueios_persistentes, fase')
       .eq('id', CONFIG_ID)
       .single<ConfigEvento>()
 
@@ -183,7 +189,12 @@ export default function EventoRouboPage() {
     setRoubos((data.roubos || {}) as RoubosMap)
     setBloqueados((data.bloqueios || {}) as BloqueadosMap)
     setLimitePerda(data.limite_perda ?? LIMITE_PERDA_DEFAULT)
-    setLimiteRoubosPorTime((data.limite_roubos_por_time as any) ?? (data.limite_roubo as any) ?? LIMITE_ROUBOS_POR_TIME_DEFAULT)
+    // aceita limite_roubo/limite_roubos_por_time como fallback
+    setLimiteRoubosPorTime(
+      (data.limite_roubos_por_time as any) ?? (data.limite_roubo as any) ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
+    )
+    setEventoNum(Number(data.roubo_evento_num ?? 0))
+    setBloqPersist((data.bloqueios_persistentes || {}) as BloqPersistMap)
     setEventoFinalizado((data.fase || '') === 'finalizado')
 
     if (data.ordem?.length) {
@@ -238,7 +249,7 @@ export default function EventoRouboPage() {
   const alvosListados = useMemo(() => ordem.filter((t) => t.id !== idTime), [ordem, idTime])
   const nomeAlvoSelecionado = useMemo(() => ordem.find(t => t.id === alvoSelecionado)?.nome || '', [ordem, alvoSelecionado])
 
-  /** ===== Carregar jogadores do alvo (filtra APENAS bloqueios ATUAIS) ===== */
+  /** ===== Carregar jogadores do alvo ===== */
   async function carregarJogadoresDoAlvo() {
     if (!alvoSelecionado) { toast('Selecione um time-alvo.'); return }
     setMostrarJogadores(true); setCarregandoJogadores(true)
@@ -256,8 +267,11 @@ export default function EventoRouboPage() {
     const idsBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.id).filter(Boolean))
     const nomesBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.nome))
 
-    // SOMENTE bloqueados ATUAIS ficam fora da lista. Os do evento anterior podem ser roubados normalmente.
-    const filtrados = base.filter((j) => (idsBloqueados.size ? !idsBloqueados.has(j.id) : !nomesBloqueados.has(j.nome)))
+    const semBloqueadosDoTime = base.filter((j) => (idsBloqueados.size ? !idsBloqueados.has(j.id) : !nomesBloqueados.has(j.nome)))
+    const filtrados = semBloqueadosDoTime.filter((j) => {
+      const ate = bloqPersist[j.id]
+      return !(ate != null && ate >= eventoNum)
+    })
 
     setJogadoresAlvo(filtrados); setCarregandoJogadores(false)
 
@@ -316,7 +330,7 @@ export default function EventoRouboPage() {
       // lê config com colunas válidas
       const { data: cfg, error: cfgErr } = await supabase
         .from('configuracoes')
-        .select('ordem, vez, roubos, limite_perda, limite_roubo, limite_roubos_por_time')
+        .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, roubo_evento_num, bloqueios_persistentes')
         .eq('id', CONFIG_ID)
         .single<ConfigEvento>()
       if (cfgErr) { toast.error('Falha ao ler configuração.'); return }
@@ -329,7 +343,8 @@ export default function EventoRouboPage() {
       const roubosSrv = (cfg?.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
       const limitePerdaSrv = cfg?.limite_perda ?? LIMITE_PERDA_DEFAULT
-      const limiteRoubosPorTimeSrv = (cfg as any).limite_roubos_por_time ?? (cfg as any).limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
+      const limiteRoubosPorTimeSrv =
+        (cfg as any).limite_roubos_por_time ?? (cfg as any).limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
       if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); return }
@@ -338,7 +353,7 @@ export default function EventoRouboPage() {
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
-      // ===== 1) Transferência de elenco (otimista por CAS do id_time original)
+      // ===== 1) Transferência de elenco (condicional ao id_time original)
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
@@ -358,7 +373,7 @@ export default function EventoRouboPage() {
       const saldoAlvoAntes = Number(alvoInfo?.saldo || 0)
       const saldoMeuAntes = Number(meuInfo?.saldo || 0)
 
-      // ===== 2) Débito/Crédito (CAS com retry)
+      // ===== 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
       const creditei = await ajustarSaldoCompareAndSwap(idTimeOriginal, +valorPago, saldoAlvoAntes)
       if (!debitei || !creditei) {
@@ -376,15 +391,27 @@ export default function EventoRouboPage() {
       const saldoMeuDepois = Number(freshMeu?.saldo ?? (saldoMeuAntes - valorPago))
       const saldoAlvoDepois = Number(freshAlvo?.saldo ?? (saldoAlvoAntes + valorPago))
 
-      // ===== 3) Atualiza contadores de roubos (NÃO mexe em bloqueios aqui)
+      // ===== 3) Atualiza contadores/bloqueios
       const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
       if (!atualizado[idTime][idTimeOriginal]) atualizado[idTime][idTimeOriginal] = 0
       atualizado[idTime][idTimeOriginal]++
 
-      await supabase
-        .from('configuracoes')
-        .update({ roubos: atualizado })
+      const bloqAtual: BloqueadosMap = { ...(cfg?.bloqueios || {}) }
+      const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
+      const existe = listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))
+      if (!existe) {
+        listaNovo.push({ id: jogador.id, nome: jogador.nome, posicao: jogador.posicao })
+        bloqAtual[idTime] = listaNovo
+      }
+
+      // bloqueio persistente até o próximo evento
+      const persist: BloqPersistMap = { ...(cfg?.bloqueios_persistentes || {}) }
+      const atualEvento = Number(cfg?.roubo_evento_num ?? 0)
+      persist[jogador.id] = atualEvento + 1
+
+      await supabase.from('configuracoes')
+        .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
         .eq('id', CONFIG_ID)
 
       // ===== 4) Publicação no BID
@@ -400,7 +427,7 @@ export default function EventoRouboPage() {
       setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
       setRoubosDaRodada((prev) => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
 
-      // Modal Antes × Depois
+      // NOVO: abrir modal Antes × Depois
       setComparativo({
         jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
         de: {
@@ -443,6 +470,9 @@ export default function EventoRouboPage() {
     const { data: times, error } = await supabase.from('times').select('id, nome, logo_url')
     if (error || !times) { toast.error('Erro ao buscar times.'); return }
 
+    const { data: cfg } = await supabase.from('configuracoes').select('roubo_evento_num').eq('id', CONFIG_ID).single()
+    const novoNum = Number(cfg?.roubo_evento_num ?? 0) + 1
+
     const embaralhado: Time[] = [...times]
       .map((t) => ({ ...t, r: Math.random() }))
       .sort((a, b) => a.r - b.r)
@@ -451,7 +481,7 @@ export default function EventoRouboPage() {
     const ids = embaralhado.map((t) => t.id)
     const { error: errUpd } = await supabase
       .from('configuracoes')
-      .update({ ordem: ids, vez: '0', ativo: true, fase: 'acao' })
+      .update({ ordem: ids, vez: '0', roubo_evento_num: novoNum, ativo: true, fase: 'acao' })
       .eq('id', CONFIG_ID)
     if (errUpd) { toast.error('Erro ao sortear a ordem.'); return }
 
@@ -460,7 +490,7 @@ export default function EventoRouboPage() {
     setRoubosDaRodada([])
     setUltimoRoubo(null)
 
-    setOrdem(embaralhado); setVez(0); setOrdemSorteada(true)
+    setOrdem(embaralhado); setVez(0); setOrdemSorteada(true); setEventoNum(novoNum)
     toast.success('🎲 Ordem sorteada! Boa sorte.')
   }
 
@@ -481,31 +511,34 @@ export default function EventoRouboPage() {
     toast('🧹 Sorteio limpo.')
   }
 
-  // ===== FINALIZAR: encerra ROUBO + fecha BLOQUEIO via sua RPC =====
   async function finalizarEvento() {
-    // guarda resumo antes de limpar visuais
+    // guarda resumo antes de limpar
     setResumoFinal(roubosDaRodada)
 
-    // 1) Move bloqueios -> bloqueios_anteriores e zera bloqueios (RPC que você criou no SQL)
-    const { error: rpcErr } = await supabase.rpc('encerrar_roubo_e_bloqueio', { _id: CONFIG_ID })
-    if (rpcErr) { toast.error('Erro ao fechar bloqueio: ' + rpcErr.message); return }
+    const { data: cfg, error } = await supabase
+      .from('configuracoes')
+      .select('roubo_evento_num,bloqueios_persistentes')
+      .eq('id', CONFIG_ID)
+      .single<ConfigEvento>()
+    if (error) { toast.error('Erro ao carregar configuração.'); return }
 
-    // 2) Marca fase finalizado e limpa contadores de roubos para o próximo evento
+    const ev = Number(cfg?.roubo_evento_num ?? 0)
+    const persist = (cfg?.bloqueios_persistentes ?? {}) as BloqPersistMap
+    const novoPersist: BloqPersistMap = {}
+    for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
+
     const { error: updErr } = await supabase
       .from('configuracoes')
-      .update({ ativo: false, fase: 'finalizado', roubos: {} })
+      .update({ ativo: false, fase: 'finalizado', roubos: {}, bloqueios: {}, bloqueios_persistentes: novoPersist })
       .eq('id', CONFIG_ID)
-    if (updErr) { toast.error('Erro ao finalizar evento: ' + updErr.message); return }
+    if (updErr) { toast.error('Erro ao finalizar evento.'); return }
 
-    // 3) UI local
     setEventoFinalizado(true)
-    setBloqueados({}) // bloqueios atuais ficam vazios após RPC
-    setRoubos({})
     setOrdem([]); setOrdemSorteada(false); setVez(0)
     setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false); setFiltroJogador('')
     setRoubosDaRodada([]); setUltimoRoubo(null)
 
-    toast.success('✅ Evento finalizado! Bloqueios foram para o histórico e estão zerados para a próxima rodada.')
+    toast.success('✅ Evento finalizado! Resumo abaixo.')
   }
 
   /** ===== Componentes Internos ===== */
@@ -721,7 +754,7 @@ export default function EventoRouboPage() {
               <>
                 <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear Ordem</button>
                 <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Passar Vez</button>
-                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Encerrar ROUBO + Fechar BLOQUEIO</button>
+                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Finalizar Evento</button>
                 <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">🧹 Limpar Sorteio</button>
               </>
             ) : (
@@ -844,13 +877,13 @@ export default function EventoRouboPage() {
               </button>
             </div>
             <p className="text-xs opacity-70 mt-3">
-              * Após a confirmação, o jogador é transferido para o seu elenco e os saldos são atualizados automaticamente.
+              * Após a confirmação, o jogador será transferido para o seu elenco e não poderá ser roubado novamente neste e no próximo evento.
             </p>
           </div>
         </div>
       )}
 
-      {/* ===== Modal Antes × Depois ===== */}
+      {/* ===== NOVO: Modal Antes × Depois ===== */}
       {comparativo && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
