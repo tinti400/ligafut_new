@@ -1,11 +1,4 @@
-Segue o **arquivo completo** já corrigido. Ele:
-
-* Detecta automaticamente a linha correta em `configuracoes` (não fica preso a um ID errado).
-* Embaralha e salva a `ordem` com verificação de update.
-* Mantém toda a lógica de roubo (transferência do jogador, ajuste de saldos com CAS e publicação no BID).
-* Evita o “loop” de confirmação.
-
-Cole isso em `src/app/evento_roubo/acao/page.tsx`:
+Você colou meu texto explicativo dentro do arquivo e o build quebrou. Abaixo está o **código completo, sem comentários extras**, pronto para colar em `src/app/evento_roubo/acao/page.tsx`:
 
 ```tsx
 'use client'
@@ -46,7 +39,7 @@ type ConfigEvento = {
 }
 
 /** ===== Regras/Constantes ===== */
-const CONFIG_ID_FALLBACK = '56f3af29-a4ac-4a76-aeb3-35400aa2a773' // usado só se nada mais for encontrado
+const CONFIG_ID_FALLBACK = '56f3af29-a4ac-4a76-aeb3-35400aa2a773'
 const TEMPO_POR_VEZ = 240
 const LIMITE_POR_ALVO_POR_TIME = 2
 const LIMITE_PERDA_DEFAULT = 3
@@ -129,31 +122,24 @@ export default function EventoRouboPage() {
   // banner pós-finalização
   const [eventoFinalizado, setEventoFinalizado] = useState(false)
 
-  /** ===== Localiza a config correta ===== */
   async function findConfigRow(): Promise<ConfigEvento | null> {
-    // 1) usa o id atual se já soubermos
     if (configId) {
       const { data } = await supabase.from('configuracoes').select('*').eq('id', configId).maybeSingle()
       if (data) return data as ConfigEvento
     }
-    // 2) tenta pela flag evento_roubo
     const { data: byFlag } = await supabase.from('configuracoes').select('*').eq('evento_roubo', true).maybeSingle()
     if (byFlag) return byFlag as ConfigEvento
-    // 3) fallback: pelo ID fixo antigo
     const { data: byId } = await supabase.from('configuracoes').select('*').eq('id', CONFIG_ID_FALLBACK).maybeSingle()
     if (byId) return byId as ConfigEvento
-    // 4) último fallback: tipo='geral'
     const { data: geral } = await supabase.from('configuracoes').select('*').eq('tipo', 'geral').maybeSingle()
     return (geral as ConfigEvento) || null
   }
 
-  /** ===== Init / Realtime ===== */
   useEffect(() => {
     const id = localStorage.getItem('id_time') || localStorage.getItem('idTime') || ''
     if (id) setIdTime(id)
     carregarEvento()
 
-    // escuta toda a tabela (evita filtro preso a id incorreto)
     const canal = supabase
       .channel('evento-roubo')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, () => carregarEvento())
@@ -163,7 +149,6 @@ export default function EventoRouboPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** ===== Carregar estado do evento ===== */
   async function carregarEvento() {
     setLoading(true)
 
@@ -208,7 +193,6 @@ export default function EventoRouboPage() {
     setLoading(false)
   }
 
-  /** ===== Regras / Cálculos ===== */
   const totalPerdasDoAlvo = useCallback((alvoId: string) =>
     Object.values(roubos).map(r => r[alvoId] || 0).reduce((a, b) => a + b, 0)
   , [roubos])
@@ -233,7 +217,6 @@ export default function EventoRouboPage() {
   const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
-  // *** LISTO SEM FILTRAR POR REGRAS para nunca ficar vazio ***
   const alvosListados = useMemo(
     () => ordem.filter((t) => t.id !== idTime),
     [ordem, idTime]
@@ -244,7 +227,6 @@ export default function EventoRouboPage() {
     [ordem, alvoSelecionado]
   )
 
-  /** ===== Carregar jogadores do alvo ===== */
   async function carregarJogadoresDoAlvo() {
     if (!alvoSelecionado) {
       toast('Selecione um time-alvo.')
@@ -293,7 +275,6 @@ export default function EventoRouboPage() {
     }
   }
 
-  /** ===== Saldo: CAS com retry ===== */
   async function ajustarSaldoCompareAndSwap(timeId: string, delta: number, saldoAtualEsperado?: number) {
     let esperado = saldoAtualEsperado
     if (esperado == null) {
@@ -319,7 +300,6 @@ export default function EventoRouboPage() {
     return !!(upd2 && (upd2 as any[]).length === 1)
   }
 
-  /** ===== Modal ===== */
   function abrirConfirmacao(j: Jogador) {
     const valor = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
     setConfirmJogador(j)
@@ -330,7 +310,6 @@ export default function EventoRouboPage() {
     setConfirmValor(0)
   }
 
-  /** ===== Roubar ===== */
   async function confirmarRoubo() {
     if (!confirmJogador) return
     await roubarJogador(confirmJogador, confirmValor)
@@ -377,7 +356,6 @@ export default function EventoRouboPage() {
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
-      // transferência condicionada ao id_time original
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
@@ -405,7 +383,6 @@ export default function EventoRouboPage() {
       if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
       atualizado[idTime][jogador.id_time]++
 
-      // bloqueio do jogador no novo time (evento atual)
       const bloqAtual: BloqueadosMap = { ...(cfg.bloqueios || {}) }
       const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
       const existe = listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))
@@ -414,7 +391,6 @@ export default function EventoRouboPage() {
         bloqAtual[idTime] = listaNovo
       }
 
-      // bloqueio persistente até o próximo evento (campo existente na sua base)
       const persistRaw = (cfg.bloqueios_persistentes ?? cfg.rebloqueio_ate_evento ?? {}) as BloqPersistMap
       const persist: BloqPersistMap = { ...persistRaw }
       const atualEvento = Number(cfg.roubo_evento_num ?? 0)
@@ -453,7 +429,6 @@ export default function EventoRouboPage() {
     }
   }
 
-  /** ===== Admin: ordem/vez/limpar/finalizar ===== */
   async function getConfigIdOrFail(): Promise<string | null> {
     if (configId) return configId
     const cfg = await findConfigRow()
@@ -466,7 +441,6 @@ export default function EventoRouboPage() {
     try {
       const cid = await getConfigIdOrFail(); if (!cid) return
 
-      // Busca times
       const { data: times, error: errTimes } = await supabase
         .from('times')
         .select('id, nome, logo_url')
@@ -476,13 +450,11 @@ export default function EventoRouboPage() {
         return
       }
 
-      // Embaralha
       const ids = [...(times as any[])]
         .map((t) => ({ ...t, r: Math.random() }))
         .sort((a, b) => a.r - b.r)
         .map(({ r, ...rest }) => rest.id as string)
 
-      // Lê contador atual
       const { data: cfgRow } = await supabase
         .from('configuracoes')
         .select('roubo_evento_num')
@@ -491,7 +463,6 @@ export default function EventoRouboPage() {
 
       const novoNum = Number((cfgRow as any)?.roubo_evento_num ?? 0) + 1
 
-      // Atualiza e valida
       const { data: upd, error: updErr } = await supabase
         .from('configuracoes')
         .update({
@@ -545,7 +516,7 @@ export default function EventoRouboPage() {
       .from('configuracoes')
       .select('roubo_evento_num,bloqueios_persistentes,rebloqueio_ate_evento')
       .eq('id', cid)
-      .maybeSingle<ConfigEvento>()
+      .maybeSingle()
     if (error) { toast.error('Erro ao carregar configuração.'); return }
 
     const ev = Number((cfg as any)?.roubo_evento_num ?? 0)
@@ -569,7 +540,6 @@ export default function EventoRouboPage() {
     toast.success('✅ Evento finalizado! Sorteie a ordem para iniciar um novo evento.')
   }
 
-  /** ===== UI ===== */
   function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
     return <div className={`rounded-2xl p-4 shadow-lg bg-gradient-to-b from-gray-800/80 to-gray-900/80 border border-white/10 ${className}`}>{children}</div>
   }
@@ -656,9 +626,7 @@ export default function EventoRouboPage() {
               const restante = Math.max(0, limitePerda - perdas)
               const jaRoubei = jaRoubouDesseAlvo(time.id)
               const bloqueadoPorRegra = !podeRoubar(time.id)
-              const labelMotivo = bloqueadoPorRegra
-                ? ` (limite atingido)`
-                : ''
+              const labelMotivo = bloqueadoPorRegra ? ` (limite atingido)` : ''
               return (
                 <option key={time.id} value={time.id}>
                   {time.nome} — pode perder {restante}/{limitePerda} • você: {jaRoubei}/{LIMITE_POR_ALVO_POR_TIME}{labelMotivo}
@@ -678,7 +646,6 @@ export default function EventoRouboPage() {
           </div>
         </Card>
 
-        {/* Ações do Admin / Jogador */}
         {!loading && !loadingAdmin && (
           <div className="grid md:grid-cols-4 gap-3">
             {isAdmin ? (
@@ -709,10 +676,8 @@ export default function EventoRouboPage() {
           </div>
         )}
 
-        {/* Status de perdas */}
         {ordem.length > 0 && <StatusPerdas />}
 
-        {/* Área de ação / elenco */}
         <Card className="space-y-3">
           {loading || loadingAdmin ? (
             <p className="text-center">Carregando...</p>
@@ -767,7 +732,6 @@ export default function EventoRouboPage() {
         </Card>
       </div>
 
-      {/* ===== Modal de Confirmação ===== */}
       {confirmJogador && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
