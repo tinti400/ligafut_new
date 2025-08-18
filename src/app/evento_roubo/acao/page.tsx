@@ -110,7 +110,7 @@ export default function EventoRouboPage() {
 
   // estado do evento
   const [ordem, setOrdem] = useState<Time[]>([])
-  the const [vez, setVez] = useState<number>(0)
+  const [vez, setVez] = useState<number>(0)
   const [ordemSorteada, setOrdemSorteada] = useState(false)
 
   const [roubos, setRoubos] = useState<RoubosMap>({})
