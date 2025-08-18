@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, ReactNode, useCallback } from 'react'
+import { useEffect, useMemo, useState, ReactNode, useCallback, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import { useAdmin } from '@/hooks/useAdmin'
@@ -40,20 +40,31 @@ const LIMITE_ROUBOS_POR_TIME_DEFAULT = 3
 const PERCENTUAL_ROUBO = 0.5
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
 
-/** ===== Cronômetro isolado (não re-renderiza a página inteira) ===== */
-function Cronometro({
-  ativo,
-  isAdmin,
-  onTimeout,
-  start = TEMPO_POR_VEZ,
-}: {
-  ativo: boolean
-  isAdmin: boolean
-  onTimeout: () => void
-  start?: number
-}) {
-  const [s, setS] = useState(start)
+/** ===== Util ===== */
+function cls(...v: (string | false | null | undefined)[]) { return v.filter(Boolean).join(' ') }
+function initials(nome: string) {
+  return nome.split(' ').slice(0,2).map(p=>p[0]).join('').toUpperCase()
+}
+const posColor: Record<string,string> = {
+  GL: 'bg-blue-500/20 text-blue-200 border-blue-400/30',
+  ZAG: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30',
+  LD: 'bg-teal-500/20 text-teal-200 border-teal-400/30',
+  LE: 'bg-teal-500/20 text-teal-200 border-teal-400/30',
+  VOL: 'bg-indigo-500/20 text-indigo-200 border-indigo-400/30',
+  MC: 'bg-indigo-500/20 text-indigo-200 border-indigo-400/30',
+  MD: 'bg-purple-500/20 text-purple-200 border-purple-400/30',
+  ME: 'bg-purple-500/20 text-purple-200 border-purple-400/30',
+  PD: 'bg-pink-500/20 text-pink-200 border-pink-400/30',
+  PE: 'bg-pink-500/20 text-pink-200 border-pink-400/30',
+  SA: 'bg-orange-500/20 text-orange-200 border-orange-400/30',
+  CA: 'bg-red-500/20 text-red-200 border-red-400/30',
+}
 
+/** ===== Cronômetro isolado ===== */
+function Cronometro({
+  ativo, isAdmin, onTimeout, start = TEMPO_POR_VEZ,
+}: { ativo: boolean; isAdmin: boolean; onTimeout: () => void; start?: number }) {
+  const [s, setS] = useState(start)
   useEffect(() => {
     if (!ativo) return
     let alive = true
@@ -68,13 +79,31 @@ function Cronometro({
         return prev - 1
       })
     }, 1000)
-    return () => {
-      alive = false
-      clearInterval(id)
-    }
+    return () => { alive = false; clearInterval(id) }
   }, [ativo, isAdmin, onTimeout])
-
   return <b>{s}s</b>
+}
+
+/** ===== UI helpers ===== */
+function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={cls('rounded-2xl p-4 shadow-lg bg-gradient-to-b from-gray-800/80 to-gray-900/80 border border-white/10', className)}>{children}</div>
+}
+function Chip({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <span className={cls('px-3 py-1 rounded-full text-xs font-semibold bg-white/10 border border-white/10', className)}>{children}</span>
+}
+
+/** ===== Select com logos (dropdown com busca) ===== */
+function useClickOutside<T extends HTMLElement>(onOut: () => void) {
+  const ref = useRef<T | null>(null)
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (!ref.current) return
+      if (!ref.current.contains(e.target as Node)) onOut()
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [onOut])
+  return ref
 }
 
 export default function EventoRouboPage() {
@@ -100,6 +129,7 @@ export default function EventoRouboPage() {
   const [jogadoresAlvo, setJogadoresAlvo] = useState<Jogador[]>([])
   const [mostrarJogadores, setMostrarJogadores] = useState(false)
   const [carregandoJogadores, setCarregandoJogadores] = useState(false)
+  const [filtroJogador, setFiltroJogador] = useState('')
 
   // modal de confirmação
   const [confirmJogador, setConfirmJogador] = useState<Jogador | null>(null)
@@ -120,16 +150,10 @@ export default function EventoRouboPage() {
 
     const canal = supabase
       .channel('evento-roubo')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'configuracoes', filter: `id=eq.${CONFIG_ID}` },
-        () => carregarEvento()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes', filter: `id=eq.${CONFIG_ID}` }, () => carregarEvento())
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(canal)
-    }
+    return () => { supabase.removeChannel(canal) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -158,24 +182,16 @@ export default function EventoRouboPage() {
     setEventoFinalizado((data.fase || '') === 'finalizado')
 
     if (data.ordem?.length) {
-      const { data: times, error: errTimes } = await supabase
-        .from('times')
-        .select('id, nome, logo_url')
-        .in('id', data.ordem)
-
+      const { data: times, error: errTimes } = await supabase.from('times').select('id, nome, logo_url').in('id', data.ordem)
       if (!errTimes && times) {
-        const ordemCompleta = (data.ordem as string[])
-          .map((id) => times.find((t) => t.id === id))
-          .filter(Boolean) as Time[]
+        const ordemCompleta = (data.ordem as string[]).map((id) => times.find((t) => t.id === id)).filter(Boolean) as Time[]
         setOrdem(ordemCompleta)
         setOrdemSorteada(true)
       } else {
-        setOrdem([])
-        setOrdemSorteada(false)
+        setOrdem([]); setOrdemSorteada(false)
       }
     } else {
-      setOrdem([])
-      setOrdemSorteada(false)
+      setOrdem([]); setOrdemSorteada(false)
     }
 
     setLoading(false)
@@ -206,23 +222,14 @@ export default function EventoRouboPage() {
   const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
-  // *** LISTO SEM FILTRAR POR REGRAS para nunca ficar vazio; mostro motivos no rótulo ***
-  const alvosListados = useMemo(
-    () => ordem.filter((t) => t.id !== idTime),
-    [ordem, idTime]
-  )
+  // lista de alvos sempre visível
+  const alvosListados = useMemo(() => ordem.filter((t) => t.id !== idTime), [ordem, idTime])
 
-  const nomeAlvoSelecionado = useMemo(
-    () => ordem.find(t => t.id === alvoSelecionado)?.nome || '',
-    [ordem, alvoSelecionado]
-  )
+  const nomeAlvoSelecionado = useMemo(() => ordem.find(t => t.id === alvoSelecionado)?.nome || '', [ordem, alvoSelecionado])
 
-  /** ===== Carregar jogadores do alvo (APENAS por id_time) ===== */
+  /** ===== Carregar jogadores do alvo ===== */
   async function carregarJogadoresDoAlvo() {
-    if (!alvoSelecionado) {
-      toast('Selecione um time-alvo.')
-      return
-    }
+    if (!alvoSelecionado) { toast('Selecione um time-alvo.'); return }
 
     setMostrarJogadores(true)
     setCarregandoJogadores(true)
@@ -311,15 +318,9 @@ export default function EventoRouboPage() {
 
   async function roubarJogador(jogador: Jogador, valorPagoCalculado?: number) {
     if (bloqueioBotao || processandoRoubo) return
-    if (!idTime) {
-      toast.error('Identidade do time não encontrada.')
-      return
-    }
+    if (!idTime) { toast.error('Identidade do time não encontrada.'); return }
     const timeDaVez = ordem[vez]?.id
-    if (!timeDaVez || timeDaVez !== idTime) {
-      toast.error('Não é a sua vez.')
-      return
-    }
+    if (!timeDaVez || timeDaVez !== idTime) { toast.error('Não é a sua vez.'); return }
 
     setProcessandoRoubo(true)
     setBloqueioBotao(true)
@@ -333,10 +334,7 @@ export default function EventoRouboPage() {
       const vezAtual = Number(cfg?.vez ?? 0)
       const ordemIds = cfg?.ordem || []
       const idDaVezServidor = ordemIds?.[vezAtual]
-      if (!idDaVezServidor || idDaVezServidor !== idTime) {
-        toast.error('A vez mudou. Atualize a página.')
-        return
-      }
+      if (!idDaVezServidor || idDaVezServidor !== idTime) { toast.error('A vez mudou. Atualize a página.'); return }
 
       const roubosSrv = (cfg?.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
@@ -358,10 +356,7 @@ export default function EventoRouboPage() {
         .eq('id', jogador.id)
         .eq('id_time', jogador.id_time)
         .select('id')
-      if (errJog || !updJog || updJog.length === 0) {
-        toast.error('Outro time levou esse jogador primeiro. Atualize a lista.')
-        return
-      }
+      if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro. Atualize a lista.'); return }
 
       const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
         supabase.from('times').select('saldo,nome').eq('id', jogador.id_time).single(),
@@ -409,6 +404,7 @@ export default function EventoRouboPage() {
       setMostrarJogadores(false)
       setAlvoSelecionado('')
       setJogadoresAlvo([])
+      setFiltroJogador('')
       fecharConfirmacao()
       toast.success(`✅ ${jogador.nome} roubado! ${nomeMeu} pagou ${brl(valorPago)}.`)
     } catch (e) {
@@ -425,8 +421,7 @@ export default function EventoRouboPage() {
     const { data: times, error } = await supabase.from('times').select('id, nome, logo_url')
     if (error || !times) { toast.error('Erro ao buscar times.'); return }
 
-    const { data: cfg } = await supabase
-      .from('configuracoes').select('roubo_evento_num').eq('id', CONFIG_ID).single()
+    const { data: cfg } = await supabase.from('configuracoes').select('roubo_evento_num').eq('id', CONFIG_ID).single()
     const novoNum = Number(cfg?.roubo_evento_num ?? 0) + 1
 
     const embaralhado: Time[] = [...times]
@@ -456,13 +451,12 @@ export default function EventoRouboPage() {
     setAlvoSelecionado('')
     setJogadoresAlvo([])
     setMostrarJogadores(false)
+    setFiltroJogador('')
   }
 
   async function limparSorteio() {
     await supabase.from('configuracoes').update({ ordem: null, vez: '0' }).eq('id', CONFIG_ID)
-    setOrdem([])
-    setOrdemSorteada(false)
-    setVez(0)
+    setOrdem([]); setOrdemSorteada(false); setVez(0)
     toast('🧹 Sorteio limpo.')
   }
 
@@ -487,18 +481,11 @@ export default function EventoRouboPage() {
 
     setEventoFinalizado(true)
     setOrdem([]); setOrdemSorteada(false); setVez(0)
-    setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false)
+    setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false); setFiltroJogador('')
     toast.success('✅ Evento finalizado! Sorteie a ordem para iniciar um novo evento.')
   }
 
-  /** ===== UI ===== */
-  function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-    return <div className={`rounded-2xl p-4 shadow-lg bg-gradient-to-b from-gray-800/80 to-gray-900/80 border border-white/10 ${className}`}>{children}</div>
-  }
-  function Chip({ children, className = '' }: { children: ReactNode; className?: string }) {
-    return <span className={`px-3 py-1 rounded-full text-xs font-semibold bg-white/10 border border-white/10 ${className}`}>{children}</span>
-  }
-
+  /** ===== Componentes Internos: Status & Select Times ===== */
   const StatusPerdas = () => (
     <Card>
       <div className="flex items-center justify-between mb-3">
@@ -514,8 +501,10 @@ export default function EventoRouboPage() {
             restante === 1 ? 'bg-yellow-500/20 border-yellow-500/30 text-yellow-200' :
             'bg-green-500/20 border-green-500/30 text-green-200'
           return (
-            <div key={t.id} className={`flex items-center gap-3 rounded-xl p-3 border ${cor}`}>
-              {t.logo_url ? <img src={t.logo_url} alt="" className="h-8 w-8 rounded-full" /> : <div className="h-8 w-8 rounded-full bg-white/10" />}
+            <div key={t.id} className={cls('flex items-center gap-3 rounded-xl p-3 border', cor)}>
+              {t.logo_url
+                ? <img src={t.logo_url} alt="" className="h-8 w-8 rounded-full object-cover" />
+                : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(t.nome)}</div>}
               <div className="flex-1">
                 <p className="font-semibold">{t.nome}</p>
                 <p className="text-xs opacity-80">Pode perder: <b>{restante}</b> / {limitePerda}</p>
@@ -528,6 +517,104 @@ export default function EventoRouboPage() {
     </Card>
   )
 
+  const TeamSelect = () => {
+    const [open, setOpen] = useState(false)
+    const [busca, setBusca] = useState('')
+    const ref = useClickOutside<HTMLDivElement>(() => setOpen(false))
+
+    const lista = useMemo(() => {
+      const b = busca.trim().toLowerCase()
+      const arr = b
+        ? alvosListados.filter(t => t.nome.toLowerCase().includes(b))
+        : alvosListados
+      return arr
+    }, [alvosListados, busca])
+
+    const selecionado = ordem.find(t => t.id === alvoSelecionado) || null
+
+    function onEscolher(t: Time) {
+      setAlvoSelecionado(t.id)
+      setMostrarJogadores(false)
+      setJogadoresAlvo([])
+      setFiltroJogador('')
+      setOpen(false)
+    }
+
+    return (
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => ordemSorteada && minhaVez && setOpen(!open)}
+          className={cls(
+            'w-full p-3 rounded-xl bg-white/10 border border-white/10 focus:outline-none flex items-center justify-between gap-3',
+            (!minhaVez || !ordemSorteada) && 'opacity-60 cursor-not-allowed'
+          )}
+          disabled={!minhaVez || !ordemSorteada}
+        >
+          <div className="flex items-center gap-3">
+            {selecionado?.logo_url
+              ? <img src={selecionado.logo_url} className="h-7 w-7 rounded-full object-cover" alt="" />
+              : <div className="h-7 w-7 rounded-full bg-white/10 grid place-items-center text-xs">{selecionado ? initials(selecionado.nome) : ' '}</div>}
+            <div className="text-left">
+              <div className="text-sm opacity-80">Time-alvo</div>
+              <div className="font-semibold">{selecionado?.nome || 'Selecione um time...'}</div>
+            </div>
+          </div>
+          <span className="opacity-70">▾</span>
+        </button>
+
+        {open && (
+          <div className="absolute z-40 mt-2 w-full rounded-xl border border-white/10 bg-gray-900/95 backdrop-blur shadow-2xl">
+            <div className="p-2 border-b border-white/10">
+              <input
+                placeholder="Buscar time..."
+                value={busca}
+                onChange={(e)=>setBusca(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:outline-none"
+              />
+            </div>
+            <div className="max-h-72 overflow-auto p-2 space-y-1">
+              {lista.length === 0 && (
+                <div className="py-6 text-center text-sm opacity-70">Nenhum time encontrado.</div>
+              )}
+              {lista.map((t) => {
+                const perdas = totalPerdasDoAlvo(t.id)
+                const restante = Math.max(0, limitePerda - perdas)
+                const ja = jaRoubouDesseAlvo(t.id)
+                const bloqueadoPorRegra = !podeRoubar(t.id)
+
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => onEscolher(t)}
+                    className={cls(
+                      'w-full text-left rounded-lg p-2 flex items-center gap-3 border transition',
+                      'bg-white/5 hover:bg-white/10 border-white/10',
+                      bloqueadoPorRegra && 'opacity-60'
+                    )}
+                  >
+                    {t.logo_url
+                      ? <img src={t.logo_url} className="h-8 w-8 rounded-full object-cover" alt="" />
+                      : <div className="h-8 w-8 rounded-full bg-white/10 grid place-items-center text-xs">{initials(t.nome)}</div>}
+                    <div className="flex-1">
+                      <div className="font-semibold leading-tight">{t.nome}</div>
+                      <div className="text-[11px] opacity-80">
+                        Pode perder {restante}/{limitePerda} • seus roubos: {ja}/{LIMITE_POR_ALVO_POR_TIME}
+                        {bloqueadoPorRegra && <span className="ml-1 text-red-300 font-semibold">• limite atingido</span>}
+                      </div>
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">{perdas} perdidos</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /** ===== Render ===== */
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] text-white">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
@@ -539,10 +626,14 @@ export default function EventoRouboPage() {
             <div className="text-right">
               <p className="text-sm opacity-80">Agora:</p>
               <div className="flex items-center gap-2 justify-end">
-                {ordem[vez]?.logo_url && <img src={ordem[vez]!.logo_url!} className="h-7 w-7 rounded-full" alt="" />}
+                {ordem[vez]?.logo_url
+                  ? <img src={ordem[vez]!.logo_url!} className="h-7 w-7 rounded-full object-cover" alt="" />
+                  : <div className="h-7 w-7 rounded-full bg-white/10 grid place-items-center text-xs">{ordem[vez]?.nome ? initials(ordem[vez]!.nome) : ''}</div>}
                 <p className="text-lg font-semibold text-green-300">{nomeTimeDaVez || '—'}</p>
               </div>
-              <p className="text-sm mt-1">⏳ Tempo restante: <Cronometro key={vez} ativo={ordemSorteada} isAdmin={!!isAdmin} onTimeout={passarVez} /></p>
+              <p className="text-sm mt-1">
+                ⏳ Tempo restante: <Cronometro key={vez} ativo={ordemSorteada} isAdmin={!!isAdmin} onTimeout={passarVez} />
+              </p>
             </div>
           )}
         </div>
@@ -559,35 +650,14 @@ export default function EventoRouboPage() {
           </Card>
         )}
 
-        {/* Seletor de time-alvo (sempre mostra times) */}
+        {/* Seletor de time-alvo com logos */}
         <Card>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
             <Chip>Seu limite total: {limiteRoubosPorTime} • Já roubou: {totalRoubosDoMeuTime()}</Chip>
           </div>
 
-          <select
-            value={alvoSelecionado}
-            onChange={(e) => { setAlvoSelecionado(e.target.value); setMostrarJogadores(false); setJogadoresAlvo([]) }}
-            className="w-full p-3 rounded-xl bg-white/10 border border-white/10 focus:outline-none"
-            disabled={!minhaVez || !ordemSorteada}
-          >
-            <option value="">Selecione um time...</option>
-            {alvosListados.map((time) => {
-              const perdas = totalPerdasDoAlvo(time.id)
-              const restante = Math.max(0, limitePerda - perdas)
-              const jaRoubei = jaRoubouDesseAlvo(time.id)
-              const bloqueadoPorRegra = !podeRoubar(time.id)
-              const labelMotivo = bloqueadoPorRegra
-                ? ` (limite atingido)`
-                : ''
-              return (
-                <option key={time.id} value={time.id}>
-                  {time.nome} — pode perder {restante}/{limitePerda} • você: {jaRoubei}/{LIMITE_POR_ALVO_POR_TIME}{labelMotivo}
-                </option>
-              )
-            })}
-          </select>
+          <TeamSelect />
 
           <div className="mt-3">
             <button
@@ -605,18 +675,10 @@ export default function EventoRouboPage() {
           <div className="grid md:grid-cols-4 gap-3">
             {isAdmin ? (
               <>
-                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">
-                  🎲 Sortear Ordem
-                </button>
-                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">
-                  ⏭️ Passar Vez
-                </button>
-                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">
-                  🛑 Finalizar Evento
-                </button>
-                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">
-                  🧹 Limpar Sorteio
-                </button>
+                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear Ordem</button>
+                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭️ Passar Vez</button>
+                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Finalizar Evento</button>
+                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">🧹 Limpar Sorteio</button>
               </>
             ) : (
               <>
@@ -646,35 +708,73 @@ export default function EventoRouboPage() {
                     <div className="text-center py-6 opacity-80">
                       Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores do time”</b>.
                     </div>
-                  ) : carregandoJogadores ? (
-                    <p className="text-center opacity-80">Carregando elenco...</p>
                   ) : (
-                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {jogadoresAlvo.length === 0 && (
-                        <p className="col-span-full text-center opacity-80">Nenhum jogador disponível (bloqueado ou já levado).</p>
+                    <>
+                      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                        <h4 className="font-bold text-lg">📋 Jogadores disponíveis — {nomeAlvoSelecionado}</h4>
+                        <input
+                          value={filtroJogador}
+                          onChange={(e)=>setFiltroJogador(e.target.value)}
+                          placeholder="Filtrar por nome/posição..."
+                          className="w-full sm:w-72 px-3 py-2 rounded-xl bg-white/10 border border-white/10 focus:outline-none"
+                        />
+                      </div>
+
+                      {carregandoJogadores ? (
+                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                          {Array.from({length:6}).map((_,i)=>(
+                            <div key={i} className="rounded-xl p-3 border border-white/10 bg-white/5 animate-pulse h-28" />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                          {jogadoresAlvo
+                            .filter(j => {
+                              const f = filtroJogador.trim().toLowerCase()
+                              if (!f) return true
+                              return j.nome.toLowerCase().includes(f) || (j.posicao || '').toLowerCase().includes(f)
+                            })
+                            .map((j) => {
+                              const valorRoubo = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
+                              const posCls = posColor[j.posicao] || 'bg-white/10 text-white/90 border-white/20'
+                              return (
+                                <div key={j.id} className="rounded-xl p-4 bg-white/5 border border-white/10 hover:bg-white/10 transition group">
+                                  <div className="flex items-start gap-3">
+                                    <div className="h-12 w-12 rounded-xl bg-gradient-to-b from-white/10 to-white/5 border border-white/10 grid place-items-center text-sm font-bold">
+                                      {initials(j.nome)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="flex items-center justify-between">
+                                        <p className="font-extrabold leading-tight">{j.nome}</p>
+                                        <Chip className="ml-2">{brl(j.valor)}</Chip>
+                                      </div>
+                                      <div className="mt-1">
+                                        <span className={cls('text-[11px] px-2 py-1 rounded-full border', posCls)}>{j.posicao}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    onClick={() => abrirConfirmacao(j)}
+                                    disabled={bloqueioBotao || !podeRoubar(j.id_time)}
+                                    className={cls(
+                                      'mt-4 w-full rounded-lg py-2 font-semibold transition',
+                                      'bg-green-600 hover:bg-green-700',
+                                      (!podeRoubar(j.id_time) || bloqueioBotao) && 'bg-green-900 cursor-not-allowed hover:bg-green-900'
+                                    )}
+                                  >
+                                    ✅ Roubar por {brl(valorRoubo)}
+                                  </button>
+                                </div>
+                              )
+                            })}
+
+                          {jogadoresAlvo.length === 0 && (
+                            <p className="col-span-full text-center opacity-80">Nenhum jogador disponível (bloqueado ou já levado).</p>
+                          )}
+                        </div>
                       )}
-                      {jogadoresAlvo.map((j) => {
-                        const valorRoubo = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
-                        return (
-                          <div key={j.id} className="rounded-xl p-3 bg-white/5 border border-white/10 hover:bg-white/10 transition">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-bold">{j.nome}</p>
-                                <p className="text-xs opacity-80">{j.posicao}</p>
-                              </div>
-                              <Chip>{brl(j.valor)}</Chip>
-                            </div>
-                            <button
-                              onClick={() => abrirConfirmacao(j)}
-                              disabled={bloqueioBotao || !podeRoubar(j.id_time)}
-                              className="mt-3 w-full rounded-lg py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold"
-                            >
-                              ✅ Roubar por {brl(valorRoubo)}
-                            </button>
-                          </div>
-                        )
-                      })}
-                    </div>
+                    </>
                   )}
                 </>
               ) : (
@@ -705,9 +805,7 @@ export default function EventoRouboPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mt-5">
-              <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">
-                Cancelar
-              </button>
+              <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">Cancelar</button>
               <button onClick={confirmarRoubo} disabled={processandoRoubo} className="rounded-xl py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold">
                 {processandoRoubo ? 'Processando...' : 'Confirmar Roubo'}
               </button>
