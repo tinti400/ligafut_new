@@ -57,17 +57,18 @@ const posColor: Record<string,string> = {
   SA: 'bg-orange-500/20 text-orange-200 border-orange-400/30',
   CA: 'bg-red-500/20 text-red-200 border-red-400/30',
 }
-// timeout p/ evitar ficar presa em chamada externa
+// timeout genérico
 function withTimeout<T>(p: Promise<T>, ms = 15000): Promise<T> {
   return Promise.race([
     p,
     new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Tempo esgotado. Verifique a conexão.')), ms))
   ]) as Promise<T>
 }
-// >>> mantém o shape { data, error } do Supabase nas chamadas com timeout
+// mantém o shape { data, error } do Supabase nas chamadas com timeout
 type SupaResp<T> = { data: T | null; error: any }
-async function supa<T>(p: Promise<any>, ms = 15000): Promise<SupaResp<T>> {
-  return await withTimeout<SupaResp<T>>(p as unknown as Promise<SupaResp<T>>, ms)
+// ⚠️ CORRIGIDO: embrulhar PostgrestBuilder com Promise.resolve(...)
+async function supa<T>(p: any, ms = 15000): Promise<SupaResp<T>> {
+  return await withTimeout<SupaResp<T>>(Promise.resolve(p), ms)
 }
 
 /** ===== Cronômetro ===== */
@@ -382,7 +383,7 @@ export default function EventoRouboPage() {
       // 5) Débito / Crédito (CAS)
       const debitei = await withTimeout(ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes))
       const creditei = await withTimeout(ajustarSaldoCompareAndSwap(timeOrigemId, +valorPago, saldoAlvoAntes))
-      if (!debitei || !creditei) { setErroConfirm('Conflito ao atualizar saldos.'); return }
+      if (!debitei || !creditéi) { setErroConfirm('Conflito ao atualizar saldos.'); return }
 
       // 6) Saldos (depois) para o modal Antes × Depois
       const { data: timesFresh, error: freshErr } = await supa<Array<{id:string; nome:string; logo_url:string|null; saldo:number}>>(
