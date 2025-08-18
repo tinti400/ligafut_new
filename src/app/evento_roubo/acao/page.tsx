@@ -1,6 +1,3 @@
-aqui está o arquivo completo com **apenas** a inserção pedida (resetar `limite_perda` para 3 ao finalizar o evento + refletir na UI com `setLimitePerda(LIMITE_PERDA_DEFAULT)`):
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState, ReactNode, useCallback, useRef } from 'react'
@@ -961,4 +958,3 @@ export default function EventoRouboPage() {
     </div>
   )
 }
-```
