@@ -1,3 +1,6 @@
+aí vai o **arquivo completo e corrigido** (`src/app/evento_roubo/acao/page.tsx`) — pronto pra buildar:
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState, ReactNode, useCallback, useRef } from 'react'
@@ -332,7 +335,7 @@ export default function EventoRouboPage() {
           .eq('id', CONFIG_ID)
           .single<ConfigEvento>()
       )
-      if (cfgErr) throw new Error('Falha ao ler configuração: ' + cfgErr.message)
+      if (cfgErr) throw new Error('Falha ao ler configuração: ' + (cfgErr.message ?? ''))
 
       const vezAtual = Number(cfg?.vez ?? 0)
       const idDaVezServidor = (cfg?.ordem || [])[vezAtual]
@@ -364,7 +367,7 @@ export default function EventoRouboPage() {
           .eq('id_time', timeOrigemId)
           .select('id')
       )
-      if (errJog) { setErroConfirm('Falha ao transferir jogador (elenco): ' + errJog.message); return }
+      if (errJog) { setErroConfirm('Falha ao transferir jogador (elenco): ' + (errJog.message ?? '')); return }
       if (!updJog || updJog.length === 0) { setErroConfirm('Outro time levou esse jogador primeiro.'); await carregarEvento(); return }
 
       // 4) Saldos (antes)
@@ -372,8 +375,8 @@ export default function EventoRouboPage() {
         supa<{id:string; nome:string; logo_url:string|null; saldo:number}>(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', timeOrigemId).single()),
         supa<{id:string; nome:string; logo_url:string|null; saldo:number}>(supabase.from('times').select('id,nome,logo_url,saldo').eq('id', idTime).single())
       ])
-      if (alvoErr) { setErroConfirm('Erro ao ler saldo do time alvo: ' + alvoErr.message); return }
-      if (meuErr)  { setErroConfirm('Erro ao ler saldo do seu time: ' + meuErr.message); return }
+      if (alvoErr) { setErroConfirm('Erro ao ler saldo do time alvo: ' + (alvoErr.message ?? '')); return }
+      if (meuErr)  { setErroConfirm('Erro ao ler saldo do seu time: ' + (meuErr.message ?? '')); return }
 
       const nomeAlvo = alvoInfo?.nome || 'Time Alvo'
       const nomeMeu  = meuInfo?.nome  || 'Seu Time'
@@ -383,13 +386,13 @@ export default function EventoRouboPage() {
       // 5) Débito / Crédito (CAS)
       const debitei = await withTimeout(ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes))
       const creditei = await withTimeout(ajustarSaldoCompareAndSwap(timeOrigemId, +valorPago, saldoAlvoAntes))
-      if (!debitei || !creditéi) { setErroConfirm('Conflito ao atualizar saldos.'); return }
+      if (!debitei || !creditei) { setErroConfirm('Conflito ao atualizar saldos.'); return }
 
       // 6) Saldos (depois) para o modal Antes × Depois
       const { data: timesFresh, error: freshErr } = await supa<Array<{id:string; nome:string; logo_url:string|null; saldo:number}>>(
         supabase.from('times').select('id,nome,logo_url,saldo').in('id', [idTime, timeOrigemId])
       )
-      if (freshErr) { setErroConfirm('Erro ao ler saldos atualizados: ' + freshErr.message); return }
+      if (freshErr) { setErroConfirm('Erro ao ler saldos atualizados: ' + (freshErr.message ?? '')); return }
       const freshMeu  = timesFresh?.find(t => t.id === idTime)
       const freshAlvo = timesFresh?.find(t => t.id === timeOrigemId)
       const saldoMeuDepois  = Number(freshMeu?.saldo  ?? (saldoMeuAntes  - valorPago))
@@ -416,7 +419,7 @@ export default function EventoRouboPage() {
           .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
           .eq('id', CONFIG_ID)
       )
-      if (cfgUpdErr) { setErroConfirm('Erro ao salvar configuração: ' + cfgUpdErr.message); return }
+      if (cfgUpdErr) { setErroConfirm('Erro ao salvar configuração: ' + (cfgUpdErr.message ?? '')); return }
 
       // 8) BID
       const { error: bidErr } = await supa<unknown>(
@@ -428,7 +431,7 @@ export default function EventoRouboPage() {
           valor: valorPago
         })
       )
-      if (bidErr) { setErroConfirm('Erro ao publicar no BID: ' + bidErr.message); return }
+      if (bidErr) { setErroConfirm('Erro ao publicar no BID: ' + (bidErr.message ?? '')); return }
 
       // 9) Feedbacks & modal Antes × Depois
       setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
@@ -942,3 +945,4 @@ export default function EventoRouboPage() {
     </div>
   )
 }
+```
