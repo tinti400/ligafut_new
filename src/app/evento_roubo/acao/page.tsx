@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, ReactNode } from 'react'
+import { useEffect, useMemo, useState, ReactNode, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import { useAdmin } from '@/hooks/useAdmin'
@@ -12,22 +12,11 @@ const supabase = createClient(
 )
 
 /** ===== Tipos ===== */
-interface Time {
-  id: string
-  nome: string
-  logo_url: string | null
-}
-interface Jogador {
-  id: string
-  nome: string
-  posicao: string
-  valor: number
-  id_time: string
-}
+interface Time { id: string; nome: string; logo_url: string | null }
+interface Jogador { id: string; nome: string; posicao: string; valor: number; id_time: string }
 type RoubosMap = Record<string, Record<string, number>>
 type BloqueadosMap = Record<string, { id?: string; nome: string; posicao: string }[]>
 type BloqPersistMap = Record<string, number>
-
 type ConfigEvento = {
   id: string
   ordem: string[] | null
@@ -49,19 +38,53 @@ const LIMITE_POR_ALVO_POR_TIME = 2
 const LIMITE_PERDA_DEFAULT = 3
 const LIMITE_ROUBOS_POR_TIME_DEFAULT = 3
 const PERCENTUAL_ROUBO = 0.5
-
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
+
+/** ===== Cronômetro isolado (não re-renderiza a página inteira) ===== */
+function Cronometro({
+  ativo,
+  isAdmin,
+  onTimeout,
+  start = TEMPO_POR_VEZ,
+}: {
+  ativo: boolean
+  isAdmin: boolean
+  onTimeout: () => void
+  start?: number
+}) {
+  const [s, setS] = useState(start)
+
+  useEffect(() => {
+    if (!ativo) return
+    let alive = true
+    const id = setInterval(() => {
+      setS((prev) => {
+        if (!alive) return prev
+        if (prev <= 1) {
+          clearInterval(id)
+          if (isAdmin) onTimeout()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [ativo, isAdmin, onTimeout])
+
+  return <b>{s}s</b>
+}
 
 export default function EventoRouboPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
-
   const [idTime, setIdTime] = useState<string>('')
 
   // estado do evento
   const [ordem, setOrdem] = useState<Time[]>([])
   const [vez, setVez] = useState<number>(0)
   const [ordemSorteada, setOrdemSorteada] = useState(false)
-  const [tempoRestante, setTempoRestante] = useState<number>(TEMPO_POR_VEZ)
 
   const [roubos, setRoubos] = useState<RoubosMap>({})
   const [bloqueados, setBloqueados] = useState<BloqueadosMap>({})
@@ -89,7 +112,7 @@ export default function EventoRouboPage() {
   // banner pós-finalização
   const [eventoFinalizado, setEventoFinalizado] = useState(false)
 
-  // ===== Init / Realtime =====
+  /** ===== Init / Realtime ===== */
   useEffect(() => {
     const id = localStorage.getItem('id_time') || localStorage.getItem('idTime') || ''
     if (id) setIdTime(id)
@@ -110,18 +133,7 @@ export default function EventoRouboPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // timer (admin auto-passa ao zerar)
-  useEffect(() => {
-    if (!ordemSorteada) return
-    if (tempoRestante <= 0) {
-      if (isAdmin) passarVez().catch(() => {})
-      return
-    }
-    const t = setTimeout(() => setTempoRestante((p) => p - 1), 1000)
-    return () => clearTimeout(t)
-  }, [tempoRestante, ordemSorteada, isAdmin])
-
-  /** ========= Carregar estado do evento ========= */
+  /** ===== Carregar estado do evento ===== */
   async function carregarEvento() {
     setLoading(true)
     const { data, error } = await supabase
@@ -166,44 +178,46 @@ export default function EventoRouboPage() {
       setOrdemSorteada(false)
     }
 
-    setTempoRestante(TEMPO_POR_VEZ)
     setLoading(false)
   }
 
-  /** ========= Regras / Cálculos ========= */
-  function totalPerdasDoAlvo(alvoId: string) {
-    return Object.values(roubos)
-      .map((r) => r[alvoId] || 0)
-      .reduce((a, b) => a + b, 0)
-  }
-  function totalRoubosDoMeuTime() {
+  /** ===== Regras / Cálculos ===== */
+  const totalPerdasDoAlvo = useCallback((alvoId: string) =>
+    Object.values(roubos).map(r => r[alvoId] || 0).reduce((a, b) => a + b, 0)
+  , [roubos])
+
+  const totalRoubosDoMeuTime = useCallback(() => {
     const meu = roubos[idTime] || {}
     return Object.values(meu).reduce((a, b) => a + b, 0)
-  }
-  function jaRoubouDesseAlvo(alvoId: string) {
-    return roubos[idTime]?.[alvoId] || 0
-  }
-  function podeRoubar(alvoId: string) {
+  }, [roubos, idTime])
+
+  const jaRoubouDesseAlvo = useCallback((alvoId: string) =>
+    roubos[idTime]?.[alvoId] || 0
+  , [roubos, idTime])
+
+  const podeRoubar = useCallback((alvoId: string) => {
     if (totalPerdasDoAlvo(alvoId) >= limitePerda) return false
     if (jaRoubouDesseAlvo(alvoId) >= LIMITE_POR_ALVO_POR_TIME) return false
     if (totalRoubosDoMeuTime() >= limiteRoubosPorTime) return false
     return true
-  }
+  }, [totalPerdasDoAlvo, jaRoubouDesseAlvo, totalRoubosDoMeuTime, limitePerda, limiteRoubosPorTime])
 
   const idTimeDaVez = ordem[vez]?.id || ''
   const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
-  const opcoesDeAlvo = useMemo(
-    () =>
-      ordem
-        .filter((t) => t.id !== idTime)
-        .filter((t) => podeRoubar(t.id)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ordem, idTime, roubos, limitePerda, limiteRoubosPorTime]
+  // *** LISTO SEM FILTRAR POR REGRAS para nunca ficar vazio; mostro motivos no rótulo ***
+  const alvosListados = useMemo(
+    () => ordem.filter((t) => t.id !== idTime),
+    [ordem, idTime]
   )
 
-  /** ========= Carregar jogadores do alvo (apenas id_time) ========= */
+  const nomeAlvoSelecionado = useMemo(
+    () => ordem.find(t => t.id === alvoSelecionado)?.nome || '',
+    [ordem, alvoSelecionado]
+  )
+
+  /** ===== Carregar jogadores do alvo (APENAS por id_time) ===== */
   async function carregarJogadoresDoAlvo() {
     if (!alvoSelecionado) {
       toast('Selecione um time-alvo.')
@@ -227,7 +241,6 @@ export default function EventoRouboPage() {
 
     const base = (data || []) as Jogador[]
 
-    // bloqueios do evento atual (por time)
     const bloqueiosDoAlvo = (bloqueados[alvoSelecionado] || [])
     const idsBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.id).filter(Boolean))
     const nomesBloqueados = new Set(bloqueiosDoAlvo.map((b) => b.nome))
@@ -236,7 +249,6 @@ export default function EventoRouboPage() {
       (idsBloqueados.size ? !idsBloqueados.has(j.id) : !nomesBloqueados.has(j.nome))
     )
 
-    // bloqueio persistente (anti re-roubo) até evento atual inclusive
     const filtrados = semBloqueadosDoTime.filter((j) => {
       const ate = bloqPersist[j.id]
       return !(ate != null && ate >= eventoNum)
@@ -254,24 +266,21 @@ export default function EventoRouboPage() {
     }
   }
 
-  /** ========= Saldo: CAS com retry ========= */
+  /** ===== Saldo: CAS com retry ===== */
   async function ajustarSaldoCompareAndSwap(timeId: string, delta: number, saldoAtualEsperado?: number) {
     let esperado = saldoAtualEsperado
     if (esperado == null) {
       const { data: t } = await supabase.from('times').select('saldo').eq('id', timeId).single()
       esperado = t?.saldo ?? 0
     }
-
     const { data: upd, error } = await supabase
       .from('times')
       .update({ saldo: (esperado || 0) + delta })
       .eq('id', timeId)
       .eq('saldo', esperado)
       .select('id')
-
     if (!error && upd && upd.length === 1) return true
 
-    // retry 1x
     const { data: fresh } = await supabase.from('times').select('saldo').eq('id', timeId).single()
     const freshSaldo = fresh?.saldo ?? 0
     const { data: upd2 } = await supabase
@@ -280,11 +289,10 @@ export default function EventoRouboPage() {
       .eq('id', timeId)
       .eq('saldo', freshSaldo)
       .select('id')
-
     return !!(upd2 && upd2.length === 1)
   }
 
-  /** ========= Confirmar modal ========= */
+  /** ===== Modal ===== */
   function abrirConfirmacao(j: Jogador) {
     const valor = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
     setConfirmJogador(j)
@@ -295,7 +303,7 @@ export default function EventoRouboPage() {
     setConfirmValor(0)
   }
 
-  /** ========= Roubar (com travas e confirmações) ========= */
+  /** ===== Roubar ===== */
   async function confirmarRoubo() {
     if (!confirmJogador) return
     await roubarJogador(confirmJogador, confirmValor)
@@ -307,8 +315,6 @@ export default function EventoRouboPage() {
       toast.error('Identidade do time não encontrada.')
       return
     }
-
-    // precisa ser minha vez
     const timeDaVez = ordem[vez]?.id
     if (!timeDaVez || timeDaVez !== idTime) {
       toast.error('Não é a sua vez.')
@@ -317,9 +323,7 @@ export default function EventoRouboPage() {
 
     setProcessandoRoubo(true)
     setBloqueioBotao(true)
-
     try {
-      // valida estado atual no servidor
       const { data: cfg } = await supabase
         .from('configuracoes')
         .select('ordem,vez,roubos,limite_perda,limite_roubos_por_time,bloqueios,roubo_evento_num,bloqueios_persistentes')
@@ -335,47 +339,30 @@ export default function EventoRouboPage() {
       }
 
       const roubosSrv = (cfg?.roubos || {}) as RoubosMap
-      const totalPerdasSrv = Object.values(roubosSrv)
-        .map((r) => r[jogador.id_time] || 0)
-        .reduce((a, b) => a + b, 0)
-
+      const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
       const limitePerdaSrv = cfg?.limite_perda ?? LIMITE_PERDA_DEFAULT
       const limiteRoubosPorTimeSrv = cfg?.limite_roubos_por_time ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
 
-      if (totalPerdasSrv + 1 > limitePerdaSrv) {
-        toast.error('Esse time não pode perder mais jogadores neste evento.')
-        return
-      }
-      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) {
-        toast.error('Você já atingiu o limite contra esse alvo (2).')
-        return
-      }
-      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) {
-        toast.error('Você atingiu o limite total de roubos neste evento.')
-        return
-      }
+      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); return }
+      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); return }
+      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); return }
 
-      // valor a pagar
-      const valorPago = valorPagoCalculado != null
-        ? valorPagoCalculado
-        : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
+      const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
-      // TRANSFERÊNCIA com trava otimista — atualiza apenas se ainda pertence ao time de origem
+      // transferência condicionada ao id_time original
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
         .eq('id', jogador.id)
         .eq('id_time', jogador.id_time)
         .select('id')
-
       if (errJog || !updJog || updJog.length === 0) {
         toast.error('Outro time levou esse jogador primeiro. Atualize a lista.')
         return
       }
 
-      // pegar saldos/nomes
       const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
         supabase.from('times').select('saldo,nome').eq('id', jogador.id_time).single(),
         supabase.from('times').select('saldo,nome').eq('id', idTime).single()
@@ -383,20 +370,16 @@ export default function EventoRouboPage() {
       const nomeAlvo = alvoInfo?.nome || 'Time Alvo'
       const nomeMeu = meuInfo?.nome || 'Seu Time'
 
-      // CAS saldos
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, meuInfo?.saldo)
       const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, alvoInfo?.saldo)
-      if (!debitei || !creditei) {
-        toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
-      }
+      if (!debitei || !creditei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
 
-      // atualizar roubos
       const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
       if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
       atualizado[idTime][jogador.id_time]++
 
-      // bloquear no NOVO time (evento atual)
+      // bloqueio do jogador no novo time (evento atual)
       const bloqAtual: BloqueadosMap = { ...(cfg?.bloqueios || {}) }
       const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
       const existe = listaNovo.some((b) => (b.id ? b.id === jogador.id : b.nome === jogador.nome))
@@ -405,17 +388,15 @@ export default function EventoRouboPage() {
         bloqAtual[idTime] = listaNovo
       }
 
-      // bloqueio persistente até o PRÓXIMO evento (anti re-roubo)
+      // bloqueio persistente até o próximo evento
       const persist: BloqPersistMap = { ...(cfg?.bloqueios_persistentes || {}) }
       const atualEvento = Number(cfg?.roubo_evento_num ?? 0)
       persist[jogador.id] = atualEvento + 1
 
-      await supabase
-        .from('configuracoes')
+      await supabase.from('configuracoes')
         .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
         .eq('id', CONFIG_ID)
 
-      // BID
       await supabase.from('bid').insert({
         tipo_evento: 'roubo',
         descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
@@ -424,7 +405,6 @@ export default function EventoRouboPage() {
         valor: valorPago
       })
 
-      // UI
       setRoubos(atualizado)
       setMostrarJogadores(false)
       setAlvoSelecionado('')
@@ -440,21 +420,13 @@ export default function EventoRouboPage() {
     }
   }
 
-  /** ========= Admin: ordem/vez/limpar/finalizar ========= */
+  /** ===== Admin: ordem/vez/limpar/finalizar ===== */
   async function sortearOrdem() {
     const { data: times, error } = await supabase.from('times').select('id, nome, logo_url')
-    if (error || !times) {
-      toast.error('Erro ao buscar times.')
-      return
-    }
+    if (error || !times) { toast.error('Erro ao buscar times.'); return }
 
-    // incrementa número do evento
     const { data: cfg } = await supabase
-      .from('configuracoes')
-      .select('roubo_evento_num')
-      .eq('id', CONFIG_ID)
-      .single()
-
+      .from('configuracoes').select('roubo_evento_num').eq('id', CONFIG_ID).single()
     const novoNum = Number(cfg?.roubo_evento_num ?? 0) + 1
 
     const embaralhado: Time[] = [...times]
@@ -463,21 +435,15 @@ export default function EventoRouboPage() {
       .map(({ r, ...rest }) => rest)
 
     const ids = embaralhado.map((t) => t.id)
-
     const { error: errUpd } = await supabase
       .from('configuracoes')
       .update({ ordem: ids, vez: '0', roubo_evento_num: novoNum, ativo: true, fase: 'acao' })
       .eq('id', CONFIG_ID)
-
-    if (errUpd) {
-      toast.error('Erro ao sortear a ordem.')
-      return
-    }
+    if (errUpd) { toast.error('Erro ao sortear a ordem.'); return }
 
     setEventoFinalizado(false)
     setOrdem(embaralhado)
     setVez(0)
-    setTempoRestante(TEMPO_POR_VEZ)
     setOrdemSorteada(true)
     setEventoNum(novoNum)
     toast.success('🎲 Ordem sorteada! Boa sorte.')
@@ -487,7 +453,6 @@ export default function EventoRouboPage() {
     const novaVez = vez + 1
     await supabase.from('configuracoes').update({ vez: String(novaVez) }).eq('id', CONFIG_ID)
     setVez(novaVez)
-    setTempoRestante(TEMPO_POR_VEZ)
     setAlvoSelecionado('')
     setJogadoresAlvo([])
     setMostrarJogadores(false)
@@ -498,74 +463,40 @@ export default function EventoRouboPage() {
     setOrdem([])
     setOrdemSorteada(false)
     setVez(0)
-    setTempoRestante(TEMPO_POR_VEZ)
     toast('🧹 Sorteio limpo.')
   }
 
-  // Finaliza: zera perdas/bloqueios do evento, mantém persistentes válidos e mostra banner p/ novo sorteio
   async function finalizarEvento() {
     const { data: cfg, error } = await supabase
       .from('configuracoes')
       .select('roubo_evento_num,bloqueios_persistentes')
       .eq('id', CONFIG_ID)
       .single<ConfigEvento>()
-
-    if (error) {
-      toast.error('Erro ao carregar configuração.')
-      return
-    }
+    if (error) { toast.error('Erro ao carregar configuração.'); return }
 
     const ev = Number(cfg?.roubo_evento_num ?? 0)
     const persist = (cfg?.bloqueios_persistentes ?? {}) as BloqPersistMap
-
     const novoPersist: BloqPersistMap = {}
-    for (const [jid, ate] of Object.entries(persist)) {
-      if (ate >= ev) novoPersist[jid] = ate
-    }
+    for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
 
     const { error: updErr } = await supabase
       .from('configuracoes')
-      .update({
-        ativo: false,
-        fase: 'finalizado',
-        roubos: {},
-        bloqueios: {},
-        bloqueios_persistentes: novoPersist
-      })
+      .update({ ativo: false, fase: 'finalizado', roubos: {}, bloqueios: {}, bloqueios_persistentes: novoPersist })
       .eq('id', CONFIG_ID)
+    if (updErr) { toast.error('Erro ao finalizar evento.'); return }
 
-    if (updErr) {
-      toast.error('Erro ao finalizar evento.')
-      return
-    }
-
-    // Reset UI + mensagem clara
     setEventoFinalizado(true)
-    setOrdem([])
-    setOrdemSorteada(false)
-    setVez(0)
-    setTempoRestante(TEMPO_POR_VEZ)
-    setAlvoSelecionado('')
-    setJogadoresAlvo([])
-    setMostrarJogadores(false)
-
+    setOrdem([]); setOrdemSorteada(false); setVez(0)
+    setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false)
     toast.success('✅ Evento finalizado! Sorteie a ordem para iniciar um novo evento.')
   }
 
-  /** ========= UI ========= */
+  /** ===== UI ===== */
   function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-    return (
-      <div className={`rounded-2xl p-4 shadow-lg bg-gradient-to-b from-gray-800/80 to-gray-900/80 border border-white/10 ${className}`}>
-        {children}
-      </div>
-    )
+    return <div className={`rounded-2xl p-4 shadow-lg bg-gradient-to-b from-gray-800/80 to-gray-900/80 border border-white/10 ${className}`}>{children}</div>
   }
   function Chip({ children, className = '' }: { children: ReactNode; className?: string }) {
-    return (
-      <span className={`px-3 py-1 rounded-full text-xs font-semibold bg-white/10 border border-white/10 ${className}`}>
-        {children}
-      </span>
-    )
+    return <span className={`px-3 py-1 rounded-full text-xs font-semibold bg-white/10 border border-white/10 ${className}`}>{children}</span>
   }
 
   const StatusPerdas = () => (
@@ -597,14 +528,10 @@ export default function EventoRouboPage() {
     </Card>
   )
 
-  const nomeAlvoSelecionado = useMemo(
-    () => ordem.find(t => t.id === alvoSelecionado)?.nome || '',
-    [ordem, alvoSelecionado]
-  )
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] text-white">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
+
         {/* Cabeçalho */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">⚔️ Evento de Roubo</h1>
@@ -615,7 +542,7 @@ export default function EventoRouboPage() {
                 {ordem[vez]?.logo_url && <img src={ordem[vez]!.logo_url!} className="h-7 w-7 rounded-full" alt="" />}
                 <p className="text-lg font-semibold text-green-300">{nomeTimeDaVez || '—'}</p>
               </div>
-              <p className="text-sm mt-1">⏳ Tempo restante: <b>{tempoRestante}s</b></p>
+              <p className="text-sm mt-1">⏳ Tempo restante: <Cronometro key={vez} ativo={ordemSorteada} isAdmin={!!isAdmin} onTimeout={passarVez} /></p>
             </div>
           )}
         </div>
@@ -632,7 +559,7 @@ export default function EventoRouboPage() {
           </Card>
         )}
 
-        {/* Seletor de time-alvo (simples) */}
+        {/* Seletor de time-alvo (sempre mostra times) */}
         <Card>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
@@ -646,13 +573,17 @@ export default function EventoRouboPage() {
             disabled={!minhaVez || !ordemSorteada}
           >
             <option value="">Selecione um time...</option>
-            {opcoesDeAlvo.map((time) => {
+            {alvosListados.map((time) => {
               const perdas = totalPerdasDoAlvo(time.id)
               const restante = Math.max(0, limitePerda - perdas)
               const jaRoubei = jaRoubouDesseAlvo(time.id)
+              const bloqueadoPorRegra = !podeRoubar(time.id)
+              const labelMotivo = bloqueadoPorRegra
+                ? ` (limite atingido)`
+                : ''
               return (
                 <option key={time.id} value={time.id}>
-                  {time.nome} — pode perder {restante}/{limitePerda} • você: {jaRoubei}/{LIMITE_POR_ALVO_POR_TIME}
+                  {time.nome} — pode perder {restante}/{limitePerda} • você: {jaRoubei}/{LIMITE_POR_ALVO_POR_TIME}{labelMotivo}
                 </option>
               )
             })}
@@ -664,7 +595,7 @@ export default function EventoRouboPage() {
               disabled={!minhaVez || !alvoSelecionado}
               className="w-full rounded-xl py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed transition font-semibold"
             >
-              🔎 Ver jogadores disponíveis {nomeAlvoSelecionado ? `de ${nomeAlvoSelecionado}` : ''}
+              🔎 Ver jogadores do {nomeAlvoSelecionado || 'time selecionado'}
             </button>
           </div>
         </Card>
@@ -713,7 +644,7 @@ export default function EventoRouboPage() {
                 <>
                   {!mostrarJogadores ? (
                     <div className="text-center py-6 opacity-80">
-                      Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores disponíveis”</b>.
+                      Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores do time”</b>.
                     </div>
                   ) : carregandoJogadores ? (
                     <p className="text-center opacity-80">Carregando elenco...</p>
@@ -735,7 +666,7 @@ export default function EventoRouboPage() {
                             </div>
                             <button
                               onClick={() => abrirConfirmacao(j)}
-                              disabled={bloqueioBotao}
+                              disabled={bloqueioBotao || !podeRoubar(j.id_time)}
                               className="mt-3 w-full rounded-lg py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold"
                             >
                               ✅ Roubar por {brl(valorRoubo)}
@@ -774,17 +705,10 @@ export default function EventoRouboPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mt-5">
-              <button
-                onClick={fecharConfirmacao}
-                className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold"
-              >
+              <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">
                 Cancelar
               </button>
-              <button
-                onClick={confirmarRoubo}
-                disabled={processandoRoubo}
-                className="rounded-xl py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold"
-              >
+              <button onClick={confirmarRoubo} disabled={processandoRoubo} className="rounded-xl py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold">
                 {processandoRoubo ? 'Processando...' : 'Confirmar Roubo'}
               </button>
             </div>
