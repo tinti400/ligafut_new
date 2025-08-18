@@ -1,3 +1,13 @@
+Segue o **arquivo completo** já corrigido. Ele:
+
+* Detecta automaticamente a linha correta em `configuracoes` (não fica preso a um ID errado).
+* Embaralha e salva a `ordem` com verificação de update.
+* Mantém toda a lógica de roubo (transferência do jogador, ajuste de saldos com CAS e publicação no BID).
+* Evita o “loop” de confirmação.
+
+Cole isso em `src/app/evento_roubo/acao/page.tsx`:
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState, ReactNode, useCallback } from 'react'
@@ -24,22 +34,19 @@ type ConfigEvento = {
   roubos: RoubosMap | null
   bloqueios: BloqueadosMap | null
   limite_perda?: number | null
-  // sua base pode usar um destes dois:
   limite_roubos_por_time?: number | null
   limite_roubo?: number | null
   ativo?: boolean | null
   fase?: string | null
   roubo_evento_num?: number | null
-  // sua base pode usar um destes dois:
   bloqueios_persistentes?: BloqPersistMap | null
   rebloqueio_ate_evento?: BloqPersistMap | null
-  // flags que alguns schemas têm
   evento_roubo?: boolean | null
   tipo?: string | null
 }
 
 /** ===== Regras/Constantes ===== */
-const CONFIG_ID_DEFAULT = '56f3af29-a4ac-4a76-aeb3-35400aa2a773' // usado só como fallback
+const CONFIG_ID_FALLBACK = '56f3af29-a4ac-4a76-aeb3-35400aa2a773' // usado só se nada mais for encontrado
 const TEMPO_POR_VEZ = 240
 const LIMITE_POR_ALVO_POR_TIME = 2
 const LIMITE_PERDA_DEFAULT = 3
@@ -47,7 +54,7 @@ const LIMITE_ROUBOS_POR_TIME_DEFAULT = 3
 const PERCENTUAL_ROUBO = 0.5
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
 
-/** ===== Cronômetro (isolado) ===== */
+/** ===== Cronômetro ===== */
 function Cronometro({
   ativo,
   isAdmin,
@@ -88,7 +95,7 @@ export default function EventoRouboPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
   const [idTime, setIdTime] = useState<string>('')
 
-  // id real da config (descoberto em runtime)
+  // id real da configuração ativa
   const [configId, setConfigId] = useState<string>('')
 
   // estado do evento
@@ -122,22 +129,20 @@ export default function EventoRouboPage() {
   // banner pós-finalização
   const [eventoFinalizado, setEventoFinalizado] = useState(false)
 
-  /** ===== Busca dinâmica da configuração ===== */
+  /** ===== Localiza a config correta ===== */
   async function findConfigRow(): Promise<ConfigEvento | null> {
-    // 1) tenta o id já descoberto
+    // 1) usa o id atual se já soubermos
     if (configId) {
       const { data } = await supabase.from('configuracoes').select('*').eq('id', configId).maybeSingle()
       if (data) return data as ConfigEvento
     }
-    // 2) tenta ID default do código
-    if (CONFIG_ID_DEFAULT) {
-      const { data } = await supabase.from('configuracoes').select('*').eq('id', CONFIG_ID_DEFAULT).maybeSingle()
-      if (data) return data as ConfigEvento
-    }
-    // 3) tenta flag evento_roubo = true
-    const { data } = await supabase.from('configuracoes').select('*').eq('evento_roubo', true).maybeSingle()
-    if (data) return data as ConfigEvento
-    // 4) último fallback: tipo = 'geral'
+    // 2) tenta pela flag evento_roubo
+    const { data: byFlag } = await supabase.from('configuracoes').select('*').eq('evento_roubo', true).maybeSingle()
+    if (byFlag) return byFlag as ConfigEvento
+    // 3) fallback: pelo ID fixo antigo
+    const { data: byId } = await supabase.from('configuracoes').select('*').eq('id', CONFIG_ID_FALLBACK).maybeSingle()
+    if (byId) return byId as ConfigEvento
+    // 4) último fallback: tipo='geral'
     const { data: geral } = await supabase.from('configuracoes').select('*').eq('tipo', 'geral').maybeSingle()
     return (geral as ConfigEvento) || null
   }
@@ -148,7 +153,7 @@ export default function EventoRouboPage() {
     if (id) setIdTime(id)
     carregarEvento()
 
-    // sem filtrar por ID (evita ficar preso a um id errado)
+    // escuta toda a tabela (evita filtro preso a id incorreto)
     const canal = supabase
       .channel('evento-roubo')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, () => carregarEvento())
@@ -228,7 +233,7 @@ export default function EventoRouboPage() {
   const nomeTimeDaVez = ordem[vez]?.nome || ''
   const minhaVez = idTime === idTimeDaVez
 
-  // *** LISTO SEM FILTRAR POR REGRAS para nunca ficar vazio; mostro motivos no rótulo ***
+  // *** LISTO SEM FILTRAR POR REGRAS para nunca ficar vazio ***
   const alvosListados = useMemo(
     () => ordem.filter((t) => t.id !== idTime),
     [ordem, idTime]
@@ -239,7 +244,7 @@ export default function EventoRouboPage() {
     [ordem, alvoSelecionado]
   )
 
-  /** ===== Carregar jogadores do alvo (APENAS por id_time) ===== */
+  /** ===== Carregar jogadores do alvo ===== */
   async function carregarJogadoresDoAlvo() {
     if (!alvoSelecionado) {
       toast('Selecione um time-alvo.')
@@ -409,7 +414,7 @@ export default function EventoRouboPage() {
         bloqAtual[idTime] = listaNovo
       }
 
-      // bloqueio persistente até o próximo evento (respeitando o campo existente)
+      // bloqueio persistente até o próximo evento (campo existente na sua base)
       const persistRaw = (cfg.bloqueios_persistentes ?? cfg.rebloqueio_ate_evento ?? {}) as BloqPersistMap
       const persist: BloqPersistMap = { ...persistRaw }
       const atualEvento = Number(cfg.roubo_evento_num ?? 0)
@@ -458,33 +463,60 @@ export default function EventoRouboPage() {
   }
 
   async function sortearOrdem() {
-    const cid = await getConfigIdOrFail(); if (!cid) return
+    try {
+      const cid = await getConfigIdOrFail(); if (!cid) return
 
-    const { data: times, error } = await supabase.from('times').select('id, nome, logo_url')
-    if (error || !times) { toast.error('Erro ao buscar times.'); return }
+      // Busca times
+      const { data: times, error: errTimes } = await supabase
+        .from('times')
+        .select('id, nome, logo_url')
 
-    const { data: cfg } = await supabase
-      .from('configuracoes').select('roubo_evento_num').eq('id', cid).maybeSingle()
-    const novoNum = Number((cfg as any)?.roubo_evento_num ?? 0) + 1
+      if (errTimes || !times || times.length === 0) {
+        toast.error('Não há times para sortear.')
+        return
+      }
 
-    const embaralhado: Time[] = [...(times as any[])]
-      .map((t) => ({ ...t, r: Math.random() }))
-      .sort((a, b) => a.r - b.r)
-      .map(({ r, ...rest }) => rest)
+      // Embaralha
+      const ids = [...(times as any[])]
+        .map((t) => ({ ...t, r: Math.random() }))
+        .sort((a, b) => a.r - b.r)
+        .map(({ r, ...rest }) => rest.id as string)
 
-    const ids = embaralhado.map((t) => t.id)
-    const { error: errUpd } = await supabase
-      .from('configuracoes')
-      .update({ ordem: ids, vez: '0', roubo_evento_num: novoNum, ativo: true, fase: 'acao', evento_roubo: true })
-      .eq('id', cid)
-    if (errUpd) { toast.error('Erro ao sortear a ordem.'); return }
+      // Lê contador atual
+      const { data: cfgRow } = await supabase
+        .from('configuracoes')
+        .select('roubo_evento_num')
+        .eq('id', cid)
+        .maybeSingle()
 
-    setEventoFinalizado(false)
-    setOrdem(embaralhado)
-    setVez(0)
-    setOrdemSorteada(true)
-    setEventoNum(novoNum)
-    toast.success('🎲 Ordem sorteada! Boa sorte.')
+      const novoNum = Number((cfgRow as any)?.roubo_evento_num ?? 0) + 1
+
+      // Atualiza e valida
+      const { data: upd, error: updErr } = await supabase
+        .from('configuracoes')
+        .update({
+          ordem: ids,
+          vez: '0',
+          fase: 'acao',
+          ativo: true,
+          evento_roubo: true,
+          roubo_evento_num: novoNum,
+        })
+        .eq('id', cid)
+        .select('id')
+
+      if (updErr || !upd || upd.length !== 1) {
+        console.error('sortearOrdem update error:', updErr, upd)
+        toast.error('Erro ao sortear a ordem (nenhuma linha atualizada).')
+        return
+      }
+
+      await carregarEvento()
+      toast.success('🎲 Ordem sorteada! Boa sorte.')
+    } catch (e: any) {
+      console.error('sortearOrdem exception:', e)
+      toast.error(`Erro ao sortear: ${e?.message || e}`)
+    }
   }
 
   async function passarVez() {
@@ -605,7 +637,7 @@ export default function EventoRouboPage() {
           </Card>
         )}
 
-        {/* Seletor de time-alvo (sempre mostra times) */}
+        {/* Seletor de time-alvo */}
         <Card>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
@@ -767,3 +799,4 @@ export default function EventoRouboPage() {
     </div>
   )
 }
+```
