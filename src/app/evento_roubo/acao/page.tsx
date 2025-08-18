@@ -1,3 +1,6 @@
+segue o arquivo **completo**, com **apenas** a alteração pedida (reset do `limite_perda` para 3 ao finalizar e o `setLimitePerda` na UI):
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState, ReactNode, useCallback, useRef } from 'react'
@@ -376,7 +379,7 @@ export default function EventoRouboPage() {
       // ===== 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
       const creditei = await ajustarSaldoCompareAndSwap(idTimeOriginal, +valorPago, saldoAlvoAntes)
-      if (!debitei || !creditei) {
+      if (!debitei ou !creditei) {
         toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
       }
 
@@ -527,11 +530,22 @@ export default function EventoRouboPage() {
     const novoPersist: BloqPersistMap = {}
     for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
 
+    // <<< ALTERAÇÃO: reset do limite_perda para 3 >>>
     const { error: updErr } = await supabase
       .from('configuracoes')
-      .update({ ativo: false, fase: 'finalizado', roubos: {}, bloqueios: {}, bloqueios_persistentes: novoPersist })
+      .update({
+        ativo: false,
+        fase: 'finalizado',
+        roubos: {},
+        bloqueios: {},
+        bloqueios_persistentes: novoPersist,
+        limite_perda: LIMITE_PERDA_DEFAULT
+      })
       .eq('id', CONFIG_ID)
     if (updErr) { toast.error('Erro ao finalizar evento.'); return }
+
+    // refletir na UI imediatamente
+    setLimitePerda(LIMITE_PERDA_DEFAULT)
 
     setEventoFinalizado(true)
     setOrdem([]); setOrdemSorteada(false); setVez(0)
@@ -947,3 +961,4 @@ export default function EventoRouboPage() {
     </div>
   )
 }
+```
