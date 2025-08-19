@@ -1,4 +1,6 @@
+Corrigi o erro de tipo do `ImagemComFallback` definindo um `FALLBACK_SRC` (data URI transparente) e usando `??` para garantir `string`. Substitua **todo** o `src/app/elenco/page.tsx` por este:
 
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -55,6 +57,10 @@ const coresPorPosicao: Record<string, string> = {
 
 const formatBRL = (n: number | null | undefined) =>
   `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
+
+// Data URI 1x1 transparente para evitar dependência de arquivo local/domínio externo
+const FALLBACK_SRC =
+  'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 
 export default function ElencoPage() {
   /** ===== Estados ===== */
@@ -183,18 +189,16 @@ export default function ElencoPage() {
 
     for (const jogador of jogadores) {
       try {
-        // regra de vendabilidade
         if ((jogador.jogos || 0) < 3) {
           exibirMensagem(`🚫 ${jogador.nome} não completou 3 jogos.`, '#b91c1c')
           continue
         }
 
-        // pergunta de percentual
         const percentualStr = prompt(
           `Quantos % de ${jogador.nome} deseja vender?`,
           String(jogador.percentual ?? 100)
         )
-        if (percentualStr === null) continue // cancelado
+        if (percentualStr === null) continue
 
         const percentualNum = Number(percentualStr)
         const percentualAtual = Number(jogador.percentual ?? 100)
@@ -246,10 +250,9 @@ export default function ElencoPage() {
           }
         }
 
-        // 3) Crédito atômico (RPC) + obtem saldo novo
+        // 3) Crédito atômico (RPC) + saldo novo
         let saldoNovo: number | null = null
         {
-          // saldo antigo (para feedback)
           let saldoAntigo = saldo
           const { data: timeRow } = await supabase
             .from('times')
@@ -271,13 +274,11 @@ export default function ElencoPage() {
           }
           saldoNovo = Number(data)
 
-          // Se o jogador for do time logado, atualiza o saldo na UI
           const id_time_local = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
           if (id_time_local && id_time_local === jogador.id_time) {
             setSaldo(saldoNovo)
           }
 
-          // 4) Registrar no BID
           await registrarNoBID({
             tipo_evento: 'venda_mercado',
             descricao: `Venda de ${percentualNum}% de ${jogador.nome} por ${formatBRL(valorVenda)}`,
@@ -285,7 +286,6 @@ export default function ElencoPage() {
             valor: valorVenda
           })
 
-          // 5) Mensagem de sucesso
           exibirMensagem(
             `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+${formatBRL(valorVenda)}). Caixa: ${formatBRL(saldoAntigo)} → ${formatBRL(Number(saldoNovo))}`,
             '#16a34a'
@@ -566,6 +566,8 @@ export default function ElencoPage() {
             if (jogador.lesionado) status.push('⚠️ Lesionado')
             if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
+            const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
+
             return (
               <div
                 key={jogador.id}
@@ -594,7 +596,7 @@ export default function ElencoPage() {
 
                 <div onClick={() => toggleSelecionado(jogador.id)} className="cursor-pointer select-none">
                   <ImagemComFallback
-                    src={jogador.imagem_url}
+                    src={imgSrc}
                     alt={jogador.nome}
                     width={90}
                     height={90}
@@ -673,6 +675,7 @@ export default function ElencoPage() {
             <tbody className="divide-y divide-gray-900/70 bg-gray-950/40">
               {elencoFiltrado.map((jogador) => {
                 const selecionado = selecionados.includes(jogador.id)
+                const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
                 return (
                   <tr key={jogador.id} className={`text-sm hover:bg-gray-900/50 ${selecionado ? 'bg-gray-900/70' : ''}`}>
                     <td className="px-3 py-3">
@@ -685,7 +688,7 @@ export default function ElencoPage() {
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-3">
-                        <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={36} height={36} className="rounded-full ring-1 ring-gray-700" />
+                        <ImagemComFallback src={imgSrc} alt={jogador.nome} width={36} height={36} className="rounded-full ring-1 ring-gray-700" />
                         <span className="font-semibold">{jogador.nome}</span>
                       </div>
                     </td>
@@ -729,3 +732,4 @@ export default function ElencoPage() {
     </div>
   )
 }
+```
