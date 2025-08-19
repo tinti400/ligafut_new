@@ -69,7 +69,7 @@ export default function ClassificacaoPage() {
     [classificacaoPorDivisao]
   )
 
-  // Garantir que a divisão selecionada exista nos dados carregados
+  // Se a divisão selecionada não existir nos dados, ajusta para a primeira disponível
   useEffect(() => {
     if (!divisoesDisponiveis.length) return
     if (!divisaoSelecionada || !divisoesDisponiveis.includes(divisaoSelecionada)) {
@@ -157,7 +157,7 @@ export default function ClassificacaoPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-black text-white">
       {/* HEADER */}
-      <header className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-black/40 bg-black/60 border-b border-white/10">
+      <header className="sticky top-0 z-20 backdrop-blur bg-black/60 border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             <span className="bg-gradient-to-r from-yellow-400 via-emerald-400 to-lime-300 bg-clip-text text-transparent">
@@ -289,7 +289,7 @@ export default function ClassificacaoPage() {
                   return (
                     <tr
                       key={item.id_time}
-                      className={`${rowTone(idx, total)} transition-colors even:bg-white/2`}
+                      className={`${rowTone(idx, total)} transition-colors even:bg-white/5`}
                     >
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-2">
