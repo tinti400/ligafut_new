@@ -5,8 +5,17 @@ import { useAdmin } from '@/hooks/useAdmin'
 
 interface Time { nome: string; logo_url: string | null }
 interface ClassificacaoItem {
-  id_time: string; pontos: number; vitorias: number; empates: number; derrotas: number;
-  gols_pro: number; gols_contra: number; jogos: number; saldo_gols?: number; divisao: number; times: Time
+  id_time: string
+  pontos: number
+  vitorias: number
+  empates: number
+  derrotas: number
+  gols_pro: number
+  gols_contra: number
+  jogos: number
+  saldo_gols?: number
+  divisao: number
+  times: Time
 }
 
 export default function ClassificacaoPage() {
@@ -17,38 +26,50 @@ export default function ClassificacaoPage() {
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
   const { isAdmin, loading } = useAdmin()
 
-  // ===== refs/medidas para sticky correto =====
+  /** ===== Sticky measurements ===== */
   const headerRef = useRef<HTMLDivElement | null>(null)
   const theadRef  = useRef<HTMLTableSectionElement | null>(null)
-  const [headerTopOffset, setHeaderTopOffset] = useState(0) // topo livre p/ o thead
-  const [theadHeight, setTheadHeight] = useState(44)        // altura do cabeçalho da tabela
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  const [headerTopOffset, setHeaderTopOffset] = useState(0) // espaço do header da página
+  const [theadHeight, setTheadHeight] = useState(44)        // altura visual do cabeçalho da tabela
   const [theadStuck, setTheadStuck] = useState(false)
 
+  // mede alturas
   useEffect(() => {
     const measure = () => {
       const h = headerRef.current?.getBoundingClientRect().height ?? 0
-      setHeaderTopOffset(Math.ceil(h) + 8) // folga
+      setHeaderTopOffset(Math.ceil(h) + 8) // folga de 8px
       const th = theadRef.current?.getBoundingClientRect().height ?? 44
       setTheadHeight(Math.ceil(th))
     }
     measure()
-    const onScroll = () => {
-      if (!theadRef.current) return
-      const top = theadRef.current.getBoundingClientRect().top
-      // quando o topo do thead encosta na linha de sticky, consideramos "stuck"
-      setTheadStuck(top <= (headerTopOffset + 1))
-    }
     window.addEventListener('resize', measure)
-    window.addEventListener('scroll', onScroll, { passive: true })
-    // roda uma vez
-    onScroll()
-    return () => {
-      window.removeEventListener('resize', measure)
-      window.removeEventListener('scroll', onScroll)
-    }
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  // observa quando a tabela passa do topo (thead fica "grudado")
+  useEffect(() => {
+    if (!sentinelRef.current) return
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const e = entries[0]
+        // quando o sentinela sai da área visível (considerando o topo do header),
+        // marcamos o thead como "grudado"
+        setTheadStuck(!e.isIntersecting)
+      },
+      {
+        root: null, // viewport
+        // quando o topo visível considerar o header (margem negativa), o sentinela "some"
+        rootMargin: `-${headerTopOffset}px 0px 0px 0px`,
+        threshold: 0
+      }
+    )
+    obs.observe(sentinelRef.current)
+    return () => obs.disconnect()
   }, [headerTopOffset])
 
-  // ===== Fetch =====
+  /** ===== Fetch ===== */
   const fetchDados = async (temporada: number) => {
     try {
       setCarregando(true); setErro(null)
@@ -62,10 +83,10 @@ export default function ClassificacaoPage() {
   }
   useEffect(() => { fetchDados(temporadaSelecionada) }, [temporadaSelecionada])
 
-  // ===== Agrupar/SORT =====
+  /** ===== Agrupar/SORT ===== */
   const classificacaoPorDivisao = useMemo(() => {
     const map: Record<number, ClassificacaoItem[]> = {}
-    classificacao.forEach(it => {
+    classificacao.forEach((it) => {
       const d = it.divisao ?? 99
       map[d] ??= []
       map[d].push({ ...it, saldo_gols: it.gols_pro - it.gols_contra })
@@ -92,7 +113,7 @@ export default function ClassificacaoPage() {
     )
   }, [classificacaoPorDivisao, divisaoSelecionada])
 
-  // ===== Ações =====
+  /** ===== Ações ===== */
   const iniciarNovaTemporada = async () => {
     if (!confirm('⚠️ Tem certeza que deseja iniciar a nova temporada?')) return
     const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
@@ -110,7 +131,7 @@ export default function ClassificacaoPage() {
     alert(`📝 Editar classificação do time: ${it.times.nome}`)
   }
 
-  // ===== UI helpers =====
+  /** ===== UI helpers ===== */
   const aproveitamentoPct = (it: ClassificacaoItem) =>
     it.jogos > 0 ? Math.round((it.pontos/(it.jogos*3))*100) : 0
 
@@ -144,12 +165,12 @@ export default function ClassificacaoPage() {
     return `https://wa.me/?text=${encodeURIComponent(texto)}`
   }, [divisaoSelecionada, timesDaDivisao])
 
-  // ===== Render =====
   const colSpanTotal = isAdmin ? 12 : 11
 
+  /** ===== Render ===== */
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-black text-white">
-      {/* HEADER */}
+      {/* HEADER (sticky) */}
       <header ref={headerRef} className="sticky top-0 z-20 backdrop-blur bg-black/60 border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
@@ -195,6 +216,7 @@ export default function ClassificacaoPage() {
           </a>
         </div>
 
+        {/* legenda */}
         <div className="mb-6 flex flex-wrap items-center gap-2 text-xs text-gray-300">
           <span className="inline-flex items-center gap-2 bg-green-900/40 ring-1 ring-green-800/50 px-2.5 py-1 rounded-full">
             <span className="w-2.5 h-2.5 rounded-full bg-green-500" /> G-4
@@ -220,8 +242,10 @@ export default function ClassificacaoPage() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-white/10 shadow-2xl shadow-black/30">
+            {/* Sentinela para saber quando o cabeçalho da tabela grudou */}
+            <div ref={sentinelRef} style={{ height: 1 }} />
+
             <table className="min-w-full text-sm bg-gray-950/40">
-              {/* THEAD sticky + ref */}
               <thead
                 ref={theadRef}
                 className="sticky z-30 bg-black/75 backdrop-blur border-b border-white/10"
@@ -244,10 +268,12 @@ export default function ClassificacaoPage() {
               </thead>
 
               <tbody className="divide-y divide-white/5">
-                {/* Spacer: só aparece quando o thead está “stuck” para não cobrir a primeira linha */}
+                {/* Spacer real quando o thead estiver sticky: empurra o 1º colocado para baixo */}
                 {theadStuck && (
                   <tr aria-hidden className="pointer-events-none">
-                    <td colSpan={colSpanTotal} style={{ height: theadHeight }} />
+                    <td colSpan={colSpanTotal} className="p-0">
+                      <div style={{ height: theadHeight }} />
+                    </td>
                   </tr>
                 )}
 
@@ -265,8 +291,11 @@ export default function ClassificacaoPage() {
                       </td>
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-3">
-                          <img src={item.times.logo_url || '/logo-fallback.png'} alt={item.times.nome}
-                               className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover" />
+                          <img
+                            src={item.times.logo_url || '/logo-fallback.png'}
+                            alt={item.times.nome}
+                            className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover"
+                          />
                           <span className="font-medium">{item.times.nome}</span>
                         </div>
                       </td>
@@ -289,7 +318,7 @@ export default function ClassificacaoPage() {
                       {isAdmin && (
                         <td className="py-2.5 px-2 text-center">
                           <button onClick={()=>editarClassificacao(item)}
-                                  className="text-yellow-300 hover:text-yellow-200 text-xs underline underline-offset-4">
+                            className="text-yellow-300 hover:text-yellow-200 text-xs underline underline-offset-4">
                             Editar
                           </button>
                         </td>
