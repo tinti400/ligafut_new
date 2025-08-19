@@ -1,8 +1,4 @@
-Aqui está o arquivo completo, revisado e com um layout mais profissional, mantendo toda a lógica de venda parcial, BID e RPC de saldo. Incluí melhorias de UI/UX (barra de ferramentas fixa, visual “cards” e “tabela”, seleção com checkbox, filtros rápidos, contadores, skeleton loader, botões de ações em massa, estados/insígnias e mensagens amigáveis).
 
-> Cole no seu `ElencoPage` (ou onde você usa essa tela). Não precisa instalar nada extra.
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -49,13 +45,10 @@ const bandeiras: Record<string, string> = {
 }
 
 const coresPorPosicao: Record<string, string> = {
-  // defensivos/GL
   GL: 'bg-yellow-500',
   ZAG: 'bg-blue-600', Zagueiro: 'bg-blue-600',
   LD: 'bg-indigo-500', LE: 'bg-indigo-600',
-  // meio
   VOL: 'bg-green-700', MC: 'bg-green-600', ME: 'bg-green-500', MD: 'bg-green-500',
-  // ataque
   SA: 'bg-orange-600', CA: 'bg-red-600', Centroavante: 'bg-red-600',
   PD: 'bg-pink-600', PE: 'bg-pink-700',
 }
@@ -248,7 +241,7 @@ export default function ElencoPage() {
         } else {
           const { error } = await supabase.from('elenco').update({ percentual: novoPercentual }).eq('id', jogador.id)
           if (error) {
-            console.error('Erro ao atualizar percentual:', error)
+            console.error('Erro ao atualizar percentual de ${jogador.nome}.', error)
             exibirMensagem(`⚠️ Falha ao atualizar percentual de ${jogador.nome}.`, '#b45309')
           }
         }
@@ -736,4 +729,3 @@ export default function ElencoPage() {
     </div>
   )
 }
-```
