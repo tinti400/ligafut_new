@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
-import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
+import { registrarMovimentacao } from '@/utils/registrarMovimentacao' // (mantido caso use depois)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ===================== Tipos ===================== */
 type Jogo = {
   mandante: string
   visitante: string
@@ -18,9 +19,8 @@ type Jogo = {
   gols_visitante?: number
   renda?: number
   publico?: number
-  bonus_pago?: boolean  // ✅ Adicione esta linha
+  bonus_pago?: boolean
 }
-
 
 type Rodada = {
   id: string
@@ -48,125 +48,84 @@ type TimeDados = {
   historico: HistoricoJogo[]
 }
 
+/** ===================== Regras de premiação ===================== */
 function calcularPremiacao(time: TimeDados): number {
   const { divisao, historico } = time
   const ultimaPartida = historico[historico.length - 1]
-
   const regras = {
     1: { vitoria: 13_000_000, empate: 8_000_000, derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
-    2: { vitoria: 8_500_000, empate: 4_000_000, derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
-    3: { vitoria: 5_000_000, empate: 2_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
-  }
+    2: { vitoria: 8_500_000,  empate: 4_000_000, derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
+    3: { vitoria: 5_000_000,  empate: 2_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
+  } as const
 
-  const regra = regras[divisao as 1 | 2 | 3]
+  const regra = regras[divisao as 1|2|3]
   if (!regra) return 0
 
   let premiacao = 0
+  premiacao += ultimaPartida.resultado === 'vitoria' ? regra.vitoria
+            : ultimaPartida.resultado === 'empate'  ? regra.empate
+            : regra.derrota
 
-  if (ultimaPartida.resultado === 'vitoria') {
-    premiacao += regra.vitoria
-  } else if (ultimaPartida.resultado === 'empate') {
-    premiacao += regra.empate
-  } else {
-    premiacao += regra.derrota
-  }
+  premiacao += (ultimaPartida.gols_pro    ?? 0) * regra.gol
+  premiacao -= (ultimaPartida.gols_contra ?? 0) * regra.gol_sofrido
 
-  premiacao += ultimaPartida.gols_pro * regra.gol
-  premiacao -= ultimaPartida.gols_contra * regra.gol_sofrido
-
-  // Bônus por 5 vitórias seguidas
+  // bônus por 5 vitórias seguidas
   const ultimos5 = historico.slice(-5)
-  const venceuTodas = ultimos5.length === 5 && ultimos5.every((j) => j.resultado === 'vitoria')
+  const venceuTodas = ultimos5.length === 5 && ultimos5.every(j => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
 
   return premiacao
 }
 
-async function descontarSalariosDosTimes(mandanteId: string, visitanteId: string) {
-  const ids = [mandanteId, visitanteId]
+/** ===================== Helpers ===================== */
+const isPlacarPreenchido = (j: Jogo) =>
+  j.gols_mandante !== undefined && j.gols_visitante !== undefined
 
-  for (const timeId of ids) {
-    console.log(`🔎 Iniciando desconto de salários para time: ${timeId}`)
+const contagemDaRodada = (rodada: Rodada) => {
+  const total = rodada.jogos.length
+  const feitos = rodada.jogos.filter(isPlacarPreenchido).length
+  return { feitos, total }
+}
+const contagemGlobal = (rodadas: Rodada[], timeSelecionado?: string) => {
+  const lista = !timeSelecionado ? rodadas : rodadas
+    .map(r => ({...r, jogos: r.jogos.filter(j => j.mandante === timeSelecionado || j.visitante === timeSelecionado)}))
+    .filter(r => r.jogos.length>0)
 
-    const { data: elenco, error: errorElenco } = await supabase
-      .from('elenco')
-      .select('salario')
-      .eq('id_time', timeId)
-
-    if (errorElenco) {
-      console.error(`❌ Erro ao buscar elenco do time ${timeId}:`, errorElenco)
-      continue
-    }
-
-    if (!elenco || elenco.length === 0) {
-      console.warn(`⚠️ Elenco vazio para o time ${timeId}`)
-      continue
-    }
-
-    const totalSalarios = elenco.reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
-
-    const { data: time, error: erroSaldo } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', timeId)
-      .single()
-
-    if (erroSaldo || !time) {
-      console.error(`❌ Erro ao buscar saldo do time ${timeId}:`, erroSaldo)
-      continue
-    }
-
-    const novoSaldo = time.saldo - totalSalarios
-
-    const { error: erroUpdate } = await supabase
-      .from('times')
-      .update({ saldo: novoSaldo })
-      .eq('id', timeId)
-
-    if (erroUpdate) {
-      console.error(`❌ Erro ao atualizar saldo do time ${timeId}:`, erroUpdate)
-      continue
-    }
-
-    const dataAgora = new Date().toISOString()
-
-    const { error: erroMov } = await supabase.from('movimentacoes').insert({
-      id_time: timeId,
-      tipo: 'salario',
-      valor: totalSalarios,
-      descricao: 'Desconto de salários após partida',
-      data: dataAgora,
-    })
-
-    if (erroMov) {
-      console.error(`❌ Erro ao registrar movimentação do time ${timeId}:`, erroMov)
-    }
-
-    const { error: erroBid } = await supabase.from('bid').insert({
-      tipo_evento: 'salario',
-      descricao: 'Desconto de salários após a partida',
-      id_time1: timeId,
-      valor: -totalSalarios,
-      data_evento: dataAgora,
-    })
-
-    if (erroBid) {
-      console.error(`❌ Erro ao registrar no BID do time ${timeId}:`, erroBid)
-    }
-
-    console.log(`✅ Salários descontados para o time ${timeId}: R$ ${totalSalarios.toLocaleString()}`)
-  }
+  const total = lista.reduce((acc, r) => acc + r.jogos.length, 0)
+  const feitos = lista.reduce((acc, r) => acc + r.jogos.filter(isPlacarPreenchido).length, 0)
+  return { feitos, total }
 }
 
+/** ===================== Salários (com registro) ===================== */
+async function descontarSalariosComRegistro(timeId: string): Promise<number> {
+  const { data: elenco } = await supabase
+    .from('elenco')
+    .select('salario')
+    .eq('id_time', timeId)
+
+  if (!elenco) return 0
+  const totalSalarios = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
+
+  await supabase.rpc('atualizar_saldo', { id_time: timeId, valor: -totalSalarios })
+
+  const dataAgora = new Date().toISOString()
+  await supabase.from('movimentacoes').insert({
+    id_time: timeId, tipo: 'salario', valor: totalSalarios,
+    descricao: 'Desconto de salários após partida', data: dataAgora,
+  })
+  await supabase.from('bid').insert({
+    tipo_evento: 'despesas', descricao: 'Desconto de salários após a partida',
+    id_time1: timeId, valor: -totalSalarios, data_evento: dataAgora,
+  })
+  return totalSalarios
+}
+
+/** ===================== Premiação por jogo ===================== */
 async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number): Promise<number> {
   if (gols_pro === undefined || gols_contra === undefined) return 0
 
   const { data: timeData, error: errorTime } = await supabase
-    .from('times')
-    .select('divisao')
-    .eq('id', timeId)
-    .single()
-
+    .from('times').select('divisao').eq('id', timeId).single()
   if (errorTime || !timeData) return 0
 
   const divisao = timeData.divisao
@@ -177,7 +136,6 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     .contains('jogos', [{ mandante: timeId }, { visitante: timeId }])
 
   let historico: HistoricoJogo[] = []
-
   partidas?.forEach((rodada) => {
     rodada.jogos.forEach((jogo: any) => {
       if (
@@ -188,54 +146,34 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
         const isMandante = jogo.mandante === timeId
         const g_pro = isMandante ? jogo.gols_mandante : jogo.gols_visitante
         const g_contra = isMandante ? jogo.gols_visitante : jogo.gols_mandante
-
         let resultado: 'vitoria' | 'empate' | 'derrota' = 'empate'
         if (g_pro > g_contra) resultado = 'vitoria'
         if (g_pro < g_contra) resultado = 'derrota'
-
         historico.push({ gols_pro: g_pro, gols_contra: g_contra, resultado })
       }
     })
   })
 
-  const resultadoAtual =
+  const resultadoAtual: 'vitoria'|'empate'|'derrota' =
     gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
-
   historico.push({ gols_pro, gols_contra, resultado: resultadoAtual })
 
-  const time: TimeDados = {
-    id: timeId,
-    divisao,
-    historico,
-  }
-
-  const valor = calcularPremiacao(time)
-
+  const valor = calcularPremiacao({ id: timeId, divisao, historico })
   if (valor <= 0) return 0
 
-  await supabase.rpc('atualizar_saldo', {
-    id_time: timeId,
-    valor,
-  })
-
+  await supabase.rpc('atualizar_saldo', { id_time: timeId, valor })
   await supabase.from('movimentacoes').insert({
-    id_time: timeId,
-    tipo: 'premiacao',
-    valor,
-    descricao: 'Premiação por desempenho na rodada',
-    data: new Date().toISOString(),
+    id_time: timeId, tipo: 'premiacao', valor,
+    descricao: 'Premiação por desempenho na rodada', data: new Date().toISOString(),
   })
-
   await supabase.from('bid').insert({
-    tipo_evento: 'bonus',
-    descricao: 'Bônus por desempenho na rodada',
-    id_time1: timeId,
-    valor,
-    data_evento: new Date().toISOString(),
+    tipo_evento: 'bonus', descricao: 'Bônus por desempenho na rodada',
+    id_time1: timeId, valor, data_evento: new Date().toISOString(),
   })
-
   return valor
 }
+
+/** ===================== Página ===================== */
 export default function Jogos() {
   const { isAdmin, loading } = useAdmin()
   const [rodadas, setRodadas] = useState<Rodada[]>([])
@@ -244,6 +182,7 @@ export default function Jogos() {
   const [divisao, setDivisao] = useState(1)
   const [timeSelecionado, setTimeSelecionado] = useState<string>('')
 
+  // estado de edição
   const [editandoRodada, setEditandoRodada] = useState<string | null>(null)
   const [editandoIndex, setEditandoIndex] = useState<number | null>(null)
   const [golsMandante, setGolsMandante] = useState<number>(0)
@@ -256,9 +195,7 @@ export default function Jogos() {
   const carregarDados = async () => {
     const { data: times } = await supabase.from('times').select('id, nome, logo_url')
     const map: Record<string, Time> = {}
-    times?.forEach((t) => {
-      map[t.id] = { ...t, logo_url: t.logo_url || '' }
-    })
+    times?.forEach((t) => { map[t.id] = { ...t, logo_url: t.logo_url || '' } })
     setTimesMap(map)
 
     const { data: rodadasData } = await supabase
@@ -271,179 +208,165 @@ export default function Jogos() {
     setRodadas((rodadasData || []) as Rodada[])
   }
 
-  useEffect(() => {
-    carregarDados()
-  }, [temporada, divisao])
+  useEffect(() => { carregarDados() }, [temporada, divisao])
 
-const salvarResultado = async () => {
-  if (isSalvando || editandoRodada === null || editandoIndex === null) return
+  /** =============== SALVAR PRIMEIRO LANÇAMENTO (com finanças) =============== */
+  const salvarPrimeiroLancamento = async (rodadaId: string, index: number, gm: number, gv: number) => {
+    if (isSalvando) return
+    setIsSalvando(true)
 
-  const confirmar = confirm('Deseja salvar o resultado e calcular a renda?')
-  if (!confirmar) return
+    const { data: rodadaDB, error: erroR } = await supabase
+      .from('rodadas').select('jogos, numero').eq('id', rodadaId).single()
+    if (erroR || !rodadaDB) {
+      toast.error('Erro ao buscar rodada!')
+      setIsSalvando(false); return
+    }
 
-  setIsSalvando(true)
+    const jogoDB: Jogo = rodadaDB.jogos[index]
+    if (jogoDB?.bonus_pago === true) {
+      // já foi lançado antes; redireciona para ajuste
+      await salvarAjusteResultado(rodadaId, index, gm, gv, true)
+      setIsSalvando(false); return
+    }
 
-  const { data: rodadaAtualizada, error: erroRodada } = await supabase
-    .from('rodadas')
-    .select('jogos')
-    .eq('id', editandoRodada)
-    .single()
+    const novaLista = [...rodadaDB.jogos]
+    const jogo = novaLista[index]
+    if (!jogo) { setIsSalvando(false); return }
 
-  if (erroRodada || !rodadaAtualizada) {
-    toast.error('Erro ao buscar rodada atualizada!')
-    setIsSalvando(false)
-    return
-  }
+    const publico = Math.floor(Math.random() * 30000) + 10000
+    const precoMedio = 80
+    const renda = publico * precoMedio
 
-  const jogoDoBanco = rodadaAtualizada.jogos[editandoIndex]
+    const mandanteId = jogo.mandante
+    const visitanteId = jogo.visitante
 
-  if (jogoDoBanco?.bonus_pago === true) {
-    toast.error('❌ Bônus já foi pago para esse jogo!')
-    setIsSalvando(false)
-    return
-  }
+    // receita: 95% mandante / 5% visitante
+    await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: renda * 0.95 })
+    await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: renda * 0.05 })
 
-  const rodada = rodadas.find((r) => r.id === editandoRodada)
-  if (!rodada) return
+    // salários
+    await descontarSalariosComRegistro(mandanteId)
+    await descontarSalariosComRegistro(visitanteId)
 
-  const novaLista = [...rodada.jogos]
-  const jogo = novaLista[editandoIndex]
+    // premiação por desempenho
+    const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
+    const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
-  const publico = Math.floor(Math.random() * 30000) + 10000
-  const precoMedio = 80
-  const renda = publico * precoMedio
+    // BID de receita (renda + bônus)
+    await supabase.from('bid').insert([
+      {
+        tipo_evento: 'receita_partida',
+        descricao: 'Receita da partida (renda + bônus)',
+        id_time1: mandanteId,
+        valor: renda * 0.95 + premiacaoMandante,
+        data_evento: new Date().toISOString(),
+      },
+      {
+        tipo_evento: 'receita_partida',
+        descricao: 'Receita da partida (renda + bônus)',
+        id_time1: visitanteId,
+        valor: renda * 0.05 + premiacaoVisitante,
+        data_evento: new Date().toISOString(),
+      },
+    ])
 
-  const mandanteId = jogo.mandante
-  const visitanteId = jogo.visitante
+    // atualiza elenco (jogos +1)
+    const atualizarJogosElenco = async (timeId: string) => {
+      const { data: jogadores } = await supabase
+        .from('elenco').select('id, jogos').eq('id_time', timeId)
+      if (!jogadores) return
+      await Promise.all(
+        jogadores.map(j =>
+          supabase.from('elenco')
+            .update({ jogos: (j.jogos || 0) + 1 })
+            .eq('id', j.id)
+        )
+      )
+    }
+    await atualizarJogosElenco(mandanteId)
+    await atualizarJogosElenco(visitanteId)
 
-  // 💰 Atualiza saldo dos clubes com base na renda
-  await supabase.rpc('atualizar_saldo', {
-    id_time: mandanteId,
-    valor: renda * 0.95,
-  })
-  await supabase.rpc('atualizar_saldo', {
-    id_time: visitanteId,
-    valor: renda * 0.05,
-  })
+    // grava o jogo na rodada
+    novaLista[index] = {
+      ...jogo,
+      gols_mandante: gm,
+      gols_visitante: gv,
+      renda,
+      publico,
+      bonus_pago: true,
+    }
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
 
-  // 💸 Descontar salários e registrar como DESPESA
-  const descontarSalariosComRegistro = async (timeId: string): Promise<number> => {
-    const { data: elenco } = await supabase
-      .from('elenco')
-      .select('salario')
-      .eq('id_time', timeId)
+    // serviços auxiliares
+    await fetch(`/api/classificacao?temporada=${temporada}`)
+    await fetch('/api/atualizar-moral')
 
-    if (!elenco) return 0
+    // atualiza estado local
+    setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: novaLista } : r))
 
-    const totalSalarios = elenco.reduce((acc, jogador) => acc + (jogador.salario || 0), 0)
+    const { feitos, total } = contagemDaRodada({ ...(rodadas.find(r=>r.id===rodadaId) as Rodada), jogos: novaLista })
+    const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
+    const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
-    await supabase.rpc('atualizar_saldo', {
-      id_time: timeId,
-      valor: -totalSalarios,
-    })
-
-    const dataAgora = new Date().toISOString()
-
-    await supabase.from('movimentacoes').insert({
-      id_time: timeId,
-      tipo: 'salario',
-      valor: totalSalarios,
-      descricao: 'Desconto de salários após partida',
-      data: dataAgora,
-    })
-
-    await supabase.from('bid').insert({
-      tipo_evento: 'despesas',
-      descricao: 'Desconto de salários após a partida',
-      id_time1: timeId,
-      valor: -totalSalarios,
-      data_evento: dataAgora,
-    })
-
-    return totalSalarios
-  }
-
-  const salariosMandante = await descontarSalariosComRegistro(mandanteId)
-  const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
-
-  // 🏆 Premiar por desempenho da rodada e retornar o valor como number
-  const premiacaoMandante: number = await premiarPorJogo(mandanteId, golsMandante, golsVisitante)
-  const premiacaoVisitante: number = await premiarPorJogo(visitanteId, golsVisitante, golsMandante)
-
-  // 📊 Registrar BID de receita (renda + bônus)
-  await supabase.from('bid').insert([
-    {
-      tipo_evento: 'receita_partida',
-      descricao: 'Receita da partida (renda + bônus)',
-      id_time1: mandanteId,
-      valor: renda * 0.95 + premiacaoMandante,
-      data_evento: new Date().toISOString(),
-    },
-    {
-      tipo_evento: 'receita_partida',
-      descricao: 'Receita da partida (renda + bônus)',
-      id_time1: visitanteId,
-      valor: renda * 0.05 + premiacaoVisitante,
-      data_evento: new Date().toISOString(),
-    },
-  ])
-
-  // ✅ Atualiza o número de jogos dos jogadores
-  const atualizarJogosElenco = async (timeId: string) => {
-    const { data: jogadores, error } = await supabase
-      .from('elenco')
-      .select('id, jogos')
-      .eq('id_time', timeId)
-
-    if (error || !jogadores) return
-
-    const updates = jogadores.map((jogador) =>
-      supabase
-        .from('elenco')
-        .update({ jogos: (jogador.jogos || 0) + 1 })
-        .eq('id', jogador.id)
+    toast.success(
+      `✅ Placar salvo! ${feitos}/${total} jogos desta rodada com placar.
+🎟️ Público: ${publico.toLocaleString()}  |  💰 Renda: R$ ${renda.toLocaleString()}
+💵 ${mandanteNome}: R$ ${(renda*0.95).toLocaleString()} + bônus
+💵 ${visitanteNome}: R$ ${(renda*0.05).toLocaleString()} + bônus`,
+      { duration: 8000 }
     )
 
-    await Promise.all(updates)
+    setEditandoRodada(null)
+    setEditandoIndex(null)
+    setIsSalvando(false)
   }
 
-  await atualizarJogosElenco(mandanteId)
-  await atualizarJogosElenco(visitanteId)
+  /** =============== AJUSTE DE RESULTADO (sem repetir finanças) =============== */
+  const salvarAjusteResultado = async (rodadaId: string, index: number, gm: number, gv: number, silencioso = false) => {
+    if (isSalvando) return
+    setIsSalvando(true)
 
-  // Atualiza o jogo na rodada
-  novaLista[editandoIndex] = {
-    ...jogo,
-    gols_mandante: golsMandante,
-    gols_visitante: golsVisitante,
-    renda,
-    publico,
-    bonus_pago: true,
+    const { data: rodadaDB, error: erroR } = await supabase
+      .from('rodadas').select('jogos, numero').eq('id', rodadaId).single()
+    if (erroR || !rodadaDB) {
+      toast.error('Erro ao buscar rodada!')
+      setIsSalvando(false); return
+    }
+
+    const novaLista = [...rodadaDB.jogos]
+    const jogo = novaLista[index]
+    if (!jogo) { setIsSalvando(false); return }
+
+    // mantém renda/publico/bonus_pago, só ajusta placar
+    novaLista[index] = {
+      ...jogo,
+      gols_mandante: gm,
+      gols_visitante: gv,
+      bonus_pago: true,
+    }
+
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+
+    // recalcula classificação/moral
+    await fetch(`/api/classificacao?temporada=${temporada}`)
+    await fetch('/api/atualizar-moral')
+
+    // estado local
+    setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: novaLista } : r))
+
+    if (!silencioso) {
+      const { feitos, total } = contagemDaRodada({ ...(rodadas.find(r=>r.id===rodadaId) as Rodada), jogos: novaLista })
+      toast.success(`✏️ Resultado atualizado! ${feitos}/${total} jogos desta rodada com placar (sem repetir bônus).`)
+    }
+
+    setEditandoRodada(null)
+    setEditandoIndex(null)
+    setIsSalvando(false)
   }
 
-  await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodada.id)
-  await fetch(`/api/classificacao?temporada=${temporada}`)
-  await fetch('/api/atualizar-moral')
-  await carregarDados()
-
-  const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
-  const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
-
-  toast.success(
-    `🎟️ Público: ${publico.toLocaleString()} | 💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${(renda * 0.95).toLocaleString()} + bônus
-💵 ${visitanteNome}: R$ ${(renda * 0.05).toLocaleString()} + bônus`,
-    { duration: 8000 }
-  )
-
-  setEditandoRodada(null)
-  setEditandoIndex(null)
-  setIsSalvando(false)
-}
-
-
+  /** =============== Excluir placar (limpa renda/publico) =============== */
   const excluirResultado = async (rodadaId: string, index: number) => {
     if (!confirm('Deseja excluir o resultado deste jogo?')) return
-
     const rodada = rodadas.find((r) => r.id === rodadaId)
     if (!rodada) return
 
@@ -453,15 +376,21 @@ const salvarResultado = async () => {
       gols_mandante: undefined,
       gols_visitante: undefined,
       renda: undefined,
-      publico: undefined
+      publico: undefined,
+      // mantém bonus_pago? Como apagou placar, volta a false
+      bonus_pago: false,
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
     await fetch(`/api/classificacao?temporada=${temporada}`)
 
-    await carregarDados()
+    setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: novaLista } : r))
+
+    const { feitos, total } = contagemDaRodada({ ...rodada, jogos: novaLista })
+    toast.success(`🗑️ Resultado removido. ${feitos}/${total} jogos com placar.`)
   }
 
+  /** =============== Filtro por time (opcional) =============== */
   const rodadasFiltradas = !timeSelecionado
     ? rodadas
     : rodadas
@@ -475,17 +404,26 @@ const salvarResultado = async () => {
 
   if (loading) return <p className="text-center text-white">🔄 Verificando permissões...</p>
 
-  return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold mb-4 text-white">📅 Jogos da LigaFut</h1>
+  const { feitos: feitosGlobais, total: totalGlobais } = contagemGlobal(rodadasFiltradas, timeSelecionado)
 
-      <div className="flex gap-2 mb-4">
+  return (
+    <div className="relative p-6 max-w-7xl mx-auto">
+      {/* glows de fundo */}
+      <div className="pointer-events-none absolute -top-40 -right-40 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
+
+      <h1 className="text-3xl font-bold mb-4 bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+        📅 Jogos da LigaFut
+      </h1>
+
+      {/* Controles */}
+      <div className="flex flex-wrap gap-2 mb-4">
         {temporadasDisponiveis.map((temp) => (
           <button
             key={temp}
             onClick={() => setTemporada(temp)}
-            className={`px-4 py-2 rounded-lg font-semibold ${
-              temporada === temp ? 'bg-green-600 text-white' : 'bg-zinc-700 text-gray-300'
+            className={`px-4 py-2 rounded-xl font-semibold border border-white/10 ${
+              temporada === temp ? 'bg-emerald-600 text-white' : 'bg-white/5 text-white/80'
             }`}
           >
             Temporada {temp}
@@ -493,141 +431,193 @@ const salvarResultado = async () => {
         ))}
       </div>
 
-      <div className="flex gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4">
         {divisoesDisponiveis.map((div) => (
           <button
             key={div}
             onClick={() => setDivisao(div)}
-            className={`px-4 py-2 rounded-lg font-semibold ${
-              divisao === div ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-gray-300'
+            className={`px-4 py-2 rounded-xl font-semibold border border-white/10 ${
+              divisao === div ? 'bg-sky-600 text-white' : 'bg-white/5 text-white/80'
             }`}
           >
             Divisão {div}
           </button>
         ))}
+        <span className="ml-auto text-sm px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/70">
+          {feitosGlobais}/{totalGlobais} jogos com placar (filtro atual)
+        </span>
       </div>
 
       <select
-        className="mb-6 p-2 bg-zinc-800 text-white rounded-lg"
+        className="mb-6 p-2 bg-white/5 border border-white/10 text-white rounded-lg"
         onChange={(e) => setTimeSelecionado(e.target.value)}
         value={timeSelecionado}
       >
         <option value="">Todos os times</option>
         {Object.values(timesMap).map((time) => (
-          <option key={time.id} value={time.id}>
-            {time.nome}
-          </option>
+          <option key={time.id} value={time.id}>{time.nome}</option>
         ))}
       </select>
 
-      {rodadasFiltradas.map((rodada) => (
-        <div key={rodada.id} className="bg-zinc-800 rounded-xl p-4 mb-6 shadow-md">
-          <h2 className="text-xl font-semibold text-white mb-3">🏁 Rodada {rodada.numero}</h2>
+      {rodadasFiltradas.map((rodada) => {
+        const { feitos, total } = contagemDaRodada(rodada)
+        return (
+          <div key={rodada.id} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-white/10 rounded-2xl p-4 mb-6 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xl font-semibold text-white">🏁 Rodada {rodada.numero}</h2>
+              <span className="text-xs px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-white/70">
+                {feitos}/{total} com placar
+              </span>
+            </div>
 
-          <div className="space-y-2">
-            {rodada.jogos.map((jogo, index) => {
-              const mandante = timesMap[jogo.mandante]
-              const visitante = timesMap[jogo.visitante]
-              const estaEditando = editandoRodada === rodada.id && editandoIndex === index
+            <div className="space-y-2">
+              {rodada.jogos.map((jogo, index) => {
+                const mandante = timesMap[jogo.mandante]
+                const visitante = timesMap[jogo.visitante]
+                const estaEditando = editandoRodada === rodada.id && editandoIndex === index
+                const jaPago = !!jogo.bonus_pago
 
-              return (
-                <div key={index} className="bg-zinc-700 text-white px-4 py-2 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center w-1/3 justify-end gap-2">
-                      {mandante?.logo_url && (
-                        <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
-                      )}
-                      <span className="font-medium text-right">{mandante?.nome || '???'}</span>
-                    </div>
+                const handleAutoBlur = async () => {
+                  // auto-save apenas se já teve bônus (ajuste sem finanças)
+                  if (!isAdmin || !estaEditando || !jaPago) return
+                  if (Number.isNaN(golsMandante) || Number.isNaN(golsVisitante)) return
+                  await salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))
+                }
 
-                    <div className="w-1/3 text-center text-zinc-300 font-bold">
-                      {estaEditando ? (
-                        <div className="flex items-center justify-center gap-1">
-                          <input
-                            type="number"
-                            value={golsMandante}
-                            onChange={(e) => setGolsMandante(Number(e.target.value))}
-                            className="w-10 text-black text-center rounded"
-                          />
-                          <span>x</span>
-                          <input
-                            type="number"
-                            value={golsVisitante}
-                            onChange={(e) => setGolsVisitante(Number(e.target.value))}
-                            className="w-10 text-black text-center rounded"
-                          />
-                        </div>
-                      ) : jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined ? (
-                        <>{jogo.gols_mandante} x {jogo.gols_visitante}</>
-                      ) : (
-                        '🆚'
-                      )}
-                    </div>
+                return (
+                  <div key={index} className="bg-white/5 border border-white/10 text-white px-4 py-3 rounded-xl">
+                    <div className="flex items-center justify-between">
+                      {/* mandante */}
+                      <div className="flex items-center w-1/3 justify-end gap-2">
+                        {mandante?.logo_url && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                        )}
+                        <span className="font-medium text-right">{mandante?.nome || '???'}</span>
+                      </div>
 
-                    <div className="flex items-center w-1/3 justify-start gap-2">
-                      <span className="font-medium text-left">{visitante?.nome || '???'}</span>
-                      {visitante?.logo_url && (
-                        <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full" />
-                      )}
+                      {/* centro/placar */}
+                      <div className="w-1/3 text-center text-zinc-200 font-bold">
+                        {estaEditando ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <input
+                              type="number"
+                              value={golsMandante}
+                              onChange={(e) => setGolsMandante(Number(e.target.value))}
+                              onBlur={handleAutoBlur}
+                              className="w-12 text-black text-center rounded-lg px-2 py-1"
+                              placeholder="0"
+                              min={0}
+                            />
+                            <span className="text-white/70">x</span>
+                            <input
+                              type="number"
+                              value={golsVisitante}
+                              onChange={(e) => setGolsVisitante(Number(e.target.value))}
+                              onBlur={handleAutoBlur}
+                              className="w-12 text-black text-center rounded-lg px-2 py-1"
+                              placeholder="0"
+                              min={0}
+                            />
+                          </div>
+                        ) : isPlacarPreenchido(jogo) ? (
+                          <>{jogo.gols_mandante} x {jogo.gols_visitante}</>
+                        ) : (
+                          <span className="text-white/50">🆚</span>
+                        )}
+                      </div>
 
-                      {isAdmin && !estaEditando && (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => {
-                              setEditandoRodada(rodada.id)
-                              setEditandoIndex(index)
-                              setGolsMandante(jogo.gols_mandante ?? 0)
-                              setGolsVisitante(jogo.gols_visitante ?? 0)
-                            }}
-                            className="text-sm text-yellow-300"
-                          >
-                            📝
-                          </button>
-                          {jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined && (
+                      {/* visitante + ações */}
+                      <div className="flex items-center w-1/3 justify-start gap-2">
+                        <span className="font-medium text-left">{visitante?.nome || '???'}</span>
+                        {visitante?.logo_url && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                        )}
+
+                        {isAdmin && !estaEditando && (
+                          <div className="flex gap-2 ml-2">
                             <button
-                              onClick={() => excluirResultado(rodada.id, index)}
-                              className="text-sm text-red-400"
+                              onClick={() => {
+                                setEditandoRodada(rodada.id)
+                                setEditandoIndex(index)
+                                setGolsMandante(jogo.gols_mandante ?? 0)
+                                setGolsVisitante(jogo.gols_visitante ?? 0)
+                                if (jogo.bonus_pago) {
+                                  toast('Modo ajuste: edite e saia do campo para salvar automaticamente.', {
+                                    icon: '✏️'
+                                  })
+                                }
+                              }}
+                              className="text-sm text-yellow-300"
+                              title={jogo.bonus_pago ? 'Editar (ajuste sem repetir bônus)' : 'Editar (lançamento com finanças)'}
                             >
-                              🗑️
+                              📝
                             </button>
-                          )}
-                        </div>
-                      )}
 
-                      {isAdmin && estaEditando && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={salvarResultado}
-                            disabled={isSalvando}
-                            className="text-sm text-green-400 font-semibold"
-                          >
-                            💾
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditandoRodada(null)
-                              setEditandoIndex(null)
-                            }}
-                            className="text-sm text-red-400 font-semibold"
-                          >
-                            ❌
-                          </button>
-                        </div>
-                      )}
+                            {isPlacarPreenchido(jogo) && (
+                              <button
+                                onClick={() => excluirResultado(rodada.id, index)}
+                                className="text-sm text-red-400"
+                                title="Remover resultado"
+                              >
+                                🗑️
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {isAdmin && estaEditando && (
+                          <div className="flex gap-2 ml-2">
+                            {!jogo.bonus_pago ? (
+                              <button
+                                onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                disabled={isSalvando}
+                                className="text-sm text-green-400 font-semibold"
+                                title="Salvar e processar finanças"
+                              >
+                                💾
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                disabled={isSalvando}
+                                className="text-sm text-green-400 font-semibold"
+                                title="Salvar ajuste (sem repetir bônus)"
+                              >
+                                ✅
+                              </button>
+                            )}
+                            <button
+                              onClick={() => { setEditandoRodada(null); setEditandoIndex(null) }}
+                              className="text-sm text-red-400 font-semibold"
+                              title="Cancelar edição"
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    {jogo.renda && jogo.publico && (
+                      <div className="text-xs text-zinc-400 text-right mt-1 mr-10">
+                        🎟️ Público: {jogo.publico.toLocaleString()} | 💰 Renda: R$ {jogo.renda.toLocaleString()}
+                      </div>
+                    )}
+
+                    {jogo.bonus_pago && (
+                      <div className="mt-2 text-[11px] text-emerald-300/80">
+                        ✔️ Lançado com finanças. Edições futuras não repetem bônus/salários — apenas atualizam o placar e a classificação.
+                      </div>
+                    )}
                   </div>
-
-                  {jogo.renda && jogo.publico && (
-                    <div className="text-sm text-zinc-400 text-right mt-1 mr-10">
-                      🎟️ Público: {jogo.publico.toLocaleString()} | 💰 Renda: R$ {jogo.renda.toLocaleString()}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
