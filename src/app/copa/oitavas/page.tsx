@@ -379,7 +379,7 @@ export default function OitavasPage() {
     }
   }
 
-  /** ====== Salvar placar ====== */
+  /** ====== Salvar placar (pega os valores atuais do card) ====== */
   async function salvarPlacar(jogo: JogoOitavas) {
     const update: any = {
       gols_time1: jogo.gols_time1,
@@ -396,7 +396,11 @@ export default function OitavasPage() {
       .eq('id', jogo.id)
 
     if (error) toast.error('Erro ao salvar')
-    else toast.success('Placar salvo!')
+    else {
+      toast.success('Placar salvo!')
+      // mantém o estado em sincronia
+      setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, ...update } : j))
+    }
   }
 
   /** ===== Helper: checar se todos os jogos têm placar preenchido ===== */
@@ -409,7 +413,7 @@ export default function OitavasPage() {
     )
   }, [jogos, supportsVolta])
 
-  /** ====== FINALIZAR OITAVAS (sequencial) — mantém caso queira usar ====== */
+  /** ====== FINALIZAR OITAVAS (sequencial) — opcional ====== */
   async function finalizarOitavas() {
     const { data: dataJogos, error: errJ } = await supabase
       .from('copa_oitavas')
@@ -439,7 +443,6 @@ export default function OitavasPage() {
       return
     }
 
-    // nomes
     const { data: timesData } = await supabase
       .from('times').select('id, nome').in('id', classificados)
     const nomePorId = new Map<string, string>()
@@ -462,10 +465,7 @@ export default function OitavasPage() {
     }
 
     try {
-      // opcional: limpar antes
       await supabase.from('copa_quartas').delete().neq('id', 0).throwOnError()
-
-      // tenta com volta; se falhar, insere sem volta
       const ins1 = await supabase
         .from('copa_quartas')
         .insert(novos.map(n => ({ ...n, gols_time1_volta: null, gols_time2_volta: null })))
@@ -475,7 +475,6 @@ export default function OitavasPage() {
       } else if (ins1.error) {
         throw ins1.error
       }
-
       toast.success('Classificados para as Quartas (ordem sequencial).')
     } catch (e) {
       console.error(e)
@@ -483,7 +482,7 @@ export default function OitavasPage() {
     }
   }
 
-  /** ====== NOVO: Sortear Quartas com POTE ÚNICO ====== */
+  /** ====== Sortear Quartas com POTE ÚNICO ====== */
   async function sortearQuartasPoteUnico() {
     if (!isAdmin) return
 
@@ -780,7 +779,7 @@ export default function OitavasPage() {
   )
 }
 
-/** ====== Cartão de Jogo com “mandante × visitante” e volta invertida ====== */
+/** ====== Cartão de Jogo com estado local (Salvar funciona) ====== */
 function MatchCard({
   jogo, supportsVolta, logosById, onChange, onSave
 }:{
@@ -790,13 +789,42 @@ function MatchCard({
   onChange: (next: JogoOitavas) => void
   onSave: (j: JogoOitavas) => void
 }) {
-  const ida1 = jogo.gols_time1 ?? 0
-  const ida2 = jogo.gols_time2 ?? 0
-  const vol1 = supportsVolta ? (jogo.gols_time1_volta ?? 0) : 0
-  const vol2 = supportsVolta ? (jogo.gols_time2_volta ?? 0) : 0
-  const agg1 = ida1 + vol1
-  const agg2 = ida2 + vol2
+  // estado local para não salvar valores antigos
+  const [ida1, setIda1] = useState<number | null>(jogo.gols_time1)
+  const [ida2, setIda2] = useState<number | null>(jogo.gols_time2)
+  const [vol1, setVol1] = useState<number | null>(jogo.gols_time1_volta ?? null)
+  const [vol2, setVol2] = useState<number | null>(jogo.gols_time2_volta ?? null)
+
+  // ressincroniza quando o jogo mudar (ex.: depois do fetch)
+  useEffect(() => {
+    setIda1(jogo.gols_time1)
+    setIda2(jogo.gols_time2)
+    setVol1(jogo.gols_time1_volta ?? null)
+    setVol2(jogo.gols_time2_volta ?? null)
+  }, [jogo.id, jogo.gols_time1, jogo.gols_time2, jogo.gols_time1_volta, jogo.gols_time2_volta])
+
+  // propaga para o pai (para "oitavasCompletas" e afins)
+  useEffect(() => {
+    onChange({
+      ...jogo,
+      gols_time1: ida1,
+      gols_time2: ida2,
+      ...(supportsVolta ? { gols_time1_volta: vol1, gols_time2_volta: vol2 } : {})
+    })
+  }, [ida1, ida2, vol1, vol2]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const norm = (val: string): number | null => val === '' ? null : Math.max(0, parseInt(val))
+
+  const agg1 = (ida1 ?? 0) + (supportsVolta ? (vol1 ?? 0) : 0)
+  const agg2 = (ida2 ?? 0) + (supportsVolta ? (vol2 ?? 0) : 0)
   const lead: 'empate'|'t1'|'t2' = agg1 === agg2 ? 'empate' : (agg1 > agg2 ? 't1' : 't2')
+
+  const buildNext = (): JogoOitavas => ({
+    ...jogo,
+    gols_time1: ida1,
+    gols_time2: ida2,
+    ...(supportsVolta ? { gols_time1_volta: vol1, gols_time2_volta: vol2 } : {})
+  })
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-xl">
@@ -807,7 +835,7 @@ function MatchCard({
       <div className="flex items-center justify-between mb-4">
         <div className="text-[13px] text-white/60">Jogo {jogo.ordem ?? '-'} · Oitavas</div>
         <div
-          title={`Ida ${ida1}-${ida2}${supportsVolta ? ` · Volta ${vol1}-${vol2}` : ''}`}
+          title={`Ida ${ida1 ?? 0}-${ida2 ?? 0}${supportsVolta ? ` · Volta ${vol1 ?? 0}-${vol2 ?? 0}` : ''}`}
           className={[
             "px-3 py-1 rounded-full text-xs font-medium backdrop-blur border",
             lead==='t1' ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
@@ -824,10 +852,10 @@ function MatchCard({
         label="Ida"
         left={{ id:jogo.id_time1, name:jogo.time1, logo:logosById[jogo.id_time1], role:'Mandante' }}
         right={{ id:jogo.id_time2, name:jogo.time2, logo:logosById[jogo.id_time2], role:'Visitante' }}
-        a={jogo.gols_time1}
-        b={jogo.gols_time2}
-        onA={(v)=>onChange({ ...jogo, gols_time1: v })}
-        onB={(v)=>onChange({ ...jogo, gols_time2: v })}
+        a={ida1}
+        b={ida2}
+        onA={(v)=>setIda1(v)}
+        onB={(v)=>setIda2(v)}
       />
 
       {/* Jogo de VOLTA — invertido: time2 (mandante) x time1 (visitante) */}
@@ -837,10 +865,10 @@ function MatchCard({
             label="Volta"
             left={{ id:jogo.id_time2, name:jogo.time2, logo:logosById[jogo.id_time2], role:'Mandante' }}
             right={{ id:jogo.id_time1, name:jogo.time1, logo:logosById[jogo.id_time1], role:'Visitante' }}
-            a={jogo.gols_time2_volta as any}   // esquerda é do time2
-            b={jogo.gols_time1_volta as any}   // direita é do time1
-            onA={(v)=>onChange({ ...jogo, gols_time2_volta: v as any })}
-            onB={(v)=>onChange({ ...jogo, gols_time1_volta: v as any })}
+            a={vol2}   // esquerda é do time2 (mandante na volta)
+            b={vol1}   // direita é do time1
+            onA={(v)=>setVol2(v)}
+            onB={(v)=>setVol1(v)}
           />
         </div>
       )}
@@ -848,7 +876,7 @@ function MatchCard({
       {/* ação */}
       <div className="mt-4 flex justify-end">
         <button
-          onClick={()=>onSave(jogo)}
+          onClick={()=>onSave(buildNext())}
           className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow focus:outline-none focus:ring-2 focus:ring-emerald-400/50">
           Salvar
         </button>
