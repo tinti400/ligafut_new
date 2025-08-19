@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
 import classNames from 'classnames'
@@ -28,6 +28,7 @@ interface EventoBID {
 interface Time {
   id: string
   nome: string
+  logo_url?: string | null
 }
 
 type Comentario = {
@@ -51,13 +52,85 @@ type Reacao = {
 const EMOJIS = ['👍','❤️','😂','😮','😢','😡','👏','🔥'] as const
 type Emoji = typeof EMOJIS[number]
 
+/** ========= Helpers visuais ========= */
+function tipoToStyle(tipo: string) {
+  const t = tipo.toLowerCase()
+  if (t.includes('transfer')) return { ring: 'ring-purple-500/60', chip: 'bg-purple-500/15 text-purple-300', dot: 'bg-purple-400' }
+  if (t.includes('emprést') || t.includes('emprest')) return { ring: 'ring-blue-500/60', chip: 'bg-blue-500/15 text-blue-300', dot: 'bg-blue-400' }
+  if (t.includes('rescis')) return { ring: 'ring-red-500/60', chip: 'bg-red-500/15 text-red-300', dot: 'bg-red-400' }
+  if (t.includes('compra')) return { ring: 'ring-emerald-500/60', chip: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400' }
+  if (t.includes('salario')) return { ring: 'ring-orange-500/60', chip: 'bg-orange-500/15 text-orange-300', dot: 'bg-orange-400' }
+  if (t.includes('bonus') || t.includes('bônus')) return { ring: 'ring-lime-500/60', chip: 'bg-lime-500/15 text-lime-300', dot: 'bg-lime-400' }
+  return { ring: 'ring-gray-500/50', chip: 'bg-gray-500/15 text-gray-300', dot: 'bg-gray-400' }
+}
+
+function iconeTipo(tipo: string) {
+  const t = tipo.toLowerCase()
+  if (t.includes('transfer')) return '💸'
+  if (t.includes('emprést') || t.includes('emprest')) return '🤝'
+  if (t.includes('rescis')) return '✂️'
+  if (t.includes('compra')) return '🛒'
+  if (t.includes('salario')) return '📤'
+  if (t.includes('bonus') || t.includes('bônus')) return '🎁'
+  return '📝'
+}
+
+function capitalizar(str: string) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : ''
+}
+
+function diaSemanaPt(date: Date) {
+  return new Intl.DateTimeFormat('pt-BR', { weekday: 'long' }).format(date)
+}
+
+function horaPt(date: Date) {
+  return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+function calcEstrelas(valor: number | null | undefined) {
+  if (!valor || valor <= 0) return 0
+  return Math.min(Math.ceil(valor / 50_000_000), 10)
+}
+
+function Estrelas({ valor }: { valor: number }) {
+  const qtd = calcEstrelas(valor)
+  const total = 10
+  const estrelas = '★'.repeat(qtd) + '☆'.repeat(total - qtd)
+  let cor = 'text-gray-400'
+  if (qtd <= 2) cor = 'text-red-400'
+  else if (qtd <= 4) cor = 'text-yellow-400'
+  else if (qtd <= 7) cor = 'text-blue-400'
+  else if (qtd <= 9) cor = 'text-purple-400'
+  else cor = 'text-emerald-400'
+  return <span className={`font-bold ${cor}`} title={`Valor: R$${valor.toLocaleString('pt-BR')}`}>{estrelas}</span>
+}
+
+function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
+  if (logo) {
+    return (
+      <img
+        src={logo}
+        alt={nome}
+        className="size-8 rounded-full object-cover ring-1 ring-white/10"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+      />
+    )
+  }
+  const iniciais = nome.split(' ').slice(0, 2).map(s => s[0]).join('').toUpperCase()
+  return (
+    <div className="size-8 rounded-full bg-gray-700 text-gray-200 grid place-items-center ring-1 ring-white/10">
+      <span className="text-xs font-bold">{iniciais || '?'}</span>
+    </div>
+  )
+}
+
 /** ========= Página ========= */
 export default function BIDPage() {
   const { isAdmin } = useAdmin()
 
   // Eventos e Times
   const [eventos, setEventos] = useState<EventoBID[]>([])
-  const [timesMap, setTimesMap] = useState<Record<string, string>>({})
+  const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
   const [timesLista, setTimesLista] = useState<Time[]>([])
 
   // Estados gerais
@@ -89,6 +162,9 @@ export default function BIDPage() {
   // Auto-animate
   const [listaDiasAnim] = useAutoAnimate<HTMLDivElement>()
   const [commentsAnim] = useAutoAnimate<HTMLDivElement>()
+
+  // Scroll anchor p/ paginação
+  const topRef = useRef<HTMLDivElement | null>(null)
 
   /** ====== Identidade do time (robusto) ====== */
   useEffect(() => {
@@ -137,11 +213,11 @@ export default function BIDPage() {
 
       const { data: timesData, error: errorTimes } = await supabase
         .from('times')
-        .select('id, nome')
+        .select('id, nome, logo_url')
       if (errorTimes) throw errorTimes
 
-      const map: Record<string, string> = {}
-      timesData?.forEach((t) => (map[t.id] = t.nome))
+      const map: Record<string, Time> = {}
+      timesData?.forEach((t) => (map[t.id] = t))
 
       setEventos(eventosData || [])
       setTimesMap(map)
@@ -156,6 +232,11 @@ export default function BIDPage() {
         carregarComentariosParaEventos(idsStr),
         carregarReacoesParaEventos(idsStr),
       ])
+
+      // rola pra o topo (UX paginação)
+      if (topRef.current) {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar os eventos.')
@@ -294,7 +375,7 @@ export default function BIDPage() {
     setMinhasReacoes(mineMap)
   }
 
-  // Toggle robusto: verifica se já existe; se sim, exclui; se não, cria. Depois recarrega contadores.
+  // Toggle robusto
   async function toggleReacao(idEventoRaw: IDEvt, emoji: Emoji) {
     const idEvento = String(idEventoRaw)
     if (!idTimeLogado) { toast.error('Faça login no seu time para reagir.'); return }
@@ -321,7 +402,6 @@ export default function BIDPage() {
         if (insErr) throw insErr
       }
 
-      // Recarrega contadores e minhas reações somente desse evento
       await carregarReacoesParaEventos([idEvento])
     } catch (err: any) {
       console.error(err)
@@ -331,51 +411,11 @@ export default function BIDPage() {
     }
   }
 
-  /** ====== UI utils ====== */
-  function capitalizar(str: string) {
-    return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : ''
-  }
-  function calcularEstrelas(valor: number | null | undefined) {
-    if (!valor || valor <= 0) return 0
-    return Math.min(Math.ceil(valor / 50_000_000), 10)
-  }
-  function renderEstrelas(qtd: number, valor: number) {
-    const total = 10
-    const estrelas = '★'.repeat(qtd) + '☆'.repeat(total - qtd)
-    let cor = 'text-gray-400'
-    if (qtd <= 2) cor = 'text-red-400'
-    else if (qtd <= 4) cor = 'text-yellow-400'
-    else if (qtd <= 7) cor = 'text-blue-400'
-    else if (qtd <= 9) cor = 'text-purple-400'
-    else cor = 'text-emerald-400'
-    return <span className={`font-bold ${cor}`} title={`Valor: R$${valor.toLocaleString('pt-BR')}`}>{estrelas}</span>
-  }
-  function iconeTipo(tipo: string) {
-    const t = tipo.toLowerCase()
-    if (t.includes('transfer')) return '💸'
-    if (t.includes('emprést')) return '🤝'
-    if (t.includes('rescis')) return '✂️'
-    if (t.includes('compra')) return '🛒'
-    if (t.includes('salario')) return '📤'
-    if (t.includes('bonus')) return '🎁'
-    return '📝'
-  }
-  function corFundo(tipo: string) {
-    const t = tipo.toLowerCase()
-    if (t.includes('transfer')) return 'bg-purple-700'
-    if (t.includes('emprést')) return 'bg-blue-700'
-    if (t.includes('rescis')) return 'bg-red-700'
-    if (t.includes('compra')) return 'bg-green-700'
-    if (t.includes('salario')) return 'bg-orange-800'
-    if (t.includes('bonus')) return 'bg-emerald-800'
-    return 'bg-gray-700'
-  }
-
   /** ====== Filtros / Agrupamento ====== */
   const eventosFiltrados = useMemo(() => {
     return eventos.filter((evento) => {
-      const nome1 = timesMap[evento.id_time1] || ''
-      const nome2 = evento.id_time2 ? (timesMap[evento.id_time2] || '') : ''
+      const nome1 = timesMap[evento.id_time1]?.nome || ''
+      const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
       const texto = `${evento.descricao} ${nome1} ${nome2}`.toLowerCase()
       const buscaOK = texto.includes(buscaTexto.toLowerCase())
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
@@ -386,7 +426,8 @@ export default function BIDPage() {
   const eventosAgrupados = useMemo(() => {
     const grupos: Record<string, EventoBID[]> = {}
     for (const ev of eventosFiltrados) {
-      const data = new Date(ev.data_evento).toLocaleDateString('pt-BR')
+      const d = new Date(ev.data_evento)
+      const data = d.toLocaleDateString('pt-BR')
       if (!grupos[data]) grupos[data] = []
       grupos[data].push(ev)
     }
@@ -395,209 +436,373 @@ export default function BIDPage() {
 
   /** ====== Render ====== */
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-4 md:p-6">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl md:text-4xl font-bold mb-6 text-center text-green-400">
-          📰 BID — Boletim Informativo Diário
-        </h1>
+    <main className="min-h-screen bg-gradient-to-b from-gray-900 via-slate-900 to-black text-white">
+      {/* topo/anchor */}
+      <div ref={topRef} />
 
-        {/* Filtros */}
-        <div className="flex flex-col md:flex-row gap-4 justify-center items-center mb-6">
-          <select
-            className="bg-gray-800 text-white border border-gray-600 rounded px-4 py-2 w-full md:w-auto"
-            value={filtroTime}
-            onChange={(e) => setFiltroTime(e.target.value)}
-          >
-            <option value="todos">🔍 Todos os times</option>
-            {timesLista.map((time) => (
-              <option key={time.id} value={time.id}>{time.nome}</option>
-            ))}
-          </select>
-          <input
-            type="text"
-            placeholder="Buscar por jogador ou descrição..."
-            className="bg-gray-800 text-white border border-gray-600 rounded px-4 py-2 w-full md:w-80"
-            value={buscaTexto}
-            onChange={(e) => setBuscaTexto(e.target.value)}
-          />
+      <div className="max-w-5xl mx-auto px-4 py-6">
+        <header className="mb-6 text-center">
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+            📰 BID — <span className="text-emerald-400">Boletim Informativo Diário</span>
+          </h1>
+          <p className="text-sm text-gray-400 mt-1">Acompanhe transferências, empréstimos, rescisões e mais.</p>
+        </header>
+
+        {/* Filtros sticky */}
+        <div className="sticky top-0 z-10 -mx-4 mb-6 bg-gradient-to-b from-black/70 to-transparent backdrop-blur supports-[backdrop-filter]:bg-black/40 px-4 py-3 border-b border-white/10">
+          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+            <div className="flex gap-3 w-full md:w-auto">
+              <select
+                className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-72 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                value={filtroTime}
+                onChange={(e) => setFiltroTime(e.target.value)}
+              >
+                <option value="todos">🔍 Todos os times</option>
+                {timesLista.map((time) => (
+                  <option key={time.id} value={time.id}>{time.nome}</option>
+                ))}
+              </select>
+
+              <button
+                onClick={() => setFiltroTime(idTimeLogado || 'todos')}
+                className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-700 hover:bg-emerald-600/30 disabled:opacity-50"
+                disabled={!idTimeLogado}
+                title="Filtrar pelo meu time"
+              >
+                Meu time
+              </button>
+            </div>
+
+            <div className="flex gap-3 w-full md:w-auto">
+              <input
+                type="text"
+                placeholder="Buscar por jogador, termo…"
+                className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-80 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                value={buscaTexto}
+                onChange={(e) => setBuscaTexto(e.target.value)}
+              />
+              {/* paginação compacta */}
+              {totalPaginas > 1 && (
+                <div className="hidden md:flex items-center gap-2">
+                  <button
+                    onClick={() => carregarDados(1)}
+                    disabled={pagina === 1}
+                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                    title="Primeira"
+                  >«</button>
+                  <button
+                    onClick={() => carregarDados(pagina - 1)}
+                    disabled={pagina === 1}
+                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                    title="Anterior"
+                  >‹</button>
+                  <span className="text-xs text-gray-300 select-none">
+                    pág. <strong>{pagina}</strong>/<strong>{totalPaginas}</strong>
+                  </span>
+                  <button
+                    onClick={() => carregarDados(pagina + 1)}
+                    disabled={pagina === totalPaginas}
+                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                    title="Próxima"
+                  >›</button>
+                  <button
+                    onClick={() => carregarDados(totalPaginas)}
+                    disabled={pagina === totalPaginas}
+                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                    title="Última"
+                  >»</button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Paginação */}
+        {/* Paginação (mobile) */}
         {totalPaginas > 1 && (
-          <div className="flex justify-center items-center gap-4 mb-6">
+          <div className="md:hidden flex justify-center items-center gap-3 mb-4">
             <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
-              className="px-4 py-2 rounded bg-gray-700 text-white disabled:opacity-50">⬅ Página Anterior</button>
-            <span className="text-white text-sm">Página {pagina} de {totalPaginas}</span>
+              className="px-4 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">⬅</button>
+            <span className="text-xs text-gray-300">pág. {pagina}/{totalPaginas}</span>
             <button onClick={() => carregarDados(pagina + 1)} disabled={pagina === totalPaginas}
-              className="px-4 py-2 rounded bg-gray-700 text-white disabled:opacity-50">Próxima Página ➡</button>
+              className="px-4 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">➡</button>
           </div>
         )}
 
         {/* Estados */}
-        {loading && <p className="text-gray-400 text-center">⏳ Carregando eventos...</p>}
-        {erro && <p className="text-red-500 text-center">{erro}</p>}
-        {!loading && eventosFiltrados.length === 0 && (
-          <p className="text-gray-400 italic text-center">Nenhum evento encontrado para esse filtro.</p>
+        {loading && (
+          <div className="space-y-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse">
+                <div className="h-4 w-40 bg-white/10 rounded mb-3" />
+                <div className="h-24 w-full bg-white/5 rounded-lg" />
+              </div>
+            ))}
+          </div>
+        )}
+        {erro && <p className="text-red-400 text-center">{erro}</p>}
+        {!loading && Object.keys(eventosAgrupados).length === 0 && (
+          <div className="text-center text-gray-300 py-8">
+            <p className="text-lg">Nenhum evento encontrado para esse filtro.</p>
+          </div>
         )}
 
-        {/* Lista de eventos */}
-        <div className="space-y-8" ref={listaDiasAnim}>
-          {Object.entries(eventosAgrupados).map(([data, eventosDoDia]) => (
-            <div key={data}>
-              <h2 className="text-xl font-bold text-yellow-400 border-b border-yellow-400 mb-3 pb-1">📅 {data}</h2>
+        {/* Timeline de eventos */}
+        <div className="space-y-10" ref={listaDiasAnim}>
+          {Object.entries(eventosAgrupados).map(([data, eventosDoDia]) => {
+            const d0 = eventosDoDia[0]?.data_evento ? new Date(eventosDoDia[0].data_evento) : new Date()
+            return (
+              <section key={data} className="relative">
+                {/* Cabeçalho do dia */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/40 to-transparent" />
+                  <div className="shrink-0">
+                    <div className="text-center">
+                      <p className="text-xs uppercase tracking-wider text-yellow-400/80">{diaSemanaPt(d0)}</p>
+                      <h2 className="text-xl font-bold text-yellow-300">{data}</h2>
+                    </div>
+                  </div>
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/40 to-transparent" />
+                </div>
 
-              <div className="space-y-4">
-                {eventosDoDia.map((evento) => {
-                  const idEvento = String(evento.id)
-                  const nome1 = timesMap[evento.id_time1] || 'Time Desconhecido'
-                  const nome2 = evento.id_time2 ? (timesMap[evento.id_time2] || 'Time Desconhecido') : null
-                  const estrelas = calcularEstrelas(evento.valor)
-                  const comentarios = comentariosMap[idEvento] || []
-                  const comentarioAtual = novoComentario[idEvento] || ''
-                  const chars = comentarioAtual.length
-                  const counts = reacoesCount[idEvento] || {}
-                  const mine = minhasReacoes[idEvento] || {}
+                {/* Lista do dia */}
+                <div className="space-y-4">
+                  {eventosDoDia.map((evento) => {
+                    const idEvento = String(evento.id)
+                    const time1 = timesMap[evento.id_time1]
+                    const time2 = evento.id_time2 ? timesMap[evento.id_time2] : null
+                    const comentarios = comentariosMap[idEvento] || []
+                    const comentarioAtual = novoComentario[idEvento] || ''
+                    const counts = reacoesCount[idEvento] || {}
+                    const mine = minhasReacoes[idEvento] || {}
+                    const estilo = tipoToStyle(evento.tipo_evento)
 
-                  return (
-                    <div key={idEvento}
-                      className={classNames('rounded-xl p-4 shadow transition border border-gray-700 relative',
-                                            'hover:scale-[1.01] transform duration-200', corFundo(evento.tipo_evento))}>
-
-                      {/* Excluir evento (admin) */}
-                      {isAdmin && (
-                        <div className="flex justify-end">
-                          <button onClick={() => excluirEvento(idEvento)}
-                            className="text-red-300 hover:text-red-500 text-sm underline" title="Excluir evento">
-                            🗑️ Excluir evento
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Cabeçalho */}
-                      <div className="flex justify-between items-center mb-1">
-                        <p className="font-bold text-lg text-white flex items-center gap-2">
-                          {iconeTipo(evento.tipo_evento)} {capitalizar(evento.tipo_evento)}
-                        </p>
-                        <span className="text-xs text-gray-200">
-                          {new Date(evento.data_evento).toLocaleTimeString('pt-BR')}
-                        </span>
-                      </div>
-
-                      <p className="text-gray-100">{evento.descricao}</p>
-
-                      {/* Detalhes */}
-                      <div className="mt-2 text-sm text-gray-200 space-y-1">
-                        <p>🟢 Time principal: <strong>{nome1}</strong></p>
-                        {nome2 && <p>🔴 Time adversário: <strong>{nome2}</strong></p>}
-                        {evento.valor != null && (
-                          <div className="pt-1">
-                            <p className="text-yellow-300 font-semibold">
-                              💰 {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </p>
-                            <p>⭐ Classificação: {renderEstrelas(estrelas, evento.valor)}</p>
-                          </div>
+                    return (
+                      <article
+                        key={idEvento}
+                        className={classNames(
+                          'relative rounded-xl bg-gray-900/70 border border-white/10 p-4 md:p-5 shadow-md',
+                          'ring-1', estilo.ring, 'hover:shadow-emerald-600/10 hover:scale-[1.003] transition'
                         )}
-                      </div>
+                      >
+                        {/* Timeline dot */}
+                        <span className={classNames('absolute -left-3 top-5 size-2 rounded-full', estilo.dot)} />
 
-                      {/* Reações */}
-                      <div className="mt-4 rounded-md bg-black/20 border border-white/10 p-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {EMOJIS.map((e) => {
-                            const qtd = counts[e] || 0
-                            const ativo = !!mine[e]
-                            return (
-                              <button
-                                key={e}
-                                onClick={() => toggleReacao(idEvento, e)}
-                                disabled={!idTimeLogado || !!reagindo[idEvento]}
-                                className={classNames(
-                                  'px-2 py-1 rounded-md text-sm border',
-                                  ativo
-                                    ? 'bg-emerald-600/30 border-emerald-500'
-                                    : 'bg-gray-800/60 border-gray-600 hover:bg-gray-700'
-                                )}
-                                title={ativo ? 'Remover reação' : 'Reagir'}
-                              >
-                                <span className="mr-1">{e}</span>
-                                <span className="text-xs text-gray-200">{qtd}</span>
-                              </button>
-                            )
-                          })}
-                          {!idTimeLogado && (
-                            <span className="text-xs text-gray-300 ml-1">Faça login no seu time para reagir.</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Comentários */}
-                      <div className="mt-4 rounded-lg bg-black/20 border border-white/10 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="font-semibold text-white">💬 Comentários ({comentarios.length})</h3>
-                          {!idTimeLogado && <span className="text-xs text-gray-300">Faça login no seu time para comentar.</span>}
-                        </div>
-
-                        {/* Lista */}
-                        <div ref={commentsAnim} className="space-y-2">
-                          {comentarios.length === 0 && (
-                            <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
-                          )}
-                          {comentarios.map((c) => (
-                            <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
-                              <div className="flex items-center justify-between">
-                                <div className="text-sm">
-                                  <span className="font-semibold text-emerald-300">{c.nome_time}</span>
-                                  <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
-                                </div>
-                                {podeExcluirComentario(c) && (
-                                  <button
-                                    onClick={() => excluirComentario(idEvento, c.id)}
-                                    disabled={!!excluindoComentario[c.id]}
-                                    className="text-red-300 hover:text-red-500 text-xs"
-                                  >
-                                    {excluindoComentario[c.id] ? 'Excluindo...' : 'Excluir'}
-                                  </button>
-                                )}
-                              </div>
-                              <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Form */}
-                        <div className="mt-3">
-                          <textarea
-                            placeholder={
-                              idTimeLogado
-                                ? `Comentar como ${nomeTimeLogado ?? 'seu time'}...`
-                                : 'Você precisa estar logado no seu time para comentar.'
-                            }
-                            disabled={!idTimeLogado || !!comentando[idEvento]}
-                            className="w-full rounded-md bg-gray-900 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60"
-                            value={comentarioAtual}
-                            onChange={(e) => onChangeComentario(idEvento, e.target.value)}
-                          />
-                          <div className="flex items-center justify-between mt-2">
-                            <span className={classNames('text-xs', chars >= MAX_CHARS * 0.9 ? 'text-yellow-300' : 'text-gray-300')}>
-                              {chars}/{MAX_CHARS}
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">{iconeTipo(evento.tipo_evento)}</span>
+                            <span className={classNames('px-2 py-0.5 rounded-full text-xs font-semibold', estilo.chip)}>
+                              {capitalizar(evento.tipo_evento)}
                             </span>
+                          </div>
+                          <div className="text-xs text-gray-300">{horaPt(new Date(evento.data_evento))}</div>
+                        </div>
+
+                        {/* Conteúdo */}
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="md:col-span-2">
+                            <p className="text-gray-100 leading-relaxed">{evento.descricao}</p>
+
+                            <div className="mt-3 flex flex-wrap items-center gap-3">
+                              {/* time 1 */}
+                              <div className="flex items-center gap-2">
+                                <AvatarTime nome={time1?.nome || 'Time'} logo={time1?.logo_url} />
+                                <div className="text-sm">
+                                  <p className="text-gray-400">Time principal</p>
+                                  <p className="font-semibold">{time1?.nome || 'Desconhecido'}</p>
+                                </div>
+                              </div>
+
+                              {/* separador */}
+                              {time2 && <span className="text-gray-500">•</span>}
+
+                              {/* time 2 */}
+                              {time2 && (
+                                <div className="flex items-center gap-2">
+                                  <AvatarTime nome={time2?.nome || 'Time'} logo={time2?.logo_url} />
+                                  <div className="text-sm">
+                                    <p className="text-gray-400">Time adversário</p>
+                                    <p className="font-semibold">{time2?.nome || 'Desconhecido'}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Lado direito: valor / estrelas */}
+                          <div className="md:col-span-1">
+                            {evento.valor != null && (
+                              <div className="rounded-lg bg-black/30 border border-white/10 p-3">
+                                <p className="text-xs text-gray-400 mb-1">Movimentação</p>
+                                <p className="text-lg font-bold text-yellow-300">
+                                  {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </p>
+                                <div className="mt-1 text-sm">
+                                  <span className="text-gray-400 mr-2">Impacto</span>
+                                  <Estrelas valor={evento.valor} />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Reações */}
+                        <div className="mt-4 rounded-md bg-black/25 border border-white/10 p-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {EMOJIS.map((e) => {
+                              const qtd = counts[e] || 0
+                              const ativo = !!mine[e]
+                              return (
+                                <button
+                                  key={e}
+                                  onClick={() => toggleReacao(idEvento, e)}
+                                  disabled={!idTimeLogado || !!reagindo[idEvento]}
+                                  className={classNames(
+                                    'px-2 py-1 rounded-md text-sm border transition',
+                                    ativo
+                                      ? 'bg-emerald-600/25 border-emerald-500 ring-1 ring-emerald-400/30'
+                                      : 'bg-gray-800/60 border-gray-600 hover:bg-gray-700'
+                                  )}
+                                  title={ativo ? 'Remover reação' : 'Reagir'}
+                                >
+                                  <span className="mr-1">{e}</span>
+                                  <span className="text-xs text-gray-200">{qtd}</span>
+                                </button>
+                              )
+                            })}
+                            {!idTimeLogado && (
+                              <span className="text-xs text-gray-300 ml-1">Faça login no seu time para reagir.</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Comentários */}
+                        <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-semibold text-white">💬 Comentários ({comentarios.length})</h3>
+                            {!idTimeLogado && <span className="text-xs text-gray-300">Faça login no seu time para comentar.</span>}
+                          </div>
+
+                          <div ref={commentsAnim} className="space-y-2">
+                            {comentarios.length === 0 && (
+                              <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
+                            )}
+                            {comentarios.map((c) => (
+                              <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-sm">
+                                    <span className="font-semibold text-emerald-300">{c.nome_time}</span>
+                                    <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
+                                  </div>
+                                  {podeExcluirComentario(c) && (
+                                    <button
+                                      onClick={() => excluirComentario(idEvento, c.id)}
+                                      disabled={!!excluindoComentario[c.id]}
+                                      className="text-red-300 hover:text-red-500 text-xs"
+                                    >
+                                      {excluindoComentario[c.id] ? 'Excluindo…' : 'Excluir'}
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Form */}
+                          <ComentarioForm
+                            idEvento={idEvento}
+                            comentarioAtual={comentarioAtual}
+                            setTexto={onChangeComentario}
+                            enviando={!!comentando[idEvento]}
+                            podeComentar={!!idTimeLogado}
+                            onSubmit={() => enviarComentario(idEvento)}
+                          />
+                        </div>
+
+                        {/* Ações admin */}
+                        {isAdmin && (
+                          <div className="mt-3 flex justify-end">
                             <button
-                              onClick={() => enviarComentario(idEvento)}
-                              disabled={!idTimeLogado || !!comentando[idEvento] || comentarioAtual.trim().length === 0}
-                              className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-sm"
+                              onClick={() => excluirEvento(idEvento)}
+                              className="text-red-300 hover:text-red-400 text-sm underline underline-offset-4"
+                              title="Excluir evento"
                             >
-                              {comentando[idEvento] ? 'Publicando...' : 'Publicar comentário'}
+                              🗑️ Excluir evento
                             </button>
                           </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+                        )}
+                      </article>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
         </div>
+
+        {/* Rodapé paginação */}
+        {totalPaginas > 1 && (
+          <div className="mt-10 flex justify-center items-center gap-3">
+            <button onClick={() => carregarDados(1)} disabled={pagina === 1}
+              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">«</button>
+            <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
+              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">Anterior</button>
+            <span className="text-sm text-gray-300">Página <strong>{pagina}</strong> de <strong>{totalPaginas}</strong></span>
+            <button onClick={() => carregarDados(pagina + 1)} disabled={pagina === totalPaginas}
+              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">Próxima</button>
+            <button onClick={() => carregarDados(totalPaginas)} disabled={pagina === totalPaginas}
+              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">»</button>
+          </div>
+        )}
       </div>
     </main>
+  )
+}
+
+/** ====== Subcomponente: Comentário form ====== */
+function ComentarioForm({
+  idEvento,
+  comentarioAtual,
+  setTexto,
+  enviando,
+  podeComentar,
+  onSubmit,
+}: {
+  idEvento: string
+  comentarioAtual: string
+  setTexto: (id: string, txt: string) => void
+  enviando: boolean
+  podeComentar: boolean
+  onSubmit: () => void
+}) {
+  const MAX_CHARS = 400
+  const chars = comentarioAtual.length
+  const quase = chars >= MAX_CHARS * 0.9
+
+  return (
+    <div className="mt-3">
+      <textarea
+        placeholder={
+          podeComentar ? 'Escreva um comentário…' : 'Você precisa estar logado no seu time para comentar.'
+        }
+        disabled={!podeComentar || enviando}
+        className="w-full rounded-md bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60"
+        value={comentarioAtual}
+        onChange={(e) => setTexto(idEvento, e.target.value)}
+      />
+      <div className="flex items-center justify-between mt-2">
+        <span className={classNames('text-xs', quase ? 'text-yellow-300' : 'text-gray-300')}>
+          {chars}/{MAX_CHARS}
+        </span>
+        <button
+          onClick={onSubmit}
+          disabled={!podeComentar || enviando || comentarioAtual.trim().length === 0}
+          className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-sm"
+        >
+          {enviando ? 'Publicando…' : 'Publicar comentário'}
+        </button>
+      </div>
+    </div>
   )
 }
