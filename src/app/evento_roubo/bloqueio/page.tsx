@@ -23,7 +23,7 @@ interface Bloqueado {
 }
 
 /**
- * Estrutura esperada do documento em `configuracoes` (id fixo do evento):
+ * Estrutura esperada do doc em `configuracoes` (id fixo do evento):
  * {
  *   id: '56f3af29-a4ac-4a76-aeb3-35400aa2a773',
  *   limite_bloqueios: number,
@@ -38,27 +38,32 @@ export default function BloqueioPage() {
   const [bloqueadosAtuais, setBloqueadosAtuais] = useState<Bloqueado[]>([])
   const [bloqueadosAnteriores, setBloqueadosAnteriores] = useState<Bloqueado[]>([])
   const [selecionados, setSelecionados] = useState<string[]>([]) // guarda IDs
-  const [limiteBloqueios, setLimiteBloqueios] = useState<number>(3)
+
+  // Limite base vindo da config e flag do bônus Ambev
+  const [limiteBase, setLimiteBase] = useState<number>(3)
+  const [temBonusAmbev, setTemBonusAmbev] = useState<boolean>(false)
+
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
 
-  const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
+  const idTime =
+    typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
 
   /** ================== Carregamento ================== */
   useEffect(() => {
     if (!idTime) return
-
     ;(async () => {
       setLoading(true)
-      await Promise.all([carregarConfig(), carregarElenco()])
+      await Promise.all([carregarConfig(), carregarElenco(), checarPatrocinioAmbev()])
       setLoading(false)
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idTime])
 
   async function carregarConfig() {
     const { data, error } = await supabase
       .from('configuracoes')
-      .select('*')
+      .select('limite_bloqueios, bloqueios, bloqueios_anteriores')
       .eq('id', CONFIG_ID)
       .single()
 
@@ -68,15 +73,15 @@ export default function BloqueioPage() {
     }
 
     if (data) {
-      setLimiteBloqueios(data.limite_bloqueios ?? 3)
+      setLimiteBase(data.limite_bloqueios ?? 3)
 
       // Bloqueios da rodada atual
       const atual: Record<string, Bloqueado[]> = data.bloqueios || {}
-      setBloqueadosAtuais((atual && idTime && atual[idTime]) ? atual[idTime] : [])
+      setBloqueadosAtuais(atual?.[idTime] ?? [])
 
       // Bloqueios de rodadas anteriores (cooldown)
       const anteriores: Record<string, Bloqueado[]> = data.bloqueios_anteriores || {}
-      setBloqueadosAnteriores((anteriores && idTime && anteriores[idTime]) ? anteriores[idTime] : [])
+      setBloqueadosAnteriores(anteriores?.[idTime] ?? [])
     }
   }
 
@@ -94,7 +99,53 @@ export default function BloqueioPage() {
     setJogadores(data || [])
   }
 
+  /**
+   * Checa se o time tem patrocinador master "Ambev".
+   * Tabela assumida: public.patrocinios_escolhidos
+   * Colunas: id_time_uuid, id_patrocinio_master (ex.: "ambev_master_1")
+   */
+  async function checarPatrocinioAmbev() {
+    // 1ª tentativa: coluna id_time_uuid
+    let { data, error } = await supabase
+      .from('patrocinios_escolhidos')
+      .select('id_patrocinio_master')
+      .eq('id_time_uuid', idTime)
+      .order('criado_em', { ascending: false })
+      .limit(1)
+
+    // Fallback: algumas bases usam "id_time"
+    if ((!data || data.length === 0) && !error) {
+      const fb = await supabase
+        .from('patrocinios_escolhidos')
+        .select('id_patrocinio_master')
+        .eq('id_time', idTime)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+      data = fb.data
+      error = fb.error
+    }
+
+    if (error) {
+      console.error('Erro ao checar patrocínio:', error)
+      setTemBonusAmbev(false)
+      return
+    }
+
+    const registro = data?.[0]
+    const isAmbev =
+      typeof registro?.id_patrocinio_master === 'string' &&
+      registro.id_patrocinio_master.toLowerCase().includes('ambev')
+
+    setTemBonusAmbev(isAmbev)
+  }
+
   /** ================== Derivados ================== */
+  // Limite final aplicando a regra Ambev: 4 no mínimo para quem tem Ambev
+  const limiteBloqueios = useMemo(
+    () => (temBonusAmbev ? Math.max(4, limiteBase) : limiteBase),
+    [limiteBase, temBonusAmbev]
+  )
+
   const setIdsBloqueadosAtuais = useMemo(
     () => new Set(bloqueadosAtuais.map((b) => b.id)),
     [bloqueadosAtuais]
@@ -116,7 +167,6 @@ export default function BloqueioPage() {
 
   /** ================== Interações ================== */
   function toggleSelecionado(id: string) {
-    // Não deixa exceder o limite
     if (!selecionados.includes(id)) {
       if (totalJaMarcados >= limiteBloqueios) return
       setSelecionados((prev) => [...prev, id])
@@ -167,10 +217,10 @@ export default function BloqueioPage() {
     const setExistentes = new Set(listaAtualDoTime.map((b) => b.id))
     const mesclados = [
       ...listaAtualDoTime,
-      ...novosBloqueios.filter((b) => !setExistentes.has(b.id))
+      ...novosBloqueios.filter((b) => !setExistentes.has(b.id)),
     ]
 
-    // Garante respeito ao limite (corta extras se necessário)
+    // Garante respeito ao limite (corta extras se necessário) — usa o limite final com regra Ambev
     const respeitandoLimite = mesclados.slice(0, limiteBloqueios)
 
     const novoObjeto = { ...atual, [idTime]: respeitandoLimite }
@@ -200,7 +250,9 @@ export default function BloqueioPage() {
       <h1 className="text-3xl font-bold mb-4 text-center">🛡️ Bloqueio de Jogadores</h1>
 
       {!idTime ? (
-        <p className="text-center text-red-400">⚠️ ID do time não encontrado. Faça login novamente.</p>
+        <p className="text-center text-red-400">
+          ⚠️ ID do time não encontrado. Faça login novamente.
+        </p>
       ) : loading ? (
         <p className="text-center">Carregando...</p>
       ) : (
@@ -210,9 +262,20 @@ export default function BloqueioPage() {
               Você pode bloquear até <strong>{limiteBloqueios}</strong> jogadores.
             </p>
 
+            {temBonusAmbev && (
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-amber-900/60 border border-amber-500 mb-3">
+                <span>🍺 Bônus Ambev ativo</span>
+                <span className="text-sm text-amber-300">
+                  (limite mínimo 4 nesta fase)
+                </span>
+              </div>
+            )}
+
             {bloqueadosAtuais.length > 0 && (
               <div className="bg-gray-800 p-3 rounded mb-2">
-                <p className="font-semibold mb-2 text-green-400">🔒 Já bloqueados nesta rodada:</p>
+                <p className="font-semibold mb-2 text-green-400">
+                  🔒 Já bloqueados nesta rodada:
+                </p>
                 <ul className="flex flex-wrap gap-2 justify-center">
                   {bloqueadosAtuais.map((j) => (
                     <li key={j.id} className="bg-green-700 px-2 py-1 rounded text-xs">
@@ -225,7 +288,9 @@ export default function BloqueioPage() {
 
             {bloqueadosAnteriores.length > 0 && (
               <div className="bg-gray-900 p-3 rounded mb-2 border border-yellow-600">
-                <p className="font-semibold mb-2 text-yellow-400">⚠️ Protegidos no evento anterior (não podem ser bloqueados novamente agora):</p>
+                <p className="font-semibold mb-2 text-yellow-400">
+                  ⚠️ Protegidos no evento anterior (não podem ser bloqueados agora):
+                </p>
                 <ul className="flex flex-wrap gap-2 justify-center">
                   {bloqueadosAnteriores.map((j) => (
                     <li key={j.id} className="bg-yellow-700 px-2 py-1 rounded text-xs">
@@ -236,7 +301,9 @@ export default function BloqueioPage() {
               </div>
             )}
 
-            <p className="text-sm text-gray-300">Restantes nesta rodada: <strong>{restantes}</strong></p>
+            <p className="text-sm text-gray-300">
+              Restantes nesta rodada: <strong>{restantes}</strong>
+            </p>
           </div>
 
           {bloqueadosAtuais.length >= limiteBloqueios ? (
@@ -293,8 +360,10 @@ export default function BloqueioPage() {
         carregue o mesmo documento de `configuracoes` e aplique este filtro no elenco do time-alvo:
 
         const setBloqueadosDoAlvo = new Set((config.bloqueios?.[id_time_alvo] || []).map((b: Bloqueado) => b.id))
-        const setCooldownDoAlvo = new Set((config.bloqueios_anteriores?.[id_time_alvo] || []).map((b: Bloqueado) => b.id))
-        const elencoDisponivel = elencoAlvo.filter((j: Jogador) => !setBloqueadosDoAlvo.has(j.id) && !setCooldownDoAlvo.has(j.id))
+        const setCooldownDoAlvo  = new Set((config.bloqueios_anteriores?.[id_time_alvo] || []).map((b: Bloqueado) => b.id))
+        const elencoDisponivel   = elencoAlvo.filter((j: Jogador) =>
+          !setBloqueadosDoAlvo.has(j.id) && !setCooldownDoAlvo.has(j.id)
+        )
       */}
     </div>
   )
