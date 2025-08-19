@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAdmin } from '@/hooks/useAdmin'
 
 interface Time {
@@ -29,6 +29,20 @@ export default function ClassificacaoPage() {
   const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(1)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
   const { isAdmin, loading } = useAdmin()
+
+  // ===== FIX OVERLAP: mede altura do header para usar no sticky do THEAD
+  const headerRef = useRef<HTMLDivElement | null>(null)
+  const [headerTopOffset, setHeaderTopOffset] = useState<number>(0)
+  useEffect(() => {
+    const measure = () => {
+      const h = headerRef.current?.getBoundingClientRect().height ?? 0
+      // folga de 8px para evitar qualquer “beijo” visual
+      setHeaderTopOffset(Math.ceil(h) + 8)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
 
   /** ====== Fetch ====== */
   const fetchDados = async (temporada: number) => {
@@ -69,7 +83,6 @@ export default function ClassificacaoPage() {
     [classificacaoPorDivisao]
   )
 
-  // Se a divisão selecionada não existir nos dados, ajusta para a primeira disponível
   useEffect(() => {
     if (!divisoesDisponiveis.length) return
     if (!divisaoSelecionada || !divisoesDisponiveis.includes(divisaoSelecionada)) {
@@ -122,10 +135,9 @@ export default function ClassificacaoPage() {
     const last = total - 1
     const penultimate = total - 2
     const antepenultimate = total - 3
-
-    if (index <= 3) return 'bg-green-950/40 hover:bg-green-900/40' // G-4
-    if (index === antepenultimate) return 'bg-yellow-950/40 hover:bg-yellow-900/40' // atenção
-    if (index === penultimate || index === last) return 'bg-red-950/40 hover:bg-red-900/40' // Z-2
+    if (index <= 3) return 'bg-green-950/40 hover:bg-green-900/40'
+    if (index === antepenultimate) return 'bg-yellow-950/40 hover:bg-yellow-900/40'
+    if (index === penultimate || index === last) return 'bg-red-950/40 hover:bg-red-900/40'
     return 'hover:bg-gray-800/60'
   }
 
@@ -156,8 +168,11 @@ export default function ClassificacaoPage() {
   /** ====== Render ====== */
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-black text-white">
-      {/* HEADER */}
-      <header className="sticky top-0 z-20 backdrop-blur bg-black/60 border-b border-white/10">
+      {/* HEADER (ref para medir altura) */}
+      <header
+        ref={headerRef}
+        className="sticky top-0 z-20 backdrop-blur bg-black/60 border-b border-white/10"
+      >
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             <span className="bg-gradient-to-r from-yellow-400 via-emerald-400 to-lime-300 bg-clip-text text-transparent">
@@ -240,7 +255,6 @@ export default function ClassificacaoPage() {
 
       {/* TABELA */}
       <section className="max-w-6xl mx-auto px-4 pb-12">
-        {/* Estados */}
         {erro && (
           <div className="mb-4 rounded-lg border border-red-500/30 bg-red-950/40 text-red-200 p-4">
             {erro}
@@ -250,10 +264,7 @@ export default function ClassificacaoPage() {
         {carregando ? (
           <div className="space-y-2">
             {[...Array(8)].map((_, i) => (
-              <div
-                key={i}
-                className="h-10 w-full rounded bg-gray-800/60 animate-pulse"
-              />
+              <div key={i} className="h-10 w-full rounded bg-gray-800/60 animate-pulse" />
             ))}
           </div>
         ) : !divisaoSelecionada || timesDaDivisao.length === 0 ? (
@@ -263,7 +274,11 @@ export default function ClassificacaoPage() {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-white/10 shadow-2xl shadow-black/30">
             <table className="min-w-full text-sm bg-gray-950/40">
-              <thead className="sticky top-[64px] sm:top-[64px] z-10 bg-black/70 backdrop-blur border-b border-white/10">
+              {/* REMOVIDO top-[64px]; agora o top é dinâmico */}
+              <thead
+                className="sticky z-10 bg-black/70 backdrop-blur border-b border-white/10"
+                style={{ top: headerTopOffset }}
+              >
                 <tr className="text-yellow-300">
                   <th className="py-3 px-4 text-left">Pos</th>
                   <th className="py-3 px-4 text-left">Time</th>
@@ -285,7 +300,6 @@ export default function ClassificacaoPage() {
                   const pos = idx + 1
                   const total = arr.length
                   const ap = aproveitamentoPct(item)
-
                   return (
                     <tr
                       key={item.id_time}
@@ -297,7 +311,6 @@ export default function ClassificacaoPage() {
                           <span className="text-lg">{iconePos(idx, total)}</span>
                         </div>
                       </td>
-
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-3">
                           <img
@@ -308,23 +321,17 @@ export default function ClassificacaoPage() {
                           <span className="font-medium">{item.times.nome}</span>
                         </div>
                       </td>
-
                       <td className="py-2.5 px-2 text-center font-bold text-yellow-300">
                         {item.pontos}
                       </td>
-
                       <td className="py-2.5 px-2">
                         <div className="flex flex-col items-center gap-1">
                           <div className="w-24 md:w-32 h-2 rounded-full bg-gray-700 overflow-hidden">
-                            <div
-                              className="h-2 bg-emerald-500"
-                              style={{ width: `${ap}%` }}
-                            />
+                            <div className="h-2 bg-emerald-500" style={{ width: `${ap}%` }} />
                           </div>
                           <span className="text-xs text-gray-300">{ap}%</span>
                         </div>
                       </td>
-
                       <td className="py-2.5 px-2 text-center">{item.jogos}</td>
                       <td className="py-2.5 px-2 text-center">{item.vitorias}</td>
                       <td className="py-2.5 px-2 text-center">{item.empates}</td>
@@ -332,7 +339,6 @@ export default function ClassificacaoPage() {
                       <td className="py-2.5 px-2 text-center">{item.gols_pro}</td>
                       <td className="py-2.5 px-2 text-center">{item.gols_contra}</td>
                       <td className="py-2.5 px-2 text-center">{item.saldo_gols}</td>
-
                       {isAdmin && (
                         <td className="py-2.5 px-2 text-center">
                           <button
