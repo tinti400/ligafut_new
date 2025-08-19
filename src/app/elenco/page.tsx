@@ -55,7 +55,7 @@ const coresPorPosicao: Record<string, string> = {
 const formatBRL = (n: number | null | undefined) =>
   `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
 
-// Data URI 1x1 transparente para evitar dependência de arquivo local/domínio externo
+// Data URI 1x1 transparente
 const FALLBACK_SRC =
   'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 
@@ -76,6 +76,9 @@ export default function ElencoPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
 
   const [selecionados, setSelecionados] = useState<string[]>([])
+
+  // UI Mobile
+  const [showFiltersMobile, setShowFiltersMobile] = useState(false)
 
   /** ===== Fetch ===== */
   const fetchElenco = async () => {
@@ -120,7 +123,7 @@ export default function ElencoPage() {
   /** ===== UI helpers ===== */
   const exibirMensagem = (mensagem: string, cor: string) => {
     const div = document.createElement('div')
-    div.innerHTML = `<div style="background:${cor};color:white;padding:14px 18px;border-radius:10px;text-align:center;position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.35)">${mensagem}</div>`
+    div.innerHTML = `<div style="background:${cor};color:white;padding:14px 18px;border-radius:12px;text-align:center;position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.35)">${mensagem}</div>`
     document.body.appendChild(div)
     setTimeout(() => div.remove(), 3500)
   }
@@ -338,7 +341,7 @@ export default function ElencoPage() {
   /** ===== Skeleton ===== */
   const SkeletonCard = () => (
     <div className="animate-pulse bg-gray-800/70 p-4 rounded-xl border-2 border-gray-700">
-      <div className="h-20 w-20 rounded-full bg-gray-700 mx-auto mb-3" />
+      <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-gray-700 mx-auto mb-3" />
       <div className="h-4 bg-gray-700 rounded w-3/4 mx-auto mb-2" />
       <div className="h-3 bg-gray-700 rounded w-1/2 mx-auto mb-4" />
       <div className="h-6 bg-gray-700 rounded w-full mb-2" />
@@ -349,9 +352,9 @@ export default function ElencoPage() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gradient-to-b from-gray-950 to-gray-900 text-white">
-        <div className="sticky top-0 z-40 -mx-6 px-6 py-4 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/70 border-b border-gray-800">
-          <h1 className="text-2xl font-bold">👥 Elenco</h1>
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto min-h-screen bg-gradient-to-b from-gray-950 to-gray-900 text-white">
+        <div className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur border-b border-gray-800">
+          <h1 className="text-xl sm:text-2xl font-bold">👥 Elenco</h1>
           <p className="text-sm text-gray-400">Carregando dados...</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 mt-6">
@@ -366,28 +369,29 @@ export default function ElencoPage() {
       {/* Header / Resumo */}
       <div className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-gray-800">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex-1">
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight">
               👥 Elenco do <span className="text-green-400">{nomeTime || '—'}</span>
-              <span className="text-sm text-gray-400 ml-2">({elenco.length} atletas)</span>
+              <span className="text-xs sm:text-sm text-gray-400 ml-2">({elenco.length} atletas)</span>
             </h1>
-            <div className="flex flex-wrap items-center gap-3 mt-2 text-sm">
-              <span className="px-2.5 py-1 rounded-full bg-emerald-700/40 border border-emerald-600/40">
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3 text-xs sm:text-sm">
+              <span className="px-2 py-1 rounded-full bg-emerald-700/40 border border-emerald-600/40 text-center">
                 💰 Caixa: <b className="text-emerald-300">{formatBRL(saldo)}</b>
               </span>
-              <span className="px-2.5 py-1 rounded-full bg-yellow-700/40 border border-yellow-600/40">
+              <span className="px-2 py-1 rounded-full bg-yellow-700/40 border border-yellow-600/40 text-center">
                 📦 Valor elenco: <b className="text-yellow-300">{formatBRL(valorTotal)}</b>
               </span>
-              <span className="px-2.5 py-1 rounded-full bg-rose-700/40 border border-rose-600/40">
+              <span className="px-2 py-1 rounded-full bg-rose-700/40 border border-rose-600/40 text-center">
                 💸 Salários: <b className="text-rose-300">{formatBRL(salarioTotal)}</b>
               </span>
-              <span className="px-2.5 py-1 rounded-full bg-sky-700/40 border border-sky-600/40">
+              <span className="px-2 py-1 rounded-full bg-sky-700/40 border border-sky-600/40 text-center">
                 ⭐ Média OVR: <b className="text-sky-300">{mediaOverall.toFixed(1)}</b>
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Ações rápidas (desktop) */}
+          <div className="hidden sm:flex items-center gap-2">
             <button
               onClick={fetchElenco}
               className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition shadow-sm"
@@ -396,7 +400,7 @@ export default function ElencoPage() {
               🔄 Atualizar
             </button>
             <div className="hidden sm:block h-8 w-px bg-gray-800" />
-            <div className="inline-flex rounded-lg border border-gray-700 overflow-hidden">
+            <div className="hidden md:inline-flex rounded-lg border border-gray-700 overflow-hidden">
               <button
                 className={`px-3 py-2 text-sm ${viewMode === 'grid' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800`}
                 onClick={() => setViewMode('grid')}
@@ -413,29 +417,46 @@ export default function ElencoPage() {
               </button>
             </div>
           </div>
+
+          {/* Ações rápidas (mobile) */}
+          <div className="flex sm:hidden items-center gap-2">
+            <button
+              onClick={() => setShowFiltersMobile(true)}
+              className="flex-1 bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm"
+            >
+              🔎 Filtros
+            </button>
+            <button
+              onClick={fetchElenco}
+              className="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg text-sm"
+              title="Atualizar elenco"
+            >
+              🔄
+            </button>
+          </div>
         </div>
 
-        {/* Toolbar de filtros */}
-        <div className="mt-3 flex flex-col lg:flex-row lg:items-end gap-3">
+        {/* Toolbar de filtros (desktop) */}
+        <div className="mt-3 hidden lg:flex lg:items-end gap-3">
           <div className="flex flex-1 flex-wrap gap-2">
             <input
               type="text"
-              placeholder="🔎 Buscar por nome"
+              placeholder="Buscar por nome"
               value={filtroNome}
               onChange={(e) => setFiltroNome(e.target.value)}
-              className="px-3 py-2 rounded-lg text-black w-full sm:w-64"
+              className="px-3 py-2 rounded-lg text-black w-64"
             />
             <input
               type="number"
-              placeholder="⭐ Overall mínimo"
+              placeholder="OVR mínimo"
               value={filtroOverall}
               onChange={(e) => setFiltroOverall(Number(e.target.value))}
-              className="px-3 py-2 rounded-lg text-black w-40"
+              className="px-3 py-2 rounded-lg text-black w-44"
             />
             <select
               value={ordenacao}
               onChange={(e) => setOrdenacao(e.target.value as Ordenacao)}
-              className="px-3 py-2 rounded-lg text-black w-44"
+              className="px-3 py-2 rounded-lg text-black w-48"
             >
               <option value="valor">💰 Valor</option>
               <option value="overall">⭐ Overall</option>
@@ -453,25 +474,8 @@ export default function ElencoPage() {
               <span>Somente vendíveis (≥ 3 jogos)</span>
             </label>
           </div>
-
           <div className="flex items-center gap-2">
-            {filtroNacionalidade && (
-              <button
-                onClick={() => setFiltroNacionalidade(null)}
-                className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-sm"
-              >
-                Limpar nacionalidade
-              </button>
-            )}
-            {filtroPosicao && (
-              <button
-                onClick={() => setFiltroPosicao(null)}
-                className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-sm"
-              >
-                Limpar posição
-              </button>
-            )}
-            {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
+            { (filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
               <button
                 onClick={() => {
                   setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false)
@@ -479,72 +483,164 @@ export default function ElencoPage() {
                 }}
                 className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm"
               >
-                Limpar todos filtros
+                Limpar filtros
               </button>
             )}
           </div>
         </div>
 
-        {/* Chips dinâmicos */}
-        <div className="mt-3 flex flex-col gap-2">
-          {/* Nacionalidades */}
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {Object.entries(contar('nacionalidade')).map(([nac, count]) => (
-              <button
-                key={nac}
-                onClick={() => setFiltroNacionalidade(nac)}
-                className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
-                  ${filtroNacionalidade === nac ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
-                title={nac}
-              >
-                {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" />}
-                {nac} ({count})
-              </button>
-            ))}
-          </div>
-          {/* Posições */}
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {Object.entries(contar('posicao')).map(([pos, count]) => (
-              <button
-                key={pos}
-                onClick={() => setFiltroPosicao(pos)}
-                className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
-                  ${filtroPosicao === pos ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
-              >
-                {pos} ({count})
-              </button>
-            ))}
-          </div>
+        {/* Chips dinâmicos (colapsáveis no mobile) */}
+        <div className="mt-3">
+          <details className="lg:open">
+            <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
+              🌎 Nacionalidades
+            </summary>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {Object.entries(contar('nacionalidade')).map(([nac, count]) => (
+                <button
+                  key={nac}
+                  onClick={() => setFiltroNacionalidade(nac)}
+                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                    ${filtroNacionalidade === nac ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
+                  title={nac}
+                >
+                  {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" />}
+                  {nac} ({count})
+                </button>
+              ))}
+            </div>
+          </details>
+
+          <details className="mt-2 lg:open">
+            <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
+              🎯 Posições
+            </summary>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {Object.entries(contar('posicao')).map(([pos, count]) => (
+                <button
+                  key={pos}
+                  onClick={() => setFiltroPosicao(pos)}
+                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                    ${filtroPosicao === pos ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
+                >
+                  {pos} ({count})
+                </button>
+              ))}
+            </div>
+          </details>
         </div>
 
         {erro && <p className="mt-2 text-red-400 text-sm">{erro}</p>}
       </div>
 
-      {/* Ações em massa */}
+      {/* Sheet de filtros (MOBILE) */}
+      {showFiltersMobile && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm">
+          <div
+            className="absolute inset-0"
+            onClick={() => setShowFiltersMobile(false)}
+            aria-hidden
+          />
+          <div className="absolute bottom-0 left-0 right-0 rounded-t-2xl bg-gray-900 border-t border-gray-800 p-4">
+            <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-700 mb-3" />
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold">Filtros</h3>
+              <button
+                onClick={() => setShowFiltersMobile(false)}
+                className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Buscar por nome"
+                value={filtroNome}
+                onChange={(e) => setFiltroNome(e.target.value)}
+                className="w-full px-3 py-3 rounded-xl text-black"
+              />
+              <input
+                type="number"
+                placeholder="OVR mínimo"
+                value={filtroOverall}
+                onChange={(e) => setFiltroOverall(Number(e.target.value))}
+                className="w-full px-3 py-3 rounded-xl text-black"
+              />
+              <select
+                value={ordenacao}
+                onChange={(e) => setOrdenacao(e.target.value as Ordenacao)}
+                className="w-full px-3 py-3 rounded-xl text-black"
+              >
+                <option value="valor">💰 Valor</option>
+                <option value="overall">⭐ Overall</option>
+                <option value="salario">💸 Salário</option>
+                <option value="jogos">🏟️ Jogos</option>
+                <option value="nome">🔤 Nome</option>
+                <option value="posicao">🎯 Posição</option>
+              </select>
+
+              <label className="flex items-center justify-between bg-gray-800/60 border border-gray-700 px-4 py-3 rounded-xl">
+                <span className="text-sm">Somente vendíveis (≥ 3 jogos)</span>
+                <input
+                  type="checkbox"
+                  checked={soVendiveis}
+                  onChange={(e) => setSoVendiveis(e.target.checked)}
+                  className="h-5 w-5 accent-emerald-500"
+                />
+              </label>
+
+              {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
+                <button
+                  onClick={() => {
+                    setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false)
+                    setFiltroNacionalidade(null); setFiltroPosicao(null)
+                  }}
+                  className="w-full px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm"
+                >
+                  Limpar todos filtros
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowFiltersMobile(false)}
+                className="w-full px-4 py-3 rounded-xl bg-green-600 hover:bg-green-700 font-semibold"
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ações em massa (barra fixa) */}
       {selecionados.length > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 backdrop-blur border border-gray-700 rounded-2xl shadow-2xl px-4 py-3">
-          <div className="flex items-center gap-3">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 backdrop-blur border border-gray-700 rounded-2xl shadow-2xl px-3 sm:px-4 py-3 w-[92%] sm:w-auto">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
             <span className="text-sm text-gray-300">
               {selecionados.length} jogador(es) selecionado(s)
             </span>
-            <button
-              onClick={venderSelecionados}
-              className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
-            >
-              💸 Vender selecionados
-            </button>
-            <button
-              onClick={selecionarTodosFiltrados}
-              className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
-            >
-              Selecionar todos (filtrados)
-            </button>
-            <button
-              onClick={limparSelecao}
-              className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
-            >
-              Limpar seleção
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={venderSelecionados}
+                className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+              >
+                💸 Vender
+              </button>
+              <button
+                onClick={selecionarTodosFiltrados}
+                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
+              >
+                Selecionar todos
+              </button>
+              <button
+                onClick={limparSelecao}
+                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
+              >
+                Limpar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -555,7 +651,7 @@ export default function ElencoPage() {
           Nenhum jogador encontrado com os filtros aplicados.
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
           {elencoFiltrado.map(jogador => {
             const selecionado = selecionados.includes(jogador.id)
             const status: string[] = []
@@ -568,7 +664,7 @@ export default function ElencoPage() {
             return (
               <div
                 key={jogador.id}
-                className={`relative bg-gray-900/70 p-4 rounded-2xl border-2 transition
+                className={`relative bg-gray-900/70 p-3 sm:p-4 rounded-2xl border-2 transition
                   ${selecionado ? 'border-green-500 ring-1 ring-green-400/30' : 'border-gray-800 hover:border-gray-700'}
                   shadow-lg hover:shadow-emerald-900/10`}
               >
@@ -578,7 +674,8 @@ export default function ElencoPage() {
                     type="checkbox"
                     checked={selecionado}
                     onChange={() => toggleSelecionado(jogador.id)}
-                    className="h-4 w-4 accent-emerald-500"
+                    className="h-5 w-5 accent-emerald-500"
+                    aria-label={`Selecionar ${jogador.nome}`}
                   />
                 </label>
 
@@ -595,50 +692,54 @@ export default function ElencoPage() {
                   <ImagemComFallback
                     src={imgSrc}
                     alt={jogador.nome}
-                    width={90}
-                    height={90}
-                    className="rounded-full mb-3 mx-auto ring-1 ring-gray-700"
+                    width={88}
+                    height={88}
+                    className="rounded-full mb-2 sm:mb-3 mx-auto ring-1 ring-gray-700 h-20 w-20 object-cover"
                   />
 
-                  <h2 className="text-lg font-extrabold text-center leading-tight">{jogador.nome}</h2>
+                  <h2 className="text-base sm:text-lg font-extrabold text-center leading-tight line-clamp-2">
+                    {jogador.nome}
+                  </h2>
 
-                  <div className="flex justify-center items-center gap-2 text-sm text-gray-300 mb-1">
+                  <div className="flex justify-center items-center gap-2 text-xs sm:text-sm text-gray-300 mb-1">
                     {getFlagUrl(jogador.nacionalidade) && (
                       <img
                         src={getFlagUrl(jogador.nacionalidade)}
                         alt={jogador.nacionalidade || '—'}
                         className="w-5 h-3"
+                        loading="lazy"
                       />
                     )}
-                    <span>{jogador.nacionalidade || 'Outro'}</span>
+                    <span className="line-clamp-1">{jogador.nacionalidade || 'Outro'}</span>
                   </div>
 
                   <div className="flex justify-center">
                     <span
                       className={`inline-block ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'}
-                      text-xs text-white px-3 py-1 rounded-full mb-2`}
+                      text-[11px] sm:text-xs text-white px-3 py-1 rounded-full mb-2`}
                     >
                       {jogador.posicao}
                     </span>
                   </div>
 
-                  <div className="space-y-1 text-center">
-                    <p className="text-sm text-gray-300">Overall: <b>{jogador.overall ?? 0}</b></p>
-                    <p className="text-emerald-400 font-semibold">💰 {formatBRL(jogador.valor)}</p>
-                    <p className="text-gray-400 text-xs">Salário: {formatBRL(jogador.salario)}</p>
-                    <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
-                    <p className="text-gray-400 text-xs">Percentual: {jogador.percentual ?? 100}%</p>
-                    {jogador.link_sofifa && (
-                      <a
-                        href={jogador.link_sofifa}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 text-xs underline inline-block mt-1"
-                      >
-                        🔗 Ver no SoFIFA
-                      </a>
-                    )}
+                  <div className="grid grid-cols-2 gap-2 text-center text-xs sm:text-sm">
+                    <p className="text-gray-300">OVR: <b>{jogador.overall ?? 0}</b></p>
+                    <p className="text-gray-300">Jogos: <b>{jogador.jogos ?? 0}</b></p>
+                    <p className="col-span-2 text-emerald-400 font-semibold">💰 {formatBRL(jogador.valor)}</p>
+                    <p className="col-span-2 text-gray-400">Salário: {formatBRL(jogador.salario)}</p>
+                    <p className="col-span-2 text-gray-400">Percentual: {jogador.percentual ?? 100}%</p>
                   </div>
+
+                  {jogador.link_sofifa && (
+                    <a
+                      href={jogador.link_sofifa}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 text-xs underline inline-block mt-1 text-center w-full"
+                    >
+                      🔗 Ver no SoFIFA
+                    </a>
+                  )}
                 </div>
               </div>
             )
@@ -646,6 +747,7 @@ export default function ElencoPage() {
         </div>
       ) : (
         <div className="mt-5 overflow-x-auto rounded-xl border border-gray-800">
+          {/* Tabela só faz sentido ≥ md; no mobile o grid já cobre bem */}
           <table className="min-w-full divide-y divide-gray-800">
             <thead className="bg-gray-900/80">
               <tr className="text-left text-sm text-gray-300">
@@ -654,7 +756,7 @@ export default function ElencoPage() {
                     type="checkbox"
                     checked={selecionados.length > 0 && selecionados.length === elencoFiltrado.length}
                     onChange={(e) => e.target.checked ? selecionarTodosFiltrados() : limparSelecao()}
-                    className="h-4 w-4 accent-emerald-500"
+                    className="h-5 w-5 accent-emerald-500"
                   />
                 </th>
                 <th className="px-3 py-3">Jogador</th>
@@ -680,7 +782,7 @@ export default function ElencoPage() {
                         type="checkbox"
                         checked={selecionado}
                         onChange={() => toggleSelecionado(jogador.id)}
-                        className="h-4 w-4 accent-emerald-500"
+                        className="h-5 w-5 accent-emerald-500"
                       />
                     </td>
                     <td className="px-3 py-3">
