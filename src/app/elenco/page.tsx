@@ -1,6 +1,3 @@
-Corrigi o erro de tipo do `ImagemComFallback` definindo um `FALLBACK_SRC` (data URI transparente) e usando `??` para garantir `string`. Substitua **todo** o `src/app/elenco/page.tsx` por este:
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -732,4 +729,3 @@ export default function ElencoPage() {
     </div>
   )
 }
-```
