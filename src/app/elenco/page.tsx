@@ -1,14 +1,41 @@
+Aqui está o arquivo completo, revisado e com um layout mais profissional, mantendo toda a lógica de venda parcial, BID e RPC de saldo. Incluí melhorias de UI/UX (barra de ferramentas fixa, visual “cards” e “tabela”, seleção com checkbox, filtros rápidos, contadores, skeleton loader, botões de ações em massa, estados/insígnias e mensagens amigáveis).
+
+> Cole no seu `ElencoPage` (ou onde você usa essa tela). Não precisa instalar nada extra.
+
+```tsx
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import ImagemComFallback from '@/components/ImagemComFallback'
 
+/** ===== Supabase ===== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ===== Tipos ===== */
+type Ordenacao = 'valor' | 'overall' | 'salario' | 'jogos' | 'nome' | 'posicao'
+
+interface Jogador {
+  id: string
+  id_time: string
+  nome: string
+  posicao: string
+  overall: number | null
+  valor: number | null
+  salario: number | null
+  jogos: number | null
+  nacionalidade?: string | null
+  imagem_url?: string | null
+  link_sofifa?: string | null
+  protegido?: boolean | null
+  lesionado?: boolean | null
+  percentual?: number | null
+}
+
+/** ===== Util ===== */
 const bandeiras: Record<string, string> = {
   Brasil: 'br', Argentina: 'ar', Portugal: 'pt', Espanha: 'es', França: 'fr',
   Inglaterra: 'gb', Alemanha: 'de', Itália: 'it', Holanda: 'nl', Bélgica: 'be',
@@ -22,32 +49,50 @@ const bandeiras: Record<string, string> = {
 }
 
 const coresPorPosicao: Record<string, string> = {
-  GL: 'bg-yellow-500', Zagueiro: 'bg-blue-500', LD: 'bg-indigo-400', LE: 'bg-indigo-500',
-  VOL: 'bg-green-600', MC: 'bg-green-500', ME: 'bg-green-400', MD: 'bg-green-400',
-  SA: 'bg-orange-500', Centroavante: 'bg-red-600', PD: 'bg-pink-500', PE: 'bg-pink-600',
+  // defensivos/GL
+  GL: 'bg-yellow-500',
+  ZAG: 'bg-blue-600', Zagueiro: 'bg-blue-600',
+  LD: 'bg-indigo-500', LE: 'bg-indigo-600',
+  // meio
+  VOL: 'bg-green-700', MC: 'bg-green-600', ME: 'bg-green-500', MD: 'bg-green-500',
+  // ataque
+  SA: 'bg-orange-600', CA: 'bg-red-600', Centroavante: 'bg-red-600',
+  PD: 'bg-pink-600', PE: 'bg-pink-700',
 }
 
+const formatBRL = (n: number | null | undefined) =>
+  `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
+
 export default function ElencoPage() {
-  const [elenco, setElenco] = useState<any[]>([])
+  /** ===== Estados ===== */
+  const [elenco, setElenco] = useState<Jogador[]>([])
   const [saldo, setSaldo] = useState<number>(0)
   const [nomeTime, setNomeTime] = useState('')
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
 
   const [filtroNacionalidade, setFiltroNacionalidade] = useState<string | null>(null)
   const [filtroPosicao, setFiltroPosicao] = useState<string | null>(null)
   const [filtroNome, setFiltroNome] = useState<string>('')
   const [filtroOverall, setFiltroOverall] = useState<number>(0)
-  const [ordenacao, setOrdenacao] = useState<'valor' | 'overall' | 'salario' | 'jogos'>('valor')
+  const [soVendiveis, setSoVendiveis] = useState<boolean>(false) // jogos >= 3
+  const [ordenacao, setOrdenacao] = useState<Ordenacao>('valor')
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
+
   const [selecionados, setSelecionados] = useState<string[]>([])
 
+  /** ===== Fetch ===== */
   const fetchElenco = async () => {
     setLoading(true)
+    setErro(null)
     try {
-      const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+      const id_time =
+        typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
       if (!id_time) {
         setElenco([])
         setSaldo(0)
         setNomeTime('')
+        setSelecionados([])
         return
       }
 
@@ -56,16 +101,16 @@ export default function ElencoPage() {
         supabase.from('times').select('nome, saldo').eq('id', id_time).single()
       ])
 
-      if (e1) console.error('Erro elenco:', e1)
-      if (e2) console.error('Erro time:', e2)
+      if (e1) throw e1
+      if (e2) throw e2
 
-      setElenco(elencoData || [])
-      setSaldo(timeData?.saldo || 0)
+      setElenco((elencoData || []) as Jogador[])
+      setSaldo(Number(timeData?.saldo || 0))
       setNomeTime(timeData?.nome || '')
       setSelecionados([])
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      alert('Erro ao carregar elenco.')
+      setErro('Erro ao carregar elenco.')
     } finally {
       setLoading(false)
     }
@@ -73,26 +118,29 @@ export default function ElencoPage() {
 
   useEffect(() => {
     fetchElenco()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** ===== UI helpers ===== */
   const exibirMensagem = (mensagem: string, cor: string) => {
     const div = document.createElement('div')
-    div.innerHTML = `<div style="background:${cor};color:white;padding:16px;border-radius:8px;text-align:center;position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999">${mensagem}</div>`
+    div.innerHTML = `<div style="background:${cor};color:white;padding:14px 18px;border-radius:10px;text-align:center;position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.35)">${mensagem}</div>`
     document.body.appendChild(div)
     setTimeout(() => div.remove(), 3500)
   }
 
-  const getFlagUrl = (pais: string) => {
+  const getFlagUrl = (pais?: string | null) => {
+    if (!pais) return ''
     const key = Object.keys(bandeiras).find((nome) =>
-      nome.toLowerCase().replace(/[^a-z]/g, '') === pais?.toLowerCase().replace(/[^a-z]/g, '')
+      nome.toLowerCase().replace(/[^a-z]/g, '') === pais.toLowerCase().replace(/[^a-z]/g, '')
     )
     return key ? `https://flagcdn.com/w40/${bandeiras[key]}.png` : ''
   }
 
-  const contar = (campo: string) => {
+  const contar = (campo: keyof Jogador | string) => {
     const contagem: Record<string, number> = {}
     elenco.forEach((j) => {
-      const key = j[campo] || 'Outro'
+      const key = (j as any)[campo] || 'Outro'
       contagem[key] = (contagem[key] || 0) + 1
     })
     return contagem
@@ -104,7 +152,13 @@ export default function ElencoPage() {
     )
   }
 
-  // Helpers: registra evento no BID
+  const selecionarTodosFiltrados = () => {
+    const ids = elencoFiltrado.map(j => j.id)
+    setSelecionados(ids)
+  }
+  const limparSelecao = () => setSelecionados([])
+
+  /** ===== BID helper ===== */
   async function registrarNoBID({
     tipo_evento,
     descricao,
@@ -129,24 +183,24 @@ export default function ElencoPage() {
     }
   }
 
-  // 🚀 Vender selecionados com:
-  // - Inserção no mercado
-  // - Atualização do percentual/remover do elenco
-  // - Crédito atômico (RPC retorna saldo novo)
-  // - Registro no BID
-  // - Mensagem com "Caixa atualizado para R$ X (antigo + venda)"
+  /** ===== Ação: vender selecionados (parcial) ===== */
   const venderSelecionados = async () => {
     const jogadores = elenco.filter(j => selecionados.includes(j.id))
     if (jogadores.length === 0) return
 
     for (const jogador of jogadores) {
       try {
+        // regra de vendabilidade
         if ((jogador.jogos || 0) < 3) {
           exibirMensagem(`🚫 ${jogador.nome} não completou 3 jogos.`, '#b91c1c')
           continue
         }
 
-        const percentualStr = prompt(`Quantos % de ${jogador.nome} deseja vender?`, String(jogador.percentual ?? 100))
+        // pergunta de percentual
+        const percentualStr = prompt(
+          `Quantos % de ${jogador.nome} deseja vender?`,
+          String(jogador.percentual ?? 100)
+        )
         if (percentualStr === null) continue // cancelado
 
         const percentualNum = Number(percentualStr)
@@ -184,7 +238,7 @@ export default function ElencoPage() {
         }
 
         // 2) Atualizar percentual no elenco (ou remover)
-        const novoPercentual = percentualAtual - percentualNum
+        const novoPercentual = (jogador.percentual ?? 100) - percentualNum
         if (novoPercentual <= 0) {
           const { error } = await supabase.from('elenco').delete().eq('id', jogador.id)
           if (error) {
@@ -199,12 +253,11 @@ export default function ElencoPage() {
           }
         }
 
-        // 3) Crédito atômico + receber saldo NOVO já atualizado
+        // 3) Crédito atômico (RPC) + obtem saldo novo
         let saldoNovo: number | null = null
         {
-          // saldo antigo (apenas para mostrar a conta no toast)
+          // saldo antigo (para feedback)
           let saldoAntigo = saldo
-          // se quiser garantir um saldoAntigo real do banco para este time específico:
           const { data: timeRow } = await supabase
             .from('times')
             .select('saldo')
@@ -220,12 +273,12 @@ export default function ElencoPage() {
           })
           if (error) {
             console.error('Erro ao incrementar saldo via RPC:', error)
-            exibirMensagem(`❌ Falha ao creditar R$ ${valorVenda.toLocaleString()} para o time.`, '#b91c1c')
+            exibirMensagem(`❌ Falha ao creditar ${formatBRL(valorVenda)} para o time.`, '#b91c1c')
             continue
           }
           saldoNovo = Number(data)
 
-          // Se o jogador pertencer ao time logado, atualiza o estado local do saldo
+          // Se o jogador for do time logado, atualiza o saldo na UI
           const id_time_local = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
           if (id_time_local && id_time_local === jogador.id_time) {
             setSaldo(saldoNovo)
@@ -234,14 +287,14 @@ export default function ElencoPage() {
           // 4) Registrar no BID
           await registrarNoBID({
             tipo_evento: 'venda_mercado',
-            descricao: `Venda de ${percentualNum}% de ${jogador.nome} por R$ ${valorVenda.toLocaleString()}`,
+            descricao: `Venda de ${percentualNum}% de ${jogador.nome} por ${formatBRL(valorVenda)}`,
             id_time1: jogador.id_time,
             valor: valorVenda
           })
 
-          // 5) Mensagem com saldo novo
+          // 5) Mensagem de sucesso
           exibirMensagem(
-            `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+R$ ${valorVenda.toLocaleString()}). Caixa atualizado: R$ ${saldoAntigo.toLocaleString()} → R$ ${Number(saldoNovo).toLocaleString()}`,
+            `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+${formatBRL(valorVenda)}). Caixa: ${formatBRL(saldoAntigo)} → ${formatBRL(Number(saldoNovo))}`,
             '#16a34a'
           )
         }
@@ -254,116 +307,433 @@ export default function ElencoPage() {
     await fetchElenco()
   }
 
-  const valorTotal = elenco.reduce((acc, j) => acc + (j.valor || 0), 0)
-  const salarioTotal = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
-  const mediaOverall =
-    elenco.length > 0 ? elenco.reduce((acc, j) => acc + (j.overall || 0), 0) / elenco.length : 0
+  /** ===== Derivados ===== */
+  const valorTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + Number(j.valor || 0), 0),
+    [elenco]
+  )
+  const salarioTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + Number(j.salario || 0), 0),
+    [elenco]
+  )
+  const mediaOverall = useMemo(
+    () => (elenco.length > 0
+      ? elenco.reduce((acc, j) => acc + Number(j.overall || 0), 0) / elenco.length
+      : 0),
+    [elenco]
+  )
 
-  const elencoFiltrado = elenco
-    .filter(j =>
+  const elencoFiltrado = useMemo(() => {
+    let arr = elenco.filter(j =>
       (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
       (!filtroPosicao || j.posicao === filtroPosicao) &&
       (!filtroNome || j.nome.toLowerCase().includes(filtroNome.toLowerCase())) &&
-      (!filtroOverall || (j.overall || 0) >= filtroOverall)
+      (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
+      (!soVendiveis || Number(j.jogos || 0) >= 3)
     )
-    .sort((a, b) => {
-      if (ordenacao === 'valor') return (b.valor || 0) - (a.valor || 0)
-      if (ordenacao === 'overall') return (b.overall || 0) - (a.overall || 0)
-      if (ordenacao === 'salario') return (b.salario || 0) - (a.salario || 0)
-      if (ordenacao === 'jogos') return (b.jogos || 0) - (a.jogos || 0)
+
+    arr.sort((a, b) => {
+      if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
+      if (ordenacao === 'overall') return Number(b.overall || 0) - Number(a.overall || 0)
+      if (ordenacao === 'salario') return Number(b.salario || 0) - Number(a.salario || 0)
+      if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
+      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
+      if (ordenacao === 'posicao') return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
       return 0
     })
 
-  if (loading) return <p className="text-center text-white">⏳ Carregando elenco...</p>
+    return arr
+  }, [elenco, filtroNacionalidade, filtroPosicao, filtroNome, filtroOverall, soVendiveis, ordenacao])
+
+  /** ===== Skeleton ===== */
+  const SkeletonCard = () => (
+    <div className="animate-pulse bg-gray-800/70 p-4 rounded-xl border-2 border-gray-700">
+      <div className="h-20 w-20 rounded-full bg-gray-700 mx-auto mb-3" />
+      <div className="h-4 bg-gray-700 rounded w-3/4 mx-auto mb-2" />
+      <div className="h-3 bg-gray-700 rounded w-1/2 mx-auto mb-4" />
+      <div className="h-6 bg-gray-700 rounded w-full mb-2" />
+      <div className="h-6 bg-gray-700 rounded w-5/6 mb-2" />
+      <div className="h-6 bg-gray-700 rounded w-4/6" />
+    </div>
+  )
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto min-h-screen bg-gradient-to-b from-gray-950 to-gray-900 text-white">
+        <div className="sticky top-0 z-40 -mx-6 px-6 py-4 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/70 border-b border-gray-800">
+          <h1 className="text-2xl font-bold">👥 Elenco</h1>
+          <p className="text-sm text-gray-400">Carregando dados...</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 mt-6">
+          {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto bg-gray-900 text-white min-h-screen">
-      <h1 className="text-3xl font-bold text-center text-green-400 mb-1">
-        👥 Elenco do {nomeTime} ({elenco.length} atletas)
-      </h1>
-      <p className="text-center text-sm text-gray-300 mb-1">💰 Caixa: <span className="text-green-400 font-semibold">R$ {saldo.toLocaleString()}</span></p>
-      <p className="text-center text-sm text-gray-300 mb-1">📦 Valor do elenco: <span className="text-yellow-400 font-semibold">R$ {valorTotal.toLocaleString()}</span></p>
-      <p className="text-center text-sm text-gray-300 mb-4">💸 Salários totais: <span className="text-red-400 font-semibold">R$ {salarioTotal.toLocaleString()}</span> • Média de Overall: <span className="text-blue-400 font-semibold">{mediaOverall.toFixed(1)}</span></p>
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto bg-gradient-to-b from-gray-950 to-gray-900 text-white min-h-screen">
+      {/* Header / Resumo */}
+      <div className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-gray-800">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              👥 Elenco do <span className="text-green-400">{nomeTime || '—'}</span>
+              <span className="text-sm text-gray-400 ml-2">({elenco.length} atletas)</span>
+            </h1>
+            <div className="flex flex-wrap items-center gap-3 mt-2 text-sm">
+              <span className="px-2.5 py-1 rounded-full bg-emerald-700/40 border border-emerald-600/40">
+                💰 Caixa: <b className="text-emerald-300">{formatBRL(saldo)}</b>
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-yellow-700/40 border border-yellow-600/40">
+                📦 Valor elenco: <b className="text-yellow-300">{formatBRL(valorTotal)}</b>
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-rose-700/40 border border-rose-600/40">
+                💸 Salários: <b className="text-rose-300">{formatBRL(salarioTotal)}</b>
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-sky-700/40 border border-sky-600/40">
+                ⭐ Média OVR: <b className="text-sky-300">{mediaOverall.toFixed(1)}</b>
+              </span>
+            </div>
+          </div>
 
-      <div className="text-center mb-4">
-        <button onClick={fetchElenco} className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full">🔄 Atualizar elenco</button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchElenco}
+              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition shadow-sm"
+              title="Atualizar elenco"
+            >
+              🔄 Atualizar
+            </button>
+            <div className="hidden sm:block h-8 w-px bg-gray-800" />
+            <div className="inline-flex rounded-lg border border-gray-700 overflow-hidden">
+              <button
+                className={`px-3 py-2 text-sm ${viewMode === 'grid' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800`}
+                onClick={() => setViewMode('grid')}
+                title="Visualização em cartões"
+              >
+                🗂️ Cards
+              </button>
+              <button
+                className={`px-3 py-2 text-sm ${viewMode === 'table' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800`}
+                onClick={() => setViewMode('table')}
+                title="Visualização em tabela"
+              >
+                📋 Tabela
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Toolbar de filtros */}
+        <div className="mt-3 flex flex-col lg:flex-row lg:items-end gap-3">
+          <div className="flex flex-1 flex-wrap gap-2">
+            <input
+              type="text"
+              placeholder="🔎 Buscar por nome"
+              value={filtroNome}
+              onChange={(e) => setFiltroNome(e.target.value)}
+              className="px-3 py-2 rounded-lg text-black w-full sm:w-64"
+            />
+            <input
+              type="number"
+              placeholder="⭐ Overall mínimo"
+              value={filtroOverall}
+              onChange={(e) => setFiltroOverall(Number(e.target.value))}
+              className="px-3 py-2 rounded-lg text-black w-40"
+            />
+            <select
+              value={ordenacao}
+              onChange={(e) => setOrdenacao(e.target.value as Ordenacao)}
+              className="px-3 py-2 rounded-lg text-black w-44"
+            >
+              <option value="valor">💰 Valor</option>
+              <option value="overall">⭐ Overall</option>
+              <option value="salario">💸 Salário</option>
+              <option value="jogos">🏟️ Jogos</option>
+              <option value="nome">🔤 Nome</option>
+              <option value="posicao">🎯 Posição</option>
+            </select>
+            <label className="inline-flex items-center gap-2 text-sm bg-gray-800/60 border border-gray-700 px-3 py-2 rounded-lg cursor-pointer">
+              <input
+                type="checkbox"
+                checked={soVendiveis}
+                onChange={(e) => setSoVendiveis(e.target.checked)}
+              />
+              <span>Somente vendíveis (≥ 3 jogos)</span>
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {filtroNacionalidade && (
+              <button
+                onClick={() => setFiltroNacionalidade(null)}
+                className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-sm"
+              >
+                Limpar nacionalidade
+              </button>
+            )}
+            {filtroPosicao && (
+              <button
+                onClick={() => setFiltroPosicao(null)}
+                className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-sm"
+              >
+                Limpar posição
+              </button>
+            )}
+            {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
+              <button
+                onClick={() => {
+                  setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false)
+                  setFiltroNacionalidade(null); setFiltroPosicao(null)
+                }}
+                className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm"
+              >
+                Limpar todos filtros
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Chips dinâmicos */}
+        <div className="mt-3 flex flex-col gap-2">
+          {/* Nacionalidades */}
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {Object.entries(contar('nacionalidade')).map(([nac, count]) => (
+              <button
+                key={nac}
+                onClick={() => setFiltroNacionalidade(nac)}
+                className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                  ${filtroNacionalidade === nac ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
+                title={nac}
+              >
+                {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" />}
+                {nac} ({count})
+              </button>
+            ))}
+          </div>
+          {/* Posições */}
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {Object.entries(contar('posicao')).map(([pos, count]) => (
+              <button
+                key={pos}
+                onClick={() => setFiltroPosicao(pos)}
+                className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                  ${filtroPosicao === pos ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
+              >
+                {pos} ({count})
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {erro && <p className="mt-2 text-red-400 text-sm">{erro}</p>}
       </div>
 
-      {/* Filtros */}
-      <div className="flex flex-wrap gap-2 mb-4 overflow-x-auto">
-        {Object.entries(contar('nacionalidade')).map(([nac, count]) => (
-          <button key={nac} onClick={() => setFiltroNacionalidade(nac)} className={`px-3 py-1 rounded-full text-sm ${filtroNacionalidade === nac ? 'bg-green-600' : 'bg-gray-700'} hover:bg-green-700`}>
-            {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" />} {nac} ({count})
-          </button>
-        ))}
-        {filtroNacionalidade && <button onClick={() => setFiltroNacionalidade(null)} className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-700 text-sm">❌ Limpar</button>}
-      </div>
-
-      <div className="flex flex-wrap gap-2 mb-4 overflow-x-auto">
-        {Object.entries(contar('posicao')).map(([pos, count]) => (
-          <button key={pos} onClick={() => setFiltroPosicao(pos)} className={`px-3 py-1 rounded-full text-sm ${filtroPosicao === pos ? 'bg-green-600' : 'bg-gray-700'} hover:bg-green-700`}>
-            {pos} ({count})
-          </button>
-        ))}
-        {filtroPosicao && <button onClick={() => setFiltroPosicao(null)} className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-700 text-sm">❌ Limpar</button>}
-      </div>
-
-      <div className="flex flex-wrap justify-center items-center gap-2 mb-6">
-        <input type="text" placeholder="🔎 Nome" value={filtroNome} onChange={(e) => setFiltroNome(e.target.value)} className="px-3 py-1 rounded text-black" />
-        <input type="number" placeholder="⭐ Overall mínimo" value={filtroOverall} onChange={(e) => setFiltroOverall(Number(e.target.value))} className="px-3 py-1 rounded text-black w-32" />
-        <select value={ordenacao} onChange={(e) => setOrdenacao(e.target.value as any)} className="px-3 py-1 rounded text-black">
-          <option value="valor">💰 Valor</option>
-          <option value="overall">⭐ Overall</option>
-          <option value="salario">💸 Salário</option>
-          <option value="jogos">🏟️ Jogos</option>
-        </select>
-      </div>
-
+      {/* Ações em massa */}
       {selecionados.length > 0 && (
-        <button onClick={venderSelecionados} className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 px-6 py-3 text-white font-bold rounded-full shadow-lg z-50">
-          💸 Vender {selecionados.length} jogador(es)
-        </button>
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 backdrop-blur border border-gray-700 rounded-2xl shadow-2xl px-4 py-3">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-300">
+              {selecionados.length} jogador(es) selecionado(s)
+            </span>
+            <button
+              onClick={venderSelecionados}
+              className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+            >
+              💸 Vender selecionados
+            </button>
+            <button
+              onClick={selecionarTodosFiltrados}
+              className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
+            >
+              Selecionar todos (filtrados)
+            </button>
+            <button
+              onClick={limparSelecao}
+              className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
+            >
+              Limpar seleção
+            </button>
+          </div>
+        </div>
       )}
 
-      {/* Lista de jogadores */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {elencoFiltrado.map(jogador => {
-          const selecionado = selecionados.includes(jogador.id)
-          const status = []
-          if (jogador.protegido) status.push('🛡️ Protegido')
-          if (jogador.lesionado) status.push('⚠️ Lesionado')
-          if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
+      {/* Lista */}
+      {elencoFiltrado.length === 0 ? (
+        <div className="mt-8 text-center text-gray-300">
+          Nenhum jogador encontrado com os filtros aplicados.
+        </div>
+      ) : viewMode === 'grid' ? (
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {elencoFiltrado.map(jogador => {
+            const selecionado = selecionados.includes(jogador.id)
+            const status: string[] = []
+            if (jogador.protegido) status.push('🛡️ Protegido')
+            if (jogador.lesionado) status.push('⚠️ Lesionado')
+            if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
-          return (
-            <div
-              key={jogador.id}
-              onClick={() => toggleSelecionado(jogador.id)}
-              className={`relative bg-gray-800 p-4 rounded-xl text-center border-2 cursor-pointer transition transform hover:scale-105 ${selecionado ? 'border-green-400' : 'border-gray-700'}`}
-            >
-              {selecionado && (
-                <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">✔</div>
-              )}
-              <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={80} height={80} className="rounded-full mb-2 mx-auto" />
-              <h2 className="text-lg font-bold">{jogador.nome}</h2>
-              <div className="flex justify-center items-center gap-2 text-sm text-gray-300 mb-1">
-                {getFlagUrl(jogador.nacionalidade) && <img src={getFlagUrl(jogador.nacionalidade)} alt={jogador.nacionalidade} className="w-5 h-3" />}
-                <span>{jogador.nacionalidade || 'Outro'}</span>
+            return (
+              <div
+                key={jogador.id}
+                className={`relative bg-gray-900/70 p-4 rounded-2xl border-2 transition
+                  ${selecionado ? 'border-green-500 ring-1 ring-green-400/30' : 'border-gray-800 hover:border-gray-700'}
+                  shadow-lg hover:shadow-emerald-900/10`}
+              >
+                {/* Checkbox seleção */}
+                <label className="absolute top-3 left-3 inline-flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={selecionado}
+                    onChange={() => toggleSelecionado(jogador.id)}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                </label>
+
+                {/* Insígnias */}
+                <div className="absolute top-3 right-3 flex gap-1">
+                  {status.map((s, i) => (
+                    <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+
+                <div onClick={() => toggleSelecionado(jogador.id)} className="cursor-pointer select-none">
+                  <ImagemComFallback
+                    src={jogador.imagem_url}
+                    alt={jogador.nome}
+                    width={90}
+                    height={90}
+                    className="rounded-full mb-3 mx-auto ring-1 ring-gray-700"
+                  />
+
+                  <h2 className="text-lg font-extrabold text-center leading-tight">{jogador.nome}</h2>
+
+                  <div className="flex justify-center items-center gap-2 text-sm text-gray-300 mb-1">
+                    {getFlagUrl(jogador.nacionalidade) && (
+                      <img
+                        src={getFlagUrl(jogador.nacionalidade)}
+                        alt={jogador.nacionalidade || '—'}
+                        className="w-5 h-3"
+                      />
+                    )}
+                    <span>{jogador.nacionalidade || 'Outro'}</span>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <span
+                      className={`inline-block ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'}
+                      text-xs text-white px-3 py-1 rounded-full mb-2`}
+                    >
+                      {jogador.posicao}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-center">
+                    <p className="text-sm text-gray-300">Overall: <b>{jogador.overall ?? 0}</b></p>
+                    <p className="text-emerald-400 font-semibold">💰 {formatBRL(jogador.valor)}</p>
+                    <p className="text-gray-400 text-xs">Salário: {formatBRL(jogador.salario)}</p>
+                    <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
+                    <p className="text-gray-400 text-xs">Percentual: {jogador.percentual ?? 100}%</p>
+                    {jogador.link_sofifa && (
+                      <a
+                        href={jogador.link_sofifa}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 text-xs underline inline-block mt-1"
+                      >
+                        🔗 Ver no SoFIFA
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
-              <span className={`inline-block ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'} text-xs text-white px-3 py-1 rounded-full mb-2`}>
-                {jogador.posicao}
-              </span>
-              <p className="text-sm text-gray-300">Overall: {jogador.overall}</p>
-              <p className="text-green-400 font-semibold">💰 R$ {Number(jogador.valor || 0).toLocaleString()}</p>
-              <p className="text-gray-400 text-xs">Salário: R$ {Number(jogador.salario || 0).toLocaleString()}</p>
-              <p className="text-gray-400 text-xs">Jogos: {jogador.jogos ?? 0}</p>
-              <p className="text-gray-400 text-xs">Percentual: {jogador.percentual ?? 100}%</p>
-              {jogador.link_sofifa && (
-                <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs underline block mt-1">🔗 Ver no SoFIFA</a>
-              )}
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="mt-5 overflow-x-auto rounded-xl border border-gray-800">
+          <table className="min-w-full divide-y divide-gray-800">
+            <thead className="bg-gray-900/80">
+              <tr className="text-left text-sm text-gray-300">
+                <th className="px-3 py-3 w-12">
+                  <input
+                    type="checkbox"
+                    checked={selecionados.length > 0 && selecionados.length === elencoFiltrado.length}
+                    onChange={(e) => e.target.checked ? selecionarTodosFiltrados() : limparSelecao()}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                </th>
+                <th className="px-3 py-3">Jogador</th>
+                <th className="px-3 py-3">País</th>
+                <th className="px-3 py-3">Posição</th>
+                <th className="px-3 py-3">OVR</th>
+                <th className="px-3 py-3">Valor</th>
+                <th className="px-3 py-3">Salário</th>
+                <th className="px-3 py-3">Jogos</th>
+                <th className="px-3 py-3">%</th>
+                <th className="px-3 py-3">Link</th>
+                <th className="px-3 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-900/70 bg-gray-950/40">
+              {elencoFiltrado.map((jogador) => {
+                const selecionado = selecionados.includes(jogador.id)
+                return (
+                  <tr key={jogador.id} className={`text-sm hover:bg-gray-900/50 ${selecionado ? 'bg-gray-900/70' : ''}`}>
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selecionado}
+                        onChange={() => toggleSelecionado(jogador.id)}
+                        className="h-4 w-4 accent-emerald-500"
+                      />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-3">
+                        <ImagemComFallback src={jogador.imagem_url} alt={jogador.nome} width={36} height={36} className="rounded-full ring-1 ring-gray-700" />
+                        <span className="font-semibold">{jogador.nome}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        {getFlagUrl(jogador.nacionalidade) && <img src={getFlagUrl(jogador.nacionalidade)} className="w-5 h-3" />}
+                        <span className="text-gray-300">{jogador.nacionalidade || 'Outro'}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs text-white ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'}`}>
+                        {jogador.posicao}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">{jogador.overall ?? 0}</td>
+                    <td className="px-3 py-3">{formatBRL(jogador.valor)}</td>
+                    <td className="px-3 py-3">{formatBRL(jogador.salario)}</td>
+                    <td className="px-3 py-3">{jogador.jogos ?? 0}</td>
+                    <td className="px-3 py-3">{jogador.percentual ?? 100}%</td>
+                    <td className="px-3 py-3">
+                      {jogador.link_sofifa ? (
+                        <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">
+                          SoFIFA
+                        </a>
+                      ) : <span className="text-gray-500">—</span>}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex gap-1">
+                        {jogador.protegido && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">🛡️ Protegido</span>}
+                        {jogador.lesionado && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">⚠️ Lesionado</span>}
+                        {(jogador.jogos || 0) >= 7 && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">🔥 Em Alta</span>}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
+```
