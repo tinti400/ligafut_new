@@ -58,6 +58,11 @@ export default function LeilaoSistemaPage() {
     return s
   }
 
+  const brl = (v?: number | null) =>
+    typeof v === 'number'
+      ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+      : '—'
+
   // normalizador de URL (https, sem aspas, ignora lixo)
   const normalizeUrl = (u?: string | null) => {
     if (!u) return ''
@@ -160,7 +165,6 @@ export default function LeilaoSistemaPage() {
       .limit(3)
 
     if (!error && data) {
-      // normaliza imagem_url para garantir que a URL do Excel funcione
       const arr = data.map((l: any) => ({
         ...l,
         imagem_url: pickImagemUrl(l) || null,
@@ -201,17 +205,29 @@ export default function LeilaoSistemaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idTime, nomeTime])
 
+  // ===== UI helpers =====
   const formatarTempo = (segundos: number) => {
-    const min = Math.floor(segundos / 60).toString().padStart(2, '0')
+    const h = Math.floor(segundos / 3600)
+    const min = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0')
     const sec = Math.max(0, Math.floor(segundos % 60)).toString().padStart(2, '0')
-    return `${min}:${sec}`
+    return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
   }
 
-  const corBorda = (valor: number) => {
-    if (valor >= 360_000_000) return 'border-red-500'
-    if (valor >= 240_000_000) return 'border-purple-500'
-    if (valor >= 120_000_000) return 'border-blue-500'
-    return 'border-green-400'
+  const tierGrad = (valor: number) => {
+    if (valor >= 360_000_000)
+      return 'from-fuchsia-500/50 via-purple-500/35 to-amber-400/25'
+    if (valor >= 240_000_000)
+      return 'from-cyan-400/45 via-blue-500/35 to-purple-500/25'
+    if (valor >= 120_000_000)
+      return 'from-emerald-400/45 via-teal-400/30 to-cyan-400/20'
+    return 'from-emerald-500/25 via-emerald-400/15 to-transparent'
+  }
+
+  const tierBadge = (valor: number) => {
+    if (valor >= 360_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
+    if (valor >= 240_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
+    if (valor >= 120_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
+    return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
   }
 
   const travadoPorIdentidade = useMemo(() => {
@@ -296,145 +312,255 @@ export default function LeilaoSistemaPage() {
     }
   }
 
-  if (carregando) return <div className="p-6 text-white">⏳ Carregando...</div>
-
+  // ================== RENDER ==================
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6 flex flex-col items-center">
+    <main className="min-h-screen bg-neutral-950 text-zinc-100">
       <audio ref={audioRef} src="/beep.mp3" preload="auto" />
 
-      <div className="mb-4 w-full max-w-6xl">
-        <div className="flex flex-col gap-2">
-          <div className="text-lg font-semibold text-green-400">
-            💳 Saldo atual do seu time: R$ {saldo !== null ? saldo.toLocaleString() : '...'}
-          </div>
-          {travadoPorIdentidade && (
-            <div className="text-sm text-red-400">⚠️ {travadoPorIdentidade}</div>
-          )}
-          {erroTela && <div className="text-sm text-yellow-300">⚠️ {erroTela}</div>}
-        </div>
-      </div>
+      {/* Header fixo com saldo */}
+      <header className="sticky top-0 z-20 border-b border-zinc-900/80 bg-neutral-950/80 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/60">
+        <div className="mx-auto w-full max-w-6xl px-4 py-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-400 shadow" />
+              <h1 className="text-lg font-semibold tracking-tight">Leilão do Sistema</h1>
+            </div>
 
-      {leiloes.length === 0 ? (
-        <div className="p-6 text-white">⚠️ Nenhum leilão ativo no momento.</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-6xl">
-          {leiloes.map((leilao, index) => {
-            const tempoFinal = new Date(leilao.fim).getTime()
-            const agora = Date.now()
-            let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
-            if (!isFinite(tempoRestante) || tempoRestante < 0) tempoRestante = 0
-
-            const tremorClass = tremores[leilao.id] ? 'animate-pulse scale-105' : ''
-            const borderClass = classNames('border-2 rounded-xl', corBorda(leilao.valor_atual))
-
-            const disabledPorTempo = tempoRestante === 0
-            const disabledPorIdentidade = !!travadoPorIdentidade
-            const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
-
-            return (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div
-                key={leilao.id}
-                className={`bg-gray-800 ${borderClass} shadow-2xl p-6 text-center transition-transform duration-300 ${tremorClass}`}
+                className={classNames(
+                  'rounded-xl border px-3 py-2 text-sm',
+                  saldo !== null
+                    ? 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
+                    : 'border-zinc-800 bg-zinc-900/60 text-zinc-300'
+                )}
               >
-                <h1 className="text-xl font-bold mb-4 text-green-400">⚔️ Leilão #{index + 1}</h1>
-
-                {leilao.imagem_url && (
-                  <img
-                    src={leilao.imagem_url}
-                    alt={leilao.nome}
-                    className="w-24 h-24 object-cover rounded-full mx-auto mb-2 border-2 border-green-400"
-                    referrerPolicy="no-referrer"
-                    loading="lazy"
-                    onError={(e) => {
-                      ;(e.currentTarget as HTMLImageElement).style.display = 'none'
-                      console.warn('Imagem falhou:', leilao.imagem_url)
-                    }}
-                  />
-                )}
-
-                <h2 className="text-xl font-bold mb-1">
-                  {leilao.nome} <span className="text-sm">({leilao.posicao})</span>
-                </h2>
-                <p className="mb-1">
-                  ⭐ Overall: <strong>{leilao.overall}</strong>
-                </p>
-                {leilao.nacionalidade && (
-                  <p className="mb-1">
-                    🌍 Nacionalidade: <strong>{leilao.nacionalidade}</strong>
-                  </p>
-                )}
-                <p className="mb-2 text-green-400 text-lg font-bold">
-                  💰 R$ {Number(leilao.valor_atual).toLocaleString()}
-                </p>
-
-                {leilao.nome_time_vencedor && (
-                  <p className="mb-3 text-sm text-gray-300">
-                    👑 Último lance: <strong>{leilao.nome_time_vencedor}</strong>
-                  </p>
-                )}
-
-                <div className="text-lg font-mono bg-black text-white inline-block px-4 py-1 rounded-lg mb-3 shadow">
-                  ⏱️ {formatarTempo(tempoRestante)}
+                💳 Saldo: <b className="ml-1 tabular-nums">{brl(saldo ?? undefined)}</b>
+              </div>
+              {travadoPorIdentidade && (
+                <div className="rounded-xl border border-yellow-900/40 bg-yellow-950/40 px-3 py-2 text-xs text-yellow-200">
+                  ⚠️ {travadoPorIdentidade}
                 </div>
+              )}
+            </div>
+          </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {[4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000].map(
-                    (inc) => {
-                      const disabled =
-                        disabledPorTempo ||
-                        disabledPorIdentidade ||
-                        disabledPorCooldown ||
-                        (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
+          {erroTela && (
+            <div className="mt-3 rounded-xl border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+              ⚠️ {erroTela}
+            </div>
+          )}
+        </div>
+      </header>
 
-                      return (
-                        <button
-                          key={inc}
-                          onClick={() => darLance(leilao.id, leilao.valor_atual, inc, tempoRestante)}
-                          disabled={disabled}
-                          title={
+      <section className="mx-auto w-full max-w-6xl px-4 pb-10 pt-4">
+        {/* Estado vazio / carregando */}
+        {carregando ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="h-14 w-14 rounded-2xl bg-zinc-800" />
+                  <div className="flex-1">
+                    <div className="h-4 w-2/3 rounded bg-zinc-800" />
+                    <div className="mt-2 h-3 w-1/2 rounded bg-zinc-800" />
+                  </div>
+                </div>
+                <div className="mt-4 h-8 w-full rounded-xl bg-zinc-800" />
+                <div className="mt-3 h-10 w-full rounded-xl bg-zinc-800" />
+              </div>
+            ))}
+          </div>
+        ) : leiloes.length === 0 ? (
+          <div className="mx-auto max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
+            <div className="mx-auto mb-2 h-10 w-10 rounded-2xl border border-zinc-800 bg-zinc-950" />
+            <h3 className="text-base font-semibold">Nenhum leilão ativo</h3>
+            <p className="mt-1 text-sm text-zinc-400">Volte em instantes ou verifique com o administrador.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
+            {leiloes.map((leilao, index) => {
+              const tempoFinal = new Date(leilao.fim).getTime()
+              const tempoInicio = new Date(leilao.criado_em).getTime()
+              const agora = Date.now()
+
+              let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
+              if (!isFinite(tempoRestante) || tempoRestante < 0) tempoRestante = 0
+
+              const totalMs = Math.max(0, tempoFinal - tempoInicio)
+              const remMs = Math.max(0, tempoFinal - agora)
+              const pctRestante = totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
+
+              const disabledPorTempo = tempoRestante === 0
+              const disabledPorIdentidade = !!travadoPorIdentidade
+              const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
+
+              const increments = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000]
+
+              return (
+                <div key={leilao.id} className="relative">
+                  {/* Moldura gradiente por tier */}
+                  <div className={classNames('rounded-2xl p-[1px] bg-gradient-to-br', tierGrad(leilao.valor_atual))}>
+                    <article
+                      className={classNames(
+                        'rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
+                        'hover:border-emerald-600/30 hover:bg-zinc-900/70',
+                        tremores[leilao.id] ? 'animate-[pulse_0.3s_ease_1] ring-1 ring-emerald-500/30' : ''
+                      )}
+                    >
+                      {/* Barra de progresso do tempo */}
+                      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
+                        <div
+                          className="h-full bg-emerald-500 transition-[width] duration-1000"
+                          style={{ width: `${pctRestante}%` }}
+                        />
+                      </div>
+
+                      {/* Topo: título + badge de status/tempo */}
+                      <div className="flex items-center justify-between gap-2">
+                        <h2 className="text-sm font-semibold text-zinc-300">Leilão #{index + 1}</h2>
+                        <span
+                          className={classNames(
+                            'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px]',
                             disabledPorTempo
-                              ? '⏱️ Leilão encerrado'
-                              : disabledPorIdentidade
-                              ? '🔐 Faça login novamente (time não identificado)'
-                              : saldo !== null && Number(leilao.valor_atual) + inc > saldo
-                              ? '💸 Saldo insuficiente'
-                              : disabledPorCooldown
-                              ? '⏳ Aguarde um instante...'
-                              : ''
-                          }
-                          className="bg-green-600 hover:bg-green-700 text-white py-1 rounded text-xs font-bold transition disabled:opacity-50"
+                              ? 'border-red-900/60 bg-red-950/40 text-red-200'
+                              : 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
+                          )}
                         >
-                          + R$ {(inc / 1_000_000).toLocaleString()} mi
+                          {disabledPorTempo ? 'Encerrado' : 'Termina em'}
+                          {!disabledPorTempo && (
+                            <b className="tabular-nums">{formatarTempo(tempoRestante)}</b>
+                          )}
+                        </span>
+                      </div>
+
+                      {/* Corpo: imagem + dados do jogador */}
+                      <div className="mt-3 flex items-center gap-4">
+                        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
+                          {leilao.imagem_url ? (
+                            <img
+                              src={leilao.imagem_url}
+                              alt={leilao.nome}
+                              className="h-full w-full object-cover"
+                              referrerPolicy="no-referrer"
+                              loading="lazy"
+                              onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                            />
+                          ) : (
+                            <div className="h-full w-full bg-zinc-900" />
+                          )}
+                          <div className="pointer-events-none absolute inset-0 rounded-2xl ring-0 ring-emerald-500/0 transition group-hover:ring-2 group-hover:ring-emerald-500/20" />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-base font-semibold leading-5">{leilao.nome}</p>
+                            <span className={classNames('rounded-md border px-2 py-0.5 text-xs', tierBadge(leilao.valor_atual))}>
+                              {brl(leilao.valor_atual)}
+                            </span>
+                          </div>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                            <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                              {leilao.posicao}
+                            </span>
+                            <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                              ⭐ OVR {leilao.overall}
+                            </span>
+                            {leilao.nacionalidade && (
+                              <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                                🌍 {leilao.nacionalidade}
+                              </span>
+                            )}
+                            {leilao.nome_time_vencedor && (
+                              <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                                👑 {leilao.nome_time_vencedor}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Ações: botões de incremento estilo segmented control */}
+                      <div className="mt-4">
+                        <div className="grid grid-cols-3 gap-2">
+                          {increments.map((inc) => {
+                            const disabled =
+                              disabledPorTempo ||
+                              disabledPorIdentidade ||
+                              disabledPorCooldown ||
+                              (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
+
+                            return (
+                              <button
+                                key={inc}
+                                onClick={() => darLance(leilao.id, leilao.valor_atual, inc, tempoRestante)}
+                                disabled={disabled}
+                                title={
+                                  disabledPorTempo
+                                    ? '⏱️ Leilão encerrado'
+                                    : disabledPorIdentidade
+                                    ? '🔐 Faça login novamente (time não identificado)'
+                                    : saldo !== null && Number(leilao.valor_atual) + inc > saldo
+                                    ? '💸 Saldo insuficiente'
+                                    : disabledPorCooldown
+                                    ? '⏳ Aguarde um instante...'
+                                    : ''
+                                }
+                                className={classNames(
+                                  'rounded-xl px-3 py-2 text-xs font-bold tabular-nums transition',
+                                  'border bg-zinc-950/60 hover:bg-zinc-900',
+                                  'focus:outline-none focus:ring-2 focus:ring-emerald-400/30',
+                                  disabled
+                                    ? 'border-zinc-800 text-zinc-500 opacity-60'
+                                    : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
+                                )}
+                              >
+                                + {(inc / 1_000_000).toLocaleString()} mi
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        {leilao.link_sofifa && (
+                          <a
+                            href={leilao.link_sofifa}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-3 inline-block text-xs text-cyan-300 underline hover:text-cyan-200"
+                          >
+                            🔗 Ver no Sofifa
+                          </a>
+                        )}
+                      </div>
+
+                      {/* Encerrar (admin/manual) */}
+                      {tempoRestante === 0 && (
+                        <button
+                          onClick={() => finalizarLeilaoAgora(leilao.id)}
+                          className="mt-4 w-full rounded-xl bg-red-600/90 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400/30"
+                        >
+                          Finalizar Leilão
                         </button>
-                      )
-                    }
+                      )}
+                    </article>
+                  </div>
+
+                  {/* Selo "Encerrado" flutuante */}
+                  {tempoRestante === 0 && (
+                    <div className="pointer-events-none absolute -right-2 -top-2 rotate-3 rounded-lg border border-red-900/50 bg-red-950/70 px-2 py-1 text-[10px] font-semibold text-red-200 shadow">
+                      ENCERRADO
+                    </div>
                   )}
                 </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
 
-                {leilao.link_sofifa && (
-                  <a
-                    href={leilao.link_sofifa}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 underline text-sm hover:text-blue-300 transition"
-                  >
-                    🔗 Ver no Sofifa
-                  </a>
-                )}
-
-                {tempoRestante === 0 && (
-                  <button
-                    onClick={() => finalizarLeilaoAgora(leilao.id)}
-                    className="mt-3 bg-red-600 hover:bg-red-700 text-white py-2 px-3 rounded text-sm"
-                  >
-                    Finalizar Leilão
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {/* Safe-area mobile */}
+      <div className="h-6 md:h-8" />
     </main>
   )
 }
