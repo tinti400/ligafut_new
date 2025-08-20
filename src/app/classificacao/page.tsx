@@ -9,6 +9,16 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// UUID helper para inserts com id NOT NULL
+function uuidv4() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 /** ================== Tipos ================== */
 interface Time {
   nome: string
@@ -271,8 +281,9 @@ export default function ClassificacaoPage() {
     if (err2) throw err2
     if (!updated) throw new Error('Time não encontrado ao atualizar saldo.')
 
-    // 3) registra movimentação (crédito)
+    // 3) registra movimentação (crédito) — agora com ID obrigatório
     const { error: err3 } = await supabase.from('movimentacoes_financeiras').insert({
+      id: uuidv4(),
       id_time,
       tipo: 'entrada',
       valor,
@@ -359,7 +370,7 @@ export default function ClassificacaoPage() {
         divsPagas++
       }
 
-      // opcional: chamar um endpoint para marcar temporada encerrada
+      // opcional: marcar temporada encerrada
       try {
         const res = await fetch('/api/encerrar-temporada', {
           method: 'POST',
@@ -460,8 +471,7 @@ export default function ClassificacaoPage() {
         </div>
 
         <div className="mb-1 text-center text-xs text-emerald-300">
-          Estimativa total de prêmios (top {MAX_POSICOES}/divisão):{' '}
-          <b>{fmtBRL(estimativaTotalPremiosTemporada)}</b>
+          Estimativa total de prêmios (top {MAX_POSICOES}/divisão): <b>{fmtBRL(estimativaTotalPremiosTemporada)}</b>
         </div>
 
         <div className="mb-6 flex flex-wrap justify-center gap-2">
