@@ -1,3 +1,6 @@
+segue o arquivo **completo** já corrigido (chamada do `registrarMovimentacao` agora recebe **apenas 1 argumento**):
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -258,8 +261,9 @@ export default function ClassificacaoPage() {
 
   /** -------- pagar (somente frontend) -------- */
   async function creditarPremio(id_time: string, valor: number, descricao: string) {
+    // usa o util padronizado se existir (1 argumento)
     if (typeof registrarMovimentacao === 'function') {
-      await registrarMovimentacao(supabase, {
+      await registrarMovimentacao({
         id_time,
         tipo: 'premiacao_divisao',
         valor,
@@ -665,3 +669,4 @@ export default function ClassificacaoPage() {
     </div>
   )
 }
+```
