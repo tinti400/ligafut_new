@@ -19,6 +19,8 @@ type PunicaoRow = {
   nome_time: string
   tipo_punicao: TipoPunicao
   valor: number | null
+  // sua tabela exige esta coluna:
+  pontos_retirados?: number | null
   motivo: string
   ativo: boolean
   created_at: string
@@ -112,17 +114,28 @@ export default function PunicoesAdminPage() {
       const time = times.find((t) => t.id === idTime)
       if (!time) throw new Error('Time não encontrado')
 
-      // 1) Inserir punição e recuperar o id (exibe erro real se houver)
+      // ---------- INSERT ajustado para seu schema ----------
+      // sua tabela tem coluna NOT NULL: pontos_retirados
+      const payload: any = {
+        id_time: idTime,
+        nome_time: time.nome,
+        tipo_punicao: tipo,
+        motivo,
+        ativo: true
+      }
+
+      if (tipo === 'desconto_pontos') {
+        payload.valor = valorNumerico               // mantém se você usa 'valor'
+        payload.pontos_retirados = valorNumerico    // <-- obrigatório no seu schema
+      } else if (tipo === 'multa_dinheiro') {
+        payload.valor = valorNumerico
+        // se existir coluna específica de multa (ex.: multa_valor), preencha aqui também
+        // payload.multa_valor = valorNumerico
+      }
+
       const ins = await supabase
         .from('punicoes')
-        .insert({
-          id_time: idTime,
-          nome_time: time.nome,
-          tipo_punicao: tipo,
-          valor: valorNumerico,
-          motivo,
-          ativo: true
-        })
+        .insert(payload)
         .select('id')
         .single()
 
@@ -132,8 +145,9 @@ export default function PunicoesAdminPage() {
         setCarregando(false)
         return
       }
+      // ----------------------------------------------------
 
-      // 2) Efeito prático no banco (se usar)
+      // 2) Efeito prático no banco (opcional, se usa classificação no banco)
       if (tipo === 'desconto_pontos') {
         const rpc = await supabase.rpc('remover_pontos_classificacao', {
           id_time_param: idTime,
@@ -153,7 +167,7 @@ export default function PunicoesAdminPage() {
           toast.error(`Erro ao debitar multa: ${rpc.error.message}`)
         }
       } else if (tipo === 'bloqueio_leilao' || tipo === 'bloqueio_mercado') {
-        // Se desejar, marque flags em uma tabela de configurações aqui.
+        // se quiser, marque flags em outra tabela
       }
 
       toast.success('Punição aplicada com sucesso!')
@@ -431,8 +445,8 @@ export default function PunicoesAdminPage() {
                         {p.tipo_punicao === 'multa_dinheiro' && typeof p.valor === 'number' && (
                           <span className="text-xs text-emerald-300">{fmtBRL(p.valor)}</span>
                         )}
-                        {p.tipo_punicao === 'desconto_pontos' && typeof p.valor === 'number' && (
-                          <span className="text-xs text-amber-300">-{p.valor} pts</span>
+                        {p.tipo_punicao === 'desconto_pontos' && typeof p.pontos_retirados === 'number' && (
+                          <span className="text-xs text-amber-300">-{p.pontos_retirados} pts</span>
                         )}
                       </div>
                     </div>
