@@ -87,10 +87,10 @@ export default function ClassificacaoPage() {
     if (error) throw error
 
     const mapa = new Map<string, number>()
-    for (const p of data || []) {
-      const v = Number((p as any).pontos_retirados ?? (p as any).valor ?? 0)
+    for (const p of (data || []) as any[]) {
+      const v = Number(p.pontos_retirados ?? p.valor ?? 0)
       if (Number.isFinite(v) && v > 0) {
-        mapa.set((p as any).id_time, (mapa.get((p as any).id_time) || 0) + Math.floor(v))
+        mapa.set(p.id_time, (mapa.get(p.id_time) || 0) + Math.floor(v))
       }
     }
     return mapa
@@ -128,14 +128,16 @@ export default function ClassificacaoPage() {
     }
   }
 
-  /** -------- checagem simples de duplicidade (frontend) -------- */
+  /** -------- checagem simples de duplicidade (frontend) --------
+   * Agora checa por tipo 'entrada' + descrição de premiação.
+   */
   const checarSeJaPago = async () => {
     if (!divisaoSelecionada) return
-    const like = `%Divisão ${divisaoSelecionada} • Temporada ${temporadaSelecionada}%`
+    const like = `%Premiação Divisão ${divisaoSelecionada} • Temporada ${temporadaSelecionada}%`
     const { data, error } = await supabase
       .from('movimentacoes_financeiras')
       .select('id')
-      .eq('tipo', 'premiacao_divisao')
+      .eq('tipo', 'entrada')
       .ilike('descricao', like)
       .limit(1)
     if (error) {
@@ -262,7 +264,7 @@ export default function ClassificacaoPage() {
     if (typeof registrarMovimentacao === 'function') {
       await registrarMovimentacao({
         id_time,
-        tipo: 'premiacao_divisao',
+        tipo: 'entrada', // premio é crédito
         valor,
         descricao
       })
@@ -284,7 +286,7 @@ export default function ClassificacaoPage() {
 
     const { error: err3 } = await supabase.from('movimentacoes_financeiras').insert({
       id_time,
-      tipo: 'premiacao_divisao',
+      tipo: 'entrada', // premio é crédito
       valor,
       descricao
     })
