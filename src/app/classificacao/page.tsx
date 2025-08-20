@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
-import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,7 +49,7 @@ const BASE_PREMIOS_DIV1: Record<number, number> = {
   7: 400_000_000,
   8: 375_000_000,
   9: 350_000_000,
-  10: 300_000_000
+  10: 300_000_000,
 }
 const MAX_POSICOES = 10
 
@@ -117,7 +116,7 @@ export default function ClassificacaoPage() {
           ...it,
           saldo_gols: it.gols_pro - it.gols_contra,
           pontos_deduzidos: ded,
-          pontos_ajustados: ptsAjust
+          pontos_ajustados: ptsAjust,
         }
       })
 
@@ -249,37 +248,35 @@ export default function ClassificacaoPage() {
     return 'hover:bg-gray-800/60'
   }
 
-  /** -------- pagar (somente frontend) -------- */
+  /** -------- pagar (FORÇA atualizar saldo no frontend) -------- */
   async function creditarPremio(id_time: string, valor: number, descricao: string) {
-    // usa o util padronizado se existir (1 argumento)
-    if (typeof registrarMovimentacao === 'function') {
-      await registrarMovimentacao({
-        id_time,
-        tipo: 'entrada', // prêmio é crédito
-        valor,
-        descricao
-      })
-      return
-    }
-
-    // Fallback: atualiza saldo e registra movimentação
+    // 1) lê saldo atual
     const { data: t, error: err1 } = await supabase
       .from('times')
       .select('saldo')
       .eq('id', id_time)
       .single()
     if (err1) throw err1
+
     const saldoAtual = Number((t as any)?.saldo || 0)
-    const novoSaldo = saldoAtual + valor
+    const novoSaldo = saldoAtual + Number(valor || 0)
 
-    const { error: err2 } = await supabase.from('times').update({ saldo: novoSaldo }).eq('id', id_time)
+    // 2) atualiza saldo e garante retorno de 1 linha
+    const { data: updated, error: err2 } = await supabase
+      .from('times')
+      .update({ saldo: novoSaldo })
+      .eq('id', id_time)
+      .select('id, saldo')
+      .single()
     if (err2) throw err2
+    if (!updated) throw new Error('Time não encontrado ao atualizar saldo.')
 
+    // 3) registra movimentação (crédito)
     const { error: err3 } = await supabase.from('movimentacoes_financeiras').insert({
       id_time,
-      tipo: 'entrada', // prêmio é crédito
+      tipo: 'entrada',
       valor,
-      descricao
+      descricao,
     })
     if (err3) throw err3
   }
@@ -290,7 +287,11 @@ export default function ClassificacaoPage() {
     if (!timesDaDivisao.length) return alert('Sem dados para pagar.')
     if (jaPagoDivisao) return alert('Esta divisão/temporada já possui premiação registrada.')
 
-    if (!confirm(`Confirmar pagamento da premiação da Divisão ${divisaoSelecionada} (Temporada ${temporadaSelecionada})?`)) {
+    if (
+      !confirm(
+        `Confirmar pagamento da premiação da Divisão ${divisaoSelecionada} (Temporada ${temporadaSelecionada})?`
+      )
+    ) {
       return
     }
 
@@ -323,8 +324,8 @@ export default function ClassificacaoPage() {
     if (!divisoesDisponiveis.length) return alert('Sem divisões para pagar.')
 
     const confirmar = confirm(
-      `Encerrar a Temporada ${temporadaSelecionada} e pagar prêmios de TODAS as divisões detectadas (${divisoesDisponiveis.length})?\n\n` +
-      `Estimativa total (top ${MAX_POSICOES}/divisão): ${fmtBRL(estimativaTotalPremiosTemporada)}`
+      `Encerrar a Temporada ${temporadaSelecionada} e pagar prêmios de TODAS as divisões (${divisoesDisponiveis.length})?\n\n` +
+        `Estimativa total (top ${MAX_POSICOES}/divisão): ${fmtBRL(estimativaTotalPremiosTemporada)}`
     )
     if (!confirmar) return
 
@@ -334,7 +335,6 @@ export default function ClassificacaoPage() {
       let pagamentos = 0
       let totalPago = 0
 
-      // 1) pagar todas as divisões (pulando as já pagas)
       for (const div of divisoesDisponiveis) {
         const jaPago = await jaPagoDaDivisao(div)
         if (jaPago) continue
@@ -345,6 +345,7 @@ export default function ClassificacaoPage() {
             (b.saldo_gols ?? 0) - (a.saldo_gols ?? 0)
         )
         const limite = Math.min(MAX_POSICOES, arr.length)
+
         for (let i = 0; i < limite; i++) {
           const pos = i + 1
           const premio = premioDaPosicao(pos, div)
@@ -358,23 +359,23 @@ export default function ClassificacaoPage() {
         divsPagas++
       }
 
-      // 2) tentar marcar temporada como encerrada (se você tiver esse endpoint)
+      // opcional: chamar um endpoint para marcar temporada encerrada
       try {
         const res = await fetch('/api/encerrar-temporada', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ temporada: temporadaSelecionada })
+          body: JSON.stringify({ temporada: temporadaSelecionada }),
         })
-        if (!res.ok) {
-          // se não existir ou falhar, só loga e segue
-          console.warn('encerrar-temporada retornou não-ok; ignorando.')
-        }
+        if (!res.ok) console.warn('encerrar-temporada retornou não-ok; ignorando.')
       } catch {
-        // sem endpoint; tudo bem
+        /* ignore */
       }
 
-      alert(`✅ Temporada ${temporadaSelecionada} encerrada!\nDivisões pagas: ${divsPagas}\nPagamentos: ${pagamentos}\nTotal: ${fmtBRL(totalPago)}`)
-      // refresh estado local de "já pago" da divisão selecionada
+      alert(
+        `✅ Temporada ${temporadaSelecionada} encerrada!\nDivisões pagas: ${divsPagas}\nPagamentos: ${pagamentos}\nTotal: ${fmtBRL(
+          totalPago
+        )}`
+      )
       if (divisaoSelecionada) setJaPagoDivisao(await jaPagoDaDivisao(divisaoSelecionada))
     } catch (e: any) {
       console.error(e)
@@ -459,7 +460,8 @@ export default function ClassificacaoPage() {
         </div>
 
         <div className="mb-1 text-center text-xs text-emerald-300">
-          Estimativa total de prêmios (top {MAX_POSICOES}/divisão): <b>{fmtBRL(estimativaTotalPremiosTemporada)}</b>
+          Estimativa total de prêmios (top {MAX_POSICOES}/divisão):{' '}
+          <b>{fmtBRL(estimativaTotalPremiosTemporada)}</b>
         </div>
 
         <div className="mb-6 flex flex-wrap justify-center gap-2">
@@ -502,11 +504,11 @@ export default function ClassificacaoPage() {
                       : 'bg-emerald-600 hover:bg-emerald-500 text-black'
                   }`}
                 >
-                  {jaPagoDivisao ? 'Já pago' : (pagando ? 'Pagando…' : 'Finalizar & pagar premiação')}
+                  {jaPagoDivisao ? 'Já pago' : pagando ? 'Pagando…' : 'Finalizar & pagar premiação'}
                 </button>
                 {divisoesDisponiveis.length > 1 && (
                   <button
-                    onClick={() => setMostrarTodasDivisoes(v => !v)}
+                    onClick={() => setMostrarTodasDivisoes((v) => !v)}
                     className="px-3 py-2 rounded-lg text-sm border border-emerald-600/50 bg-emerald-950/30 hover:bg-emerald-900/40"
                   >
                     {mostrarTodasDivisoes ? 'Ocultar todas as divisões' : 'Ver todas as divisões'}
@@ -545,9 +547,7 @@ export default function ClassificacaoPage() {
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {divisoesDisponiveis.map((div) => (
                   <div key={div} className="rounded-lg border border-white/10 bg-gray-900/50">
-                    <div className="px-3 py-2 border-b border-white/10 font-semibold">
-                      Divisão {div}
-                    </div>
+                    <div className="px-3 py-2 border-b border-white/10 font-semibold">Divisão {div}</div>
                     <div className="overflow-x-auto">
                       <table className="min-w-[320px] text-xs">
                         <thead className="bg-black/60 text-gray-200">
@@ -620,7 +620,7 @@ export default function ClassificacaoPage() {
                     )
                     .map(
                       (item, i) =>
-                        `${i + 1}º ${item.times.nome} - ${(item.pontos_ajustados ?? item.pontos)} pts (${item.vitorias}V ${item.empates}E ${item.derrotas}D)`
+                        `${i + 1}º ${item.times.nome} - ${item.pontos_ajustados ?? item.pontos} pts (${item.vitorias}V ${item.empates}E ${item.derrotas}D)`
                     )
                     .join('\n')
               )}`}
@@ -695,9 +695,7 @@ export default function ClassificacaoPage() {
                         </td>
 
                         {/* PONTOS */}
-                        <td className="py-2.5 px-2 text-center font-bold text-yellow-300">
-                          {pts}
-                        </td>
+                        <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{pts}</td>
 
                         {/* APROVEITAMENTO */}
                         <td className="py-2.5 px-2">
