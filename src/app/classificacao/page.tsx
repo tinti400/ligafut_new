@@ -69,6 +69,7 @@ export default function ClassificacaoPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [pagando, setPagando] = useState(false)
+  const [pagandoTudo, setPagandoTudo] = useState(false)
   const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(1)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
   const [jaPagoDivisao, setJaPagoDivisao] = useState<boolean>(false)
@@ -128,23 +129,22 @@ export default function ClassificacaoPage() {
     }
   }
 
-  /** -------- checagem simples de duplicidade (frontend) --------
-   * Agora checa por tipo 'entrada' + descrição de premiação.
-   */
-  const checarSeJaPago = async () => {
-    if (!divisaoSelecionada) return
-    const like = `%Premiação Divisão ${divisaoSelecionada} • Temporada ${temporadaSelecionada}%`
+  /** -------- checagem duplicidade por divisão -------- */
+  async function jaPagoDaDivisao(div: number): Promise<boolean> {
+    const like = `%Premiação Divisão ${div} • Temporada ${temporadaSelecionada}%`
     const { data, error } = await supabase
       .from('movimentacoes_financeiras')
       .select('id')
       .eq('tipo', 'entrada')
       .ilike('descricao', like)
       .limit(1)
-    if (error) {
-      setJaPagoDivisao(false)
-      return
-    }
-    setJaPagoDivisao((data?.length || 0) > 0)
+    if (error) return false
+    return (data?.length || 0) > 0
+  }
+
+  const checarSeJaPago = async () => {
+    if (!divisaoSelecionada) return
+    setJaPagoDivisao(await jaPagoDaDivisao(divisaoSelecionada))
   }
 
   useEffect(() => {
@@ -193,24 +193,15 @@ export default function ClassificacaoPage() {
     [premiosCalculados]
   )
 
-  /** -------- Tabelas de premiação por posição -------- */
-  const tabelaPremiosDivisaoSelecionada = useMemo(() => {
-    const d = divisaoSelecionada || 1
-    return Array.from({ length: MAX_POSICOES }, (_, i) => {
-      const pos = i + 1
-      return { pos, valor: premioDaPosicao(pos, d) }
-    })
-  }, [divisaoSelecionada])
-
-  const tabelasTodasDivisoes = useMemo(() => {
-    return divisoesDisponiveis.map((div) => ({
-      divisao: div,
-      linhas: Array.from({ length: MAX_POSICOES }, (_, i) => {
-        const pos = i + 1
-        return { pos, valor: premioDaPosicao(pos, div) }
-      }),
-    }))
-  }, [divisoesDisponiveis])
+  /** -------- estimativa total da temporada (todas as divisões) -------- */
+  const estimativaTotalPremiosTemporada = useMemo(() => {
+    return divisoesDisponiveis.reduce((acc, div) => {
+      const arr = classificacaoPorDivisao[div] || []
+      const limite = Math.min(MAX_POSICOES, arr.length)
+      for (let i = 1; i <= limite; i++) acc += premioDaPosicao(i, div)
+      return acc
+    }, 0)
+  }, [divisoesDisponiveis, classificacaoPorDivisao])
 
   /** -------- helpers UI -------- */
   const isPrimeiraDivisao = divisaoSelecionada === 1
@@ -264,7 +255,7 @@ export default function ClassificacaoPage() {
     if (typeof registrarMovimentacao === 'function') {
       await registrarMovimentacao({
         id_time,
-        tipo: 'entrada', // premio é crédito
+        tipo: 'entrada', // prêmio é crédito
         valor,
         descricao
       })
@@ -286,7 +277,7 @@ export default function ClassificacaoPage() {
 
     const { error: err3 } = await supabase.from('movimentacoes_financeiras').insert({
       id_time,
-      tipo: 'entrada', // premio é crédito
+      tipo: 'entrada', // prêmio é crédito
       valor,
       descricao
     })
@@ -323,6 +314,73 @@ export default function ClassificacaoPage() {
       alert(`❌ Erro ao pagar premiação: ${e?.message || e}`)
     } finally {
       setPagando(false)
+    }
+  }
+
+  /** -------- Encerrar temporada & pagar (todas as divisões) -------- */
+  async function encerrarTemporadaEPagarTudo() {
+    if (!isAdmin) return alert('Ação restrita ao admin.')
+    if (!divisoesDisponiveis.length) return alert('Sem divisões para pagar.')
+
+    const confirmar = confirm(
+      `Encerrar a Temporada ${temporadaSelecionada} e pagar prêmios de TODAS as divisões detectadas (${divisoesDisponiveis.length})?\n\n` +
+      `Estimativa total (top ${MAX_POSICOES}/divisão): ${fmtBRL(estimativaTotalPremiosTemporada)}`
+    )
+    if (!confirmar) return
+
+    setPagandoTudo(true)
+    try {
+      let divsPagas = 0
+      let pagamentos = 0
+      let totalPago = 0
+
+      // 1) pagar todas as divisões (pulando as já pagas)
+      for (const div of divisoesDisponiveis) {
+        const jaPago = await jaPagoDaDivisao(div)
+        if (jaPago) continue
+
+        const arr = [...(classificacaoPorDivisao[div] || [])].sort(
+          (a, b) =>
+            (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
+            (b.saldo_gols ?? 0) - (a.saldo_gols ?? 0)
+        )
+        const limite = Math.min(MAX_POSICOES, arr.length)
+        for (let i = 0; i < limite; i++) {
+          const pos = i + 1
+          const premio = premioDaPosicao(pos, div)
+          if (premio <= 0) continue
+          const item = arr[i]
+          const descricao = `Premiação Divisão ${div} • Temporada ${temporadaSelecionada} • ${pos}º lugar`
+          await creditarPremio(item.id_time, premio, descricao)
+          pagamentos++
+          totalPago += premio
+        }
+        divsPagas++
+      }
+
+      // 2) tentar marcar temporada como encerrada (se você tiver esse endpoint)
+      try {
+        const res = await fetch('/api/encerrar-temporada', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ temporada: temporadaSelecionada })
+        })
+        if (!res.ok) {
+          // se não existir ou falhar, só loga e segue
+          console.warn('encerrar-temporada retornou não-ok; ignorando.')
+        }
+      } catch {
+        // sem endpoint; tudo bem
+      }
+
+      alert(`✅ Temporada ${temporadaSelecionada} encerrada!\nDivisões pagas: ${divsPagas}\nPagamentos: ${pagamentos}\nTotal: ${fmtBRL(totalPago)}`)
+      // refresh estado local de "já pago" da divisão selecionada
+      if (divisaoSelecionada) setJaPagoDivisao(await jaPagoDaDivisao(divisaoSelecionada))
+    } catch (e: any) {
+      console.error(e)
+      alert(`❌ Erro ao encerrar/pagar: ${e?.message || e}`)
+    } finally {
+      setPagandoTudo(false)
     }
   }
 
@@ -366,23 +424,42 @@ export default function ClassificacaoPage() {
           ))}
 
           {!loading && isAdmin && (
-            <button
-              onClick={async () => {
-                if (!confirm('⚠️ Iniciar nova temporada?')) return
-                const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
-                if (res.ok) {
-                  alert('✅ Temporada iniciada!')
-                  fetchDados(temporadaSelecionada)
-                } else {
-                  const data = await res.json().catch(() => ({} as any))
-                  alert(`❌ Erro: ${data?.erro || 'Falha ao iniciar temporada'}`)
-                }
-              }}
-              className="px-4 py-2 rounded-full text-sm bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/50 text-white"
-            >
-              🚀 Nova Temporada
-            </button>
+            <>
+              <button
+                onClick={async () => {
+                  if (!confirm('⚠️ Iniciar nova temporada?')) return
+                  const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
+                  if (res.ok) {
+                    alert('✅ Temporada iniciada!')
+                    fetchDados(temporadaSelecionada)
+                  } else {
+                    const data = await res.json().catch(() => ({} as any))
+                    alert(`❌ Erro: ${data?.erro || 'Falha ao iniciar temporada'}`)
+                  }
+                }}
+                className="px-4 py-2 rounded-full text-sm bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/50 text-white"
+              >
+                🚀 Nova Temporada
+              </button>
+
+              <button
+                onClick={encerrarTemporadaEPagarTudo}
+                disabled={pagandoTudo}
+                className={`px-4 py-2 rounded-full text-sm border font-semibold ${
+                  pagandoTudo
+                    ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+                    : 'bg-red-700 hover:bg-red-600 text-white border-red-500/60'
+                }`}
+                title={`Estimativa total: ${fmtBRL(estimativaTotalPremiosTemporada)}`}
+              >
+                ⏹️ Encerrar temporada & pagar prêmios
+              </button>
+            </>
           )}
+        </div>
+
+        <div className="mb-1 text-center text-xs text-emerald-300">
+          Estimativa total de prêmios (top {MAX_POSICOES}/divisão): <b>{fmtBRL(estimativaTotalPremiosTemporada)}</b>
         </div>
 
         <div className="mb-6 flex flex-wrap justify-center gap-2">
@@ -448,12 +525,17 @@ export default function ClassificacaoPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
-                  {tabelaPremiosDivisaoSelecionada.map(l => (
-                    <tr key={l.pos} className="hover:bg-gray-800/50">
-                      <td className="py-2 px-3">{l.pos}º</td>
-                      <td className="py-2 px-3 text-right font-semibold text-emerald-300">{fmtBRL(l.valor)}</td>
-                    </tr>
-                  ))}
+                  {Array.from({ length: MAX_POSICOES }, (_, i) => {
+                    const pos = i + 1
+                    return (
+                      <tr key={pos} className="hover:bg-gray-800/50">
+                        <td className="py-2 px-3">{pos}º</td>
+                        <td className="py-2 px-3 text-right font-semibold text-emerald-300">
+                          {fmtBRL(premioDaPosicao(pos, divisaoSelecionada))}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -461,10 +543,10 @@ export default function ClassificacaoPage() {
             {/* todas as divisões (opcional) */}
             {mostrarTodasDivisoes && (
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {tabelasTodasDivisoes.map(card => (
-                  <div key={card.divisao} className="rounded-lg border border-white/10 bg-gray-900/50">
+                {divisoesDisponiveis.map((div) => (
+                  <div key={div} className="rounded-lg border border-white/10 bg-gray-900/50">
                     <div className="px-3 py-2 border-b border-white/10 font-semibold">
-                      Divisão {card.divisao}
+                      Divisão {div}
                     </div>
                     <div className="overflow-x-auto">
                       <table className="min-w-[320px] text-xs">
@@ -475,12 +557,17 @@ export default function ClassificacaoPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
-                          {card.linhas.map(l => (
-                            <tr key={l.pos} className="hover:bg-gray-800/40">
-                              <td className="py-1.5 px-3">{l.pos}º</td>
-                              <td className="py-1.5 px-3 text-right font-semibold text-emerald-300">{fmtBRL(l.valor)}</td>
-                            </tr>
-                          ))}
+                          {Array.from({ length: MAX_POSICOES }, (_, i) => {
+                            const pos = i + 1
+                            return (
+                              <tr key={pos} className="hover:bg-gray-800/40">
+                                <td className="py-1.5 px-3">{pos}º</td>
+                                <td className="py-1.5 px-3 text-right font-semibold text-emerald-300">
+                                  {fmtBRL(premioDaPosicao(pos, div))}
+                                </td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -519,13 +606,18 @@ export default function ClassificacaoPage() {
       </div>
 
       {/* Tabela de classificação + prêmio por time */}
-      {divisaoSelecionada && timesDaDivisao.length > 0 && (
+      {divisaoSelecionada && (classificacaoPorDivisao[divisaoSelecionada]?.length ?? 0) > 0 && (
         <div className="max-w-6xl mx-auto px-4 pb-12">
           <div className="mb-3 flex justify-end">
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
                 `📊 Classificação da Divisão ${divisaoSelecionada}:\n\n` +
-                  timesDaDivisao
+                  (classificacaoPorDivisao[divisaoSelecionada] || [])
+                    .sort(
+                      (a, b) =>
+                        (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
+                        (b.saldo_gols ?? 0) - (a.saldo_gols ?? 0)
+                    )
                     .map(
                       (item, i) =>
                         `${i + 1}º ${item.times.nome} - ${(item.pontos_ajustados ?? item.pontos)} pts (${item.vitorias}V ${item.empates}E ${item.derrotas}D)`
@@ -573,7 +665,7 @@ export default function ClassificacaoPage() {
                     const ap = aproveitamento(item)
                     const pos = index + 1
                     const pts = item.pontos_ajustados ?? item.pontos
-                    const premio = premiosCalculados[index] || 0
+                    const premio = premioDaPosicao(pos, divisaoSelecionada || 1)
 
                     return (
                       <tr key={item.id_time} className={`${linhaCor(index, total)} transition-colors`}>
@@ -628,7 +720,7 @@ export default function ClassificacaoPage() {
 
                         {/* PRÊMIO */}
                         <td className="py-2.5 px-2 text-center font-semibold text-emerald-300">
-                          {premio > 0 ? fmtBRL(premio) : '—'}
+                          {pos <= MAX_POSICOES ? fmtBRL(premio) : '—'}
                         </td>
 
                         {/* AÇÃO ADMIN (placeholder) */}
