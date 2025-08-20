@@ -56,7 +56,9 @@ export default function PunicoesAdminPage() {
       .from('times')
       .select('id, nome')
       .order('nome', { ascending: true })
+
     if (error) {
+      console.error('ERRO SELECT TIMES:', error)
       toast.error('Erro ao carregar times')
       return
     }
@@ -69,7 +71,9 @@ export default function PunicoesAdminPage() {
       .select('*')
       .eq('ativo', true)
       .order('created_at', { ascending: false })
+
     if (error) {
+      console.error('ERRO SELECT PUNICOES:', error)
       toast.error('Erro ao carregar punições')
       return
     }
@@ -108,9 +112,10 @@ export default function PunicoesAdminPage() {
       const time = times.find((t) => t.id === idTime)
       if (!time) throw new Error('Time não encontrado')
 
-      // 1) Registrar punição
-      {
-        const { error } = await supabase.from('punicoes').insert({
+      // 1) Inserir punição e recuperar o id (exibe erro real se houver)
+      const ins = await supabase
+        .from('punicoes')
+        .insert({
           id_time: idTime,
           nome_time: time.nome,
           tipo_punicao: tipo,
@@ -118,24 +123,37 @@ export default function PunicoesAdminPage() {
           motivo,
           ativo: true
         })
-        if (error) throw error
+        .select('id')
+        .single()
+
+      if (ins.error) {
+        console.error('ERRO INSERT PUNICAO:', ins.error)
+        toast.error(`Erro ao aplicar punição: ${ins.error.message}`)
+        setCarregando(false)
+        return
       }
 
-      // 2) Efeito prático
+      // 2) Efeito prático no banco (se usar)
       if (tipo === 'desconto_pontos') {
-        const { error } = await supabase.rpc('remover_pontos_classificacao', {
+        const rpc = await supabase.rpc('remover_pontos_classificacao', {
           id_time_param: idTime,
           pontos_remover: valorNumerico
         })
-        if (error) throw error
+        if (rpc.error) {
+          console.error('ERRO RPC remover_pontos_classificacao:', rpc.error)
+          toast.error(`Erro ao descontar pontos: ${rpc.error.message}`)
+        }
       } else if (tipo === 'multa_dinheiro') {
-        const { error } = await supabase.rpc('descontar_dinheiro', {
+        const rpc = await supabase.rpc('descontar_dinheiro', {
           id_time_param: idTime,
           valor_multa: valorNumerico
         })
-        if (error) throw error
+        if (rpc.error) {
+          console.error('ERRO RPC descontar_dinheiro:', rpc.error)
+          toast.error(`Erro ao debitar multa: ${rpc.error.message}`)
+        }
       } else if (tipo === 'bloqueio_leilao' || tipo === 'bloqueio_mercado') {
-        // Aqui você pode marcar flags em `configuracoes` se desejar.
+        // Se desejar, marque flags em uma tabela de configurações aqui.
       }
 
       toast.success('Punição aplicada com sucesso!')
@@ -145,6 +163,7 @@ export default function PunicoesAdminPage() {
       setMotivo('')
       await carregarPunicoes()
     } catch (e: any) {
+      console.error('FALHA GERAL APLICAR PUNIÇÃO:', e)
       toast.error(`Falha ao aplicar punição: ${e?.message || 'erro'}`)
     } finally {
       setCarregando(false)
@@ -155,7 +174,10 @@ export default function PunicoesAdminPage() {
     const ok = confirm('Remover esta punição?')
     if (!ok) return
     const { error } = await supabase.from('punicoes').update({ ativo: false }).eq('id', id)
-    if (error) return toast.error('Não foi possível remover')
+    if (error) {
+      console.error('ERRO REMOVER PUNICAO:', error)
+      return toast.error('Não foi possível remover')
+    }
     toast.success('Punição removida')
     carregarPunicoes()
   }
