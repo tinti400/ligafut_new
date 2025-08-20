@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
+import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ================== Tipos ================== */
 interface Time {
   nome: string
   logo_url: string
@@ -27,20 +29,54 @@ interface ClassificacaoItem {
   divisao: number
   times: Time
 
-  // campos calculados aqui
+  // calculados aqui
   pontos_deduzidos?: number
   pontos_ajustados?: number
 }
+
+/** ================== Premiação ==================
+ * Divisão 1 (R$) — Top 10:
+ * 1º 750mi, 2º 600mi, 3º 550mi, 4º 500mi, 5º 450mi,
+ * 6º 425mi, 7º 400mi, 8º 375mi, 9º 350mi, 10º 300mi.
+ * Cada divisão abaixo cai 30% (0.7^(divisão-1)).
+ */
+const BASE_PREMIOS_DIV1: Record<number, number> = {
+  1: 750_000_000,
+  2: 600_000_000,
+  3: 550_000_000,
+  4: 500_000_000,
+  5: 450_000_000,
+  6: 425_000_000,
+  7: 400_000_000,
+  8: 375_000_000,
+  9: 350_000_000,
+  10: 300_000_000
+}
+const MAX_POSICOES = 10
+
+function premioDaPosicao(pos: number, divisao: number) {
+  const base = BASE_PREMIOS_DIV1[pos] || 0
+  if (base <= 0) return 0
+  const fator = Math.pow(0.7, Math.max(0, (divisao ?? 1) - 1))
+  return Math.round(base * fator)
+}
+
+const fmtBRL = (v: number) =>
+  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
 export default function ClassificacaoPage() {
   const [classificacao, setClassificacao] = useState<ClassificacaoItem[]>([])
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+  const [pagando, setPagando] = useState(false)
   const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(1)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
+  const [jaPagoDivisao, setJaPagoDivisao] = useState<boolean>(false)
+  const [mostrarTodasDivisoes, setMostrarTodasDivisoes] = useState<boolean>(false)
+
   const { isAdmin, loading } = useAdmin()
 
-  // ---- punições -> mapa id_time -> soma
+  /** -------- punições -> mapa id_time -> soma -------- */
   async function carregarDeducoesPorTime() {
     const { data, error } = await supabase
       .from('punicoes')
@@ -60,20 +96,19 @@ export default function ClassificacaoPage() {
     return mapa
   }
 
-  // ===== Fetch
+  /** -------- busca classificação + aplica deduções -------- */
   const fetchDados = async (temporada: number) => {
     try {
       setCarregando(true)
       setErro(null)
 
-      // 1) busca a classificação "pura" da sua API
+      // 1) classificação base (sua API)
       const res = await fetch(`/api/classificacao-liga?temporada=${temporada}`)
       if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
       const base = (await res.json()) as ClassificacaoItem[]
 
-      // 2) carrega deduções no Supabase e ajusta pontos
+      // 2) deduções
       const deducoes = await carregarDeducoesPorTime()
-
       const ajustada: ClassificacaoItem[] = (base || []).map((it) => {
         const ded = deducoes.get(it.id_time) || 0
         const ptsAjust = Math.max(0, (it.pontos || 0) - ded)
@@ -93,12 +128,34 @@ export default function ClassificacaoPage() {
     }
   }
 
+  /** -------- checagem simples de duplicidade (frontend) -------- */
+  const checarSeJaPago = async () => {
+    if (!divisaoSelecionada) return
+    const like = `%Divisão ${divisaoSelecionada} • Temporada ${temporadaSelecionada}%`
+    const { data, error } = await supabase
+      .from('movimentacoes_financeiras')
+      .select('id')
+      .eq('tipo', 'premiacao_divisao')
+      .ilike('descricao', like)
+      .limit(1)
+    if (error) {
+      setJaPagoDivisao(false)
+      return
+    }
+    setJaPagoDivisao((data?.length || 0) > 0)
+  }
+
   useEffect(() => {
     fetchDados(temporadaSelecionada)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [temporadaSelecionada])
 
-  // ===== Agrupar/derivar
+  useEffect(() => {
+    checarSeJaPago()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [divisaoSelecionada, temporadaSelecionada, classificacao.length])
+
+  /** -------- agrupamentos/derivações -------- */
   const classificacaoPorDivisao = useMemo(() => {
     const map: Record<number, ClassificacaoItem[]> = {}
     for (const item of classificacao) {
@@ -124,32 +181,41 @@ export default function ClassificacaoPage() {
     )
   }, [classificacaoPorDivisao, divisaoSelecionada])
 
-  // ===== Ações
-  const iniciarNovaTemporada = async () => {
-    if (!confirm('⚠️ Tem certeza que deseja iniciar a nova temporada?')) return
-    const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
-    if (res.ok) {
-      alert('✅ Temporada iniciada com sucesso!')
-      fetchDados(temporadaSelecionada)
-    } else {
-      const data = await res.json().catch(() => ({} as any))
-      alert(`❌ Erro ao iniciar temporada: ${data?.erro || 'Erro desconhecido'}`)
-    }
-  }
+  const premiosCalculados = useMemo(() => {
+    if (!divisaoSelecionada) return [] as number[]
+    return timesDaDivisao.map((_, idx) => premioDaPosicao(idx + 1, divisaoSelecionada))
+  }, [timesDaDivisao, divisaoSelecionada])
 
-  const editarClassificacao = (item: ClassificacaoItem) => {
-    if (!isAdmin) return
-    alert(`📝 Editar classificação do time: ${item.times.nome}`)
-  }
+  const totalPremiosTop10Divisao = useMemo(
+    () => premiosCalculados.slice(0, MAX_POSICOES).reduce((acc, v) => acc + (v || 0), 0),
+    [premiosCalculados]
+  )
 
-  // ===== Helpers UI (regras por divisão)
+  /** -------- Tabelas de premiação por posição -------- */
+  const tabelaPremiosDivisaoSelecionada = useMemo(() => {
+    const d = divisaoSelecionada || 1
+    return Array.from({ length: MAX_POSICOES }, (_, i) => {
+      const pos = i + 1
+      return { pos, valor: premioDaPosicao(pos, d) }
+    })
+  }, [divisaoSelecionada])
+
+  const tabelasTodasDivisoes = useMemo(() => {
+    return divisoesDisponiveis.map((div) => ({
+      divisao: div,
+      linhas: Array.from({ length: MAX_POSICOES }, (_, i) => {
+        const pos = i + 1
+        return { pos, valor: premioDaPosicao(pos, div) }
+      }),
+    }))
+  }, [divisoesDisponiveis])
+
+  /** -------- helpers UI -------- */
   const isPrimeiraDivisao = divisaoSelecionada === 1
-
   const aproveitamento = (it: ClassificacaoItem) => {
     const pts = it.pontos_ajustados ?? it.pontos
     return it.jogos > 0 ? Math.round((pts / (it.jogos * 3)) * 100) : 0
   }
-
   const posBadge = (pos: number) => {
     const base =
       'inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ring-1 ring-white/10'
@@ -161,7 +227,6 @@ export default function ClassificacaoPage() {
     }
     return `${base} bg-gray-700 text-gray-200`
   }
-
   const iconePos = (idx: number, total: number) => {
     const last = total - 1
     const pen = total - 2
@@ -176,7 +241,6 @@ export default function ClassificacaoPage() {
     if (idx === pen || idx === last) return '🔻'
     return ''
   }
-
   const linhaCor = (idx: number, total: number) => {
     const last = total - 1
     const pen = total - 2
@@ -192,6 +256,74 @@ export default function ClassificacaoPage() {
     return 'hover:bg-gray-800/60'
   }
 
+  /** -------- pagar (somente frontend) -------- */
+  async function creditarPremio(id_time: string, valor: number, descricao: string) {
+    if (typeof registrarMovimentacao === 'function') {
+      await registrarMovimentacao(supabase, {
+        id_time,
+        tipo: 'premiacao_divisao',
+        valor,
+        descricao
+      })
+      return
+    }
+
+    // Fallback: atualiza saldo e registra movimentação
+    const { data: t, error: err1 } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', id_time)
+      .single()
+    if (err1) throw err1
+    const saldoAtual = Number((t as any)?.saldo || 0)
+    const novoSaldo = saldoAtual + valor
+
+    const { error: err2 } = await supabase.from('times').update({ saldo: novoSaldo }).eq('id', id_time)
+    if (err2) throw err2
+
+    const { error: err3 } = await supabase.from('movimentacoes_financeiras').insert({
+      id_time,
+      tipo: 'premiacao_divisao',
+      valor,
+      descricao
+    })
+    if (err3) throw err3
+  }
+
+  async function pagarPremiacaoDivisao() {
+    if (!isAdmin) return alert('Ação restrita ao admin.')
+    if (!divisaoSelecionada) return
+    if (!timesDaDivisao.length) return alert('Sem dados para pagar.')
+    if (jaPagoDivisao) return alert('Esta divisão/temporada já possui premiação registrada.')
+
+    if (!confirm(`Confirmar pagamento da premiação da Divisão ${divisaoSelecionada} (Temporada ${temporadaSelecionada})?`)) {
+      return
+    }
+
+    setPagando(true)
+    try {
+      for (let i = 0; i < timesDaDivisao.length; i++) {
+        const pos = i + 1
+        if (pos > MAX_POSICOES) break
+        const item = timesDaDivisao[i]
+        const premio = premiosCalculados[i] || 0
+        if (premio <= 0) continue
+
+        const descricao = `Premiação Divisão ${divisaoSelecionada} • Temporada ${temporadaSelecionada} • ${pos}º lugar`
+        await creditarPremio(item.id_time, premio, descricao)
+      }
+
+      alert('✅ Premiação paga com sucesso!')
+      setJaPagoDivisao(true)
+    } catch (e: any) {
+      console.error(e)
+      alert(`❌ Erro ao pagar premiação: ${e?.message || e}`)
+    } finally {
+      setPagando(false)
+    }
+  }
+
+  /** -------- UI -------- */
   if (erro) {
     return (
       <div className="max-w-6xl mx-auto mt-10 px-4">
@@ -232,7 +364,17 @@ export default function ClassificacaoPage() {
 
           {!loading && isAdmin && (
             <button
-              onClick={iniciarNovaTemporada}
+              onClick={async () => {
+                if (!confirm('⚠️ Iniciar nova temporada?')) return
+                const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
+                if (res.ok) {
+                  alert('✅ Temporada iniciada!')
+                  fetchDados(temporadaSelecionada)
+                } else {
+                  const data = await res.json().catch(() => ({} as any))
+                  alert(`❌ Erro: ${data?.erro || 'Falha ao iniciar temporada'}`)
+                }
+              }}
               className="px-4 py-2 rounded-full text-sm bg-emerald-700 hover:bg-emerald-600 border border-emerald-500/50 text-white"
             >
               🚀 Nova Temporada
@@ -257,8 +399,98 @@ export default function ClassificacaoPage() {
         </div>
       </div>
 
+      {/* Painel de premiação da divisão selecionada */}
+      {divisaoSelecionada && (
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">
+                  Tabela de premiação por posição — Divisão {divisaoSelecionada}
+                </div>
+                <div className="text-sm text-emerald-300">
+                  Total (Top {MAX_POSICOES}): <b>{fmtBRL(totalPremiosTop10Divisao)}</b>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={pagarPremiacaoDivisao}
+                  disabled={pagando || jaPagoDivisao || !isAdmin}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                    jaPagoDivisao
+                      ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-black'
+                  }`}
+                >
+                  {jaPagoDivisao ? 'Já pago' : (pagando ? 'Pagando…' : 'Finalizar & pagar premiação')}
+                </button>
+                {divisoesDisponiveis.length > 1 && (
+                  <button
+                    onClick={() => setMostrarTodasDivisoes(v => !v)}
+                    className="px-3 py-2 rounded-lg text-sm border border-emerald-600/50 bg-emerald-950/30 hover:bg-emerald-900/40"
+                  >
+                    {mostrarTodasDivisoes ? 'Ocultar todas as divisões' : 'Ver todas as divisões'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* tabela da divisão selecionada */}
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-[360px] text-sm rounded-lg overflow-hidden border border-white/10">
+                <thead className="bg-black/70 text-emerald-300">
+                  <tr>
+                    <th className="py-2 px-3 text-left">Pos</th>
+                    <th className="py-2 px-3 text-right">Prêmio</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {tabelaPremiosDivisaoSelecionada.map(l => (
+                    <tr key={l.pos} className="hover:bg-gray-800/50">
+                      <td className="py-2 px-3">{l.pos}º</td>
+                      <td className="py-2 px-3 text-right font-semibold text-emerald-300">{fmtBRL(l.valor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* todas as divisões (opcional) */}
+            {mostrarTodasDivisoes && (
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {tabelasTodasDivisoes.map(card => (
+                  <div key={card.divisao} className="rounded-lg border border-white/10 bg-gray-900/50">
+                    <div className="px-3 py-2 border-b border-white/10 font-semibold">
+                      Divisão {card.divisao}
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-[320px] text-xs">
+                        <thead className="bg-black/60 text-gray-200">
+                          <tr>
+                            <th className="py-2 px-3 text-left">Pos</th>
+                            <th className="py-2 px-3 text-right">Prêmio</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {card.linhas.map(l => (
+                            <tr key={l.pos} className="hover:bg-gray-800/40">
+                              <td className="py-1.5 px-3">{l.pos}º</td>
+                              <td className="py-1.5 px-3 text-right font-semibold text-emerald-300">{fmtBRL(l.valor)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Legenda dinâmica */}
-      <div className="max-w-6xl mx-auto px-4 -mt-1 mb-3">
+      <div className="max-w-6xl mx-auto px-4 mt-4 mb-3">
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-300">
           {divisaoSelecionada === 1 ? (
             <span className="inline-flex items-center gap-2 bg-green-900/40 ring-1 ring-green-800/50 px-2.5 py-1 rounded-full">
@@ -283,7 +515,7 @@ export default function ClassificacaoPage() {
         </div>
       </div>
 
-      {/* Tabela */}
+      {/* Tabela de classificação + prêmio por time */}
       {divisaoSelecionada && timesDaDivisao.length > 0 && (
         <div className="max-w-6xl mx-auto px-4 pb-12">
           <div className="mb-3 flex justify-end">
@@ -327,6 +559,7 @@ export default function ClassificacaoPage() {
                     <th className="py-3 px-2 text-center">GP</th>
                     <th className="py-3 px-2 text-center">GC</th>
                     <th className="py-3 px-2 text-center">SG</th>
+                    <th className="py-3 px-2 text-center">Prêmio</th>
                     {isAdmin && <th className="py-3 px-2 text-center">✏️</th>}
                   </tr>
                 </thead>
@@ -337,6 +570,7 @@ export default function ClassificacaoPage() {
                     const ap = aproveitamento(item)
                     const pos = index + 1
                     const pts = item.pontos_ajustados ?? item.pontos
+                    const premio = premiosCalculados[index] || 0
 
                     return (
                       <tr key={item.id_time} className={`${linhaCor(index, total)} transition-colors`}>
@@ -389,11 +623,18 @@ export default function ClassificacaoPage() {
                         <td className="py-2.5 px-2 text-center">{item.gols_contra}</td>
                         <td className="py-2.5 px-2 text-center">{item.saldo_gols}</td>
 
-                        {/* AÇÃO ADMIN */}
+                        {/* PRÊMIO */}
+                        <td className="py-2.5 px-2 text-center font-semibold text-emerald-300">
+                          {premio > 0 ? fmtBRL(premio) : '—'}
+                        </td>
+
+                        {/* AÇÃO ADMIN (placeholder) */}
                         {isAdmin && (
                           <td className="py-2.5 px-2 text-center">
                             <button
-                              onClick={() => editarClassificacao(item)}
+                              onClick={() => {
+                                alert(`📝 Editar classificação do time: ${item.times.nome}`)
+                              }}
                               className="text-yellow-300 hover:text-yellow-200 text-xs underline underline-offset-4"
                             >
                               Editar
@@ -404,6 +645,18 @@ export default function ClassificacaoPage() {
                     )
                   })}
                 </tbody>
+
+                <tfoot>
+                  <tr className="bg-black/40">
+                    <td className="py-2 px-4 text-right text-gray-300" colSpan={11}>
+                      Total a pagar (Top {MAX_POSICOES})
+                    </td>
+                    <td className="py-2 px-2 text-center font-bold text-emerald-300">
+                      {fmtBRL(totalPremiosTop10Divisao)}
+                    </td>
+                    {isAdmin && <td />}
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
