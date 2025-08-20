@@ -12,18 +12,43 @@ const supabase = createClient(
 
 type TipoPunicao = 'desconto_pontos' | 'multa_dinheiro' | 'bloqueio_leilao' | 'bloqueio_mercado'
 
+type TimeRow = { id: string; nome: string }
+type PunicaoRow = {
+  id: string
+  id_time: string
+  nome_time: string
+  tipo_punicao: TipoPunicao
+  valor: number | null
+  motivo: string
+  ativo: boolean
+  created_at: string
+}
+
 export default function PunicoesAdminPage() {
-  const [times, setTimes] = useState<Array<{ id: string; nome: string }>>([])
-  const [punicoesAtuais, setPunicoesAtuais] = useState<any[]>([])
+  const [times, setTimes] = useState<TimeRow[]>([])
+  const [punicoesAtuais, setPunicoesAtuais] = useState<PunicaoRow[]>([])
   const [idTime, setIdTime] = useState('')
   const [tipo, setTipo] = useState<TipoPunicao>('desconto_pontos')
   const [valor, setValor] = useState('') // pontos (int) ou valor R$ (number)
   const [motivo, setMotivo] = useState('')
   const [carregando, setCarregando] = useState(false)
+  const [loadingTela, setLoadingTela] = useState(true)
+  const [filtro, setFiltro] = useState('')
+
+  const precisaValor = useMemo(
+    () => tipo === 'desconto_pontos' || tipo === 'multa_dinheiro',
+    [tipo]
+  )
 
   useEffect(() => {
-    carregarTimes()
-    carregarPunicoes()
+    (async () => {
+      try {
+        setLoadingTela(true)
+        await Promise.all([carregarTimes(), carregarPunicoes()])
+      } finally {
+        setLoadingTela(false)
+      }
+    })()
   }, [])
 
   async function carregarTimes() {
@@ -35,7 +60,7 @@ export default function PunicoesAdminPage() {
       toast.error('Erro ao carregar times')
       return
     }
-    setTimes(data || [])
+    setTimes((data || []) as TimeRow[])
   }
 
   async function carregarPunicoes() {
@@ -48,13 +73,8 @@ export default function PunicoesAdminPage() {
       toast.error('Erro ao carregar punições')
       return
     }
-    setPunicoesAtuais(data || [])
+    setPunicoesAtuais((data || []) as PunicaoRow[])
   }
-
-  const precisaValor = useMemo(
-    () => tipo === 'desconto_pontos' || tipo === 'multa_dinheiro',
-    [tipo]
-  )
 
   function parseNumeroPositivo(s: string) {
     const n = Number(s)
@@ -62,13 +82,15 @@ export default function PunicoesAdminPage() {
     return n
   }
 
+  const fmtBRL = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
   async function aplicarPunicao() {
     if (!idTime) return toast.error('Selecione um time')
     if (!tipo) return toast.error('Selecione um tipo de punição')
     if (!motivo.trim()) return toast.error('Informe o motivo')
 
     let valorNumerico: number | null = null
-
     if (precisaValor) {
       const parsed = parseNumeroPositivo(valor)
       if (parsed === null) {
@@ -78,37 +100,28 @@ export default function PunicoesAdminPage() {
             : 'Informe um valor de multa (R$) > 0'
         )
       }
-      // Pontos precisam ser inteiros
       valorNumerico = tipo === 'desconto_pontos' ? Math.floor(parsed) : parsed
     }
 
     setCarregando(true)
-
-    // Descobre nome do time
-    const time = times.find((t) => t.id === idTime)
-    if (!time) {
-      setCarregando(false)
-      return toast.error('Time não encontrado')
-    }
-
-    // 1) Insere registro na tabela punicoes
-    {
-      const { error } = await supabase.from('punicoes').insert({
-        id_time: idTime,
-        nome_time: time.nome,
-        tipo_punicao: tipo,
-        valor: valorNumerico,
-        motivo,
-        ativo: true
-      })
-      if (error) {
-        setCarregando(false)
-        return toast.error('Erro ao aplicar punição')
-      }
-    }
-
-    // 2) Executa efeito prático via RPC
     try {
+      const time = times.find((t) => t.id === idTime)
+      if (!time) throw new Error('Time não encontrado')
+
+      // 1) Registrar punição
+      {
+        const { error } = await supabase.from('punicoes').insert({
+          id_time: idTime,
+          nome_time: time.nome,
+          tipo_punicao: tipo,
+          valor: valorNumerico,
+          motivo,
+          ativo: true
+        })
+        if (error) throw error
+      }
+
+      // 2) Efeito prático
       if (tipo === 'desconto_pontos') {
         const { error } = await supabase.rpc('remover_pontos_classificacao', {
           id_time_param: idTime,
@@ -122,8 +135,7 @@ export default function PunicoesAdminPage() {
         })
         if (error) throw error
       } else if (tipo === 'bloqueio_leilao' || tipo === 'bloqueio_mercado') {
-        // Aqui você pode, se quiser, escrever uma flag em `configuracoes` para bloquear
-        // Exemplo: await supabase.from('configuracoes').upsert({...})
+        // Aqui você pode marcar flags em `configuracoes` se desejar.
       }
 
       toast.success('Punição aplicada com sucesso!')
@@ -131,144 +143,303 @@ export default function PunicoesAdminPage() {
       setTipo('desconto_pontos')
       setValor('')
       setMotivo('')
-      carregarPunicoes()
+      await carregarPunicoes()
     } catch (e: any) {
-      toast.error(`Falha ao executar efeito: ${e?.message || 'erro'}`)
+      toast.error(`Falha ao aplicar punição: ${e?.message || 'erro'}`)
     } finally {
       setCarregando(false)
     }
   }
 
   async function removerPunicao(id: string) {
+    const ok = confirm('Remover esta punição?')
+    if (!ok) return
     const { error } = await supabase.from('punicoes').update({ ativo: false }).eq('id', id)
-    if (error) return toast.error('Não foi possível remover a punição')
+    if (error) return toast.error('Não foi possível remover')
     toast.success('Punição removida')
     carregarPunicoes()
   }
 
-  const fmtBRL = (v: number) =>
-    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const punicoesFiltradas = useMemo(() => {
+    if (!filtro.trim()) return punicoesAtuais
+    const f = filtro.toLowerCase()
+    return punicoesAtuais.filter(
+      (p) =>
+        p.nome_time.toLowerCase().includes(f) ||
+        p.tipo_punicao.toLowerCase().includes(f) ||
+        (p.motivo || '').toLowerCase().includes(f)
+    )
+  }, [punicoesAtuais, filtro])
 
   return (
-    <div className="min-h-screen bg-zinc-900 text-white p-6">
-      <h1 className="text-2xl font-bold mb-6">⚠️ Painel de Punições</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
-        <div>
-          <label className="block mb-1 font-medium">👥 Time</label>
-          <select
-            value={idTime}
-            onChange={(e) => setIdTime(e.target.value)}
-            className="w-full p-2 rounded bg-zinc-800 border border-zinc-700"
-          >
-            <option value="">Selecione um time</option>
-            {times.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.nome}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block mb-1 font-medium">🚨 Tipo de Punição</label>
-          <select
-            value={tipo}
-            onChange={(e) => setTipo(e.target.value as TipoPunicao)}
-            className="w-full p-2 rounded bg-zinc-800 border border-zinc-700"
-          >
-            <option value="desconto_pontos">Desconto de Pontos</option>
-            <option value="multa_dinheiro">Multa em Dinheiro</option>
-            <option value="bloqueio_leilao">Bloqueio de Leilão</option>
-            <option value="bloqueio_mercado">Bloqueio de Mercado</option>
-          </select>
-        </div>
-
-        {precisaValor && (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Header */}
+      <div className="border-b border-zinc-900 bg-gradient-to-b from-zinc-900/60 to-zinc-950">
+        <div className="mx-auto max-w-6xl px-6 py-6 flex items-center justify-between">
           <div>
-            <label className="block mb-1 font-medium">
-              {tipo === 'desconto_pontos' ? '📉 Pontos a remover' : '💰 Valor da multa (R$)'}
-            </label>
-            <input
-              type="number"
-              min={1}
-              step={tipo === 'desconto_pontos' ? 1 : '0.01'}
-              value={valor}
-              onChange={(e) => setValor(e.target.value)}
-              className="w-full p-2 rounded bg-zinc-800 border border-zinc-700"
-              placeholder={tipo === 'desconto_pontos' ? 'Ex.: 3' : 'Ex.: 1000000'}
-            />
+            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+              ⚠️ Painel de Punições
+            </h1>
+            <p className="text-zinc-400 text-sm mt-1">
+              Aplique multas e descontos de pontos. Tudo refletirá na liga e no caixa dos clubes.
+            </p>
           </div>
-        )}
-
-        <div className="md:col-span-2">
-          <label className="block mb-1 font-medium">📝 Motivo</label>
-          <textarea
-            value={motivo}
-            onChange={(e) => setMotivo(e.target.value)}
-            rows={3}
-            className="w-full p-2 rounded bg-zinc-800 border border-zinc-700"
-            placeholder="Explique o motivo da punição..."
-          />
+          <span className="hidden md:inline-flex text-xs px-2 py-1 rounded border border-zinc-700 bg-zinc-900/60 text-zinc-300">
+            Admin • Live
+          </span>
         </div>
       </div>
 
-      <button
-        onClick={aplicarPunicao}
-        disabled={carregando}
-        className="mt-6 bg-red-600 hover:bg-red-700 px-6 py-2 rounded font-bold disabled:opacity-50"
-      >
-        {carregando ? 'Aplicando...' : 'Aplicar Punição'}
-      </button>
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        {/* Form Card */}
+        <div className="grid lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 backdrop-blur p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Nova Punição</h2>
+                {carregando ? (
+                  <span className="text-xs text-amber-300">Aplicando…</span>
+                ) : (
+                  <span className="text-xs text-emerald-300">Pronto</span>
+                )}
+              </div>
 
-      <div className="mt-10 max-w-3xl">
-        <h2 className="text-xl font-bold mb-3">📋 Punições Ativas</h2>
-        {punicoesAtuais.length === 0 ? (
-          <p className="text-zinc-400">Nenhuma punição ativa no momento.</p>
-        ) : (
-          <ul className="space-y-3">
-            {punicoesAtuais.map((p) => (
-              <li
-                key={p.id}
-                className="bg-zinc-800 p-4 rounded flex justify-between items-start"
-              >
+              {/* Time + Tipo */}
+              <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-bold">{p.nome_time}</p>
-                    <span
-                      className={classNames(
-                        'text-xs px-2 py-0.5 rounded',
-                        p.tipo_punicao === 'desconto_pontos' && 'bg-amber-500/20 text-amber-300',
-                        p.tipo_punicao === 'multa_dinheiro' && 'bg-emerald-500/20 text-emerald-300',
-                        (p.tipo_punicao === 'bloqueio_leilao' || p.tipo_punicao === 'bloqueio_mercado') &&
-                          'bg-red-500/20 text-red-300'
-                      )}
-                    >
-                      {p.tipo_punicao.replace('_', ' ')}
-                    </span>
-                  </div>
-
-                  {p.tipo_punicao === 'multa_dinheiro' && typeof p.valor === 'number' && (
-                    <p className="text-sm text-zinc-300 mt-1">Valor: {fmtBRL(p.valor)}</p>
-                  )}
-
-                  {p.tipo_punicao === 'desconto_pontos' && typeof p.valor === 'number' && (
-                    <p className="text-sm text-zinc-300 mt-1">Pontos removidos: {p.valor}</p>
-                  )}
-
-                  <p className="text-sm text-zinc-400 mt-1">Motivo: {p.motivo}</p>
+                  <label className="block mb-1 text-sm text-zinc-300">👥 Time</label>
+                  <select
+                    value={idTime}
+                    onChange={(e) => setIdTime(e.target.value)}
+                    className="w-full h-11 rounded-xl bg-zinc-950 border border-zinc-800 px-3 outline-none focus:ring-2 focus:ring-zinc-500/40"
+                  >
+                    <option value="">Selecione um time</option>
+                    {times.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.nome}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
+                <div>
+                  <label className="block mb-1 text-sm text-zinc-300">🚨 Tipo</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { k: 'desconto_pontos', label: 'Desconto de Pontos', emoji: '📉' },
+                        { k: 'multa_dinheiro', label: 'Multa em Dinheiro', emoji: '💰' },
+                        { k: 'bloqueio_leilao', label: 'Bloq. Leilão', emoji: '⛔' },
+                        { k: 'bloqueio_mercado', label: 'Bloq. Mercado', emoji: '🚫' }
+                      ] as { k: TipoPunicao; label: string; emoji: string }[]
+                    ).map((opt) => (
+                      <button
+                        key={opt.k}
+                        type="button"
+                        onClick={() => setTipo(opt.k)}
+                        className={classNames(
+                          'h-11 rounded-xl border px-3 text-sm transition-all',
+                          tipo === opt.k
+                            ? 'border-zinc-500 bg-zinc-800'
+                            : 'border-zinc-800 bg-zinc-950 hover:border-zinc-700'
+                        )}
+                      >
+                        <span className="mr-1">{opt.emoji}</span>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Valor (condicional) */}
+              {precisaValor && (
+                <div className="mt-4">
+                  <label className="block mb-1 text-sm text-zinc-300">
+                    {tipo === 'desconto_pontos' ? 'Pontos a remover' : 'Valor da multa (R$)'}
+                  </label>
+
+                  {tipo === 'multa_dinheiro' ? (
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 text-sm">
+                        R$
+                      </div>
+                      <input
+                        type="number"
+                        min={1}
+                        step="0.01"
+                        inputMode="decimal"
+                        value={valor}
+                        onChange={(e) => setValor(e.target.value)}
+                        placeholder="Ex.: 1000000"
+                        className="w-full h-11 pl-9 pr-3 rounded-xl bg-zinc-950 border border-zinc-800 outline-none focus:ring-2 focus:ring-zinc-500/40"
+                      />
+                    </div>
+                  ) : (
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={valor}
+                      onChange={(e) => setValor(e.target.value)}
+                      placeholder="Ex.: 3"
+                      className="w-full h-11 rounded-xl bg-zinc-950 border border-zinc-800 px-3 outline-none focus:ring-2 focus:ring-zinc-500/40"
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Motivo */}
+              <div className="mt-4">
+                <label className="block mb-1 text-sm text-zinc-300">📝 Motivo</label>
+                <textarea
+                  rows={3}
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  placeholder="Explique o motivo da punição..."
+                  className="w-full rounded-xl bg-zinc-950 border border-zinc-800 px-3 py-2 outline-none focus:ring-2 focus:ring-zinc-500/40"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="mt-5 flex items-center gap-3">
                 <button
-                  onClick={() => removerPunicao(p.id)}
-                  className="text-red-400 text-sm hover:underline"
+                  onClick={aplicarPunicao}
+                  disabled={carregando}
+                  className={classNames(
+                    'h-11 px-5 rounded-xl font-semibold transition-colors',
+                    carregando
+                      ? 'bg-zinc-800 text-zinc-400'
+                      : 'bg-red-600 hover:bg-red-700 text-white'
+                  )}
                 >
-                  Remover
+                  {carregando ? 'Aplicando...' : 'Aplicar Punição'}
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
+
+                <button
+                  onClick={() => {
+                    setIdTime(''); setTipo('desconto_pontos'); setValor(''); setMotivo('')
+                  }}
+                  disabled={carregando}
+                  className="h-11 px-4 rounded-xl border border-zinc-800 hover:border-zinc-700 bg-zinc-950 text-zinc-300"
+                >
+                  Limpar
+                </button>
+              </div>
+
+              {/* Dica */}
+              <p className="mt-4 text-xs text-zinc-400">
+                • <b>Desconto de pontos</b> impacta a classificação da liga. <br />
+                • <b>Multa</b> debita o saldo do clube automaticamente.
+              </p>
+            </div>
+          </div>
+
+          {/* Lateral - Status rápido */}
+          <div className="lg:col-span-2">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+              <h3 className="text-sm font-semibold text-zinc-300 mb-3">Status Rápido</h3>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-center justify-between">
+                  <span className="text-zinc-400">Times carregados</span>
+                  <span className="text-zinc-200 font-medium">{times.length}</span>
+                </li>
+                <li className="flex items-center justify-between">
+                  <span className="text-zinc-400">Punições ativas</span>
+                  <span className="text-zinc-200 font-medium">{punicoesAtuais.length}</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900/70 to-zinc-950 p-5">
+              <h3 className="text-sm font-semibold text-zinc-300 mb-2">Ajuda</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Use <span className="text-zinc-300">Desconto de Pontos</span> para punir tabela (ex.: -3).<br />
+                Use <span className="text-zinc-300">Multa em Dinheiro</span> para debitar o caixa do clube.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de punições */}
+        <div className="mt-10">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Punições Ativas</h2>
+            <div className="relative w-72 max-w-full">
+              <input
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+                placeholder="Filtrar por time, tipo ou motivo…"
+                className="w-full h-10 pl-3 pr-3 rounded-xl bg-zinc-950 border border-zinc-800 outline-none focus:ring-2 focus:ring-zinc-500/40 text-sm"
+              />
+            </div>
+          </div>
+
+          {loadingTela ? (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-28 rounded-2xl border border-zinc-800 bg-zinc-900/40 animate-pulse" />
+              ))}
+            </div>
+          ) : punicoesFiltradas.length === 0 ? (
+            <p className="text-zinc-400">Nenhuma punição ativa no momento.</p>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {punicoesFiltradas.map((p) => (
+                <div
+                  key={p.id}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col justify-between"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{p.nome_time}</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span
+                          className={classNames(
+                            'text-[11px] uppercase tracking-wide px-2 py-0.5 rounded',
+                            p.tipo_punicao === 'desconto_pontos' && 'bg-amber-500/20 text-amber-300',
+                            p.tipo_punicao === 'multa_dinheiro' && 'bg-emerald-500/20 text-emerald-300',
+                            (p.tipo_punicao === 'bloqueio_leilao' || p.tipo_punicao === 'bloqueio_mercado') &&
+                              'bg-red-500/20 text-red-300'
+                          )}
+                        >
+                          {p.tipo_punicao.replace('_', ' ')}
+                        </span>
+
+                        {p.tipo_punicao === 'multa_dinheiro' && typeof p.valor === 'number' && (
+                          <span className="text-xs text-emerald-300">{fmtBRL(p.valor)}</span>
+                        )}
+                        {p.tipo_punicao === 'desconto_pontos' && typeof p.valor === 'number' && (
+                          <span className="text-xs text-amber-300">-{p.valor} pts</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <time className="text-[11px] text-zinc-400">
+                      {new Date(p.created_at).toLocaleString('pt-BR', {
+                        day: '2-digit', month: '2-digit', year: '2-digit',
+                        hour: '2-digit', minute: '2-digit'
+                      })}
+                    </time>
+                  </div>
+
+                  {p.motivo && (
+                    <p className="mt-2 text-sm text-zinc-300 line-clamp-3">{p.motivo}</p>
+                  )}
+
+                  <div className="mt-3 flex items-center justify-end">
+                    <button
+                      onClick={() => removerPunicao(p.id)}
+                      className="text-sm text-red-400 hover:text-red-300 underline underline-offset-4"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
