@@ -1,6 +1,3 @@
-segue o arquivo **completo** já corrigido (chamada do `registrarMovimentacao` agora recebe **apenas 1 argumento**):
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -669,4 +666,3 @@ export default function ClassificacaoPage() {
     </div>
   )
 }
-```
