@@ -41,6 +41,15 @@ const isPlacarPreenchido = (j: JogoQuartas, supportsVolta: boolean) => {
   const voltaOk = !supportsVolta || (j.gols_time1_volta != null && j.gols_time2_volta != null)
   return idaOk && voltaOk
 }
+/** Embaralhamento simples (Fisher–Yates) */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
 
 /** ========= Página ========= */
 export default function QuartasPage() {
@@ -154,7 +163,7 @@ export default function QuartasPage() {
     [jogos, supportsVolta]
   )
 
-  /** ====== Finalizar Quartas -> gerar Semifinal ====== */
+  /** ====== Finalizar Quartas -> SORTEAR Semifinal ====== */
   async function finalizarQuartas() {
     if (!quartasCompletas) {
       toast.error('Preencha todos os placares (ida e volta, se houver) antes de finalizar.')
@@ -220,20 +229,25 @@ export default function QuartasPage() {
       vencedores.push({ id: vencedorId, nome: vencedorNome })
     }
 
-    // montar semifinais (1x2, 3x4, …)
+    // ===== SORTEIO das semifinais: embaralha vencedores e monta 1x2, 3x4 =====
+    if (vencedores.length < 2) {
+      toast.error('São necessários pelo menos 2 vencedores para sortear as semifinais.')
+      return
+    }
+    const sorteados = shuffle(vencedores)
     const semi: any[] = []
-    for (let i = 0; i < vencedores.length; i += 2) {
-      if (vencedores[i + 1]) {
+    for (let i = 0; i < sorteados.length; i += 2) {
+      if (sorteados[i + 1]) {
         semi.push({
           rodada: 1,
           ordem: (i / 2) + 1,
-          id_time1: vencedores[i].id,
-          id_time2: vencedores[i + 1].id,
-          time1: vencedores[i].nome,
-          time2: vencedores[i + 1].nome,
+          id_time1: sorteados[i].id,
+          id_time2: sorteados[i + 1].id,
+          time1: sorteados[i].nome,
+          time2: sorteados[i + 1].nome,
           gols_time1: null,
           gols_time2: null,
-          // se sua semifinal for só jogo único, pode remover as colunas *_volta
+          // se a semifinal for ida/volta no seu schema, mantemos as colunas; se não existir, caímos no fallback abaixo
           gols_time1_volta: null,
           gols_time2_volta: null,
         })
@@ -242,10 +256,9 @@ export default function QuartasPage() {
 
     try {
       await supabase.from('copa_semi').delete().neq('id', 0).throwOnError()
-      // tenta com VOLTA; se falhar, insere sem
-      const ins1 = await supabase
-        .from('copa_semi')
-        .insert(semi)
+
+      // tenta inserir com colunas *_volta; se não existir no schema, insere sem
+      const ins1 = await supabase.from('copa_semi').insert(semi)
       if (ins1.error && mentionsVolta(ins1.error.message)) {
         const ins2 = await supabase.from('copa_semi').insert(
           semi.map(s => ({ ...s, gols_time1_volta: undefined, gols_time2_volta: undefined }))
@@ -254,7 +267,11 @@ export default function QuartasPage() {
       } else if (ins1.error) {
         throw ins1.error
       }
-      toast.success('Classificados enviados para a Semifinal!')
+
+      const textoSorteio = semi
+        .map(s => `(${s.time1} x ${s.time2})`)
+        .join(' | ')
+      toast.success(`Semifinais sorteadas: ${textoSorteio}`)
     } catch (e: any) {
       console.error(e)
       toast.error(`Erro ao gerar Semifinal: ${e?.message || e}`)
@@ -280,9 +297,9 @@ export default function QuartasPage() {
               className={`px-4 py-2 rounded-xl ${quartasCompletas ? 'bg-blue-700 hover:bg-blue-600 text-white' : 'bg-blue-700/50 text-white/70 cursor-not-allowed'}`}
               disabled={!quartasCompletas}
               onClick={finalizarQuartas}
-              title={quartasCompletas ? 'Gerar Semifinal' : 'Preencha todos os placares para habilitar'}
+              title={quartasCompletas ? 'Sortear e gerar Semifinal' : 'Preencha todos os placares para habilitar'}
             >
-              🏁 Finalizar Quartas
+              🏁 Sortear & Gerar Semifinal
             </button>
           </div>
         )}
