@@ -25,6 +25,19 @@ type JogoQuartas = {
   gols_time2_volta?: number | null
 }
 
+/** Linha para inserir na copa_semi (campos *_volta e ordem podem não existir no schema) */
+type SemiInsert = {
+  ordem?: number
+  id_time1: string
+  id_time2: string
+  time1: string
+  time2: string
+  gols_time1: number | null
+  gols_time2: number | null
+  gols_time1_volta?: number | null
+  gols_time2_volta?: number | null
+}
+
 /** ========= Utils ========= */
 const mentionsVolta = (msg?: string) => {
   const s = String(msg || '').toLowerCase()
@@ -32,7 +45,7 @@ const mentionsVolta = (msg?: string) => {
 }
 const mentionsOrdem = (msg?: string) => {
   const s = String(msg || '').toLowerCase()
-  return s.includes('ordem') && s.includes('does not exist')
+  return s.includes('ordem') && (s.includes('does not exist') || s.includes('column') || s.includes('unknown'))
 }
 const normInt = (val: string): number | null => {
   if (val === '') return null
@@ -162,8 +175,8 @@ export default function QuartasPage() {
     classificacao.find(c => c.id_time === id)?.pontos ?? 0
 
   /** ====== Agregado preenchido? ====== */
-  const quartasCompletas = useMemo(() =>
-    jogos.length > 0 && jogos.every(j => isPlacarPreenchido(j, supportsVolta)),
+  const quartasCompletas = useMemo(
+    () => jogos.length > 0 && jogos.every(j => isPlacarPreenchido(j, supportsVolta)),
     [jogos, supportsVolta]
   )
 
@@ -239,11 +252,11 @@ export default function QuartasPage() {
       return
     }
     const sorteados = shuffle(vencedores)
-    const semiBase = []
+
+    const semiBase: SemiInsert[] = []
     for (let i = 0; i < sorteados.length; i += 2) {
       if (sorteados[i + 1]) {
         semiBase.push({
-          // ordem pode não existir no schema -> tentamos com e fazemos fallback
           ordem: (i / 2) + 1,
           id_time1: sorteados[i].id,
           id_time2: sorteados[i + 1].id,
@@ -251,7 +264,6 @@ export default function QuartasPage() {
           time2: sorteados[i + 1].nome,
           gols_time1: null,
           gols_time2: null,
-          // *_volta pode não existir no schema -> fallback abaixo
           gols_time1_volta: null,
           gols_time2_volta: null,
         })
@@ -259,34 +271,29 @@ export default function QuartasPage() {
     }
 
     try {
-      // apaga tudo de forma segura, independente do tipo da coluna id
+      // apaga tudo de forma segura (funciona para uuid/serial)
       await supabase.from('copa_semi').delete().not('id', 'is', null).throwOnError()
 
-      // 1ª tentativa: inserir com ordem + *_volta
-      let payload = semiBase
-      let ins = await supabase.from('copa_semi').insert(payload)
-      if (ins.error) {
-        // 2ª tentativa: remover *_volta se não existir
-        if (mentionsVolta(ins.error.message)) {
-          payload = payload.map(s => ({ ...s, gols_time1_volta: undefined, gols_time2_volta: undefined }))
-          ins = await supabase.from('copa_semi').insert(payload)
-        }
+      // 1ª tentativa: inserir com 'ordem' + *_volta
+      let payload: SemiInsert[] = semiBase
+      let ins = await supabase.from('copa_semi').insert(payload as any)
+
+      // 2ª tentativa: remover *_volta (sem usar undefined!)
+      if (ins.error && mentionsVolta(ins.error.message)) {
+        const payloadSemVolta = payload.map(({ gols_time1_volta, gols_time2_volta, ...rest }) => rest)
+        ins = await supabase.from('copa_semi').insert(payloadSemVolta as any)
       }
+
+      // 3ª tentativa: remover também 'ordem' se coluna não existir
       if (ins.error && mentionsOrdem(ins.error.message)) {
-        // 3ª tentativa: também remover 'ordem'
-        payload = payload.map((s: any) => {
-          const { ordem, ...rest } = s
-          return rest
-        })
-        const ins2 = await supabase.from('copa_semi').insert(payload)
+        const payloadSemOrdem = (payload as SemiInsert[]).map(({ ordem, ...rest }) => rest)
+        const ins2 = await supabase.from('copa_semi').insert(payloadSemOrdem as any)
         if (ins2.error) throw ins2.error
       } else if (ins.error) {
         throw ins.error
       }
 
-      const textoSorteio = semiBase
-        .map(s => `(${s.time1} x ${s.time2})`)
-        .join(' | ')
+      const textoSorteio = semiBase.map(s => `(${s.time1} x ${s.time2})`).join(' | ')
       toast.success(`Semifinais sorteadas: ${textoSorteio}`)
     } catch (e: any) {
       console.error(e)
