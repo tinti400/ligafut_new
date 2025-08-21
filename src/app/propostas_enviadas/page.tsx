@@ -11,7 +11,6 @@ const supabase = createClient(
 
 /** ================== Tipos ================== */
 type StatusProposta = 'pendente' | 'aceita' | 'recusada' | 'cancelada'
-
 type TipoProposta = 'dinheiro' | 'troca_simples' | 'troca_composta' | string
 
 interface Proposta {
@@ -114,23 +113,24 @@ export default function PropostasEnviadasPage() {
         setErro(null)
 
         const { data, error } = await supabase
-          .from<Proposta>('propostas_app')
+          .from('propostas_app')
           .select('*')
           .eq('id_time_origem', id_time)
           .order('created_at', { ascending: false })
+          .returns<Proposta[]>()
 
         if (error) throw error
 
         const lista = data ?? []
         setPropostas(lista)
 
-        // Buscar jogadores vinculados (evita chamada com array vazio)
         const idsJog = Array.from(new Set(lista.map(p => p.jogador_id).filter(Boolean)))
         if (idsJog.length) {
           const { data: dataJog, error: errJog } = await supabase
-            .from<Jogador>('elenco')
+            .from('elenco')
             .select('id, nome, imagem_url, posicao')
             .in('id', idsJog)
+            .returns<Jogador[]>()
 
           if (errJog) throw errJog
           const dict = Object.fromEntries((dataJog ?? []).map(j => [j.id, j]))
@@ -446,4 +446,3 @@ export default function PropostasEnviadasPage() {
     </div>
   )
 }
-
