@@ -189,7 +189,11 @@ export default function Jogos() {
   const [golsVisitante, setGolsVisitante] = useState<number>(0)
   const [isSalvando, setIsSalvando] = useState(false)
 
-  const temporadasDisponiveis = [1, 2]
+  // NOVO: estado do botão "Gerar T3"
+  const [gerando, setGerando] = useState(false)
+
+  // AGORA inclui a temporada 3
+  const temporadasDisponiveis = [1, 2, 3]
   const divisoesDisponiveis = [1, 2, 3]
 
   const carregarDados = async () => {
@@ -209,6 +213,43 @@ export default function Jogos() {
   }
 
   useEffect(() => { carregarDados() }, [temporada, divisao])
+
+  // NOVO: botão que cria classificação T3 e gera os jogos (divisões 1–3, ida+volta)
+  const gerarTemporada3 = async () => {
+    if (!isAdmin) return
+    if (!confirm('Gerar jogos da Temporada 3 para as Divisões 1, 2 e 3?')) return
+    try {
+      setGerando(true)
+      toast.loading('Iniciando Temporada 3...', { id: 'gerar-t3' })
+
+      const resA = await fetch('/api/iniciar-temporada', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ temporada: 3 })
+      })
+      const a = await resA.json()
+      if (!resA.ok || !a?.ok) throw new Error(a?.erro || 'Falha ao iniciar temporada')
+
+      toast.loading('Gerando rodadas/jogos da T3...', { id: 'gerar-t3' })
+      const resB = await fetch('/api/gerar-jogos-temporada', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ temporada: 3, divisoes: [1,2,3], duploTurno: true })
+      })
+      const b = await resB.json()
+      if (!resB.ok || !b?.ok) throw new Error(b?.erro || 'Falha ao gerar jogos')
+
+      toast.success('✅ Temporada 3 gerada com sucesso!', { id: 'gerar-t3' })
+
+      // muda o filtro pra T3 e recarrega
+      setTemporada(3)
+      await carregarDados()
+    } catch (e: any) {
+      toast.error(`❌ ${e.message || e}`, { id: 'gerar-t3' })
+    } finally {
+      setGerando(false)
+    }
+  }
 
   /** =============== SALVAR PRIMEIRO LANÇAMENTO (com finanças) =============== */
   const salvarPrimeiroLancamento = async (rodadaId: string, index: number, gm: number, gv: number) => {
@@ -287,10 +328,12 @@ export default function Jogos() {
     await atualizarJogosElenco(visitanteId)
 
     // grava o jogo na rodada
+    const gmNum = Number.isFinite(gm) ? gm : 0
+    const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
       ...jogo,
-      gols_mandante: gm,
-      gols_visitante: gv,
+      gols_mandante: gmNum,
+      gols_visitante: gvNum,
       renda,
       publico,
       bonus_pago: true,
@@ -338,10 +381,12 @@ export default function Jogos() {
     if (!jogo) { setIsSalvando(false); return }
 
     // mantém renda/publico/bonus_pago, só ajusta placar
+    const gmNum = Number.isFinite(gm) ? gm : 0
+    const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
       ...jogo,
-      gols_mandante: gm,
-      gols_visitante: gv,
+      gols_mandante: gmNum,
+      gols_visitante: gvNum,
       bonus_pago: true,
     }
 
@@ -417,7 +462,7 @@ export default function Jogos() {
       </h1>
 
       {/* Controles */}
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4 items-center">
         {temporadasDisponiveis.map((temp) => (
           <button
             key={temp}
@@ -429,6 +474,20 @@ export default function Jogos() {
             Temporada {temp}
           </button>
         ))}
+
+        {/* NOVO: botão admin para gerar T3 */}
+        {isAdmin && (
+          <button
+            onClick={gerarTemporada3}
+            disabled={gerando}
+            className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
+              gerando ? 'bg-gray-700 border-white/10 text-white/70' : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
+            }`}
+            title="Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada 3"
+          >
+            {gerando ? 'Processando…' : '⚙️ Gerar Temporada 3 (todas as divisões)'}
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
