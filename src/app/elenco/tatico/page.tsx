@@ -47,6 +47,20 @@ const labelCurta = (slot: string) =>
   slot.startsWith('LAT') ? 'LAT' :
   slot.startsWith('ZAG') ? 'ZAG' : 'GOL'
 
+/** ===== helpers de layout (coordenadas) =====
+ *  y por linha (topo→base): ataque, meio, defesa, goleiro
+ *  usei % que funcionam bem em desktop e mobile
+ */
+const ROW_Y = [18, 42, 68, 88] // ataque, meio, defesa, goleiro (em %)
+const rowY = (rowIndex: number) => ROW_Y[Math.min(rowIndex, ROW_Y.length - 1)]
+
+/** xSpread: distribui N itens na largura com padding lateral */
+const xSpread = (n: number, pad = 12) =>
+  Array.from({ length: n }, (_, i) => {
+    const frac = (i + 1) / (n + 1) // de 0..1
+    return pad + (100 - 2 * pad) * frac
+  })
+
 /** ================== Página ================== */
 export default function PainelTaticoPage() {
   const [escala, setEscala] = useState<Record<string, Jogador>>({})
@@ -200,11 +214,9 @@ export default function PainelTaticoPage() {
             <div className="relative rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
               {/* Gramado + linhas (camadas) */}
               <div
-                className="relative p-4 sm:p-6"
+                className="relative p-4 sm:p-6 h-[560px] md:h-[620px]"
                 style={{
-                  background:
-                    // camada base do gramado
-                    'linear-gradient(180deg,#0b5d34 0%, #0a4d2c 100%)',
+                  background: 'linear-gradient(180deg,#0b5d34 0%, #0a4d2c 100%)',
                 }}
               >
                 {/* faixas do gramado */}
@@ -222,56 +234,54 @@ export default function PainelTaticoPage() {
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/40 pointer-events-none"
                   style={{ width: 140, height: 140 }} />
                 {/* áreas */}
-                {/* área 1 */}
                 <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
                   style={{ width: 110, height: 220 }} />
                 <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
                   style={{ width: 60, height: 120 }} />
-                {/* área 2 */}
                 <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
                   style={{ width: 110, height: 220 }} />
                 <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
                   style={{ width: 60, height: 120 }} />
 
-                {/* Conteúdo: linhas da formação */}
-                <div className="relative">
-                  {formacoes[formacaoSelecionada].map((linha, idx) => (
-                    <div key={idx} className="my-5 sm:my-7 flex items-center justify-center gap-3 sm:gap-5">
-                      {linha.map((pos) => {
-                        const jogador = escala[pos]
-                        const filled = !!jogador
-                        return (
-                          <button
-                            key={pos}
-                            onClick={() => (filled ? removerJogador(pos) : handleEscalar(pos))}
-                            className={[
-                              'group relative w-20 h-20 sm:w-[92px] sm:h-[92px] rounded-full border transition shadow-lg flex items-center justify-center',
-                              filled
-                                ? 'border-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/25'
-                                : 'border-white/30 bg-black/20 hover:bg-white/10'
-                            ].join(' ')}
-                            title={filled ? `Remover ${jogador.nome}` : `Escalar em ${pos}`}
-                          >
-                            <PlayerAvatar
-                              nome={jogador?.nome}
-                              imagem_url={jogador?.imagem_url}
-                              size={72}
-                            />
-
-                            {/* label da posição */}
-                            <span className={[
-                              'absolute -bottom-2 px-2 py-[2px] rounded-full text-[11px] border backdrop-blur',
-                              filled
-                                ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30'
-                                : 'bg-white/10 text-white/80 border-white/20'
-                            ].join(' ')}>
-                              {filled ? jogador!.posicao : labelCurta(pos)}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ))}
+                {/* ======= POSICIONAMENTO ABSOLUTO ======= */}
+                <div className="absolute inset-0">
+                  {formacoes[formacaoSelecionada].map((linha, rIdx) => {
+                    const y = rowY(rIdx)
+                    const xs = xSpread(linha.length, 12) // padding lateral 12%
+                    return linha.map((pos, i) => {
+                      const jogador = escala[pos]
+                      const filled = !!jogador
+                      const left = xs[i]
+                      return (
+                        <button
+                          key={pos}
+                          onClick={() => (filled ? removerJogador(pos) : handleEscalar(pos))}
+                          className={[
+                            'group absolute -translate-x-1/2 -translate-y-1/2 w-20 h-20 sm:w-[92px] sm:h-[92px] rounded-full border transition shadow-lg flex items-center justify-center',
+                            filled
+                              ? 'border-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/25'
+                              : 'border-white/30 bg-black/20 hover:bg-white/10'
+                          ].join(' ')}
+                          style={{ top: `${y}%`, left: `${left}%` }}
+                          title={filled ? `Remover ${jogador!.nome}` : `Escalar em ${pos}`}
+                        >
+                          <PlayerAvatar
+                            nome={jogador?.nome}
+                            imagem_url={jogador?.imagem_url}
+                            size={72}
+                          />
+                          <span className={[
+                            'absolute -bottom-2 px-2 py-[2px] rounded-full text-[11px] border backdrop-blur',
+                            filled
+                              ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30'
+                              : 'bg-white/10 text-white/80 border-white/20'
+                          ].join(' ')}>
+                            {filled ? jogador!.posicao : labelCurta(pos)}
+                          </span>
+                        </button>
+                      )
+                    })
+                  })}
                 </div>
               </div>
             </div>
