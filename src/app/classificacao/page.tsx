@@ -1,15 +1,25 @@
+Segue o **page de Classificação completo** (client component). Ele assume os endpoints:
+
+* `GET /api/classificacao-liga?temporada={n}`
+* `POST /api/iniciar-temporada` (body: `{ temporada }`)
+* `POST /api/encerrar-temporada` (body: `{ temporada }`)
+
+Pronto pra colar em `app/classificacao/page.tsx` (ou onde preferir). Depois você ajusta a API como quiser.
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 
+/** ================== Supabase ================== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// UUID helper para inserts com id NOT NULL
+/** ================== UUID helper (id NOT NULL) ================== */
 function uuidv4() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -37,7 +47,6 @@ interface ClassificacaoItem {
   saldo_gols?: number
   divisao: number
   times: Time
-
   // calculados aqui
   pontos_deduzidos?: number
   pontos_ajustados?: number
@@ -73,14 +82,19 @@ function premioDaPosicao(pos: number, divisao: number) {
 const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
+/** ================== Página ================== */
 export default function ClassificacaoPage() {
   const [classificacao, setClassificacao] = useState<ClassificacaoItem[]>([])
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+
   const [pagando, setPagando] = useState(false)
   const [pagandoTudo, setPagandoTudo] = useState(false)
-  const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(1)
+
+  // 👉 Começa na Temporada 3 (pode trocar)
+  const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(3)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
+
   const [jaPagoDivisao, setJaPagoDivisao] = useState<boolean>(false)
   const [mostrarTodasDivisoes, setMostrarTodasDivisoes] = useState<boolean>(false)
 
@@ -112,19 +126,17 @@ export default function ClassificacaoPage() {
       setCarregando(true)
       setErro(null)
 
-      // 1) classificação base (sua API)
       const res = await fetch(`/api/classificacao-liga?temporada=${temporada}`)
       if (!res.ok) throw new Error(`Erro HTTP: ${res.status}`)
       const base = (await res.json()) as ClassificacaoItem[]
 
-      // 2) deduções
       const deducoes = await carregarDeducoesPorTime()
       const ajustada: ClassificacaoItem[] = (base || []).map((it) => {
         const ded = deducoes.get(it.id_time) || 0
         const ptsAjust = Math.max(0, (it.pontos || 0) - ded)
         return {
           ...it,
-          saldo_gols: it.gols_pro - it.gols_contra,
+          saldo_gols: (it.gols_pro || 0) - (it.gols_contra || 0),
           pontos_deduzidos: ded,
           pontos_ajustados: ptsAjust,
         }
@@ -188,7 +200,7 @@ export default function ClassificacaoPage() {
     return [...arr].sort(
       (a, b) =>
         (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
-        (b.saldo_gols ?? 0) - (a.saldo_gols ?? 0)
+        ((b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra))
     )
   }, [classificacaoPorDivisao, divisaoSelecionada])
 
@@ -202,7 +214,6 @@ export default function ClassificacaoPage() {
     [premiosCalculados]
   )
 
-  /** -------- estimativa total da temporada (todas as divisões) -------- */
   const estimativaTotalPremiosTemporada = useMemo(() => {
     return divisoesDisponiveis.reduce((acc, div) => {
       const arr = classificacaoPorDivisao[div] || []
@@ -260,7 +271,7 @@ export default function ClassificacaoPage() {
 
   /** -------- pagar (FORÇA atualizar saldo no frontend) -------- */
   async function creditarPremio(id_time: string, valor: number, descricao: string) {
-    // 1) lê saldo atual
+    // 1) saldo atual
     const { data: t, error: err1 } = await supabase
       .from('times')
       .select('saldo')
@@ -271,7 +282,7 @@ export default function ClassificacaoPage() {
     const saldoAtual = Number((t as any)?.saldo || 0)
     const novoSaldo = saldoAtual + Number(valor || 0)
 
-    // 2) atualiza saldo e garante retorno de 1 linha
+    // 2) update saldo
     const { data: updated, error: err2 } = await supabase
       .from('times')
       .update({ saldo: novoSaldo })
@@ -281,7 +292,7 @@ export default function ClassificacaoPage() {
     if (err2) throw err2
     if (!updated) throw new Error('Time não encontrado ao atualizar saldo.')
 
-    // 3) registra movimentação (crédito) — agora com ID obrigatório
+    // 3) registra movimentação (id obrigatório)
     const { error: err3 } = await supabase.from('movimentacoes_financeiras').insert({
       id: uuidv4(),
       id_time,
@@ -295,7 +306,8 @@ export default function ClassificacaoPage() {
   async function pagarPremiacaoDivisao() {
     if (!isAdmin) return alert('Ação restrita ao admin.')
     if (!divisaoSelecionada) return
-    if (!timesDaDivisao.length) return alert('Sem dados para pagar.')
+    const arr = timesDaDivisao
+    if (!arr.length) return alert('Sem dados para pagar.')
     if (jaPagoDivisao) return alert('Esta divisão/temporada já possui premiação registrada.')
 
     if (
@@ -308,11 +320,11 @@ export default function ClassificacaoPage() {
 
     setPagando(true)
     try {
-      for (let i = 0; i < timesDaDivisao.length; i++) {
+      for (let i = 0; i < arr.length; i++) {
         const pos = i + 1
         if (pos > MAX_POSICOES) break
-        const item = timesDaDivisao[i]
-        const premio = premiosCalculados[i] || 0
+        const item = arr[i]
+        const premio = premioDaPosicao(pos, divisaoSelecionada) || 0
         if (premio <= 0) continue
 
         const descricao = `Premiação Divisão ${divisaoSelecionada} • Temporada ${temporadaSelecionada} • ${pos}º lugar`
@@ -353,7 +365,7 @@ export default function ClassificacaoPage() {
         const arr = [...(classificacaoPorDivisao[div] || [])].sort(
           (a, b) =>
             (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
-            (b.saldo_gols ?? 0) - (a.saldo_gols ?? 0)
+            ((b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra))
         )
         const limite = Math.min(MAX_POSICOES, arr.length)
 
@@ -421,7 +433,7 @@ export default function ClassificacaoPage() {
       {/* Controles */}
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-          {[1, 2].map((temp) => (
+          {[1, 2, 3].map((temp) => (
             <button
               key={temp}
               onClick={() => setTemporadaSelecionada(temp)}
@@ -439,13 +451,17 @@ export default function ClassificacaoPage() {
             <>
               <button
                 onClick={async () => {
-                  if (!confirm('⚠️ Iniciar nova temporada?')) return
-                  const res = await fetch('/api/iniciar-temporada', { method: 'POST' })
+                  if (!confirm(`⚠️ Iniciar/gerar Temporada ${temporadaSelecionada}?`)) return
+                  const res = await fetch('/api/iniciar-temporada', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ temporada: temporadaSelecionada }),
+                  })
+                  const data = await res.json().catch(() => ({}))
                   if (res.ok) {
-                    alert('✅ Temporada iniciada!')
+                    alert(`✅ Temporada ${data.temporada} gerada! Times: ${data.total_times}`)
                     fetchDados(temporadaSelecionada)
                   } else {
-                    const data = await res.json().catch(() => ({} as any))
                     alert(`❌ Erro: ${data?.erro || 'Falha ao iniciar temporada'}`)
                   }
                 }}
@@ -471,9 +487,11 @@ export default function ClassificacaoPage() {
         </div>
 
         <div className="mb-1 text-center text-xs text-emerald-300">
-          Estimativa total de prêmios (top {MAX_POSICOES}/divisão): <b>{fmtBRL(estimativaTotalPremiosTemporada)}</b>
+          Estimativa total de prêmios (top {MAX_POSICOES}/divisão):{' '}
+          <b>{fmtBRL(estimativaTotalPremiosTemporada)}</b>
         </div>
 
+        {/* Tabs de divisão */}
         <div className="mb-6 flex flex-wrap justify-center gap-2">
           {divisoesDisponiveis.map((div) => (
             <button
@@ -621,12 +639,12 @@ export default function ClassificacaoPage() {
           <div className="mb-3 flex justify-end">
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
-                `📊 Classificação da Divisão ${divisaoSelecionada}:\n\n` +
+                `📊 Classificação da Divisão ${divisaoSelecionada} (Temp. ${temporadaSelecionada}):\n\n` +
                   (classificacaoPorDivisao[divisaoSelecionada] || [])
                     .sort(
                       (a, b) =>
                         (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
-                        (b.saldo_gols ?? 0) - (a.saldo_gols ?? 0)
+                        ((b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra))
                     )
                     .map(
                       (item, i) =>
@@ -768,3 +786,4 @@ export default function ClassificacaoPage() {
     </div>
   )
 }
+```
