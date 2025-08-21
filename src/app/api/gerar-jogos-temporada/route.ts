@@ -36,9 +36,7 @@ function gerarTabela(teamsOrig: string[], duploTurno = true) {
       const b = arr[n - 1 - i]
       if (a === '__BYE__' || b === '__BYE__') continue
       const par = r % 2 === 0
-      const mandante = par ? a : b
-      const visitante = par ? b : a
-      jogos.push({ mandante, visitante, bonus_pago: false })
+      jogos.push({ mandante: par ? a : b, visitante: par ? b : a, bonus_pago: false })
     }
     rodadas.push(jogos)
 
@@ -72,49 +70,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ erro: 'Temporada inválida.' }, { status: 400 })
     }
 
-    const resumo: Record<number, { rodadas: number; jogos: number }> = {}
+    const resumo: Record<number, { times: number; rodadas: number; jogos: number; skipped?: boolean; motivo?: string }> = {}
 
     for (const divisao of divisoes) {
-      // checa se já existem rodadas p/ evitar duplicação
-      const { count: existentes, error: errCount } = await supabase
-        .from('rodadas')
-        .select('id', { head: true, count: 'exact' })
-        .eq('temporada', temporada)
-        .eq('divisao', divisao)
-      if (errCount) throw errCount
-
-      if ((existentes ?? 0) > 0 && !limparExistentes) {
-        resumo[divisao] = { rodadas: 0, jogos: 0 }
-        continue
-      }
-
-      if (limparExistentes && (existentes ?? 0) > 0) {
+      // limpar existentes, se solicitado
+      if (limparExistentes) {
         const { error: errDel } = await supabase
           .from('rodadas')
           .delete()
           .eq('temporada', temporada)
           .eq('divisao', divisao)
-        if (errDel) throw errDel
+        if (errDel) return NextResponse.json({ erro: errDel.message }, { status: 500 })
+      } else {
+        // se já existir rodada dessa divisão/temporada, pula para evitar duplicação
+        const { count: existentes, error: errCount } = await supabase
+          .from('rodadas')
+          .select('id', { head: true, count: 'exact' })
+          .eq('temporada', temporada)
+          .eq('divisao', divisao)
+        if (errCount) return NextResponse.json({ erro: errCount.message }, { status: 500 })
+        if ((existentes ?? 0) > 0) {
+          resumo[divisao] = { times: 0, rodadas: 0, jogos: 0, skipped: true, motivo: 'Já existiam rodadas' }
+          continue
+        }
       }
 
-      // busca times da divisão
-      const { data: times, error: errTimes } = await supabase
+      // ⚠️ robustez: aceita times.divisao como number OU string
+      const { data: timesMix, error: errTimes } = await supabase
         .from('times')
-        .select('id')
-        .eq('divisao', divisao)
+        .select('id, divisao')
+        .in('divisao', [divisao as any, String(divisao)])   // <- pega "1" e 1
         .order('id', { ascending: true })
-      if (errTimes) throw errTimes
+      if (errTimes) return NextResponse.json({ erro: errTimes.message }, { status: 500 })
 
-      const teamIds = (times ?? []).map(t => t.id)
+      const teamIds = (timesMix ?? []).map(t => t.id)
       if (teamIds.length < 2) {
-        resumo[divisao] = { rodadas: 0, jogos: 0 }
+        resumo[divisao] = { times: teamIds.length, rodadas: 0, jogos: 0, motivo: 'Menos de 2 times na divisão' }
         continue
       }
 
-      // gera rodadas (ida e volta)
       const rodadasJogos = gerarTabela(teamIds, duploTurno)
-
-      // monta inserts
       const inserts = rodadasJogos.map((jogos, i) => ({
         id: uuid(),
         numero: i + 1,
@@ -123,11 +118,11 @@ export async function POST(req: NextRequest) {
         jogos,
       }))
 
-      // insere em lote
       const { error: errInsert } = await supabase.from('rodadas').insert(inserts)
-      if (errInsert) throw errInsert
+      if (errInsert) return NextResponse.json({ erro: errInsert.message }, { status: 500 })
 
       resumo[divisao] = {
+        times: teamIds.length,
         rodadas: inserts.length,
         jogos: inserts.reduce((acc, r) => acc + r.jogos.length, 0),
       }
