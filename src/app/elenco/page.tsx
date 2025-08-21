@@ -1,6 +1,3 @@
-aqui está o **arquivo completo** com melhorias de layout aplicadas (cards de stats, chips de filtros ativos, grid auto-fit, header sticky na tabela, acessibilidade/foco, toasts no lugar de manipulação de DOM, debounce na busca e microinterações nos cards). mantive a regra **salário = 1% do valor** e a sincronização no fetch.
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -907,4 +904,3 @@ export default function ElencoPage() {
     </div>
   )
 }
-```
