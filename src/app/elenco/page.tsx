@@ -1,12 +1,3 @@
-Segue o arquivo completo ajustado para **garantir salário = 1% do valor do jogador**.
-Ele faz duas coisas:
-
-1. **Calcula** sempre no front com `calcularSalario(valor)`;
-2. **Sincroniza o banco** no `fetchElenco()` atualizando qualquer jogador cujo salário não esteja em 1% do valor.
-
-> Substitua o conteúdo do seu arquivo por este (copie só o código):
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -868,4 +859,4 @@ export default function ElencoPage() {
     </div>
   )
 }
-```
+
