@@ -442,7 +442,7 @@ export default function NegociacoesPage() {
   )
 
   const SkeletonCard = () => (
-    <div className="border border-zinc-800 rounded-lg p-4 w-[280px] bg-zinc-900 animate-pulse">
+    <div className="border border-zinc-800 rounded-lg p-4 w-full sm:w-[280px] bg-zinc-900 animate-pulse">
       <div className="w-16 h-16 rounded-full bg-zinc-800 mx-auto mb-3" />
       <div className="h-3 bg-zinc-800 rounded mb-2" />
       <div className="h-3 bg-zinc-800 rounded w-3/5 mx-auto mb-3" />
@@ -451,20 +451,114 @@ export default function NegociacoesPage() {
   )
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+    <main className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white pb-[env(safe-area-inset-bottom)]">
       {/* Topbar */}
       <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-black/50 bg-black/30 border-b border-zinc-800">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight">📩 Negociações • Enviar Proposta</h1>
-          <div className="text-sm text-zinc-300">
-            {nome_time ? <span className="px-3 py-1 rounded-full bg-emerald-700/20 border border-emerald-700/40">Seu time: <b>{nome_time}</b></span> : '—'}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
+          <h1 className="text-lg sm:text-2xl font-bold tracking-tight">📩 Negociações</h1>
+          <div className="text-xs sm:text-sm text-zinc-300">
+            {nome_time ? <span className="px-2 sm:px-3 py-1 rounded-full bg-emerald-700/20 border border-emerald-700/40">Seu time: <b>{nome_time}</b></span> : '—'}
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Lateral */}
-        <aside className="lg:col-span-4 space-y-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+        {/* Painéis Mobile */}
+        <div className="lg:hidden space-y-3">
+          <details className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3" open>
+            <summary className="list-none flex items-center justify-between cursor-pointer">
+              <h2 className="text-base font-semibold">🎯 Selecionar Time</h2>
+              <span className="text-sm text-zinc-400">abrir/fechar</span>
+            </summary>
+            <div className="mt-3 space-y-3">
+              <input
+                type="text"
+                placeholder="🔎 Buscar time por nome"
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+                className="border p-3 rounded w-full bg-zinc-900 border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+              <select
+                value={timeSelecionado}
+                onChange={(e) => setTimeSelecionado(e.target.value)}
+                className="border p-3 rounded w-full bg-zinc-900 border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                <option value="">-- Selecione um time --</option>
+                {timesFiltrados.map((time) => (
+                  <option key={time.id} value={time.id}>
+                    {time.nome}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setFiltro(''); setTimeSelecionado('') }}
+                  className="px-3 py-2 text-sm rounded-lg border border-zinc-700 hover:bg-zinc-800 w-full"
+                >
+                  Limpar seleção
+                </button>
+                {carregandoTimes && <span className="text-xs text-zinc-400">carregando…</span>}
+              </div>
+            </div>
+          </details>
+
+          <details className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+            <summary className="list-none flex items-center justify-between cursor-pointer">
+              <h2 className="text-base font-semibold">🕒 Minhas propostas pendentes</h2>
+              <button
+                onClick={(e) => { e.preventDefault(); fetchPendentes() }}
+                className="text-xs px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
+                title="Atualizar"
+              >
+                Atualizar
+              </button>
+            </summary>
+
+            <div className="mt-3">
+              {carregandoPendentes ? (
+                <div className="space-y-2">
+                  <div className="h-10 bg-zinc-900 rounded border border-zinc-800 animate-pulse" />
+                  <div className="h-10 bg-zinc-900 rounded border border-zinc-800 animate-pulse" />
+                </div>
+              ) : pendentes.length === 0 ? (
+                <EmptyState title="Nenhuma proposta pendente" subtitle="Envie uma proposta para ver aqui." />
+              ) : (
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                  {pendentes.map((p) => {
+                    const nome = mapJogadorNome[p.jogador_id] || 'Jogador'
+                    return (
+                      <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {nome} <span className="text-zinc-400">• {p.tipo_proposta.replace('_', ' ')}</span>
+                          </div>
+                          <div className="text-[11px] text-zinc-400">
+                            {p.valor_oferecido != null ? `Valor: ${formatBRL(p.valor_oferecido)}` : 'Sem valor'}
+                            {p.percentual ? ` • %: ${p.percentual}%` : ''}
+                            {' • '} {formatDataCurta(p.created_at)}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => excluirProposta(p.id)}
+                          disabled={!!excluindo[p.id]}
+                          className={`text-xs px-3 py-1.5 rounded-lg ${
+                            excluindo[p.id] ? 'bg-zinc-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
+                          }`}
+                          title="Excluir proposta"
+                        >
+                          {excluindo[p.id] ? 'Excluindo…' : 'Excluir'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+
+        {/* Lateral Desktop */}
+        <aside className="hidden lg:flex lg:flex-col lg:col-span-4 space-y-4">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
             <h2 className="text-lg font-semibold mb-3">🎯 Selecionar Time Alvo</h2>
 
@@ -496,7 +590,7 @@ export default function NegociacoesPage() {
               >
                 Limpar seleção
               </button>
-              {carregandoTimes && <span className="text-xs text-zinc-400">carregando times…</span>}
+              {carregandoTimes && <span className="text-xs text-zinc-400">carregando…</span>}
             </div>
           </div>
 
@@ -556,28 +650,28 @@ export default function NegociacoesPage() {
 
         {/* Conteúdo principal */}
         <section className="lg:col-span-8">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 sm:p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">👥 Jogadores do {timeSelecionado ? 'time selecionado' : 'adversário'}</h2>
+              <h2 className="text-base sm:text-lg font-semibold">👥 Jogadores do {timeSelecionado ? 'time selecionado' : 'adversário'}</h2>
               {carregandoElencos && <span className="text-xs text-zinc-400">carregando elenco…</span>}
             </div>
 
             {!timeSelecionado ? (
               <EmptyState title="Selecione um time para listar os jogadores" />
             ) : carregandoElencos ? (
-              <div className="flex flex-wrap gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                 {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
               </div>
             ) : elencoAdversario.length === 0 ? (
               <EmptyState title="Este time não possui jogadores cadastrados." />
             ) : (
-              <div className="flex flex-wrap gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                 {elencoAdversario.map((jogador) => {
                   const sel = jogadorSelecionadoId === jogador.id
                   const tp = (tipoProposta[jogador.id] || 'dinheiro') as TipoProposta
 
                   const valorStr = valorProposta[jogador.id] ?? ''
-                  const precisaValorFixo = tp === 'dinheiro' || tp === 'comprar_percentual' // troca_composta é opcional
+                  const precisaValorFixo = tp === 'dinheiro' || tp === 'comprar_percentual'
                   const valorInvalido = precisaValorFixo && (valorStr === '' || isNaN(Number(valorStr)))
 
                   const precisaPercentual = tp === 'comprar_percentual'
@@ -594,7 +688,7 @@ export default function NegociacoesPage() {
                   const qtdPendentes = pendentesDoJogador(jogador.id).length
 
                   return (
-                    <div key={jogador.id} className="border border-zinc-800 rounded-xl p-4 w-[300px] bg-[linear-gradient(to_bottom_right,rgba(39,39,42,.6),rgba(24,24,27,.7))] shadow-sm hover:shadow-lg hover:border-zinc-700 transition">
+                    <div key={jogador.id} className="border border-zinc-800 rounded-xl p-4 w-full bg-[linear-gradient(to_bottom_right,rgba(39,39,42,.6),rgba(24,24,27,.7))] shadow-sm hover:shadow-lg hover:border-zinc-700 transition">
                       <ImagemComFallback
                         src={jogador.imagem_url || undefined}
                         alt={jogador.nome}
@@ -626,11 +720,11 @@ export default function NegociacoesPage() {
 
                       <div className="flex gap-2">
                         <button
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-3 py-1.5 rounded"
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-3 py-2 rounded"
                           onClick={() => {
                             setJogadorSelecionadoId(jogador.id)
                             setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-                            setValorProposta((prev) => ({ ...prev, [jogador.id]: '' })) // começa vazio
+                            setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
                             setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
                           }}
                         >
@@ -639,7 +733,7 @@ export default function NegociacoesPage() {
                         {temPendentes && (
                           <button
                             onClick={() => excluirTodasDoJogador(jogador.id)}
-                            className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
+                            className="px-3 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
                             title="Cancelar todas as propostas deste jogador"
                           >
                             Excluir
@@ -652,7 +746,7 @@ export default function NegociacoesPage() {
                           <div>
                             <label className="font-semibold block mb-1">Tipo de proposta</label>
                             <select
-                              className="border p-2 w-full bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                              className="border p-3 w-full bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
                               value={tp}
                               onChange={(e) =>
                                 setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value as TipoProposta }))
@@ -672,7 +766,7 @@ export default function NegociacoesPage() {
                               </label>
                               <input
                                 type="number"
-                                className="border p-2 w-full mt-1 bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                                className="border p-3 w-full mt-1 bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
                                 value={valorProposta[jogador.id] || ''}
                                 onChange={(e) =>
                                   setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))
@@ -688,7 +782,7 @@ export default function NegociacoesPage() {
                                 type="number"
                                 min={1}
                                 max={100}
-                                className="border p-2 w-full mt-1 bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                                className="border p-3 w-full mt-1 bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
                                 value={percentualDesejado[jogador.id] || ''}
                                 onChange={(e) =>
                                   setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: e.target.value }))
@@ -704,7 +798,7 @@ export default function NegociacoesPage() {
                               </label>
 
                               {/* Checklist em grid com miniatura */}
-                              <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
+                              <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-1">
                                 {elencoOfertavel.map((j) => {
                                   const marcado =
                                     (jogadoresOferecidos[jogador.id] || []).includes(j.id)
@@ -718,23 +812,23 @@ export default function NegociacoesPage() {
                                       } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                       onClick={() => toggleOferecido(jogador.id, j.id, j.podeOferecer)}
                                     >
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 min-w-0">
                                         <input
                                           type="checkbox"
                                           checked={marcado}
                                           onChange={() => toggleOferecido(jogador.id, j.id, j.podeOferecer)}
                                           disabled={disabled}
-                                          className="accent-emerald-600"
+                                          className="accent-emerald-600 shrink-0"
                                         />
                                         <ImagemComFallback
                                           src={j.imagem_url || undefined}
                                           alt={j.nome}
                                           width={28}
                                           height={28}
-                                          className="w-7 h-7 rounded-full object-cover ring-1 ring-zinc-700"
+                                          className="w-7 h-7 rounded-full object-cover ring-1 ring-zinc-700 shrink-0"
                                         />
-                                        <div className="flex flex-col">
-                                          <span className="font-semibold text-white text-[13px] leading-4">
+                                        <div className="flex flex-col min-w-0">
+                                          <span className="font-semibold text-white text-[13px] leading-4 truncate">
                                             {j.nome} <span className="text-zinc-300">• {j.posicao}</span>
                                           </span>
                                           <span className="text-[12px] text-zinc-300">{formatBRL(j.valor)}</span>
@@ -762,7 +856,7 @@ export default function NegociacoesPage() {
                             onClick={() => enviarProposta(jogador)}
                             disabled={disableEnviar || !!enviando[jogador.id]}
                             className={`
-                              w-full text-white font-bold py-2 rounded mt-1 text-sm
+                              w-full text-white font-bold py-3 rounded mt-1 text-sm
                               ${disableEnviar || enviando[jogador.id] ? 'bg-zinc-700 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}
                             `}
                           >
@@ -781,4 +875,3 @@ export default function NegociacoesPage() {
     </main>
   )
 }
-
