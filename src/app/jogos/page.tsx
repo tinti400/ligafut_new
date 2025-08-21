@@ -1,3 +1,6 @@
+Aqui está o arquivo completo, com **+50%** aplicado em todos os bônus por partida via `BONUS_MULTIPLIER` dentro de `calcularPremiacao`:
+
+```tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -49,13 +52,15 @@ type TimeDados = {
 }
 
 /** ===================== Regras de premiação ===================== */
+const BONUS_MULTIPLIER = 1.5 // 👈 +50% em todos os bônus por partida
+
 function calcularPremiacao(time: TimeDados): number {
   const { divisao, historico } = time
   const ultimaPartida = historico[historico.length - 1]
   const regras = {
-    1: { vitoria: 13_000_000, empate: 8_000_000, derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
-    2: { vitoria: 8_500_000,  empate: 4_000_000, derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
-    3: { vitoria: 5_000_000,  empate: 2_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
+    1: { vitoria: 13_000_000, empate: 8_000_000,  derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
+    2: { vitoria: 8_500_000,  empate: 4_000_000,  derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
+    3: { vitoria: 5_000_000,  empate: 2_500_000,  derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
   } as const
 
   const regra = regras[divisao as 1|2|3]
@@ -74,7 +79,8 @@ function calcularPremiacao(time: TimeDados): number {
   const venceuTodas = ultimos5.length === 5 && ultimos5.every(j => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
 
-  return premiacao
+  // aplica o +50% em tudo que foi calculado acima
+  return Math.round(premiacao * BONUS_MULTIPLIER)
 }
 
 /** ===================== Helpers ===================== */
@@ -86,6 +92,7 @@ const contagemDaRodada = (rodada: Rodada) => {
   const feitos = rodada.jogos.filter(isPlacarPreenchido).length
   return { feitos, total }
 }
+
 const contagemGlobal = (rodadas: Rodada[], timeSelecionado?: string) => {
   const lista = !timeSelecionado ? rodadas : rodadas
     .map(r => ({...r, jogos: r.jogos.filter(j => j.mandante === timeSelecionado || j.visitante === timeSelecionado)}))
@@ -289,7 +296,7 @@ export default function Jogos() {
     await descontarSalariosComRegistro(mandanteId)
     await descontarSalariosComRegistro(visitanteId)
 
-    // premiação por desempenho
+    // premiação por desempenho (já com +50% via calcularPremiacao)
     const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
     const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
@@ -422,7 +429,7 @@ export default function Jogos() {
       gols_visitante: undefined,
       renda: undefined,
       publico: undefined,
-      // mantém bonus_pago? Como apagou placar, volta a false
+      // como apagou placar, volta a false
       bonus_pago: false,
     }
 
@@ -680,3 +687,4 @@ export default function Jogos() {
     </div>
   )
 }
+```
