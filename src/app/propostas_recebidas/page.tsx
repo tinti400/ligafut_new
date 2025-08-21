@@ -72,14 +72,14 @@ function Pill({ status }: { status: 'pendente' | 'aceita' | 'recusada' }) {
 }
 
 function TipoBadge({ tipo }: { tipo: string }) {
-  const t = String(tipo || '').replace('_', ' ')
+  const t = String(tipo || '').replaceAll('_', ' ')
   const map: Record<string, string> = {
     dinheiro: 'bg-sky-500/10 text-sky-300 ring-sky-500/30',
     troca: 'bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/30',
-    troca simples: 'bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/30',
-    troca composta: 'bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/30',
+    'troca simples': 'bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/30',
+    'troca composta': 'bg-fuchsia-500/10 text-fuchsia-300 ring-fuchsia-500/30',
     percentual: 'bg-violet-500/10 text-violet-300 ring-violet-500/30',
-    comprar percentual: 'bg-violet-500/10 text-violet-300 ring-violet-500/30',
+    'comprar percentual': 'bg-violet-500/10 text-violet-300 ring-violet-500/30',
   }
   const style = map[t.toLowerCase()] || 'bg-slate-500/10 text-slate-300 ring-slate-500/30'
   return <Badge className={style}>🏷️ {t}</Badge>
