@@ -4,13 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 
-/** ================== Supabase ================== */
+/** === Supabase (client) === */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-/** ================== UUID helper (id NOT NULL) ================== */
+/** === UUID helper === */
 function uuidv4() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -20,12 +20,11 @@ function uuidv4() {
   })
 }
 
-/** ================== Tipos ================== */
+/** === Tipos === */
 interface Time {
   nome: string
   logo_url: string
 }
-
 interface ClassificacaoItem {
   id_time: string
   pontos: number
@@ -38,42 +37,41 @@ interface ClassificacaoItem {
   saldo_gols?: number
   divisao: number
   times: Time
-  // calculados aqui
   pontos_deduzidos?: number
   pontos_ajustados?: number
 }
 
-/** ================== Premiação ==================
- * Divisão 1 (R$) — Top 10:
- * 1º 750mi, 2º 600mi, 3º 550mi, 4º 500mi, 5º 450mi,
- * 6º 425mi, 7º 400mi, 8º 375mi, 9º 350mi, 10º 300mi.
- * Cada divisão abaixo cai 30% (0.7^(divisão-1)).
+/** === Premiação ===
+ * Base da 1ª divisão agora é 850mi e mantemos a MESMA proporção entre posições do seu modelo anterior.
+ * (proporções relativas ao 1º: [1, 0.8, 0.7333, 0.6667, 0.6, 0.5667, 0.5333, 0.5, 0.4667, 0.4])
+ * Divisões inferiores: multiplicador 0.7^(divisão-1).
  */
-const BASE_PREMIOS_DIV1: Record<number, number> = {
-  1: 750_000_000,
-  2: 600_000_000,
-  3: 550_000_000,
-  4: 500_000_000,
-  5: 450_000_000,
-  6: 425_000_000,
-  7: 400_000_000,
-  8: 375_000_000,
-  9: 350_000_000,
-  10: 300_000_000,
-}
+const DIV1_FIRST = 850_000_000
+const DIV1_RATIOS = [
+  1,
+  0.8,
+  0.7333333333333333,
+  0.6666666666666666,
+  0.6,
+  0.5666666666666667,
+  0.5333333333333333,
+  0.5,
+  0.4666666666666667,
+  0.4,
+] as const
 const MAX_POSICOES = 10
 
 function premioDaPosicao(pos: number, divisao: number) {
-  const base = BASE_PREMIOS_DIV1[pos] || 0
-  if (base <= 0) return 0
-  const fator = Math.pow(0.7, Math.max(0, (divisao ?? 1) - 1))
-  return Math.round(base * fator)
+  const idx = pos - 1
+  const baseDiv1 = idx >= 0 && idx < DIV1_RATIOS.length ? Math.round(DIV1_FIRST * DIV1_RATIOS[idx]) : 0
+  if (baseDiv1 <= 0) return 0
+  const fatorDivisao = Math.pow(0.7, Math.max(0, (divisao ?? 1) - 1))
+  return Math.round(baseDiv1 * fatorDivisao)
 }
 
 const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
-/** ================== Página ================== */
 export default function ClassificacaoPage() {
   const [classificacao, setClassificacao] = useState<ClassificacaoItem[]>([])
   const [erro, setErro] = useState<string | null>(null)
@@ -82,7 +80,7 @@ export default function ClassificacaoPage() {
   const [pagando, setPagando] = useState(false)
   const [pagandoTudo, setPagandoTudo] = useState(false)
 
-  // 👉 Começa na Temporada 3 (pode trocar)
+  // começa na Temporada 3
   const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(3)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
 
@@ -91,7 +89,7 @@ export default function ClassificacaoPage() {
 
   const { isAdmin, loading } = useAdmin()
 
-  /** -------- punições -> mapa id_time -> soma -------- */
+  /** -- punições -> mapa id_time -> soma -- */
   async function carregarDeducoesPorTime() {
     const { data, error } = await supabase
       .from('punicoes')
@@ -111,7 +109,7 @@ export default function ClassificacaoPage() {
     return mapa
   }
 
-  /** -------- busca classificação + aplica deduções -------- */
+  /** -- busca classificação + aplica deduções -- */
   const fetchDados = async (temporada: number) => {
     try {
       setCarregando(true)
@@ -141,7 +139,7 @@ export default function ClassificacaoPage() {
     }
   }
 
-  /** -------- checagem duplicidade por divisão -------- */
+  /** -- checagem duplicidade por divisão -- */
   async function jaPagoDaDivisao(div: number): Promise<boolean> {
     const like = `%Premiação Divisão ${div} • Temporada ${temporadaSelecionada}%`
     const { data, error } = await supabase
@@ -169,7 +167,7 @@ export default function ClassificacaoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [divisaoSelecionada, temporadaSelecionada, classificacao.length])
 
-  /** -------- agrupamentos/derivações -------- */
+  /** -- agrupamentos/derivações -- */
   const classificacaoPorDivisao = useMemo(() => {
     const map: Record<number, ClassificacaoItem[]> = {}
     for (const item of classificacao) {
@@ -191,7 +189,7 @@ export default function ClassificacaoPage() {
     return [...arr].sort(
       (a, b) =>
         (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
-        ((b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra))
+        (b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra)
     )
   }, [classificacaoPorDivisao, divisaoSelecionada])
 
@@ -205,6 +203,7 @@ export default function ClassificacaoPage() {
     [premiosCalculados]
   )
 
+  /** estimativa temporada (todas as divisões) */
   const estimativaTotalPremiosTemporada = useMemo(() => {
     return divisoesDisponiveis.reduce((acc, div) => {
       const arr = classificacaoPorDivisao[div] || []
@@ -214,7 +213,7 @@ export default function ClassificacaoPage() {
     }, 0)
   }, [divisoesDisponiveis, classificacaoPorDivisao])
 
-  /** -------- helpers UI -------- */
+  /** -- helpers UI -- */
   const isPrimeiraDivisao = divisaoSelecionada === 1
   const aproveitamento = (it: ClassificacaoItem) => {
     const pts = it.pontos_ajustados ?? it.pontos
@@ -260,9 +259,8 @@ export default function ClassificacaoPage() {
     return 'hover:bg-gray-800/60'
   }
 
-  /** -------- pagar (FORÇA atualizar saldo no frontend) -------- */
+  /** -- pagamento (saldo + movimentação) -- */
   async function creditarPremio(id_time: string, valor: number, descricao: string) {
-    // 1) saldo atual
     const { data: t, error: err1 } = await supabase
       .from('times')
       .select('saldo')
@@ -273,7 +271,6 @@ export default function ClassificacaoPage() {
     const saldoAtual = Number((t as any)?.saldo || 0)
     const novoSaldo = saldoAtual + Number(valor || 0)
 
-    // 2) update saldo
     const { data: updated, error: err2 } = await supabase
       .from('times')
       .update({ saldo: novoSaldo })
@@ -283,7 +280,6 @@ export default function ClassificacaoPage() {
     if (err2) throw err2
     if (!updated) throw new Error('Time não encontrado ao atualizar saldo.')
 
-    // 3) registra movimentação (id obrigatório)
     const { error: err3 } = await supabase.from('movimentacoes_financeiras').insert({
       id: uuidv4(),
       id_time,
@@ -301,11 +297,7 @@ export default function ClassificacaoPage() {
     if (!arr.length) return alert('Sem dados para pagar.')
     if (jaPagoDivisao) return alert('Esta divisão/temporada já possui premiação registrada.')
 
-    if (
-      !confirm(
-        `Confirmar pagamento da premiação da Divisão ${divisaoSelecionada} (Temporada ${temporadaSelecionada})?`
-      )
-    ) {
+    if (!confirm(`Confirmar pagamento da premiação da Divisão ${divisaoSelecionada} (Temporada ${temporadaSelecionada})?`)) {
       return
     }
 
@@ -332,7 +324,6 @@ export default function ClassificacaoPage() {
     }
   }
 
-  /** -------- Encerrar temporada & pagar (todas as divisões) -------- */
   async function encerrarTemporadaEPagarTudo() {
     if (!isAdmin) return alert('Ação restrita ao admin.')
     if (!divisoesDisponiveis.length) return alert('Sem divisões para pagar.')
@@ -356,7 +347,7 @@ export default function ClassificacaoPage() {
         const arr = [...(classificacaoPorDivisao[div] || [])].sort(
           (a, b) =>
             (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
-            ((b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra))
+            (b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra)
         )
         const limite = Math.min(MAX_POSICOES, arr.length)
 
@@ -373,7 +364,6 @@ export default function ClassificacaoPage() {
         divsPagas++
       }
 
-      // opcional: marcar temporada encerrada
       try {
         const res = await fetch('/api/encerrar-temporada', {
           method: 'POST',
@@ -381,9 +371,7 @@ export default function ClassificacaoPage() {
           body: JSON.stringify({ temporada: temporadaSelecionada }),
         })
         if (!res.ok) console.warn('encerrar-temporada retornou não-ok; ignorando.')
-      } catch {
-        /* ignore */
-      }
+      } catch {}
 
       alert(
         `✅ Temporada ${temporadaSelecionada} encerrada!\nDivisões pagas: ${divsPagas}\nPagamentos: ${pagamentos}\nTotal: ${fmtBRL(
@@ -399,7 +387,7 @@ export default function ClassificacaoPage() {
     }
   }
 
-  /** -------- UI -------- */
+  /** === UI === */
   if (erro) {
     return (
       <div className="max-w-6xl mx-auto mt-10 px-4">
@@ -500,8 +488,8 @@ export default function ClassificacaoPage() {
         </div>
       </div>
 
-      {/* Painel de premiação da divisão selecionada */}
-      {divisaoSelecionada && (
+      {/* Painel de premiação por posição — AGORA SÓ ADMIN VÊ */}
+      {isAdmin && divisaoSelecionada && (
         <div className="max-w-6xl mx-auto px-4">
           <div className="rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -516,7 +504,7 @@ export default function ClassificacaoPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={pagarPremiacaoDivisao}
-                  disabled={pagando || jaPagoDivisao || !isAdmin}
+                  disabled={pagando || jaPagoDivisao}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
                     jaPagoDivisao
                       ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
@@ -624,7 +612,7 @@ export default function ClassificacaoPage() {
         </div>
       </div>
 
-      {/* Tabela de classificação + prêmio por time */}
+      {/* Tabela de classificação principal */}
       {divisaoSelecionada && (classificacaoPorDivisao[divisaoSelecionada]?.length ?? 0) > 0 && (
         <div className="max-w-6xl mx-auto px-4 pb-12">
           <div className="mb-3 flex justify-end">
@@ -635,7 +623,7 @@ export default function ClassificacaoPage() {
                     .sort(
                       (a, b) =>
                         (b.pontos_ajustados ?? b.pontos) - (a.pontos_ajustados ?? a.pontos) ||
-                        ((b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra))
+                        (b.gols_pro - b.gols_contra) - (a.gols_pro - a.gols_contra)
                     )
                     .map(
                       (item, i) =>
@@ -688,7 +676,6 @@ export default function ClassificacaoPage() {
 
                     return (
                       <tr key={item.id_time} className={`${linhaCor(index, total)} transition-colors`}>
-                        {/* POS */}
                         <td className="py-2.5 px-4">
                           <div className="flex items-center gap-2">
                             <span className={posBadge(pos)}>{pos}</span>
@@ -696,7 +683,6 @@ export default function ClassificacaoPage() {
                           </div>
                         </td>
 
-                        {/* TIME */}
                         <td className="py-2.5 px-4">
                           <div className="flex items-center gap-3">
                             <img
@@ -713,10 +699,8 @@ export default function ClassificacaoPage() {
                           </div>
                         </td>
 
-                        {/* PONTOS */}
                         <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{pts}</td>
 
-                        {/* APROVEITAMENTO */}
                         <td className="py-2.5 px-2">
                           <div className="flex flex-col items-center gap-1">
                             <div className="w-24 md:w-32 h-2 rounded-full bg-gray-700 overflow-hidden">
@@ -726,7 +710,6 @@ export default function ClassificacaoPage() {
                           </div>
                         </td>
 
-                        {/* DEMAIS CAMPOS */}
                         <td className="py-2.5 px-2 text-center">{item.jogos}</td>
                         <td className="py-2.5 px-2 text-center">{item.vitorias}</td>
                         <td className="py-2.5 px-2 text-center">{item.empates}</td>
@@ -735,12 +718,10 @@ export default function ClassificacaoPage() {
                         <td className="py-2.5 px-2 text-center">{item.gols_contra}</td>
                         <td className="py-2.5 px-2 text-center">{item.saldo_gols}</td>
 
-                        {/* PRÊMIO */}
                         <td className="py-2.5 px-2 text-center font-semibold text-emerald-300">
                           {pos <= MAX_POSICOES ? fmtBRL(premio) : '—'}
                         </td>
 
-                        {/* AÇÃO ADMIN (placeholder) */}
                         {isAdmin && (
                           <td className="py-2.5 px-2 text-center">
                             <button
