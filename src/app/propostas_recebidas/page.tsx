@@ -22,20 +22,13 @@ const toBRL = (n: number | null | undefined) =>
 const pickAnyId = (obj: any): string | null => {
   if (!isObj(obj)) return null
   const cand =
-    (obj as any).id ??
-    (obj as any).jogador_id ??
-    (obj as any).player_id ??
-    (obj as any).elenco_id ??
-    (obj as any).jogadorId ??
-    (obj as any).playerId ??
-    null
+    obj.id ?? obj.jogador_id ?? obj.player_id ?? obj.elenco_id ?? obj.jogadorId ?? obj.playerId ?? null
   if (cand == null) return null
   const s = String(cand).trim()
   return s || null
 }
 
 const extractOfferedIds = (raw: any): string[] => {
-  // aceita array de strings, array de objetos, misto etc.
   const arr: any[] = Array.isArray(raw) ? raw : []
   const ids = arr
     .map((item) => {
@@ -45,29 +38,22 @@ const extractOfferedIds = (raw: any): string[] => {
     })
     .filter(Boolean) as string[]
 
-  // normaliza e filtra por uuid válido
   const unique = Array.from(new Set(ids.map((s) => s.trim())))
   return unique.filter((s) => isUUID(s))
 }
 
-// ====== UI micro-components (somente Tailwind, sem libs extras) ======
+// ====== UI micro-components ======
 function Badge({ children, className = '' }: { children: any; className?: string }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${className}`}
-    >
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${className}`}>
       {children}
     </span>
   )
 }
 
 function Pill({ status }: { status: 'pendente' | 'aceita' | 'recusada' }) {
-  if (status === 'pendente')
-    return (
-      <Badge className="bg-amber-500/10 text-amber-300 ring-amber-500/30">⏳ Pendente</Badge>
-    )
-  if (status === 'aceita')
-    return <Badge className="bg-emerald-500/10 text-emerald-300 ring-emerald-500/30">✅ Aceita</Badge>
+  if (status === 'pendente') return <Badge className="bg-amber-500/10 text-amber-300 ring-amber-500/30">⏳ Pendente</Badge>
+  if (status === 'aceita') return <Badge className="bg-emerald-500/10 text-emerald-300 ring-emerald-500/30">✅ Aceita</Badge>
   return <Badge className="bg-rose-500/10 text-rose-300 ring-rose-500/30">❌ Recusada</Badge>
 }
 
@@ -85,23 +71,20 @@ function TipoBadge({ tipo }: { tipo: string }) {
   return <Badge className={style}>🏷️ {t}</Badge>
 }
 
-function ActionButton(
-  {
-    onClick,
-    variant = 'primary',
-    disabled,
-    children,
-    title,
-  }: {
-    onClick?: () => void
-    variant?: 'primary' | 'danger'
-    disabled?: boolean
-    children: any
-    title?: string
-  }
-) {
-  const base =
-    'inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50'
+function ActionButton({
+  onClick,
+  variant = 'primary',
+  disabled,
+  children,
+  title,
+}: {
+  onClick?: () => void
+  variant?: 'primary' | 'danger'
+  disabled?: boolean
+  children: any
+  title?: string
+}) {
+  const base = 'inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 disabled:opacity-50'
   const styles =
     variant === 'primary'
       ? 'bg-gradient-to-b from-emerald-500 to-emerald-600 text-white shadow-[0_6px_20px_-8px_rgba(16,185,129,0.7)] hover:brightness-110 active:scale-[0.98] focus-visible:ring-emerald-400'
@@ -149,14 +132,12 @@ export default function PropostasRecebidasPage() {
       if (pendentesData) setPendentes(pendentesData)
       if (concluidasData) setConcluidas(concluidasData)
 
-      // Jogadores-alvo
       const idsJogadores = [
         ...(pendentesData?.map((p) => p.jogador_id) || []),
         ...(concluidasData?.map((p) => p.jogador_id) || []),
       ].filter(Boolean)
       if (idsJogadores.length > 0) await buscarJogadores(idsJogadores)
 
-      // Jogadores oferecidos (para mostrar nomes)
       const idsOferecidos = [
         ...(pendentesData?.flatMap((p) => extractOfferedIds(p.jogadores_oferecidos)) || []),
         ...(concluidasData?.flatMap((p) => extractOfferedIds(p.jogadores_oferecidos)) || []),
@@ -189,7 +170,6 @@ export default function PropostasRecebidasPage() {
   }, [])
 
   const aceitarProposta = async (proposta: any) => {
-    // Dados do alvo
     const { data: jogadorData, error: errorJogador } = await supabase
       .from('elenco')
       .select('id, nome, jogos, id_time, valor, salario, imagem_url, posicao')
@@ -208,15 +188,13 @@ export default function PropostasRecebidasPage() {
     if (loadingPropostaId === proposta.id) return
     setLoadingPropostaId(proposta.id)
 
-    // Tipo e valores
     const tipo = String(proposta.tipo_proposta || '').trim().toLowerCase()
-    const dinheiroOferecido: number | null =
-      proposta.valor_oferecido == null ? null : Number(proposta.valor_oferecido)
+    const dinheiroOferecido: number | null = proposta.valor_oferecido == null ? null : Number(proposta.valor_oferecido)
 
     const isTrocaSimples = tipo === 'troca_simples'
     const isTrocaComposta = tipo === 'troca_composta'
     const isDinheiro = tipo === 'dinheiro'
-    const isPercentual = tipo === 'comprar_percentual' || tipo === 'percentual' // compat
+    const isPercentual = tipo === 'comprar_percentual' || tipo === 'percentual'
 
     let valorTransacao = 0
     if (isDinheiro) {
@@ -228,7 +206,6 @@ export default function PropostasRecebidasPage() {
       valorTransacao = Math.round(Number(jogadorData.valor || 0) * (perc / 100))
     }
 
-    // ——— (NOVO) nomes dos oferecidos para descrever no BID ———
     const offeredIdsForBid: string[] = extractOfferedIds(proposta.jogadores_oferecidos)
     let offeredNamesForBid: string[] = []
     if (offeredIdsForBid.length) {
@@ -240,27 +217,17 @@ export default function PropostasRecebidasPage() {
     }
 
     try {
-      // 1) Status
       const { error: eStatus } = await supabase
         .from('propostas_app')
         .update({ status: 'aceita', aceita_em: new Date().toISOString() })
         .eq('id', proposta.id)
       if (eStatus) throw eStatus
 
-      // 2) Saldos / BID
       let comprador: any = null
       let vendedor: any = null
       if (valorTransacao > 0) {
-        const r1 = await supabase
-          .from('times')
-          .select('saldo, nome')
-          .eq('id', proposta.id_time_origem)
-          .single()
-        const r2 = await supabase
-          .from('times')
-          .select('saldo, nome')
-          .eq('id', proposta.id_time_alvo)
-          .single()
+        const r1 = await supabase.from('times').select('saldo, nome').eq('id', proposta.id_time_origem).single()
+        const r2 = await supabase.from('times').select('saldo, nome').eq('id', proposta.id_time_alvo).single()
         if (r1.error) throw r1.error
         if (r2.error) throw r2.error
         comprador = r1.data
@@ -271,79 +238,36 @@ export default function PropostasRecebidasPage() {
         const saldoCompradorDepois = saldoCompradorAntes - valorTransacao
         const saldoVendedorDepois = saldoVendedorAntes + valorTransacao
 
-        const eDeb = await supabase
-          .from('times')
-          .update({ saldo: saldoCompradorDepois })
-          .eq('id', proposta.id_time_origem)
+        const eDeb = await supabase.from('times').update({ saldo: saldoCompradorDepois }).eq('id', proposta.id_time_origem)
         if (eDeb.error) throw eDeb.error
-        const eCred = await supabase
-          .from('times')
-          .update({ saldo: saldoVendedorDepois })
-          .eq('id', proposta.id_time_alvo)
+        const eCred = await supabase.from('times').update({ saldo: saldoVendedorDepois }).eq('id', proposta.id_time_alvo)
         if (eCred.error) throw eCred.error
 
-        await registrarMovimentacao({
-          id_time: proposta.id_time_origem,
-          tipo: 'saida',
-          valor: valorTransacao,
-          descricao: `Compra de ${jogadorData.nome} via proposta`,
-        })
-        await registrarMovimentacao({
-          id_time: proposta.id_time_alvo,
-          tipo: 'entrada',
-          valor: valorTransacao,
-          descricao: `Venda de ${jogadorData.nome} via proposta`,
-        })
+        await registrarMovimentacao({ id_time: proposta.id_time_origem, tipo: 'saida', valor: valorTransacao, descricao: `Compra de ${jogadorData.nome} via proposta` })
+        await registrarMovimentacao({ id_time: proposta.id_time_alvo, tipo: 'entrada', valor: valorTransacao, descricao: `Venda de ${jogadorData.nome} via proposta` })
 
-        // ——— BID (compra/venda com valor) com nomes dos oferecidos quando for TROCA COMPOSTA ———
-        const extraTroca =
-          isTrocaComposta && offeredNamesForBid.length
-            ? ` + ${offeredNamesForBid.join(', ')}`
-            : ''
+        const extraTroca = isTrocaComposta && offeredNamesForBid.length ? ` + ${offeredNamesForBid.join(', ')}` : ''
         await supabase.from('bid').insert({
           tipo_evento: 'transferencia',
-          descricao: `O ${vendedor.nome} vendeu ${jogadorData.nome} ao ${comprador.nome} por ${toBRL(
-            valorTransacao
-          )}${extraTroca}.`,
+          descricao: `O ${vendedor.nome} vendeu ${jogadorData.nome} ao ${comprador.nome} por ${toBRL(valorTransacao)}${extraTroca}.`,
           id_time1: proposta.id_time_alvo,
           id_time2: proposta.id_time_origem,
           valor: valorTransacao,
           data_evento: new Date().toISOString(),
         })
 
-        toast.success(
-          `💰 Caixa do ${vendedor.nome}: ${toBRL(saldoVendedorAntes)} → ${toBRL(
-            saldoVendedorDepois
-          )}`
-        )
-        toast(
-          `💸 Caixa do ${comprador.nome}: ${toBRL(saldoCompradorAntes)} → ${toBRL(
-            saldoCompradorDepois
-          )}`,
-          { icon: '🏦' }
-        )
+        toast.success(`💰 Caixa do ${vendedor.nome}: ${toBRL(saldoVendedorAntes)} → ${toBRL(saldoVendedorDepois)}`)
+        toast(`💸 Caixa do ${comprador.nome}: ${toBRL(saldoCompradorAntes)} → ${toBRL(saldoCompradorDepois)}`, { icon: '🏦' })
       } else {
-        const r1 = await supabase
-          .from('times')
-          .select('nome')
-          .eq('id', proposta.id_time_origem)
-          .single()
-        const r2 = await supabase
-          .from('times')
-          .select('nome')
-          .eq('id', proposta.id_time_alvo)
-          .single()
+        const r1 = await supabase.from('times').select('nome').eq('id', proposta.id_time_origem).single()
+        const r2 = await supabase.from('times').select('nome').eq('id', proposta.id_time_alvo).single()
         comprador = r1.data
         vendedor = r2.data
 
-        const listaTroca = offeredNamesForBid.length
-          ? ` + ${offeredNamesForBid.join(', ')}`
-          : ''
+        const listaTroca = offeredNamesForBid.length ? ` + ${offeredNamesForBid.join(', ')}` : ''
         await supabase.from('bid').insert({
           tipo_evento: 'transferencia',
-          descricao: `Troca: ${vendedor?.nome || 'time A'} ↔ ${
-            comprador?.nome || 'time B'
-          } envolvendo ${jogadorData.nome}${listaTroca}.`,
+          descricao: `Troca: ${vendedor?.nome || 'time A'} ↔ ${comprador?.nome || 'time B'} envolvendo ${jogadorData.nome}${listaTroca}.`,
           id_time1: proposta.id_time_alvo,
           id_time2: proposta.id_time_origem,
           valor: 0,
@@ -353,36 +277,27 @@ export default function PropostasRecebidasPage() {
         toast('🔁 Troca realizada sem movimentação de caixa.', { icon: '🤝' })
       }
 
-      // 3) Alvo → vai para o comprador
       const updatesAlvo: any = { id_time: proposta.id_time_origem, jogos: 0 }
       if (isDinheiro || (isTrocaComposta && valorTransacao > 0)) {
         updatesAlvo.valor = valorTransacao
         updatesAlvo.salario = Math.round(valorTransacao * 0.007)
       }
-      const eAlvo = await supabase
-        .from('elenco')
-        .update(updatesAlvo)
-        .eq('id', proposta.jogador_id)
+      const eAlvo = await supabase.from('elenco').update(updatesAlvo).eq('id', proposta.jogador_id)
       if (eAlvo.error) throw eAlvo.error
 
-      // 4) Oferecidos → vão para o vendedor (time ALVO)
       if (isTrocaSimples || isTrocaComposta) {
         const oferecidosIds = extractOfferedIds(proposta.jogadores_oferecidos)
-
         if (oferecidosIds.length) {
-          // update em lote + returning pra conferir quem moveu
           const { data: moved, error: eOf } = await supabase
             .from('elenco')
             .update({ id_time: proposta.id_time_alvo, jogos: 0 })
             .in('id', oferecidosIds)
-            .select('id') // <= retorna os ids atualizados
+            .select('id')
           if (eOf) throw eOf
 
           const movedSet = new Set((moved || []).map((r) => r.id))
           const notMoved = oferecidosIds.filter((id) => !movedSet.has(id))
-
           if (notMoved.length) {
-            // tenta descobrir nomes para o aviso
             const nomes = notMoved.map((id) => jogadoresOferecidosData[id] || id)
             toast.error(`⚠️ Alguns oferecidos não foram transferidos: ${nomes.join(', ')}`)
             console.warn('Ids não movidos (oferecidos):', notMoved)
@@ -390,14 +305,12 @@ export default function PropostasRecebidasPage() {
         }
       }
 
-      // 5) Notificação
       await supabase.from('notificacoes').insert({
         id_time: proposta.id_time_origem,
         titulo: '✅ Proposta aceita!',
         mensagem: `Sua proposta pelo jogador ${jogadorData.nome} foi aceita.`,
       })
 
-      // 6) Estado local
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
       setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 5))
     } catch (err) {
@@ -449,36 +362,22 @@ export default function PropostasRecebidasPage() {
   const renderCard = (p: any) => {
     const jog = jogadores[p.jogador_id]
     const valorLabel = toBRL(p.valor_oferecido == null ? null : Number(p.valor_oferecido))
-
-    // nomes dos oferecidos para exibir
     const offeredIds = extractOfferedIds(p.jogadores_oferecidos)
-    const oferecidosNomes = offeredIds
-      .map((id) => jogadoresOferecidosData[id] || id)
-      .join(', ') || null
+    const oferecidosNomes = offeredIds.map((id) => jogadoresOferecidosData[id] || id).join(', ') || null
 
     return (
-      <div
-        key={p.id}
-        className="group relative w-full min-w-[260px] overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-20px_rgba(0,0,0,0.6)]"
-      >
-        {/* brilho de borda */}
-        <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-white/10 group-hover:ring-white/20" />
-
+      <div key={p.id} className="group relative w-full min-w-[260px] overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:shadow-lg">
         <div className="flex items-start gap-3">
           <img
             src={jog?.imagem_url || '/jogador_padrao.png'}
             alt={jog?.nome || 'Jogador'}
             className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-white/10"
-            onError={(e) => {
-              ;(e.currentTarget as HTMLImageElement).src = '/jogador_padrao.png'
-            }}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/jogador_padrao.png' }}
           />
 
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-white/90">
-                {jog?.nome || 'Jogador'}
-              </h3>
+              <h3 className="text-sm font-semibold text-white/90">{jog?.nome || 'Jogador'}</h3>
               <TipoBadge tipo={String(p.tipo_proposta)} />
               <Pill status={p.status as any} />
             </div>
@@ -489,9 +388,7 @@ export default function PropostasRecebidasPage() {
         </div>
 
         <div className="mt-3 flex items-center justify-between">
-          <div className="text-base font-bold tracking-tight text-emerald-400">
-            {valorLabel}
-          </div>
+          <div className="text-base font-bold tracking-tight text-emerald-400">{valorLabel}</div>
           {['comprar_percentual', 'percentual'].includes(String(p.tipo_proposta).toLowerCase()) && (
             <div className="text-xs text-slate-300">📊 {p.percentual_desejado}%</div>
           )}
@@ -503,14 +400,9 @@ export default function PropostasRecebidasPage() {
           </div>
         )}
 
-        {p.status === 'pendente' && (
+        {p.status === 'pendente' ? (
           <div className="mt-4 flex gap-2">
-            <ActionButton
-              onClick={() => aceitarProposta(p)}
-              variant="primary"
-              disabled={loadingPropostaId === p.id}
-              title="Aceitar proposta"
-            >
+            <ActionButton onClick={() => aceitarProposta(p)} variant="primary" disabled={loadingPropostaId === p.id} title="Aceitar proposta">
               {loadingPropostaId === p.id ? (
                 <span className="inline-flex items-center gap-2">
                   <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -542,9 +434,7 @@ export default function PropostasRecebidasPage() {
               )}
             </ActionButton>
           </div>
-        )}
-
-        {p.status !== 'pendente' && (
+        ) : (
           <div className="mt-4 flex justify-end">
             <ActionButton onClick={() => excluirProposta(p)} variant="danger" disabled={deletingPropostaId === p.id} title="Excluir proposta">
               {deletingPropostaId === p.id ? (
@@ -561,64 +451,18 @@ export default function PropostasRecebidasPage() {
             </ActionButton>
           </div>
         )}
-              variant="primary"
-              disabled={loadingPropostaId === p.id}
-              title="Aceitar proposta"
-            >
-              {loadingPropostaId === p.id ? (
-                <span className="inline-flex items-center gap-2">
-                  <svg
-                    className="h-3.5 w-3.5 animate-spin"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                    ></path>
-                  </svg>
-                  Processando
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1">✅ Aceitar</span>
-              )}
-            </ActionButton>
-
-            <ActionButton onClick={() => recusarProposta(p.id)} variant="danger" title="Recusar proposta">
-              ❌ Recusar
-            </ActionButton>
-          </div>
-        )}
       </div>
     )
   }
 
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden bg-gradient-to-b from-slate-950 via-slate-930 to-slate-900 text-white">
-      {/* fundo com brilho sutil */}
-      <div className="pointer-events-none absolute inset-0 -z-10 [background:radial-gradient(1200px_600px_at_100%_-20%,rgba(16,185,129,0.08),transparent_60%),radial-gradient(1200px_600px_at_0%_-20%,rgba(59,130,246,0.08),transparent_60%)]" />
-
+    <div className="min-h-screen w-full bg-slate-950 text-white">
       <div className="mx-auto max-w-7xl px-4 py-6">
-        {/* Header */}
         <div className="sticky top-0 z-10 -mx-4 mb-6 border-b border-white/10 bg-slate-950/80 px-4 py-4 backdrop-blur">
           <div className="mx-auto flex max-w-7xl items-end justify-between">
             <div>
-              <h1 className="bg-gradient-to-r from-white via-slate-100 to-emerald-200 bg-clip-text text-2xl font-extrabold tracking-tight text-transparent">
-                📥 Propostas Recebidas
-              </h1>
-              <p className="mt-1 text-xs text-slate-300/80">
-                Gerencie ofertas do mercado: aceite, recuse e acompanhe trocas.
-              </p>
+              <h1 className="text-2xl font-extrabold tracking-tight text-white">📥 Propostas Recebidas</h1>
+              <p className="mt-1 text-xs text-slate-300/80">Gerencie ofertas do mercado: aceite, recuse, exclua e acompanhe trocas.</p>
             </div>
             <div className="flex gap-2">
               <Badge className="bg-emerald-500/10 text-emerald-200 ring-emerald-500/30">{pendentes.length} pendentes</Badge>
@@ -627,15 +471,12 @@ export default function PropostasRecebidasPage() {
           </div>
         </div>
 
-        {/* Pendentes */}
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-white/90">⏳ Pendentes (últimas 10)</h2>
           </div>
           {pendentes.length === 0 ? (
-            <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-slate-300">
-              Nenhuma proposta pendente.
-            </p>
+            <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-slate-300">Nenhuma proposta pendente.</p>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {pendentes.map(renderCard)}
@@ -643,13 +484,10 @@ export default function PropostasRecebidasPage() {
           )}
         </section>
 
-        {/* Concluídas */}
         <section className="mt-8">
           <h2 className="text-lg font-semibold text-white/90">📜 Concluídas (últimas 5)</h2>
           {concluidas.length === 0 ? (
-            <p className="mt-2 rounded-xl border border-white/10 bg-white/5 p-4 text-slate-300">
-              Nenhuma proposta concluída.
-            </p>
+            <p className="mt-2 rounded-xl border border-white/10 bg-white/5 p-4 text-slate-300">Nenhuma proposta concluída.</p>
           ) : (
             <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {concluidas.map(renderCard)}
