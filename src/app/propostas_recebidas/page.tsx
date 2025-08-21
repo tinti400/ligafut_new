@@ -122,6 +122,7 @@ export default function PropostasRecebidasPage() {
   const [jogadoresOferecidosData, setJogadoresOferecidosData] = useState<any>({})
   const [idTime, setIdTime] = useState<string>('')
   const [loadingPropostaId, setLoadingPropostaId] = useState<string | null>(null)
+  const [deletingPropostaId, setDeletingPropostaId] = useState<string | null>(null)
 
   useEffect(() => {
     const id_time = localStorage.getItem('id_time') || ''
@@ -424,6 +425,27 @@ export default function PropostasRecebidasPage() {
     }
   }
 
+  const excluirProposta = async (p: any) => {
+    const textoAviso = p.status === 'aceita'
+      ? 'Excluir esta proposta do histórico? Isso NÃO desfaz a transferência.'
+      : 'Excluir esta proposta?'
+    if (!window.confirm(textoAviso)) return
+    if (deletingPropostaId === p.id) return
+    setDeletingPropostaId(p.id)
+    try {
+      const { error } = await supabase.from('propostas_app').delete().eq('id', p.id)
+      if (error) throw error
+      setPendentes((prev) => prev.filter((x) => x.id !== p.id))
+      setConcluidas((prev) => prev.filter((x) => x.id !== p.id))
+      toast.success('Proposta excluída.')
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro ao excluir a proposta.')
+    } finally {
+      setDeletingPropostaId(null)
+    }
+  }
+
   const renderCard = (p: any) => {
     const jog = jogadores[p.jogador_id]
     const valorLabel = toBRL(p.valor_oferecido == null ? null : Number(p.valor_oferecido))
@@ -485,6 +507,60 @@ export default function PropostasRecebidasPage() {
           <div className="mt-4 flex gap-2">
             <ActionButton
               onClick={() => aceitarProposta(p)}
+              variant="primary"
+              disabled={loadingPropostaId === p.id}
+              title="Aceitar proposta"
+            >
+              {loadingPropostaId === p.id ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                  </svg>
+                  Processando
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1">✅ Aceitar</span>
+              )}
+            </ActionButton>
+
+            <ActionButton onClick={() => recusarProposta(p.id)} variant="danger" title="Recusar proposta">
+              ❌ Recusar
+            </ActionButton>
+
+            <ActionButton onClick={() => excluirProposta(p)} variant="danger" disabled={deletingPropostaId === p.id} title="Excluir proposta">
+              {deletingPropostaId === p.id ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                  </svg>
+                  Excluindo
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1">🗑️ Excluir</span>
+              )}
+            </ActionButton>
+          </div>
+        )}
+
+        {p.status !== 'pendente' && (
+          <div className="mt-4 flex justify-end">
+            <ActionButton onClick={() => excluirProposta(p)} variant="danger" disabled={deletingPropostaId === p.id} title="Excluir proposta">
+              {deletingPropostaId === p.id ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="h-3.5 w-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                  </svg>
+                  Excluindo
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1">🗑️ Excluir</span>
+              )}
+            </ActionButton>
+          </div>
+        )}
               variant="primary"
               disabled={loadingPropostaId === p.id}
               title="Aceitar proposta"
