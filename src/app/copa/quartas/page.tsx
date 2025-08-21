@@ -27,8 +27,12 @@ type JogoQuartas = {
 
 /** ========= Utils ========= */
 const mentionsVolta = (msg?: string) => {
-  const s = String(msg || '')
+  const s = String(msg || '').toLowerCase()
   return s.includes('gols_time1_volta') || s.includes('gols_time2_volta') || s.includes('_volta')
+}
+const mentionsOrdem = (msg?: string) => {
+  const s = String(msg || '').toLowerCase()
+  return s.includes('ordem') && s.includes('does not exist')
 }
 const normInt = (val: string): number | null => {
   if (val === '') return null
@@ -235,11 +239,11 @@ export default function QuartasPage() {
       return
     }
     const sorteados = shuffle(vencedores)
-    const semi: any[] = []
+    const semiBase = []
     for (let i = 0; i < sorteados.length; i += 2) {
       if (sorteados[i + 1]) {
-        semi.push({
-          rodada: 1,
+        semiBase.push({
+          // ordem pode não existir no schema -> tentamos com e fazemos fallback
           ordem: (i / 2) + 1,
           id_time1: sorteados[i].id,
           id_time2: sorteados[i + 1].id,
@@ -247,7 +251,7 @@ export default function QuartasPage() {
           time2: sorteados[i + 1].nome,
           gols_time1: null,
           gols_time2: null,
-          // se a semifinal for ida/volta no seu schema, mantemos as colunas; se não existir, caímos no fallback abaixo
+          // *_volta pode não existir no schema -> fallback abaixo
           gols_time1_volta: null,
           gols_time2_volta: null,
         })
@@ -255,20 +259,32 @@ export default function QuartasPage() {
     }
 
     try {
-      await supabase.from('copa_semi').delete().neq('id', 0).throwOnError()
+      // apaga tudo de forma segura, independente do tipo da coluna id
+      await supabase.from('copa_semi').delete().not('id', 'is', null).throwOnError()
 
-      // tenta inserir com colunas *_volta; se não existir no schema, insere sem
-      const ins1 = await supabase.from('copa_semi').insert(semi)
-      if (ins1.error && mentionsVolta(ins1.error.message)) {
-        const ins2 = await supabase.from('copa_semi').insert(
-          semi.map(s => ({ ...s, gols_time1_volta: undefined, gols_time2_volta: undefined }))
-        )
+      // 1ª tentativa: inserir com ordem + *_volta
+      let payload = semiBase
+      let ins = await supabase.from('copa_semi').insert(payload)
+      if (ins.error) {
+        // 2ª tentativa: remover *_volta se não existir
+        if (mentionsVolta(ins.error.message)) {
+          payload = payload.map(s => ({ ...s, gols_time1_volta: undefined, gols_time2_volta: undefined }))
+          ins = await supabase.from('copa_semi').insert(payload)
+        }
+      }
+      if (ins.error && mentionsOrdem(ins.error.message)) {
+        // 3ª tentativa: também remover 'ordem'
+        payload = payload.map((s: any) => {
+          const { ordem, ...rest } = s
+          return rest
+        })
+        const ins2 = await supabase.from('copa_semi').insert(payload)
         if (ins2.error) throw ins2.error
-      } else if (ins1.error) {
-        throw ins1.error
+      } else if (ins.error) {
+        throw ins.error
       }
 
-      const textoSorteio = semi
+      const textoSorteio = semiBase
         .map(s => `(${s.time1} x ${s.time2})`)
         .join(' | ')
       toast.success(`Semifinais sorteadas: ${textoSorteio}`)
@@ -496,7 +512,7 @@ function ScoreRail({
   )
 }
 
-/** Lado do time (logo + nome + papel) exatamente como no layout de Oitavas */
+/** Lado do time (logo + nome + papel) */
 function TeamSide({
   name, logo, align, role
 }:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
