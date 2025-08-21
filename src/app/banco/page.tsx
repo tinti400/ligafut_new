@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -8,40 +8,48 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
+/** ============ Utils ============ */
 function formatBRL(valor: number) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+/** Juros por quantidade de turnos */
+const jurosPorTurno: Record<number, number> = {
+  1: 0.05,
+  2: 0.10,
+  3: 0.15,
+  4: 0.20,
+}
+
+/** Limites por divisão – AQUI você pode “turbinar” o crédito */
+const limitesDivisao: Record<string, number> = {
+  '1': 1_200_000_000, // 1.2 bi
+  '2': 900_000_000,   // 900 mi
+  '3': 600_000_000,   // 600 mi
 }
 
 export default function BancoPage() {
   const [loading, setLoading] = useState(true)
   const [idTime, setIdTime] = useState<string | null>(null)
   const [nomeTime, setNomeTime] = useState('')
-  const [divisao, setDivisao] = useState('')
+  const [divisao, setDivisao] = useState('1')
   const [saldoAtual, setSaldoAtual] = useState(0)
+
   const [emprestimoAtivo, setEmprestimoAtivo] = useState<any | null>(null)
-  const [limiteMaximo, setLimiteMaximo] = useState(500_000_000)
-  const [valorEmprestimoMilhoes, setValorEmprestimoMilhoes] = useState(20)
-  const [parcelas, setParcelas] = useState(1)
-  const [juros, setJuros] = useState(0.05)
+
+  // UI / simulação
+  const [limiteMaximo, setLimiteMaximo] = useState(600_000_000)
+  const [valorEmprestimoMilhoes, setValorEmprestimoMilhoes] = useState(100) // default 100 mi
+  const [parcelas, setParcelas] = useState(2)
+  const [juros, setJuros] = useState(jurosPorTurno[2])
   const [jogadoresGarantia, setJogadoresGarantia] = useState<any[]>([])
   const [jogadorSelecionadoIndex, setJogadorSelecionadoIndex] = useState(0)
+
   const [mensagem, setMensagem] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [pagando, setPagando] = useState(false)
 
-  const limitesDivisao: Record<string, number> = {
-    '1': 500_000_000,
-    '2': 300_000_000,
-    '3': 150_000_000,
-  }
-
-  const jurosPorTurno: Record<number, number> = {
-    1: 0.05,
-    2: 0.10,
-    3: 0.15,
-    4: 0.20,
-  }
-
+  /** ============ Carregar dados iniciais ============ */
   useEffect(() => {
     async function carregarDados() {
       try {
@@ -56,6 +64,7 @@ export default function BancoPage() {
         setIdTime(id_time_local)
         setNomeTime(nome_time_local)
 
+        // Buscar divisão e saldo
         const { data: timeData, error: errorTime } = await supabase
           .from('times')
           .select('divisao, saldo')
@@ -68,11 +77,14 @@ export default function BancoPage() {
           return
         }
 
-        const div = String(timeData.divisao).trim()
+        const div = String(timeData.divisao ?? '1').trim()
         setDivisao(div)
-        setSaldoAtual(timeData.saldo || 0)
-        setLimiteMaximo(limitesDivisao[div] || 500_000_000)
+        setSaldoAtual(Number(timeData.saldo || 0))
 
+        const limite = limitesDivisao[div] ?? 600_000_000
+        setLimiteMaximo(limite)
+
+        // Verificar empréstimo ativo
         const { data: emprestimos, error: errorEmprestimo } = await supabase
           .from('emprestimos')
           .select('*')
@@ -91,9 +103,10 @@ export default function BancoPage() {
           return
         }
 
+        // Buscar top 7 jogadores para garantia
         const { data: elenco, error: errorElenco } = await supabase
           .from('elenco')
-          .select('*')
+          .select('id, nome, posicao, valor')
           .eq('id_time', id_time_local)
 
         if (errorElenco || !elenco) {
@@ -102,9 +115,11 @@ export default function BancoPage() {
           return
         }
 
-        const jogadoresTop7 = elenco.sort((a, b) => (b.valor || 0) - (a.valor || 0)).slice(0, 7)
-        setJogadoresGarantia(jogadoresTop7)
+        const jogadoresTop7 = [...elenco]
+          .sort((a, b) => (Number(b.valor) || 0) - (Number(a.valor) || 0))
+          .slice(0, 7)
 
+        setJogadoresGarantia(jogadoresTop7)
         setLoading(false)
       } catch {
         setMensagem('Erro desconhecido ao carregar dados.')
@@ -112,36 +127,53 @@ export default function BancoPage() {
       }
     }
     carregarDados()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** ============ Atualiza juros quando muda o número de parcelas ============ */
   useEffect(() => {
     setJuros(jurosPorTurno[parcelas] || 0.20)
   }, [parcelas])
 
-  const valorEmprestimo = valorEmprestimoMilhoes * 1_000_000
-  const valorTotal = Math.round(valorEmprestimo * (1 + juros))
-  const valorParcela = Math.round(valorTotal / parcelas)
+  /** ============ Cálculos de simulação ============ */
+  const valorEmprestimo = useMemo(
+    () => Math.max(0, valorEmprestimoMilhoes * 1_000_000),
+    [valorEmprestimoMilhoes]
+  )
 
+  const valorTotal = useMemo(() => Math.round(valorEmprestimo * (1 + juros)), [valorEmprestimo, juros])
+  const valorParcela = useMemo(() => Math.round(valorTotal / parcelas), [valorTotal, parcelas])
+
+  const usoDoLimitePct = useMemo(() => {
+    if (limiteMaximo <= 0) return 0
+    return Math.min(100, Math.round((valorEmprestimo / limiteMaximo) * 100))
+  }, [valorEmprestimo, limiteMaximo])
+
+  /** ============ Ações ============ */
   async function solicitarEmprestimo() {
     if (!idTime) {
       setMensagem('Usuário não autenticado.')
       return
     }
-    if (valorEmprestimo > limiteMaximo) {
-      setMensagem('Valor do empréstimo excede limite para sua divisão.')
+    if (valorEmprestimo <= 0) {
+      setMensagem('Informe um valor de empréstimo válido.')
       return
     }
-    if (jogadoresGarantia.length === 0) {
+    if (valorEmprestimo > limiteMaximo) {
+      setMensagem('Valor do empréstimo excede o limite para sua divisão.')
+      return
+    }
+    if (!jogadoresGarantia.length) {
       setMensagem('Não há jogadores suficientes para garantia.')
       return
     }
 
     const jogadorGarantia = jogadoresGarantia[jogadorSelecionadoIndex]
-
     setEnviando(true)
     setMensagem(null)
 
     try {
+      // Cria o empréstimo (status: ativo)
       const { error: insertError } = await supabase.from('emprestimos').insert({
         id_time: idTime,
         nome_time: nomeTime,
@@ -153,9 +185,10 @@ export default function BancoPage() {
         status: 'ativo',
         data_inicio: new Date().toISOString(),
         jogador_garantia: {
+          id: jogadorGarantia.id,
           nome: jogadorGarantia.nome,
           posicao: jogadorGarantia.posicao,
-          valor: jogadorGarantia.valor,
+          valor: Number(jogadorGarantia.valor || 0),
         },
       })
 
@@ -165,6 +198,7 @@ export default function BancoPage() {
         return
       }
 
+      // Credita o valor solicitado no saldo do time
       const novoSaldo = saldoAtual + valorEmprestimo
       const { error: saldoError } = await supabase
         .from('times')
@@ -177,8 +211,7 @@ export default function BancoPage() {
         return
       }
 
-      setMensagem('✅ Empréstimo aprovado e saldo atualizado com sucesso!')
-      setEnviando(false)
+      setSaldoAtual(novoSaldo)
       setEmprestimoAtivo({
         valor_total: valorTotal,
         parcelas_totais: parcelas,
@@ -188,8 +221,10 @@ export default function BancoPage() {
         jogador_garantia: jogadorGarantia,
         status: 'ativo',
       })
+      setMensagem('✅ Empréstimo aprovado! O valor já foi creditado no caixa do clube.')
     } catch {
       setMensagem('Erro desconhecido ao solicitar empréstimo.')
+    } finally {
       setEnviando(false)
     }
   }
@@ -206,6 +241,7 @@ export default function BancoPage() {
     setMensagem(null)
 
     try {
+      // Debita do caixa
       const novoSaldo = saldoAtual - emprestimoAtivo.valor_parcela
       const { error: saldoError } = await supabase
         .from('times')
@@ -218,13 +254,14 @@ export default function BancoPage() {
         return
       }
 
-      const parcelasRestantesNovas = emprestimoAtivo.parcelas_restantes - 1
+      // Atualiza parcelas do empréstimo
+      const parcelasRestantesNovas = Number(emprestimoAtivo.parcelas_restantes) - 1
       const statusNovo = parcelasRestantesNovas <= 0 ? 'quitado' : 'ativo'
 
       const { error: emprestimoError } = await supabase
         .from('emprestimos')
         .update({
-          parcelas_restantes: parcelasRestantesNovas,
+          parcelas_restantes: Math.max(0, parcelasRestantesNovas),
           status: statusNovo,
         })
         .eq('id_time', idTime)
@@ -237,13 +274,18 @@ export default function BancoPage() {
       }
 
       setSaldoAtual(novoSaldo)
-      setEmprestimoAtivo({
-        ...emprestimoAtivo,
-        parcelas_restantes: parcelasRestantesNovas,
-        status: statusNovo,
-      })
 
-      setMensagem('✅ Parcela paga com sucesso!')
+      if (statusNovo === 'quitado') {
+        setEmprestimoAtivo({ ...emprestimoAtivo, parcelas_restantes: 0, status: 'quitado' })
+        setMensagem('🏁 Empréstimo totalmente quitado! Parabéns.')
+      } else {
+        setEmprestimoAtivo({
+          ...emprestimoAtivo,
+          parcelas_restantes: parcelasRestantesNovas,
+          status: 'ativo',
+        })
+        setMensagem('✅ Parcela paga com sucesso!')
+      }
     } catch {
       setMensagem('Erro desconhecido ao pagar parcela.')
     } finally {
@@ -251,303 +293,494 @@ export default function BancoPage() {
     }
   }
 
-  if (loading)
+  /** ============ Render ============ */
+  if (loading) {
     return (
-      <p
-        style={{
-          textAlign: 'center',
-          marginTop: 30,
-          color: '#ddd',
-          fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-        }}
-      >
-        Carregando dados...
-      </p>
+      <p style={{ textAlign: 'center', marginTop: 30, color: '#ddd' }}>Carregando dados...</p>
     )
-  if (mensagem && !emprestimoAtivo)
-    return (
-      <p
-        style={{
-          textAlign: 'center',
-          marginTop: 30,
-          color: '#ddd',
-          fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-        }}
-      >
-        {mensagem}
-      </p>
-    )
+  }
 
   return (
     <main
       style={{
-        maxWidth: 700,
+        maxWidth: 980,
         margin: '40px auto',
-        padding: 20,
+        padding: '24px',
         fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-        backgroundColor: '#121212',
-        color: '#eee',
-        borderRadius: 12,
-        boxShadow: '0 0 10px #000',
+        background: 'linear-gradient(180deg, #0e0e10, #111113 60%, #0b0b0d)',
+        color: '#eaeef2',
+        borderRadius: 16,
+        boxShadow: '0 0 20px rgba(0,0,0,0.6)',
       }}
     >
-      <h1 style={{ textAlign: 'center', marginBottom: 30 }}>🏦 Banco LigaFut</h1>
-      <p style={{ textAlign: 'center', marginBottom: 30, fontSize: 18 }}>
-        Invista no seu clube e escolha um jogador como garantia do empréstimo.
-      </p>
+      {/* Cabeçalho */}
+      <header
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto',
+          gap: 16,
+          alignItems: 'center',
+          marginBottom: 24,
+          padding: '16px 20px',
+          background:
+            'radial-gradient(1200px 400px at 10% -50%, rgba(56,142,60,0.25), transparent 60%), radial-gradient(900px 300px at 90% -50%, rgba(25,118,210,0.25), transparent 60%)',
+          border: '1px solid #1f242b',
+          borderRadius: 14,
+        }}
+      >
+        <div>
+          <h1 style={{ margin: 0, fontSize: 28, letterSpacing: 0.3 }}>🏦 Banco LigaFut</h1>
+          <p style={{ margin: '6px 0 0', opacity: 0.9 }}>
+            Limites maiores e escalonados por divisão. Selecione um jogador como garantia e
+            simule o seu crédito.
+          </p>
+        </div>
 
+        <div
+          style={{
+            justifySelf: 'end',
+            padding: '10px 14px',
+            borderRadius: 10,
+            backgroundColor: '#15171a',
+            border: '1px solid #23262b',
+            textAlign: 'right',
+            minWidth: 260,
+          }}
+        >
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Clube</div>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>{nomeTime || '—'}</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Saldo atual</div>
+          <div style={{ fontWeight: 700, color: '#81c784' }}>{formatBRL(saldoAtual)}</div>
+        </div>
+      </header>
+
+      {/* Empréstimo ativo */}
       {emprestimoAtivo ? (
         <section
           style={{
-            border: '1px solid #333',
-            borderRadius: 12,
-            padding: 25,
-            backgroundColor: '#222',
-            boxShadow: '0 4px 8px rgba(0,0,0,0.5)',
-            maxWidth: 600,
-            margin: '0 auto',
+            border: '1px solid #23262b',
+            borderRadius: 14,
+            padding: 22,
+            backgroundColor: '#141619',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.25) inset',
+            marginBottom: 24,
           }}
         >
-          <h2 style={{ color: '#90caf9', marginBottom: 20, textAlign: 'center' }}>
-            Empréstimo Ativo Detectado
+          <h2 style={{ marginTop: 0, color: '#90caf9', textAlign: 'center' }}>
+            Empréstimo Ativo
           </h2>
+
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 15,
-              fontSize: 17,
-              color: '#bbdefb',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 16,
+              fontSize: 16,
             }}
           >
-            <div>
-              <b>Valor Total:</b> {formatBRL(emprestimoAtivo.valor_total)}
-            </div>
-            <div>
-              <b>Parcelas Totais:</b> {emprestimoAtivo.parcelas_totais}
-            </div>
-            <div>
-              <b>Parcelas Restantes:</b> {emprestimoAtivo.parcelas_restantes}
-            </div>
-            <div>
-              <b>Valor por Turno:</b> {formatBRL(emprestimoAtivo.valor_parcela)}
-            </div>
-            <div>
-              <b>Juros:</b> {(emprestimoAtivo.juros * 100).toFixed(0)}%
-            </div>
-            {emprestimoAtivo.jogador_garantia && (
-              <div>
-                <b>Garantia:</b> {emprestimoAtivo.jogador_garantia.nome} (
-                {emprestimoAtivo.jogador_garantia.posicao})
-              </div>
+            <Info title="Valor Total" value={formatBRL(emprestimoAtivo.valor_total)} />
+            <Info title="Parcelas Totais" value={String(emprestimoAtivo.parcelas_totais)} />
+            <Info title="Restantes" value={String(emprestimoAtivo.parcelas_restantes)} />
+            <Info title="Por Turno" value={formatBRL(emprestimoAtivo.valor_parcela)} />
+            <Info title="Juros" value={`${(emprestimoAtivo.juros * 100).toFixed(0)}%`} />
+            {emprestimoAtivo?.jogador_garantia?.nome && (
+              <Info
+                title="Garantia"
+                value={`${emprestimoAtivo.jogador_garantia.nome} (${emprestimoAtivo.jogador_garantia.posicao})`}
+                colSpan={3}
+              />
             )}
           </div>
-          <p
-            style={{
-              marginTop: 25,
-              fontWeight: 'bold',
-              textAlign: 'center',
-              color: '#ef9a9a',
-            }}
-          >
-            Por favor, quite o empréstimo ativo antes de solicitar um novo.
-          </p>
 
           {emprestimoAtivo.status === 'ativo' && emprestimoAtivo.parcelas_restantes > 0 && (
-            <div style={{ marginTop: 25, textAlign: 'center' }}>
+            <div style={{ marginTop: 22, textAlign: 'center' }}>
               <button
                 onClick={pagarParcela}
                 disabled={pagando}
                 style={{
-                  padding: '12px 25px',
+                  padding: '12px 28px',
                   fontSize: 18,
-                  fontWeight: 'bold',
+                  fontWeight: 800,
                   color: '#fff',
-                  backgroundColor: pagando ? '#555' : '#1976d2',
+                  background:
+                    pagando
+                      ? '#3f4a55'
+                      : 'linear-gradient(180deg, #1f6fd6 0%, #155ab2 100%)',
                   border: 'none',
-                  borderRadius: 8,
+                  borderRadius: 10,
                   cursor: pagando ? 'not-allowed' : 'pointer',
-                  boxShadow: pagando ? 'none' : '0 4px 10px rgba(25,118,210,0.7)',
-                  transition: 'background-color 0.3s ease',
+                  boxShadow: pagando ? 'none' : '0 10px 18px rgba(33, 150, 243, 0.25)',
+                  transition: 'transform .04s ease',
                 }}
               >
                 {pagando ? 'Processando...' : '💸 Pagar Parcela'}
               </button>
             </div>
           )}
+
+          {mensagem && (
+            <p
+              style={{
+                marginTop: 16,
+                fontWeight: 700,
+                textAlign: 'center',
+                color: mensagem.startsWith('✅') ? '#81c784' : '#ef9a9a',
+              }}
+            >
+              {mensagem}
+            </p>
+          )}
         </section>
       ) : (
         <>
-          <div
+          {/* Painel de Limite */}
+          <section
             style={{
-              maxWidth: 600,
-              margin: '0 auto',
-              backgroundColor: '#222',
-              padding: 25,
-              borderRadius: 12,
-              boxShadow: '0 3px 6px rgba(0,0,0,0.7)',
-              color: '#eee',
+              border: '1px solid #23262b',
+              borderRadius: 14,
+              padding: 22,
+              backgroundColor: '#141619',
+              marginBottom: 24,
             }}
           >
-            <p style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 15 }}>
-              Limite de crédito para divisão{' '}
-              <span style={{ color: '#64b5f6' }}>{divisao.toUpperCase()}</span>:
-              <span style={{ color: '#81c784', marginLeft: 10 }}>{formatBRL(limiteMaximo)}</span>
-            </p>
-
-            <label style={{ display: 'block', marginBottom: 20 }}>
-              💰 <strong>Valor do Empréstimo (milhões):</strong>
-              <input
-                type="number"
-                min={10}
-                max={Math.floor(limiteMaximo / 1_000_000)}
-                step={5}
-                value={valorEmprestimoMilhoes}
-                onChange={(e) => setValorEmprestimoMilhoes(Number(e.target.value))}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 16,
+                alignItems: 'stretch',
+              }}
+            >
+              <Info title="Divisão" value={`Divisão ${divisao}`} />
+              <Info title="Limite de Crédito" value={formatBRL(limiteMaximo)} />
+              <div
                 style={{
-                  marginLeft: 12,
-                  width: '100px',
-                  padding: '6px 8px',
-                  borderRadius: 6,
-                  border: '1.5px solid #555',
-                  fontSize: 16,
-                  backgroundColor: '#121212',
-                  color: '#eee',
-                }}
-              />
-            </label>
-
-            <label style={{ display: 'block', marginBottom: 25 }}>
-              📆 <strong>Quantidade de Turnos para pagamento:</strong>
-              <select
-                value={parcelas}
-                onChange={(e) => setParcelas(Number(e.target.value))}
-                style={{
-                  marginLeft: 12,
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  border: '1.5px solid #555',
-                  fontSize: 16,
-                  backgroundColor: '#121212',
-                  color: '#eee',
+                  background: '#0f1114',
+                  border: '1px solid #1f242b',
+                  borderRadius: 12,
+                  padding: 12,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
                 }}
               >
-                {[1, 2, 3, 4].map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+                  Uso do Limite (simulação)
+                </div>
+                <div
+                  style={{
+                    height: 10,
+                    background: '#1a1d22',
+                    borderRadius: 999,
+                    overflow: 'hidden',
+                    border: '1px solid #23262b',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${usoDoLimitePct}%`,
+                      height: '100%',
+                      background:
+                        'linear-gradient(90deg, rgba(129,199,132,0.95), rgba(76,175,80,0.95))',
+                    }}
+                  />
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, textAlign: 'right', opacity: 0.85 }}>
+                  {usoDoLimitePct}%
+                </div>
+              </div>
+            </div>
+          </section>
 
-            <hr style={{ margin: '20px 0', borderColor: '#444' }} />
+          {/* Simulador */}
+          <section
+            style={{
+              border: '1px solid #23262b',
+              borderRadius: 14,
+              padding: 22,
+              backgroundColor: '#141619',
+              marginBottom: 24,
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>🧮 Simulador de Empréstimo</h2>
 
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'auto auto',
-                gap: 15,
-                fontSize: 16,
-                marginBottom: 25,
-                color: '#cfd8dc',
+                gridTemplateColumns: '1.2fr 1fr',
+                gap: 24,
               }}
             >
+              {/* Coluna esquerda: controles */}
               <div>
-                <b>Valor Total com Juros:</b> <br />
-                <span style={{ color: '#81c784' }}>{formatBRL(valorTotal)}</span>
+                {/* Valor (range + number) */}
+                <div
+                  style={{
+                    background: '#0f1114',
+                    border: '1px solid #1f242b',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 16,
+                  }}
+                >
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>
+                    💰 Valor do Empréstimo (em milhões)
+                  </label>
+
+                  <input
+                    type="range"
+                    min={10}
+                    max={Math.floor(limiteMaximo / 1_000_000)}
+                    step={5}
+                    value={valorEmprestimoMilhoes}
+                    onChange={(e) => setValorEmprestimoMilhoes(Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+
+                  <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      min={10}
+                      max={Math.floor(limiteMaximo / 1_000_000)}
+                      step={5}
+                      value={valorEmprestimoMilhoes}
+                      onChange={(e) => setValorEmprestimoMilhoes(Number(e.target.value))}
+                      style={{
+                        width: 120,
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        border: '1.5px solid #2b2f35',
+                        background: '#0c0e11',
+                        color: '#eaeef2',
+                        fontWeight: 700,
+                      }}
+                    />
+                    <span style={{ opacity: 0.7 }}>= {formatBRL(valorEmprestimo)}</span>
+                  </div>
+                </div>
+
+                {/* Parcelas */}
+                <div
+                  style={{
+                    background: '#0f1114',
+                    border: '1px solid #1f242b',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 16,
+                  }}
+                >
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>
+                    📆 Quantidade de Turnos (parcelas)
+                  </label>
+                  <select
+                    value={parcelas}
+                    onChange={(e) => setParcelas(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1.5px solid #2b2f35',
+                      background: '#0c0e11',
+                      color: '#eaeef2',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {[1, 2, 3, 4].map((p) => (
+                      <option key={p} value={p}>
+                        {p} turno{p > 1 ? 's' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+                    Juros aplicado: <b>{(juros * 100).toFixed(0)}%</b>
+                  </div>
+                </div>
+
+                {/* Garantia */}
+                <div
+                  style={{
+                    background: '#0f1114',
+                    border: '1px solid #1f242b',
+                    borderRadius: 12,
+                    padding: 16,
+                  }}
+                >
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>
+                    🎯 Jogador como Garantia (Top 7 do elenco)
+                  </label>
+                  <select
+                    value={jogadorSelecionadoIndex}
+                    onChange={(e) => setJogadorSelecionadoIndex(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1.5px solid #2b2f35',
+                      background: '#0c0e11',
+                      color: '#eaeef2',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {jogadoresGarantia.map((jogador, i) => (
+                      <option key={jogador.id} value={i}>
+                        {`${jogador.nome} - ${jogador.posicao} (${formatBRL(
+                          Number(jogador.valor || 0)
+                        )})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div>
-                <b>Parcelas:</b> <br />
-                <span>{parcelas}x (por turno)</span>
-              </div>
-              <div>
-                <b>Valor por Turno:</b> <br />
-                <span>{formatBRL(valorParcela)}</span>
-              </div>
-              <div>
-                <b>Juros Aplicados:</b> <br />
-                <span>{(juros * 100).toFixed(0)}%</span>
+
+              {/* Coluna direita: resumo & ação */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                }}
+              >
+                <div
+                  style={{
+                    background: '#0f1114',
+                    border: '1px solid #1f242b',
+                    borderRadius: 12,
+                    padding: 16,
+                  }}
+                >
+                  <h3 style={{ marginTop: 0, marginBottom: 12 }}>Resumo da Simulação</h3>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: 10,
+                      fontSize: 16,
+                    }}
+                  >
+                    <InfoCompact title="Total com Juros" value={formatBRL(valorTotal)} />
+                    <InfoCompact title="Parcelas" value={`${parcelas}x / por turno`} />
+                    <InfoCompact title="Valor por Turno" value={formatBRL(valorParcela)} />
+                    <InfoCompact title="Juros" value={`${(juros * 100).toFixed(0)}%`} />
+                  </div>
+                </div>
+
+                <button
+                  disabled={enviando || valorEmprestimo > limiteMaximo || emprestimoAtivo}
+                  onClick={solicitarEmprestimo}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    fontSize: 18,
+                    fontWeight: 900,
+                    color: '#fff',
+                    background:
+                      enviando
+                        ? '#3f4a55'
+                        : 'linear-gradient(180deg, #2e7d32 0%, #1b5e20 100%)',
+                    border: 'none',
+                    borderRadius: 12,
+                    cursor: enviando ? 'not-allowed' : 'pointer',
+                    boxShadow: enviando ? 'none' : '0 16px 28px rgba(56,142,60,0.25)',
+                    transition: 'transform .04s ease',
+                  }}
+                  title={
+                    emprestimoAtivo
+                      ? 'Já existe um empréstimo ativo.'
+                      : valorEmprestimo > limiteMaximo
+                      ? 'Valor solicitado excede o limite para a sua divisão.'
+                      : ''
+                  }
+                >
+                  {enviando ? 'Enviando...' : '✅ Solicitar Empréstimo'}
+                </button>
+
+                {mensagem && (
+                  <p
+                    style={{
+                      marginTop: 4,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      color: mensagem.startsWith('✅') ? '#81c784' : '#ef9a9a',
+                    }}
+                  >
+                    {mensagem}
+                  </p>
+                )}
               </div>
             </div>
+          </section>
 
-            <label style={{ display: 'block', marginBottom: 30 }}>
-              🎯 <strong>Selecione um jogador como garantia:</strong>
-              <select
-                value={jogadorSelecionadoIndex}
-                onChange={(e) => setJogadorSelecionadoIndex(Number(e.target.value))}
-                style={{
-                  marginLeft: 12,
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  border: '1.5px solid #555',
-                  fontSize: 16,
-                  width: '100%',
-                  backgroundColor: '#121212',
-                  color: '#eee',
-                }}
-              >
-                {jogadoresGarantia.map((jogador, i) => (
-                  <option key={jogador.id} value={i}>
-                    {`${jogador.nome} - ${jogador.posicao} (${formatBRL(jogador.valor)})`}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button
-              disabled={enviando || valorEmprestimo > limiteMaximo}
-              onClick={solicitarEmprestimo}
-              style={{
-                width: '100%',
-                padding: '14px',
-                fontSize: 18,
-                fontWeight: 'bold',
-                color: '#fff',
-                backgroundColor: enviando ? '#555' : '#388e3c',
-                border: 'none',
-                borderRadius: 8,
-                cursor: enviando ? 'not-allowed' : 'pointer',
-                boxShadow: enviando ? 'none' : '0 4px 10px rgba(56,142,60,0.7)',
-                transition: 'background-color 0.3s ease',
-              }}
-            >
-              {enviando ? 'Enviando...' : '✅ Solicitar Empréstimo'}
-            </button>
-
-            {mensagem && (
-              <p
-                style={{
-                  marginTop: 20,
-                  fontWeight: 'bold',
-                  textAlign: 'center',
-                  color: mensagem.startsWith('✅') ? '#81c784' : '#ef9a9a',
-                }}
-              >
-                {mensagem}
-              </p>
-            )}
-          </div>
+          {/* Ajuda */}
+          <details
+            style={{
+              fontSize: 15,
+              color: '#cbd5e1',
+              background: '#101215',
+              border: '1px solid #23262b',
+              borderRadius: 12,
+              padding: '12px 16px',
+            }}
+          >
+            <summary style={{ cursor: 'pointer', fontWeight: 800 }}>
+              ℹ️ Como funciona o parcelamento por turno?
+            </summary>
+            <ul style={{ marginTop: 12, paddingLeft: 20, lineHeight: 1.65 }}>
+              <li>1 turno → 5% de juros</li>
+              <li>2 turnos → 10% de juros</li>
+              <li>3 turnos → 15% de juros</li>
+              <li>4 turnos → 20% de juros</li>
+            </ul>
+            <p style={{ marginTop: 6 }}>
+              Ao final de cada turno, o sistema cobra automaticamente 1 parcela do seu empréstimo.
+            </p>
+            <p style={{ marginTop: 6 }}>
+              <b>Garantia obrigatória:</b> escolha um jogador entre os 7 mais valiosos do seu elenco.
+            </p>
+          </details>
         </>
       )}
-
-      <hr style={{ marginTop: 40, marginBottom: 30, borderColor: '#444' }} />
-      <details style={{ fontSize: 15, maxWidth: 600, margin: '0 auto', color: '#ccc' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
-          ℹ️ Como funciona o parcelamento por turno?
-        </summary>
-        <ul style={{ marginTop: 12, paddingLeft: 20, lineHeight: 1.6 }}>
-          <li>1 turno → 5% de juros</li>
-          <li>2 turnos → 10% de juros</li>
-          <li>3 turnos → 15% de juros</li>
-          <li>4 turnos → 20% de juros</li>
-        </ul>
-        <p style={{ marginTop: 8 }}>
-          Ao final de cada turno, será cobrada 1 parcela automaticamente.
-        </p>
-        <p>
-          <b>É obrigatório escolher um jogador como garantia</b>, entre os 7 mais valiosos do elenco.
-        </p>
-      </details>
     </main>
+  )
+}
+
+/** ============ Componentes de UI pequenos ============ */
+function Info({
+  title,
+  value,
+  colSpan = 1,
+}: {
+  title: string
+  value: string
+  colSpan?: number
+}) {
+  return (
+    <div
+      style={{
+        gridColumn: `span ${colSpan}`,
+        background: '#0f1114',
+        border: '1px solid #1f242b',
+        borderRadius: 12,
+        padding: 12,
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontWeight: 800 }}>{value}</div>
+    </div>
+  )
+}
+
+function InfoCompact({ title, value }: { title: string; value: string }) {
+  return (
+    <div
+      style={{
+        background: '#0c0e11',
+        border: '1px solid #1f242b',
+        borderRadius: 10,
+        padding: 10,
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontWeight: 800 }}>{value}</div>
+    </div>
   )
 }
