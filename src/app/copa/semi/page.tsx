@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
@@ -10,165 +10,448 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ========= Tipos ========= */
+type JogoSemi = {
+  id: number
+  ordem?: number | null
+  id_time1: string
+  id_time2: string
+  time1: string
+  time2: string
+  gols_time1: number | null
+  gols_time2: number | null
+  // opcionais (schema pode não ter)
+  gols_time1_volta?: number | null
+  gols_time2_volta?: number | null
+}
+type Classificacao = { id_time: string; pontos: number }
+
+/** ========= Utils ========= */
+const mentionsVolta = (msg?: string) => {
+  const s = String(msg || '').toLowerCase()
+  return s.includes('gols_time1_volta') || s.includes('gols_time2_volta') || s.includes('_volta')
+}
+const normInt = (val: string): number | null => {
+  if (val === '') return null
+  const n = parseInt(val, 10)
+  if (Number.isNaN(n) || n < 0) return null
+  return n
+}
+const isPlacarPreenchido = (j: JogoSemi, supportsVolta: boolean) => {
+  const idaOk = j.gols_time1 != null && j.gols_time2 != null
+  const voltaOk = !supportsVolta || (j.gols_time1_volta != null && j.gols_time2_volta != null)
+  return idaOk && voltaOk
+}
+
+/** ========= Página ========= */
 export default function SemiPage() {
   const { isAdmin } = useAdmin()
-  const [jogos, setJogos] = useState<any[]>([])
-  const [classificacao, setClassificacao] = useState<any[]>([])
+  const [jogos, setJogos] = useState<JogoSemi[]>([])
+  const [supportsVolta, setSupportsVolta] = useState(true)
+  const [classificacao, setClassificacao] = useState<Classificacao[]>([])
+  const [logosById, setLogosById] = useState<Record<string, string | null>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    buscarJogos()
-    buscarClassificacao()
+    Promise.all([buscarJogos(), buscarClassificacao()]).finally(() => setLoading(false))
   }, [])
 
   async function buscarJogos() {
     setLoading(true)
-    const { data, error } = await supabase
+    // tenta ler com colunas *_volta
+    const q1 = await supabase
       .from('copa_semi')
-      .select('*')
-      .order('id', { ascending: true })
+      .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
+      .order('ordem', { ascending: true })
+
+    let data: any[] | null = q1.data as any
+    let error = q1.error
+
+    if (error && mentionsVolta(error.message)) {
+      setSupportsVolta(false)
+      const q2 = await supabase
+        .from('copa_semi')
+        .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2')
+        .order('ordem', { ascending: true })
+      data = q2.data as any
+      error = q2.error
+    }
 
     if (error) {
       toast.error('Erro ao buscar jogos')
+      setJogos([])
       setLoading(false)
       return
     }
-    setJogos(data || [])
+
+    const arr = (data || []) as JogoSemi[]
+    setJogos(arr)
+
+    // logos
+    const ids = Array.from(new Set(arr.flatMap(j => [j.id_time1, j.id_time2])))
+    if (ids.length) {
+      const { data: times } = await supabase
+        .from('times')
+        .select('id, logo_url')
+        .in('id', ids)
+      const map: Record<string, string | null> = {}
+      ;(times || []).forEach(t => { map[t.id] = t.logo_url ?? null })
+      setLogosById(map)
+    } else {
+      setLogosById({})
+    }
+
     setLoading(false)
   }
 
   async function buscarClassificacao() {
-    const { data, error } = await supabase.from('classificacao').select('*')
-    if (!error && data) setClassificacao(data)
+    const { data, error } = await supabase.from('classificacao').select('id_time, pontos')
+    if (!error && data) setClassificacao(data as any)
+    else setClassificacao([])
   }
 
-  async function salvarPlacar(jogo: any) {
+  async function salvarPlacar(jogo: JogoSemi) {
+    if (!isPlacarPreenchido(jogo, supportsVolta)) {
+      toast.error('Preencha os dois campos da Ida e os dois da Volta antes de salvar.')
+      return
+    }
+
+    const update: any = {
+      gols_time1: jogo.gols_time1 ?? null,
+      gols_time2: jogo.gols_time2 ?? null,
+    }
+    if (supportsVolta) {
+      update.gols_time1_volta = jogo.gols_time1_volta ?? null
+      update.gols_time2_volta = jogo.gols_time2_volta ?? null
+    }
+
     const { error } = await supabase
       .from('copa_semi')
-      .update({
-        gols_time1: jogo.gols_time1,
-        gols_time2: jogo.gols_time2,
-        gols_time1_volta: jogo.gols_time1_volta,
-        gols_time2_volta: jogo.gols_time2_volta,
-      })
+      .update(update)
       .eq('id', jogo.id)
 
     if (error) {
       toast.error('Erro ao salvar')
     } else {
       toast.success('Placar salvo!')
+      setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, ...update } : j)))
     }
   }
+
+  const pontosCampanha = (id: string) =>
+    classificacao.find(c => c.id_time === id)?.pontos ?? 0
+
+  const semiCompleta = useMemo(
+    () => jogos.length > 0 && jogos.every(j => isPlacarPreenchido(j, supportsVolta)),
+    [jogos, supportsVolta]
+  )
 
   async function finalizarSemi() {
-    for (const jogo of jogos) {
-      const gols1 = (jogo.gols_time1 || 0) + (jogo.gols_time1_volta || 0)
-      const gols2 = (jogo.gols_time2 || 0) + (jogo.gols_time2_volta || 0)
-
-      let vencedorId = null
-
-      if (gols1 > gols2) vencedorId = jogo.id_time1
-      else if (gols2 > gols1) vencedorId = jogo.id_time2
-      else {
-        const campanha1 = classificacao.find((t) => t.id_time === jogo.id_time1)
-        const campanha2 = classificacao.find((t) => t.id_time === jogo.id_time2)
-
-        if ((campanha1?.pontos || 0) >= (campanha2?.pontos || 0)) {
-          vencedorId = jogo.id_time1
-        } else {
-          vencedorId = jogo.id_time2
-        }
-      }
-
-      const timeVencedor = vencedorId === jogo.id_time1 ? jogo.time1 : jogo.time2
-
-      await supabase.from('copa_final').insert({
-        id_time: vencedorId,
-        time: timeVencedor
-      })
+    if (!semiCompleta) {
+      toast.error('Preencha todos os placares (ida e volta, se houver) antes de finalizar.')
+      return
     }
 
-    toast.success('Semifinal finalizada e final definida!')
-    buscarJogos()
+    // recomputa vencedores
+    const vencedores: Array<{ id: string; nome: string }> = []
+    for (const jogo of jogos) {
+      const gols1 = (jogo.gols_time1 || 0) + (supportsVolta ? (jogo.gols_time1_volta || 0) : 0)
+      const gols2 = (jogo.gols_time2 || 0) + (supportsVolta ? (jogo.gols_time2_volta || 0) : 0)
+
+      let vencedorId = ''
+      let vencedorNome = ''
+      if (gols1 > gols2) {
+        vencedorId = jogo.id_time1
+        vencedorNome = jogo.time1
+      } else if (gols2 > gols1) {
+        vencedorId = jogo.id_time2
+        vencedorNome = jogo.time2
+      } else {
+        const p1 = pontosCampanha(jogo.id_time1)
+        const p2 = pontosCampanha(jogo.id_time2)
+        if (p1 >= p2) { vencedorId = jogo.id_time1; vencedorNome = jogo.time1 }
+        else { vencedorId = jogo.id_time2; vencedorNome = jogo.time2 }
+      }
+      vencedores.push({ id: vencedorId, nome: vencedorNome })
+    }
+
+    if (vencedores.length < 2) {
+      toast.error('É necessário ter pelo menos 2 vencedores para formar a Final.')
+      return
+    }
+
+    try {
+      // limpar final de forma segura
+      await supabase.from('copa_final').delete().not('id', 'is', null)
+
+      // 1) TABELA TIPO "LISTA" (duas linhas: id_time, time)
+      let tryList = await supabase.from('copa_final').insert(
+        vencedores.map(v => ({ id_time: v.id, time: v.nome })) as any
+      )
+
+      if (tryList.error) {
+        // 2) TABELA TIPO "PARTIDA" (uma linha: id_time1, id_time2, time1, time2, gols_*)
+        const baseRow: any = {
+          id_time1: vencedores[0].id,
+          id_time2: vencedores[1].id,
+          time1: vencedores[0].nome,
+          time2: vencedores[1].nome,
+          gols_time1: null,
+          gols_time2: null,
+          gols_time1_volta: null,
+          gols_time2_volta: null,
+        }
+        // tenta com *_volta e faz fallback sem elas
+        let tryMatch = await supabase.from('copa_final').insert(baseRow)
+        if (tryMatch.error && mentionsVolta(tryMatch.error.message)) {
+          const { gols_time1_volta, gols_time2_volta, ...semVolta } = baseRow
+          tryMatch = await supabase.from('copa_final').insert(semVolta)
+        }
+        if (tryMatch.error) throw tryMatch.error
+      }
+
+      toast.success('Semifinal finalizada e Final definida!')
+    } catch (e: any) {
+      console.error(e)
+      toast.error(`Erro ao definir a Final: ${e?.message || e}`)
+    }
   }
 
-  if (!isAdmin) return <div className="p-4">⛔ Acesso restrito!</div>
-
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">🥉 Semifinal</h1>
-      {loading ? (
-        <div>🔄 Carregando jogos...</div>
-      ) : (
-        <div className="space-y-2">
-          {jogos.map((jogo) => (
-            <div key={jogo.id} className="flex flex-col gap-1 border p-2 rounded">
-              <div className="font-semibold">{jogo.time1} x {jogo.time2}</div>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="number"
-                  className="w-12 border rounded px-1"
-                  value={jogo.gols_time1 || ''}
-                  onChange={(e) => {
-                    const gols = parseInt(e.target.value)
-                    setJogos((prev) =>
-                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time1: gols } : j)
-                    )
-                  }}
-                />
-                <span>x</span>
-                <input
-                  type="number"
-                  className="w-12 border rounded px-1"
-                  value={jogo.gols_time2 || ''}
-                  onChange={(e) => {
-                    const gols = parseInt(e.target.value)
-                    setJogos((prev) =>
-                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time2: gols } : j)
-                    )
-                  }}
-                />
-                <span>Volta:</span>
-                <input
-                  type="number"
-                  className="w-12 border rounded px-1"
-                  value={jogo.gols_time1_volta || ''}
-                  onChange={(e) => {
-                    const gols = parseInt(e.target.value)
-                    setJogos((prev) =>
-                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time1_volta: gols } : j)
-                    )
-                  }}
-                />
-                <span>x</span>
-                <input
-                  type="number"
-                  className="w-12 border rounded px-1"
-                  value={jogo.gols_time2_volta || ''}
-                  onChange={(e) => {
-                    const gols = parseInt(e.target.value)
-                    setJogos((prev) =>
-                      prev.map((j) => j.id === jogo.id ? { ...j, gols_time2_volta: gols } : j)
-                    )
-                  }}
-                />
-                <button
-                  className="bg-green-500 text-white px-2 py-1 rounded"
-                  onClick={() => salvarPlacar(jogo)}
-                >
-                  Salvar
-                </button>
-              </div>
-            </div>
-          ))}
+    <div className="relative p-4 sm:p-6 max-w-7xl mx-auto">
+      {/* brilhos suaves */}
+      <div className="pointer-events-none absolute -top-40 -right-40 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
+
+      <header className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+          Semifinal
+        </h1>
+
+        {isAdmin && (
           <button
-            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded"
+            className={`px-4 py-2 rounded-xl ${semiCompleta ? 'bg-blue-700 hover:bg-blue-600 text-white' : 'bg-blue-700/50 text-white/70 cursor-not-allowed'}`}
+            disabled={!semiCompleta}
             onClick={finalizarSemi}
+            title={semiCompleta ? 'Definir Final' : 'Preencha todos os placares para habilitar'}
           >
-            Finalizar Semifinal
+            🏁 Finalizar Semifinal (definir Final)
           </button>
+        )}
+      </header>
+
+      {loading ? (
+        <div className="p-4">🔄 Carregando jogos...</div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {jogos.map((jogo, idx) => (
+            <MatchCard
+              key={jogo.id}
+              faseLabel="Semifinal"
+              jogo={{ ...jogo, ordem: jogo.ordem ?? (idx + 1) }}
+              supportsVolta={supportsVolta}
+              logosById={logosById}
+              onChange={(next) => setJogos(prev => prev.map(j => j.id === jogo.id ? next : j))}
+              onSave={(updated) => salvarPlacar(updated)}
+            />
+          ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/** ====== Cartão de Jogo (Ida e Volta) ====== */
+function MatchCard({
+  jogo, supportsVolta, logosById, onChange, onSave, faseLabel = 'Semifinal'
+}:{
+  jogo: JogoSemi
+  supportsVolta: boolean
+  logosById: Record<string, string | null>
+  onChange: (next: JogoSemi) => void
+  onSave: (j: JogoSemi) => void
+  faseLabel?: string
+}) {
+  const [ida1, setIda1] = useState<number | null>(jogo.gols_time1)
+  const [ida2, setIda2] = useState<number | null>(jogo.gols_time2)
+  const [vol1, setVol1] = useState<number | null>(jogo.gols_time1_volta ?? null)
+  const [vol2, setVol2] = useState<number | null>(jogo.gols_time2_volta ?? null)
+
+  useEffect(() => {
+    setIda1(jogo.gols_time1)
+    setIda2(jogo.gols_time2)
+    setVol1(jogo.gols_time1_volta ?? null)
+    setVol2(jogo.gols_time2_volta ?? null)
+  }, [jogo.id, jogo.gols_time1, jogo.gols_time2, jogo.gols_time1_volta, jogo.gols_time2_volta])
+
+  useEffect(() => {
+    onChange({
+      ...jogo,
+      gols_time1: ida1,
+      gols_time2: ida2,
+      ...(supportsVolta ? { gols_time1_volta: vol1, gols_time2_volta: vol2 } : {})
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ida1, ida2, vol1, vol2])
+
+  const agg1 = (ida1 ?? 0) + (supportsVolta ? (vol1 ?? 0) : 0)
+  const agg2 = (ida2 ?? 0) + (supportsVolta ? (vol2 ?? 0) : 0)
+  const lead: 'empate'|'t1'|'t2' = agg1 === agg2 ? 'empate' : (agg1 > agg2 ? 't1' : 't2')
+
+  const podeSalvar = isPlacarPreenchido({
+    ...jogo,
+    gols_time1: ida1,
+    gols_time2: ida2,
+    ...(supportsVolta ? { gols_time1_volta: vol1, gols_time2_volta: vol2 } : {})
+  }, supportsVolta)
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-xl">
+      <div className="pointer-events-none absolute -top-20 -right-16 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-[13px] text-white/60">Jogo {jogo.ordem ?? '-'} · {faseLabel}</div>
+        <div
+          title={`Agregado ${agg1}-${agg2}`}
+          className={[
+            "px-3 py-1 rounded-full text-xs font-medium backdrop-blur border",
+            lead==='t1' ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
+            : lead==='t2' ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/25"
+            : "bg-white/10 text-white/70 border-white/10"
+          ].join(" ")}
+        >
+          Agregado {agg1}–{agg2}
+        </div>
+      </div>
+
+      <LegRow
+        label="Ida"
+        left={{ name:jogo.time1, logo:logosById[jogo.id_time1], role:'Mandante', align:'right' }}
+        right={{ name:jogo.time2, logo:logosById[jogo.id_time2], role:'Visitante', align:'left' }}
+        a={ida1}
+        b={ida2}
+        onA={(v)=>setIda1(v)}
+        onB={(v)=>setIda2(v)}
+      />
+
+      {supportsVolta && (
+        <div className="mt-3">
+          <LegRow
+            label="Volta"
+            left={{ name:jogo.time2, logo:logosById[jogo.id_time2], role:'Mandante', align:'right' }}
+            right={{ name:jogo.time1, logo:logosById[jogo.id_time1], role:'Visitante', align:'left' }}
+            a={vol2}
+            b={vol1}
+            onA={(v)=>setVol2(v)}
+            onB={(v)=>setVol1(v)}
+          />
+        </div>
+      )}
+
+      <div className="mt-4 flex justify-end">
+        <button
+          onClick={()=>onSave({
+            ...jogo,
+            gols_time1: ida1,
+            gols_time2: ida2,
+            ...(supportsVolta ? { gols_time1_volta: vol1, gols_time2_volta: vol2 } : {})
+          })}
+          disabled={!podeSalvar}
+          className={`px-4 py-2 rounded-xl ${podeSalvar ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600/50 text-white/70 cursor-not-allowed'} shadow focus:outline-none focus:ring-2 focus:ring-emerald-400/50`}>
+          Salvar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function LegRow({
+  label,
+  left, right,
+  a, b,
+  onA, onB,
+}:{
+  label: string
+  left: { name: string, logo?: string | null, role: 'Mandante'|'Visitante', align: 'left'|'right' }
+  right:{ name: string, logo?: string | null, role: 'Mandante'|'Visitante', align: 'left'|'right' }
+  a: number | null | undefined
+  b: number | null | undefined
+  onA: (n: number | null)=>void
+  onB: (n: number | null)=>void
+}) {
+  const showWarnA = a == null
+  const showWarnB = b == null
+  return (
+    <div className="grid grid-cols-12 items-center gap-x-4">
+      <TeamSide name={left.name} logo={left.logo} align={left.align} role={left.role} />
+      <ScoreRail
+        label={label}
+        a={a} b={b} onA={onA} onB={onB}
+        className={`col-span-12 md:col-span-4 ${showWarnA || showWarnB ? 'ring-1 ring-rose-400/40 rounded-2xl' : ''}`}
+      />
+      <TeamSide name={right.name} logo={right.logo} align={right.align} role={right.role} />
+    </div>
+  )
+}
+
+function ScoreRail({
+  label, a, b, onA, onB, className=''
+}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void, className?: string }) {
+  return (
+    <div className={`col-span-12 md:col-span-4 ${className}`}>
+      <div className="relative">
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
+          {label}
+        </span>
+
+        <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={a ?? ''}
+            onChange={(e)=>onA(normInt(e.target.value))}
+            placeholder="0"
+          />
+          <span className="text-white/60">x</span>
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={b ?? ''}
+            onChange={(e)=>onB(normInt(e.target.value))}
+            placeholder="0"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TeamSide({
+  name, logo, align, role
+}:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
+  return (
+    <div className={`col-span-6 md:col-span-4 flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3`}>
+      {align==='left' && <TeamLogo url={logo || null} alt={name} size={40} />}
+      <div className={`${align==='left'?'text-left':'text-right'}`}>
+        <div className="font-semibold leading-5">{name}</div>
+        <div className="text-[11px] text-white/60">{role}</div>
+      </div>
+      {align==='right' && <TeamLogo url={logo || null} alt={name} size={40} />}
+    </div>
+  )
+}
+
+function TeamLogo({ url, alt, size=32 }:{ url?: string | null; alt: string; size?: number }) {
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt={alt} style={{ width: size, height: size }} className="object-cover" />
+  ) : (
+    <div className="rounded-full bg-white/10 text-white/80 flex items-center justify-center"
+         style={{ width: size, height: size, fontSize: Math.max(10, size/3) }}>
+      {alt.slice(0,3).toUpperCase()}
     </div>
   )
 }
