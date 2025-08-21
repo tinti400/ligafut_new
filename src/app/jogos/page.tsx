@@ -1,6 +1,3 @@
-Substitua **`src/app/jogos/page.tsx`** pelo conteúdo abaixo (copie **somente** o que está dentro do bloco):
-
-```tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -765,4 +762,4 @@ export default function Jogos() {
     </div>
   )
 }
-```
+
