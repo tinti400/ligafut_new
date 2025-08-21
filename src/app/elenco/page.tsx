@@ -1,8 +1,12 @@
+aqui está o **arquivo completo** com melhorias de layout aplicadas (cards de stats, chips de filtros ativos, grid auto-fit, header sticky na tabela, acessibilidade/foco, toasts no lugar de manipulação de DOM, debounce na busca e microinterações nos cards). mantive a regra **salário = 1% do valor** e a sincronização no fetch.
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import ImagemComFallback from '@/components/ImagemComFallback'
+import toast from 'react-hot-toast'
 
 /** ===== Supabase ===== */
 const supabase = createClient(
@@ -58,11 +62,35 @@ const coresPorPosicao: Record<string, string> = {
 }
 
 const formatBRL = (n: number | null | undefined) =>
-  `R$ ${Number(n || 0).toLocaleString('pt-BR')}`
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Number(n || 0))
 
 // Data URI 1x1 transparente
 const FALLBACK_SRC =
   'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
+
+/** ===== Componentes UI ===== */
+function StatCard({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
+      <div className="text-sm text-gray-400">{icon} {label}</div>
+      <div className="mt-1 text-2xl font-extrabold tracking-tight">{value}</div>
+    </div>
+  )
+}
+
+function ActiveFilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="group inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+      aria-label={`Remover filtro ${label}`}
+    >
+      {label}
+      <span className="inline-block rounded-full bg-emerald-500/20 px-1.5 group-hover:bg-emerald-500/30">✕</span>
+    </button>
+  )
+}
 
 export default function ElencoPage() {
   /** ===== Estados ===== */
@@ -75,6 +103,7 @@ export default function ElencoPage() {
   const [filtroNacionalidade, setFiltroNacionalidade] = useState<string | null>(null)
   const [filtroPosicao, setFiltroPosicao] = useState<string | null>(null)
   const [filtroNome, setFiltroNome] = useState<string>('')
+  const [nomeDebounced, setNomeDebounced] = useState<string>('') // debounce
   const [filtroOverall, setFiltroOverall] = useState<number>(0)
   const [soVendiveis, setSoVendiveis] = useState<boolean>(false) // jogos >= 3
   const [ordenacao, setOrdenacao] = useState<Ordenacao>('valor')
@@ -84,6 +113,12 @@ export default function ElencoPage() {
 
   // UI Mobile
   const [showFiltersMobile, setShowFiltersMobile] = useState(false)
+
+  /** ===== Debounce busca ===== */
+  useEffect(() => {
+    const t = setTimeout(() => setNomeDebounced(filtroNome), 250)
+    return () => clearTimeout(t)
+  }, [filtroNome])
 
   /** ===== Fetch ===== */
   const fetchElenco = async () => {
@@ -147,18 +182,11 @@ export default function ElencoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** ===== UI helpers ===== */
-  const exibirMensagem = (mensagem: string, cor: string) => {
-    const div = document.createElement('div')
-    div.innerHTML = `<div style="background:${cor};color:white;padding:14px 18px;border-radius:12px;text-align:center;position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.35)">${mensagem}</div>`
-    document.body.appendChild(div)
-    setTimeout(() => div.remove(), 3500)
-  }
-
+  /** ===== Helpers ===== */
   const getFlagUrl = (pais?: string | null) => {
     if (!pais) return ''
     const key = Object.keys(bandeiras).find((nome) =>
-      nome.toLowerCase().replace(/[^a-z]/g, '') === pais.toLowerCase().replace(/[^a-z]/g, '')
+      nome.toLowerCase().replace(/[^a-z]/g, '') === (pais || '').toLowerCase().replace(/[^a-z]/g, '')
     )
     return key ? `https://flagcdn.com/w40/${bandeiras[key]}.png` : ''
   }
@@ -171,6 +199,9 @@ export default function ElencoPage() {
     })
     return contagem
   }
+
+  const contPorNac = useMemo(() => contar('nacionalidade'), [elenco])
+  const contPorPos = useMemo(() => contar('posicao'), [elenco])
 
   const toggleSelecionado = (id: string) => {
     setSelecionados(prev =>
@@ -205,7 +236,7 @@ export default function ElencoPage() {
     })
     if (error) {
       console.error('Erro ao registrar no BID:', error)
-      exibirMensagem('⚠️ Falha ao registrar no BID.', '#b45309')
+      toast.error('⚠️ Falha ao registrar no BID.')
     }
   }
 
@@ -217,7 +248,7 @@ export default function ElencoPage() {
     for (const jogador of jogadores) {
       try {
         if ((jogador.jogos || 0) < 3) {
-          exibirMensagem(`🚫 ${jogador.nome} não completou 3 jogos.`, '#b91c1c')
+          toast('🚫 Jogador precisa de pelo menos 3 jogos.')
           continue
         }
 
@@ -231,14 +262,14 @@ export default function ElencoPage() {
         const percentualAtual = Number(jogador.percentual ?? 100)
 
         if (!Number.isFinite(percentualNum) || percentualNum <= 0 || percentualNum > percentualAtual) {
-          exibirMensagem('❌ Percentual inválido.', '#b91c1c')
+          toast.error('❌ Percentual inválido.')
           continue
         }
 
         const baseValor = Number(jogador.valor || 0)
         const valorVenda = Math.round((baseValor * percentualNum / 100) * 0.7)
 
-        // 1) Inserir no mercado (salário já como 1% do valor)
+        // 1) Inserir no mercado
         {
           const { error } = await supabase.from('mercado_transferencias').insert({
             jogador_id: jogador.id,
@@ -256,7 +287,7 @@ export default function ElencoPage() {
           })
           if (error) {
             console.error('Erro ao inserir no mercado:', error)
-            exibirMensagem(`❌ Falha ao anunciar ${jogador.nome} no mercado.`, '#b91c1c')
+            toast.error(`❌ Falha ao anunciar ${jogador.nome} no mercado.`)
             continue
           }
         }
@@ -267,13 +298,13 @@ export default function ElencoPage() {
           const { error } = await supabase.from('elenco').delete().eq('id', jogador.id)
           if (error) {
             console.error('Erro ao remover do elenco:', error)
-            exibirMensagem(`⚠️ Falha ao remover ${jogador.nome} do elenco.`, '#b45309')
+            toast('⚠️ Falha ao remover do elenco.')
           }
         } else {
           const { error } = await supabase.from('elenco').update({ percentual: novoPercentual }).eq('id', jogador.id)
           if (error) {
-            console.error('Erro ao atualizar percentual de ${jogador.nome}.', error)
-            exibirMensagem(`⚠️ Falha ao atualizar percentual de ${jogador.nome}.`, '#b45309')
+            console.error(`Erro ao atualizar percentual de ${jogador.nome}.`, error)
+            toast('⚠️ Falha ao atualizar percentual.')
           }
         }
 
@@ -296,7 +327,7 @@ export default function ElencoPage() {
           })
           if (error) {
             console.error('Erro ao incrementar saldo via RPC:', error)
-            exibirMensagem(`❌ Falha ao creditar ${formatBRL(valorVenda)} para o time.`, '#b91c1c')
+            toast.error(`❌ Falha ao creditar ${formatBRL(valorVenda)}.`)
             continue
           }
           saldoNovo = Number(data)
@@ -313,14 +344,13 @@ export default function ElencoPage() {
             valor: valorVenda
           })
 
-          exibirMensagem(
-            `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+${formatBRL(valorVenda)}). Caixa: ${formatBRL(saldoAntigo)} → ${formatBRL(Number(saldoNovo))}`,
-            '#16a34a'
+          toast.success(
+            `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+${formatBRL(valorVenda)}). Caixa: ${formatBRL(saldoAntigo)} → ${formatBRL(Number(saldoNovo))}`
           )
         }
       } catch (err) {
         console.error('Erro na venda:', err)
-        exibirMensagem('❌ Ocorreu um erro ao processar a venda.', '#b91c1c')
+        toast.error('❌ Ocorreu um erro ao processar a venda.')
       }
     }
 
@@ -333,7 +363,6 @@ export default function ElencoPage() {
     [elenco]
   )
   const salarioTotal = useMemo(
-    // usa a regra 1% independentemente do que veio do DB
     () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
     [elenco]
   )
@@ -348,7 +377,7 @@ export default function ElencoPage() {
     let arr = elenco.filter(j =>
       (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
       (!filtroPosicao || j.posicao === filtroPosicao) &&
-      (!filtroNome || j.nome.toLowerCase().includes(filtroNome.toLowerCase())) &&
+      (!nomeDebounced || j.nome.toLowerCase().includes(nomeDebounced.toLowerCase())) &&
       (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
       (!soVendiveis || Number(j.jogos || 0) >= 3)
     )
@@ -364,7 +393,7 @@ export default function ElencoPage() {
     })
 
     return arr
-  }, [elenco, filtroNacionalidade, filtroPosicao, filtroNome, filtroOverall, soVendiveis, ordenacao])
+  }, [elenco, filtroNacionalidade, filtroPosicao, nomeDebounced, filtroOverall, soVendiveis, ordenacao])
 
   /** ===== Skeleton ===== */
   const SkeletonCard = () => (
@@ -392,80 +421,72 @@ export default function ElencoPage() {
     )
   }
 
+  /** ===== Helper visual: anel por OVR ===== */
+  const ringByOVR = (ovr?: number | null) => {
+    const n = Number(ovr || 0)
+    if (n >= 85) return 'ring-amber-400/40'
+    if (n >= 80) return 'ring-emerald-400/30'
+    if (n >= 75) return 'ring-sky-400/25'
+    return 'ring-gray-700'
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto bg-gradient-to-b from-gray-950 to-gray-900 text-white min-h-screen">
       {/* Header / Resumo */}
-      <div className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-gray-800">
+      <div className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-white/10">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight">
               👥 Elenco do <span className="text-green-400">{nomeTime || '—'}</span>
               <span className="text-xs sm:text-sm text-gray-400 ml-2">({elenco.length} atletas)</span>
             </h1>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3 text-xs sm:text-sm">
-              <span className="px-2 py-1 rounded-full bg-emerald-700/40 border border-emerald-600/40 text-center">
-                💰 Caixa: <b className="text-emerald-300">{formatBRL(saldo)}</b>
-              </span>
-              <span className="px-2 py-1 rounded-full bg-yellow-700/40 border border-yellow-600/40 text-center">
-                📦 Valor elenco: <b className="text-yellow-300">{formatBRL(valorTotal)}</b>
-              </span>
-              <span className="px-2 py-1 rounded-full bg-rose-700/40 border border-rose-600/40 text-center">
-                💸 Salários: <b className="text-rose-300">{formatBRL(salarioTotal)}</b>
-              </span>
-              <span className="px-2 py-1 rounded-full bg-sky-700/40 border border-sky-600/40 text-center">
-                ⭐ Média OVR: <b className="text-sky-300">{mediaOverall.toFixed(1)}</b>
-              </span>
+
+            {/* Stats compactos */}
+            <div className="mt-3 grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
+              <StatCard icon="💰" label="Caixa" value={formatBRL(saldo)} />
+              <StatCard icon="📦" label="Valor elenco" value={formatBRL(valorTotal)} />
+              <StatCard icon="💸" label="Salários" value={formatBRL(salarioTotal)} />
+              <StatCard icon="⭐" label="Média OVR" value={mediaOverall.toFixed(1)} />
             </div>
           </div>
 
           {/* Ações rápidas (desktop) */}
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2 self-start sm:self-auto">
             <button
+              type="button"
               onClick={fetchElenco}
-              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition shadow-sm"
+              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60"
               title="Atualizar elenco"
+              aria-label="Atualizar elenco"
             >
               🔄 Atualizar
             </button>
             <div className="hidden sm:block h-8 w-px bg-gray-800" />
             <div className="hidden md:inline-flex rounded-lg border border-gray-700 overflow-hidden">
               <button
-                className={`px-3 py-2 text-sm ${viewMode === 'grid' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800`}
+                type="button"
+                className={`px-3 py-2 text-sm ${viewMode === 'grid' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60`}
                 onClick={() => setViewMode('grid')}
                 title="Visualização em cartões"
+                aria-label="Visualização em cartões"
               >
                 🗂️ Cards
               </button>
               <button
-                className={`px-3 py-2 text-sm ${viewMode === 'table' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800`}
+                type="button"
+                className={`px-3 py-2 text-sm ${viewMode === 'table' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60`}
                 onClick={() => setViewMode('table')}
                 title="Visualização em tabela"
+                aria-label="Visualização em tabela"
               >
                 📋 Tabela
               </button>
             </div>
           </div>
-
-          {/* Ações rápidas (mobile) */}
-          <div className="flex sm:hidden items-center gap-2">
-            <button
-              onClick={() => setShowFiltersMobile(true)}
-              className="flex-1 bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm"
-            >
-              🔎 Filtros
-            </button>
-            <button
-              onClick={fetchElenco}
-              className="bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg text-sm"
-              title="Atualizar elenco"
-            >
-              🔄
-            </button>
-          </div>
         </div>
 
         {/* Toolbar de filtros (desktop) */}
-        <div className="mt-3 hidden lg:flex lg:items-end gap-3">
+        <div className="mt-4 hidden lg:flex lg:items-end gap-3">
           <div className="flex flex-1 flex-wrap gap-2">
             <input
               type="text"
@@ -473,6 +494,7 @@ export default function ElencoPage() {
               value={filtroNome}
               onChange={(e) => setFiltroNome(e.target.value)}
               className="px-3 py-2 rounded-lg text-black w-64"
+              aria-label="Buscar por nome"
             />
             <input
               type="number"
@@ -480,11 +502,13 @@ export default function ElencoPage() {
               value={filtroOverall}
               onChange={(e) => setFiltroOverall(Number(e.target.value))}
               className="px-3 py-2 rounded-lg text-black w-44"
+              aria-label="OVR mínimo"
             />
             <select
               value={ordenacao}
               onChange={(e) => setOrdenacao(e.target.value as Ordenacao)}
               className="px-3 py-2 rounded-lg text-black w-48"
+              aria-label="Ordenação"
             >
               <option value="valor">💰 Valor</option>
               <option value="overall">⭐ Overall</option>
@@ -498,18 +522,21 @@ export default function ElencoPage() {
                 type="checkbox"
                 checked={soVendiveis}
                 onChange={(e) => setSoVendiveis(e.target.checked)}
+                aria-label="Somente vendíveis (3+ jogos)"
               />
               <span>Somente vendíveis (≥ 3 jogos)</span>
             </label>
           </div>
           <div className="flex items-center gap-2">
-            { (filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
+            {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
               <button
+                type="button"
                 onClick={() => {
                   setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false)
                   setFiltroNacionalidade(null); setFiltroPosicao(null)
                 }}
-                className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm"
+                className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                aria-label="Limpar filtros"
               >
                 Limpar filtros
               </button>
@@ -517,22 +544,33 @@ export default function ElencoPage() {
           </div>
         </div>
 
-        {/* Chips dinâmicos (colapsáveis no mobile) */}
+        {/* Filtros ativos (chips removíveis) */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {filtroNome && <ActiveFilterChip label={`Nome: "${filtroNome}"`} onClear={() => setFiltroNome('')} />}
+          {filtroOverall > 0 && <ActiveFilterChip label={`OVR ≥ ${filtroOverall}`} onClear={() => setFiltroOverall(0)} />}
+          {soVendiveis && <ActiveFilterChip label="Vendíveis (≥ 3 jogos)" onClear={() => setSoVendiveis(false)} />}
+          {filtroNacionalidade && <ActiveFilterChip label={`Nac: ${filtroNacionalidade}`} onClear={() => setFiltroNacionalidade(null)} />}
+          {filtroPosicao && <ActiveFilterChip label={`Pos: ${filtroPosicao}`} onClear={() => setFiltroPosicao(null)} />}
+        </div>
+
+        {/* Chips dinâmicos (colapsáveis no mobile/visíveis no desktop) */}
         <div className="mt-3">
           <details className="lg:open">
             <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
-              🌎 Nacionalidades
+              🌎 Nacionalidades {Object.keys(contPorNac).length ? `(${Object.keys(contPorNac).length})` : ''}
             </summary>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-              {Object.entries(contar('nacionalidade')).map(([nac, count]) => (
+              {Object.entries(contPorNac).map(([nac, count]) => (
                 <button
                   key={nac}
+                  type="button"
                   onClick={() => setFiltroNacionalidade(nac)}
-                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60
                     ${filtroNacionalidade === nac ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
                   title={nac}
+                  aria-label={`Filtrar por ${nac}`}
                 >
-                  {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" />}
+                  {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" alt={nac} loading="lazy" decoding="async" />}
                   {nac} ({count})
                 </button>
               ))}
@@ -541,15 +579,17 @@ export default function ElencoPage() {
 
           <details className="mt-2 lg:open">
             <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
-              🎯 Posições
+              🎯 Posições {Object.keys(contPorPos).length ? `(${Object.keys(contPorPos).length})` : ''}
             </summary>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-              {Object.entries(contar('posicao')).map(([pos, count]) => (
+              {Object.entries(contPorPos).map(([pos, count]) => (
                 <button
                   key={pos}
+                  type="button"
                   onClick={() => setFiltroPosicao(pos)}
-                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60
                     ${filtroPosicao === pos ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
+                  aria-label={`Filtrar por ${pos}`}
                 >
                   {pos} ({count})
                 </button>
@@ -574,8 +614,9 @@ export default function ElencoPage() {
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-lg font-semibold">Filtros</h3>
               <button
+                type="button"
                 onClick={() => setShowFiltersMobile(false)}
-                className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700"
+                className="text-sm px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
               >
                 Fechar
               </button>
@@ -621,6 +662,7 @@ export default function ElencoPage() {
 
               {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
                 <button
+                  type="button"
                   onClick={() => {
                     setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false)
                     setFiltroNacionalidade(null); setFiltroPosicao(null)
@@ -632,6 +674,7 @@ export default function ElencoPage() {
               )}
 
               <button
+                type="button"
                 onClick={() => setShowFiltersMobile(false)}
                 className="w-full px-4 py-3 rounded-xl bg-green-600 hover:bg-green-700 font-semibold"
               >
@@ -651,20 +694,23 @@ export default function ElencoPage() {
             </span>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={venderSelecionados}
-                className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
+                className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
               >
                 💸 Vender
               </button>
               <button
+                type="button"
                 onClick={selecionarTodosFiltrados}
-                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
+                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
               >
                 Selecionar todos
               </button>
               <button
+                type="button"
                 onClick={limparSelecao}
-                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
+                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
               >
                 Limpar
               </button>
@@ -679,7 +725,7 @@ export default function ElencoPage() {
           Nenhum jogador encontrado com os filtros aplicados.
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
           {elencoFiltrado.map(jogador => {
             const selecionado = selecionados.includes(jogador.id)
             const status: string[] = []
@@ -692,9 +738,9 @@ export default function ElencoPage() {
             return (
               <div
                 key={jogador.id}
-                className={`relative bg-gray-900/70 p-3 sm:p-4 rounded-2xl border-2 transition
-                  ${selecionado ? 'border-green-500 ring-1 ring-green-400/30' : 'border-gray-800 hover:border-gray-700'}
-                  shadow-lg hover:shadow-emerald-900/10`}
+                className={`relative bg-white/[0.04] p-3 sm:p-4 rounded-2xl border-2 transition
+                  ${selecionado ? 'border-emerald-500 ring-1 ring-emerald-400/30' : 'border-white/10 hover:border-white/20'}
+                  shadow-lg hover:shadow-emerald-900/10 hover:-translate-y-0.5`}
               >
                 {/* Checkbox seleção */}
                 <label className="absolute top-3 left-3 inline-flex items-center gap-2 text-xs">
@@ -710,7 +756,7 @@ export default function ElencoPage() {
                 {/* Insígnias */}
                 <div className="absolute top-3 right-3 flex gap-1">
                   {status.map((s, i) => (
-                    <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">
+                    <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10">
                       {s}
                     </span>
                   ))}
@@ -720,12 +766,12 @@ export default function ElencoPage() {
                   <ImagemComFallback
                     src={imgSrc}
                     alt={jogador.nome}
-                    width={88}
-                    height={88}
-                    className="rounded-full mb-2 sm:mb-3 mx-auto ring-1 ring-gray-700 h-20 w-20 object-cover"
+                    width={96}
+                    height={96}
+                    className={`rounded-full mb-2 sm:mb-3 mx-auto ring-2 ${ringByOVR(jogador.overall)} h-24 w-24 object-cover`}
                   />
 
-                  <h2 className="text-base sm:text-lg font-extrabold text-center leading-tight line-clamp-2">
+                  <h2 className="text-base sm:text-lg font-extrabold text-center leading-tight line-clamp-1" title={jogador.nome}>
                     {jogador.nome}
                   </h2>
 
@@ -736,6 +782,7 @@ export default function ElencoPage() {
                         alt={jogador.nacionalidade || '—'}
                         className="w-5 h-3"
                         loading="lazy"
+                        decoding="async"
                       />
                     )}
                     <span className="line-clamp-1">{jogador.nacionalidade || 'Outro'}</span>
@@ -763,7 +810,7 @@ export default function ElencoPage() {
                       href={jogador.link_sofifa}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-400 text-xs underline inline-block mt-1 text-center w-full"
+                      className="text-blue-400 text-xs underline inline-block mt-1 text-center w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 rounded"
                     >
                       🔗 Ver no SoFIFA
                     </a>
@@ -774,10 +821,9 @@ export default function ElencoPage() {
           })}
         </div>
       ) : (
-        <div className="mt-5 overflow-x-auto rounded-xl border border-gray-800">
-          {/* Tabela só faz sentido ≥ md; no mobile o grid já cobre bem */}
-          <table className="min-w-full divide-y divide-gray-800">
-            <thead className="bg-gray-900/80">
+        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
+          <table className="min-w-full divide-y divide-white/10">
+            <thead className="bg-gray-900/80 sticky top-[calc(56px+0.75rem)] sm:top-[calc(56px+0.75rem)] z-10 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
               <tr className="text-left text-sm text-gray-300">
                 <th className="px-3 py-3 w-12">
                   <input
@@ -785,43 +831,45 @@ export default function ElencoPage() {
                     checked={selecionados.length > 0 && selecionados.length === elencoFiltrado.length}
                     onChange={(e) => e.target.checked ? selecionarTodosFiltrados() : limparSelecao()}
                     className="h-5 w-5 accent-emerald-500"
+                    aria-label="Selecionar todos visíveis"
                   />
                 </th>
                 <th className="px-3 py-3">Jogador</th>
                 <th className="px-3 py-3">País</th>
                 <th className="px-3 py-3">Posição</th>
-                <th className="px-3 py-3">OVR</th>
-                <th className="px-3 py-3">Valor</th>
-                <th className="px-3 py-3">Salário</th>
-                <th className="px-3 py-3">Jogos</th>
+                <th className="px-3 py-3 cursor-pointer" onClick={() => setOrdenacao('overall')}>OVR {ordenacao==='overall' ? '▲' : '↕'}</th>
+                <th className="px-3 py-3 cursor-pointer" onClick={() => setOrdenacao('valor')}>Valor {ordenacao==='valor' ? '▲' : '↕'}</th>
+                <th className="px-3 py-3 cursor-pointer" onClick={() => setOrdenacao('salario')}>Salário {ordenacao==='salario' ? '▲' : '↕'}</th>
+                <th className="px-3 py-3 cursor-pointer" onClick={() => setOrdenacao('jogos')}>Jogos {ordenacao==='jogos' ? '▲' : '↕'}</th>
                 <th className="px-3 py-3">%</th>
                 <th className="px-3 py-3">Link</th>
                 <th className="px-3 py-3">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-900/70 bg-gray-950/40">
+            <tbody className="divide-y divide-white/5 bg-gray-950/40">
               {elencoFiltrado.map((jogador) => {
                 const selecionado = selecionados.includes(jogador.id)
                 const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
                 return (
-                  <tr key={jogador.id} className={`text-sm hover:bg-gray-900/50 ${selecionado ? 'bg-gray-900/70' : ''}`}>
+                  <tr key={jogador.id} className={`text-sm hover:bg-gray-900/40 ${selecionado ? 'bg-gray-900/60' : 'odd:bg-gray-950/30'}`}>
                     <td className="px-3 py-3">
                       <input
                         type="checkbox"
                         checked={selecionado}
                         onChange={() => toggleSelecionado(jogador.id)}
                         className="h-5 w-5 accent-emerald-500"
+                        aria-label={`Selecionar ${jogador.nome}`}
                       />
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-3">
-                        <ImagemComFallback src={imgSrc} alt={jogador.nome} width={36} height={36} className="rounded-full ring-1 ring-gray-700" />
+                        <ImagemComFallback src={imgSrc} alt={jogador.nome} width={36} height={36} className={`rounded-full ring-2 ${ringByOVR(jogador.overall)}`} />
                         <span className="font-semibold">{jogador.nome}</span>
                       </div>
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2">
-                        {getFlagUrl(jogador.nacionalidade) && <img src={getFlagUrl(jogador.nacionalidade)} className="w-5 h-3" />}
+                        {getFlagUrl(jogador.nacionalidade) && <img src={getFlagUrl(jogador.nacionalidade)} className="w-5 h-3" alt={jogador.nacionalidade || '—'} loading="lazy" decoding="async" />}
                         <span className="text-gray-300">{jogador.nacionalidade || 'Outro'}</span>
                       </div>
                     </td>
@@ -837,16 +885,16 @@ export default function ElencoPage() {
                     <td className="px-3 py-3">{jogador.percentual ?? 100}%</td>
                     <td className="px-3 py-3">
                       {jogador.link_sofifa ? (
-                        <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">
+                        <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 rounded">
                           SoFIFA
                         </a>
                       ) : <span className="text-gray-500">—</span>}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1">
-                        {jogador.protegido && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">🛡️ Protegido</span>}
-                        {jogador.lesionado && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">⚠️ Lesionado</span>}
-                        {(jogador.jogos || 0) >= 7 && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700">🔥 Em Alta</span>}
+                        {jogador.protegido && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-white/10">🛡️ Protegido</span>}
+                        {jogador.lesionado && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-white/10">⚠️ Lesionado</span>}
+                        {(jogador.jogos || 0) >= 7 && <span className="text-[10px] px-2 py-1 rounded-full bg-gray-800 border border-white/10">🔥 Em Alta</span>}
                       </div>
                     </td>
                   </tr>
@@ -859,4 +907,4 @@ export default function ElencoPage() {
     </div>
   )
 }
-
+```
