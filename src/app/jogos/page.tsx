@@ -1,6 +1,3 @@
-Aqui está o arquivo completo, com **+50%** aplicado em todos os bônus por partida via `BONUS_MULTIPLIER` dentro de `calcularPremiacao`:
-
-```tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -687,4 +684,3 @@ export default function Jogos() {
     </div>
   )
 }
-```
