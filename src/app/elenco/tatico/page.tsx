@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import Image from 'next/image'
 
@@ -9,6 +9,16 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ================== Tipos ================== */
+type Jogador = {
+  id: string
+  id_time: string
+  nome: string
+  posicao: string
+  imagem_url?: string | null
+}
+
+/** ================== Formações ================== */
 const formacoes: Record<string, string[][]> = {
   '4-4-2': [
     ['ATA1', 'ATA2'],
@@ -30,60 +40,71 @@ const formacoes: Record<string, string[][]> = {
   ],
 }
 
+/** Badge curto para cada grupo de posição */
+const labelCurta = (slot: string) =>
+  slot.startsWith('ATA') ? 'ATA' :
+  slot.startsWith('MEI') ? 'MEI' :
+  slot.startsWith('LAT') ? 'LAT' :
+  slot.startsWith('ZAG') ? 'ZAG' : 'GOL'
+
+/** ================== Página ================== */
 export default function PainelTaticoPage() {
-  const [escala, setEscala] = useState<Record<string, any>>({})
-  const [jogadorSelecionado, setJogadorSelecionado] = useState<any>(null)
-  const [jogadoresDisponiveis, setJogadoresDisponiveis] = useState<any[]>([])
+  const [escala, setEscala] = useState<Record<string, Jogador>>({})
+  const [jogadorSelecionado, setJogadorSelecionado] = useState<Jogador | null>(null)
+  const [jogadoresDisponiveis, setJogadoresDisponiveis] = useState<Jogador[]>([])
   const [salvando, setSalvando] = useState(false)
   const [formacaoSelecionada, setFormacaoSelecionada] = useState<string>('4-4-2')
+  const [busca, setBusca] = useState('')
+  const [filtroPos, setFiltroPos] = useState<'TODOS'|'GOL'|'ZAG'|'LAT'|'MEI'|'ATA'>('TODOS')
 
+  /** ====== carregar elenco ====== */
   useEffect(() => {
     const fetchElenco = async () => {
-      const id_time = localStorage.getItem('id_time') || ''
-      if (!id_time) return
+      try {
+        const id_time = localStorage.getItem('id_time') || ''
+        if (!id_time) return
+        const { data, error } = await supabase
+          .from('elenco')
+          .select('*')
+          .eq('id_time', id_time)
 
-      const { data, error } = await supabase
-        .from('elenco')
-        .select('*')
-        .eq('id_time', id_time)
-
-      if (error) {
-        alert('❌ Erro ao buscar elenco: ' + error.message)
-        return
+        if (error) throw error
+        setJogadoresDisponiveis((data as any) || [])
+      } catch (e: any) {
+        alert('❌ Erro ao buscar elenco: ' + e.message)
       }
-
-      setJogadoresDisponiveis(data || [])
     }
-
     fetchElenco()
   }, [])
 
+  /** ====== ações ====== */
   const handleEscalar = (posicao: string) => {
     if (!jogadorSelecionado) {
       alert('⚠️ Selecione um jogador primeiro!')
       return
     }
-
-    const jogadorJaEscalado = Object.values(escala).some(
-      (j: any) => j.id === jogadorSelecionado.id
-    )
-
-    if (jogadorJaEscalado) {
+    const jaEscalado = Object.values(escala).some(j => j.id === jogadorSelecionado.id)
+    if (jaEscalado) {
       alert('🚫 Esse jogador já está escalado em outra posição!')
       return
     }
-
-    setEscala((prev) => ({ ...prev, [posicao]: jogadorSelecionado }))
+    setEscala(prev => ({ ...prev, [posicao]: jogadorSelecionado }))
     setJogadorSelecionado(null)
   }
 
   const removerJogador = (posicao: string) => {
     const confirmar = confirm(`❌ Remover ${escala[posicao]?.nome} da posição ${posicao}?`)
     if (!confirmar) return
+    const next = { ...escala }
+    delete next[posicao]
+    setEscala(next)
+  }
 
-    const novoEscala = { ...escala }
-    delete novoEscala[posicao]
-    setEscala(novoEscala)
+  const limparTudo = () => {
+    if (Object.keys(escala).length === 0) return
+    const ok = confirm('🧹 Limpar toda a escalação do campo?')
+    if (!ok) return
+    setEscala({})
   }
 
   const salvarEscalacao = async () => {
@@ -94,15 +115,17 @@ export default function PainelTaticoPage() {
 
       const { error } = await supabase
         .from('taticos')
-        .upsert({
-          id_time,
-          formacao: formacaoSelecionada,
-          escalação: escala,
-          created_at: new Date().toISOString(),
-        }, { onConflict: 'id_time' })
+        .upsert(
+          {
+            id_time,
+            formacao: formacaoSelecionada,
+            escalação: escala,
+            created_at: new Date().toISOString(),
+          },
+          { onConflict: 'id_time' }
+        )
 
       if (error) throw error
-
       alert('✅ Escalação salva com sucesso!')
     } catch (err: any) {
       alert('❌ Erro ao salvar escalação: ' + err.message)
@@ -111,96 +134,269 @@ export default function PainelTaticoPage() {
     }
   }
 
+  /** ====== derivado: banco filtrado ====== */
+  const listaFiltrada = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return jogadoresDisponiveis
+      .filter(j => {
+        const passaBusca = !q || j.nome.toLowerCase().includes(q) || j.posicao.toLowerCase().includes(q)
+        const grupo = j.posicao.toUpperCase().slice(0,3) as 'GOL'|'ZAG'|'LAT'|'MEI'|'ATA'
+        const passaPos = filtroPos === 'TODOS' || grupo === filtroPos
+        const jaEscalado = Object.values(escala).some(e => e.id === j.id)
+        return passaBusca && passaPos && !jaEscalado
+      })
+      .sort((a,b) => a.nome.localeCompare(b.nome))
+  }, [jogadoresDisponiveis, busca, filtroPos, escala])
+
+  /** ====== UI ====== */
   return (
-    <div className="flex flex-col md:flex-row p-6 text-white bg-gray-900 min-h-screen">
-      {/* Campo */}
-      <div className="flex-1 flex flex-col items-center">
-        <h1 className="text-2xl font-bold text-green-400 mb-4">🎯 Painel Tático</h1>
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900 text-white">
+      <div className="mx-auto max-w-7xl p-4 sm:p-6">
+        {/* Header */}
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+            🎯 Painel Tático
+          </h1>
 
-        <select
-          value={formacaoSelecionada}
-          onChange={(e) => {
-            setFormacaoSelecionada(e.target.value)
-            setEscala({})
-          }}
-          className="mb-4 bg-gray-800 text-white border px-3 py-2 rounded"
-        >
-          {Object.keys(formacoes).map((form) => (
-            <option key={form} value={form}>{form}</option>
-          ))}
-        </select>
-
-        <div className="relative w-full max-w-md bg-green-700 rounded-lg py-6 px-2 border-4 border-green-900">
-          {formacoes[formacaoSelecionada].map((linha, idx) => (
-            <div key={idx} className="flex justify-center gap-4 my-4">
-              {linha.map((pos) => (
-                <div
-                  key={pos + idx}
-                  onClick={() => escala[pos] ? removerJogador(pos) : handleEscalar(pos)}
-                  className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
+          {/* ações topo */}
+          <div className="flex flex-wrap gap-2">
+            <div className="flex rounded-xl border border-white/10 bg-white/5 p-1">
+              {Object.keys(formacoes).map(f => (
+                <button
+                  key={f}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition
+                    ${f === formacaoSelecionada
+                      ? 'bg-emerald-600 text-white shadow'
+                      : 'text-white/80 hover:bg-white/10'}`}
+                  onClick={() => { setFormacaoSelecionada(f); setEscala({}) }}
                 >
-                  <div className="w-16 h-16 rounded-full bg-white overflow-hidden border-2 border-gray-300">
-                    {escala[pos]?.imagem_url ? (
-                      <Image
-                        src={escala[pos].imagem_url}
-                        alt={escala[pos].nome}
-                        width={64}
-                        height={64}
-                        className="object-cover"
-                      />
-                    ) : (
-                      <Image
-                        src="/mnt/data/561798cf-0613-4808-992a-ce334bd02ac9.png"
-                        alt="Sem imagem"
-                        width={64}
-                        height={64}
-                        className="object-cover"
-                      />
-                    )}
-                  </div>
-                  <span className="text-xs text-white mt-1 text-center">
-                    {escala[pos]?.nome || pos.replace(/\d+/g, '')}
-                  </span>
-                </div>
+                  {f}
+                </button>
               ))}
             </div>
-          ))}
-        </div>
 
-        <button
-          onClick={salvarEscalacao}
-          disabled={salvando}
-          className="mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 text-white font-bold px-4 py-2 rounded"
-        >
-          💾 {salvando ? 'Salvando...' : 'Salvar Escalação'}
-        </button>
-      </div>
-
-      {/* Jogadores Laterais */}
-      <div className="md:w-1/3 p-4">
-        <h2 className="text-lg font-bold text-center mb-2">🎯 Jogadores Disponíveis</h2>
-        <div className="flex flex-wrap gap-2 justify-center">
-          {jogadoresDisponiveis.map((jogador: any) => (
             <button
-              key={jogador.id}
-              onClick={() => setJogadorSelecionado(jogador)}
-              className={`bg-green-600 hover:bg-green-700 px-3 py-1 rounded-full text-white text-xs font-semibold transition ${
-                Object.values(escala).some((j: any) => j.id === jogador.id) && 'bg-gray-500 cursor-not-allowed'
-              }`}
-              disabled={Object.values(escala).some((j: any) => j.id === jogador.id)}
+              onClick={limparTudo}
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10"
+              title="Limpar escalação do campo"
             >
-              {jogador.nome} ({jogador.posicao})
+              🧹 Limpar
             </button>
-          ))}
+
+            <button
+              onClick={salvarEscalacao}
+              disabled={salvando}
+              className={`px-4 py-1.5 rounded-xl ${salvando ? 'bg-emerald-600/60 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-500'} text-white shadow`}
+            >
+              💾 {salvando ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
         </div>
 
-        {jogadorSelecionado && (
-          <p className="text-center text-yellow-300 mt-4">
-            Jogador Selecionado: <strong>{jogadorSelecionado.nome}</strong>
-          </p>
-        )}
+        {/* Layout principal */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Campo */}
+          <div className="lg:col-span-2">
+            <div className="relative rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
+              {/* Gramado + linhas (camadas) */}
+              <div
+                className="relative p-4 sm:p-6"
+                style={{
+                  background:
+                    // camada base do gramado
+                    'linear-gradient(180deg,#0b5d34 0%, #0a4d2c 100%)',
+                }}
+              >
+                {/* faixas do gramado */}
+                <div className="absolute inset-0 opacity-25 pointer-events-none"
+                  style={{
+                    background:
+                      'repeating-linear-gradient(90deg, rgba(255,255,255,.12) 0px, rgba(255,255,255,.12) 2px, transparent 2px, transparent 80px)'
+                  }}
+                />
+                {/* linhas do campo */}
+                <div className="absolute inset-3 sm:inset-4 rounded-2xl border-2 border-white/40 pointer-events-none" />
+                {/* meio-campo */}
+                <div className="absolute left-1/2 top-3 sm:top-4 bottom-3 sm:bottom-4 w-[2px] bg-white/40 pointer-events-none -translate-x-1/2" />
+                {/* círculo central */}
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/40 pointer-events-none"
+                  style={{ width: 140, height: 140 }} />
+                {/* áreas */}
+                {/* área 1 */}
+                <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
+                  style={{ width: 110, height: 220 }} />
+                <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
+                  style={{ width: 60, height: 120 }} />
+                {/* área 2 */}
+                <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
+                  style={{ width: 110, height: 220 }} />
+                <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 border-2 border-white/40 pointer-events-none rounded"
+                  style={{ width: 60, height: 120 }} />
+
+                {/* Conteúdo: linhas da formação */}
+                <div className="relative">
+                  {formacoes[formacaoSelecionada].map((linha, idx) => (
+                    <div key={idx} className="my-5 sm:my-7 flex items-center justify-center gap-3 sm:gap-5">
+                      {linha.map((pos) => {
+                        const jogador = escala[pos]
+                        const filled = !!jogador
+                        return (
+                          <button
+                            key={pos}
+                            onClick={() => (filled ? removerJogador(pos) : handleEscalar(pos))}
+                            className={[
+                              'group relative w-20 h-20 sm:w-[92px] sm:h-[92px] rounded-full border transition shadow-lg flex items-center justify-center',
+                              filled
+                                ? 'border-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/25'
+                                : 'border-white/30 bg-black/20 hover:bg-white/10'
+                            ].join(' ')}
+                            title={filled ? `Remover ${jogador.nome}` : `Escalar em ${pos}`}
+                          >
+                            <PlayerAvatar
+                              nome={jogador?.nome}
+                              imagem_url={jogador?.imagem_url}
+                              size={72}
+                            />
+
+                            {/* label da posição */}
+                            <span className={[
+                              'absolute -bottom-2 px-2 py-[2px] rounded-full text-[11px] border backdrop-blur',
+                              filled
+                                ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/30'
+                                : 'bg-white/10 text-white/80 border-white/20'
+                            ].join(' ')}>
+                              {filled ? jogador!.posicao : labelCurta(pos)}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* dica */}
+            <p className="mt-3 text-sm text-white/60">
+              Toque em um jogador do painel da direita e depois em um círculo no campo para escalá-lo.
+              Toque novamente no círculo para remover.
+            </p>
+          </div>
+
+          {/* Banco / Painel lateral */}
+          <aside className="lg:col-span-1">
+            <div className="rounded-3xl border border-white/10 bg-gradient-to-b from-slate-900/80 to-slate-950/80 shadow-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">🎒 Jogadores Disponíveis</h2>
+                <span className="text-xs text-white/60">{listaFiltrada.length} jogadores</span>
+              </div>
+
+              {/* filtros */}
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                <input
+                  value={busca}
+                  onChange={(e)=>setBusca(e.target.value)}
+                  placeholder="Pesquisar nome/posição..."
+                  className="col-span-3 rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/20"
+                />
+                <div className="col-span-3 flex flex-wrap gap-2">
+                  {(['TODOS','GOL','ZAG','LAT','MEI','ATA'] as const).map(opt => (
+                    <button
+                      key={opt}
+                      onClick={()=>setFiltroPos(opt)}
+                      className={`px-2.5 py-1 rounded-lg text-xs border transition
+                        ${filtroPos===opt
+                          ? 'bg-sky-600 border-sky-500 text-white'
+                          : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10'}`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* selecionado preview */}
+              {jogadorSelecionado && (
+                <div className="mb-3 flex items-center gap-3 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+                  <PlayerAvatar nome={jogadorSelecionado.nome} imagem_url={jogadorSelecionado.imagem_url} size={44} />
+                  <div className="leading-tight">
+                    <div className="font-semibold">{jogadorSelecionado.nome}</div>
+                    <div className="text-xs text-white/70">{jogadorSelecionado.posicao}</div>
+                  </div>
+                  <button
+                    className="ml-auto text-xs px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20"
+                    onClick={()=>setJogadorSelecionado(null)}
+                  >
+                    Trocar
+                  </button>
+                </div>
+              )}
+
+              {/* lista */}
+              <div className="max-h-[520px] overflow-y-auto pr-1 space-y-2">
+                {listaFiltrada.map((j) => (
+                  <button
+                    key={j.id}
+                    onClick={() => setJogadorSelecionado(j)}
+                    className={`w-full text-left flex items-center gap-3 rounded-2xl border px-3 py-2
+                      ${jogadorSelecionado?.id === j.id
+                        ? 'border-emerald-400 bg-emerald-500/15'
+                        : 'border-white/10 bg-white/5 hover:bg-white/10'}`}
+                  >
+                    <PlayerAvatar nome={j.nome} imagem_url={j.imagem_url} size={40} />
+                    <div className="flex-1">
+                      <div className="font-medium leading-5">{j.nome}</div>
+                      <div className="text-[11px] text-white/60">{j.posicao}</div>
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-full bg-white/10 border border-white/10">
+                      Selecionar
+                    </span>
+                  </button>
+                ))}
+                {listaFiltrada.length === 0 && (
+                  <div className="text-center text-sm text-white/60 py-6">
+                    Nenhum jogador encontrado com os filtros atuais.
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
     </div>
   )
 }
 
+/** ================== Componentes ================== */
+function PlayerAvatar({ nome, imagem_url, size=64 }:{
+  nome?: string
+  imagem_url?: string | null
+  size?: number
+}) {
+  const iniciais = (nome || '?')
+    .split(' ')
+    .slice(0,2)
+    .map(s => s[0]?.toUpperCase() ?? '')
+    .join('')
+
+  if (imagem_url) {
+    return (
+      <Image
+        src={imagem_url}
+        alt={nome || 'Jogador'}
+        width={size}
+        height={size}
+        className="rounded-full object-cover"
+      />
+    )
+  }
+
+  return (
+    <div
+      className="rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 flex items-center justify-center text-white/90 font-semibold"
+      style={{ width: size, height: size, fontSize: Math.max(12, size/3) }}
+    >
+      {iniciais || '??'}
+    </div>
+  )
+}
