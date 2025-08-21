@@ -1,6 +1,3 @@
-aí vai completo — agora usando `ImagemComFallback` tanto nos cards do adversário quanto no checklist dos jogadores oferecidos (mesmo comportamento do Mercado), mantendo o layout dark e os botões de excluir/cancelar:
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -784,4 +781,4 @@ export default function NegociacoesPage() {
     </main>
   )
 }
-```
+
