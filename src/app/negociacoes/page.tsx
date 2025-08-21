@@ -690,7 +690,7 @@ export default function NegociacoesPage() {
                   return (
                     <div key={jogador.id} className="border border-zinc-800 rounded-xl p-4 w-full bg-[linear-gradient(to_bottom_right,rgba(39,39,42,.6),rgba(24,24,27,.7))] shadow-sm hover:shadow-lg hover:border-zinc-700 transition">
                       <ImagemComFallback
-                        src={jogador.imagem_url || undefined}
+                        src={jogador.imagem_url ?? '/jogador_padrao.png'}
                         alt={jogador.nome}
                         width={64}
                         height={64}
@@ -821,7 +821,7 @@ export default function NegociacoesPage() {
                                           className="accent-emerald-600 shrink-0"
                                         />
                                         <ImagemComFallback
-                                          src={j.imagem_url || undefined}
+                                          src={j.imagem_url ?? '/jogador_padrao.png'}
                                           alt={j.nome}
                                           width={28}
                                           height={28}
