@@ -1,10 +1,12 @@
+Substitua **`src/app/jogos/page.tsx`** pelo conteúdo abaixo (copie **somente** o que está dentro do bloco):
+
+```tsx
 'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
-import { registrarMovimentacao } from '@/utils/registrarMovimentacao' // (mantido caso use depois)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +22,14 @@ type Jogo = {
   renda?: number
   publico?: number
   bonus_pago?: boolean
+
+  // campos salvos para estorno
+  receita_mandante?: number
+  receita_visitante?: number
+  salarios_mandante?: number
+  salarios_visitante?: number
+  premiacao_mandante?: number
+  premiacao_visitante?: number
 }
 
 type Rodada = {
@@ -49,7 +59,7 @@ type TimeDados = {
 }
 
 /** ===================== Regras de premiação ===================== */
-const BONUS_MULTIPLIER = 1.5 // 👈 +50% em todos os bônus por partida
+const BONUS_MULTIPLIER = 1.5 // +50% em todos os bônus por partida
 
 function calcularPremiacao(time: TimeDados): number {
   const { divisao, historico } = time
@@ -76,7 +86,7 @@ function calcularPremiacao(time: TimeDados): number {
   const venceuTodas = ultimos5.length === 5 && ultimos5.every(j => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
 
-  // aplica o +50% em tudo que foi calculado acima
+  // aplica o +50%
   return Math.round(premiacao * BONUS_MULTIPLIER)
 }
 
@@ -98,6 +108,31 @@ const contagemGlobal = (rodadas: Rodada[], timeSelecionado?: string) => {
   const total = lista.reduce((acc, r) => acc + r.jogos.length, 0)
   const feitos = lista.reduce((acc, r) => acc + r.jogos.filter(isPlacarPreenchido).length, 0)
   return { feitos, total }
+}
+
+// soma salários sem registrar (fallback p/ estorno de jogos antigos)
+async function somarSalarios(timeId: string): Promise<number> {
+  const { data } = await supabase
+    .from('elenco')
+    .select('salario')
+  .eq('id_time', timeId)
+  if (!data) return 0
+  return data.reduce((acc, j) => acc + (j.salario || 0), 0)
+}
+
+async function ajustarJogosElenco(timeId: string, delta: number) {
+  const { data: jogadores } = await supabase
+    .from('elenco')
+    .select('id, jogos')
+    .eq('id_time', timeId)
+  if (!jogadores) return
+  await Promise.all(
+    jogadores.map(j =>
+      supabase.from('elenco')
+        .update({ jogos: Math.max(0, (j.jogos || 0) + delta) })
+        .eq('id', j.id)
+    )
+  )
 }
 
 /** ===================== Salários (com registro) ===================== */
@@ -193,10 +228,9 @@ export default function Jogos() {
   const [golsVisitante, setGolsVisitante] = useState<number>(0)
   const [isSalvando, setIsSalvando] = useState(false)
 
-  // NOVO: estado do botão "Gerar T3"
+  // estado do botão "Gerar T3"
   const [gerando, setGerando] = useState(false)
 
-  // AGORA inclui a temporada 3
   const temporadasDisponiveis = [1, 2, 3]
   const divisoesDisponiveis = [1, 2, 3]
 
@@ -218,7 +252,7 @@ export default function Jogos() {
 
   useEffect(() => { carregarDados() }, [temporada, divisao])
 
-  // NOVO: botão que cria classificação T3 e gera os jogos (divisões 1–3, ida+volta)
+  // gera T3 (todas as divisões, ida+volta)
   const gerarTemporada3 = async () => {
     if (!isAdmin) return
     if (!confirm('Gerar jogos da Temporada 3 para as Divisões 1, 2 e 3?')) return
@@ -245,7 +279,6 @@ export default function Jogos() {
 
       toast.success('✅ Temporada 3 gerada com sucesso!', { id: 'gerar-t3' })
 
-      // muda o filtro pra T3 e recarrega
       setTemporada(3)
       await carregarDados()
     } catch (e: any) {
@@ -269,7 +302,6 @@ export default function Jogos() {
 
     const jogoDB: Jogo = rodadaDB.jogos[index]
     if (jogoDB?.bonus_pago === true) {
-      // já foi lançado antes; redireciona para ajuste
       await salvarAjusteResultado(rodadaId, index, gm, gv, true)
       setIsSalvando(false); return
     }
@@ -286,14 +318,16 @@ export default function Jogos() {
     const visitanteId = jogo.visitante
 
     // receita: 95% mandante / 5% visitante
-    await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: renda * 0.95 })
-    await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: renda * 0.05 })
+    const receitaMandante = renda * 0.95
+    const receitaVisitante = renda * 0.05
+    await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: receitaMandante })
+    await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: receitaVisitante })
 
-    // salários
-    await descontarSalariosComRegistro(mandanteId)
-    await descontarSalariosComRegistro(visitanteId)
+    // salários (com registro)
+    const salariosMandante = await descontarSalariosComRegistro(mandanteId)
+    const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-    // premiação por desempenho (já com +50% via calcularPremiacao)
+    // premiação por desempenho (+50% via calcularPremiacao)
     const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
     const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
@@ -303,35 +337,23 @@ export default function Jogos() {
         tipo_evento: 'receita_partida',
         descricao: 'Receita da partida (renda + bônus)',
         id_time1: mandanteId,
-        valor: renda * 0.95 + premiacaoMandante,
+        valor: receitaMandante + premiacaoMandante,
         data_evento: new Date().toISOString(),
       },
       {
         tipo_evento: 'receita_partida',
         descricao: 'Receita da partida (renda + bônus)',
         id_time1: visitanteId,
-        valor: renda * 0.05 + premiacaoVisitante,
+        valor: receitaVisitante + premiacaoVisitante,
         data_evento: new Date().toISOString(),
       },
     ])
 
     // atualiza elenco (jogos +1)
-    const atualizarJogosElenco = async (timeId: string) => {
-      const { data: jogadores } = await supabase
-        .from('elenco').select('id, jogos').eq('id_time', timeId)
-      if (!jogadores) return
-      await Promise.all(
-        jogadores.map(j =>
-          supabase.from('elenco')
-            .update({ jogos: (j.jogos || 0) + 1 })
-            .eq('id', j.id)
-        )
-      )
-    }
-    await atualizarJogosElenco(mandanteId)
-    await atualizarJogosElenco(visitanteId)
+    await ajustarJogosElenco(mandanteId, +1)
+    await ajustarJogosElenco(visitanteId, +1)
 
-    // grava o jogo na rodada
+    // grava o jogo na rodada com todos os valores para estorno
     const gmNum = Number.isFinite(gm) ? gm : 0
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
@@ -341,6 +363,12 @@ export default function Jogos() {
       renda,
       publico,
       bonus_pago: true,
+      receita_mandante: receitaMandante,
+      receita_visitante: receitaVisitante,
+      salarios_mandante: salariosMandante,
+      salarios_visitante: salariosVisitante,
+      premiacao_mandante: premiacaoMandante,
+      premiacao_visitante: premiacaoVisitante,
     }
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
 
@@ -358,8 +386,8 @@ export default function Jogos() {
     toast.success(
       `✅ Placar salvo! ${feitos}/${total} jogos desta rodada com placar.
 🎟️ Público: ${publico.toLocaleString()}  |  💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${(renda*0.95).toLocaleString()} + bônus
-💵 ${visitanteNome}: R$ ${(renda*0.05).toLocaleString()} + bônus`,
+💵 ${mandanteNome}: R$ ${receitaMandante.toLocaleString()} + bônus
+💵 ${visitanteNome}: R$ ${receitaVisitante.toLocaleString()} + bônus`,
       { duration: 8000 }
     )
 
@@ -413,12 +441,64 @@ export default function Jogos() {
     setIsSalvando(false)
   }
 
-  /** =============== Excluir placar (limpa renda/publico) =============== */
+  /** =============== Excluir placar (com ESTORNO automático) =============== */
   const excluirResultado = async (rodadaId: string, index: number) => {
-    if (!confirm('Deseja excluir o resultado deste jogo?')) return
+    if (!confirm('Deseja excluir o resultado deste jogo? Isso fará estorno automático de todas as finanças.')) return
     const rodada = rodadas.find((r) => r.id === rodadaId)
     if (!rodada) return
 
+    const jogo = rodada.jogos[index]
+    if (!jogo) return
+
+    const now = new Date().toISOString()
+    const mandanteId = jogo.mandante
+    const visitanteId = jogo.visitante
+
+    if (jogo.bonus_pago) {
+      // valores para reverter (com fallback p/ jogos antigos)
+      const receitaMandante = jogo.receita_mandante ?? (jogo.renda ? jogo.renda * 0.95 : 0)
+      const receitaVisitante = jogo.receita_visitante ?? (jogo.renda ? jogo.renda * 0.05 : 0)
+      const salariosMandante = jogo.salarios_mandante ?? await somarSalarios(mandanteId)
+      const salariosVisitante = jogo.salarios_visitante ?? await somarSalarios(visitanteId)
+      const premiacaoMandante = jogo.premiacao_mandante ?? 0
+      const premiacaoVisitante = jogo.premiacao_visitante ?? 0
+
+      // 1) Reverter saldos
+      await Promise.all([
+        receitaMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante }) : Promise.resolve(),
+        receitaVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante }) : Promise.resolve(),
+        salariosMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante }) : Promise.resolve(),
+        salariosVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante }) : Promise.resolve(),
+        premiacaoMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante }) : Promise.resolve(),
+        premiacaoVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante }) : Promise.resolve(),
+      ])
+
+      // 2) Registrar estornos em movimentacoes
+      const movs: any[] = []
+      if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida', data: now })
+      if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida', data: now })
+      if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários da partida', data: now })
+      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários da partida', data: now })
+      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de bônus por desempenho', data: now })
+      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de bônus por desempenho', data: now })
+      if (movs.length) await supabase.from('movimentacoes').insert(movs)
+
+      // 3) Registrar estornos no BID
+      const bids: any[] = []
+      if (receitaMandante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
+      if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
+      if (salariosMandante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários)', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
+      if (salariosVisitante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários)', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
+      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
+      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
+      if (bids.length) await supabase.from('bid').insert(bids)
+
+      // 4) Decrementa 1 jogo no elenco dos dois times
+      await ajustarJogosElenco(mandanteId, -1)
+      await ajustarJogosElenco(visitanteId, -1)
+    }
+
+    // 5) Limpa o placar e zera campos financeiros do jogo
     const novaLista = [...rodada.jogos]
     novaLista[index] = {
       ...novaLista[index],
@@ -426,8 +506,13 @@ export default function Jogos() {
       gols_visitante: undefined,
       renda: undefined,
       publico: undefined,
-      // como apagou placar, volta a false
       bonus_pago: false,
+      receita_mandante: undefined,
+      receita_visitante: undefined,
+      salarios_mandante: undefined,
+      salarios_visitante: undefined,
+      premiacao_mandante: undefined,
+      premiacao_visitante: undefined,
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
@@ -435,8 +520,7 @@ export default function Jogos() {
 
     setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: novaLista } : r))
 
-    const { feitos, total } = contagemDaRodada({ ...rodada, jogos: novaLista })
-    toast.success(`🗑️ Resultado removido. ${feitos}/${total} jogos com placar.`)
+    toast.success('🗑️ Resultado removido e estorno financeiro concluído.')
   }
 
   /** =============== Filtro por time (opcional) =============== */
@@ -479,7 +563,7 @@ export default function Jogos() {
           </button>
         ))}
 
-        {/* NOVO: botão admin para gerar T3 */}
+        {/* botão admin para gerar T3 */}
         {isAdmin && (
           <button
             onClick={gerarTemporada3}
@@ -541,7 +625,6 @@ export default function Jogos() {
                 const jaPago = !!jogo.bonus_pago
 
                 const handleAutoBlur = async () => {
-                  // auto-save apenas se já teve bônus (ajuste sem finanças)
                   if (!isAdmin || !estaEditando || !jaPago) return
                   if (Number.isNaN(golsMandante) || Number.isNaN(golsVisitante)) return
                   await salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))
@@ -607,9 +690,7 @@ export default function Jogos() {
                                 setGolsMandante(jogo.gols_mandante ?? 0)
                                 setGolsVisitante(jogo.gols_visitante ?? 0)
                                 if (jogo.bonus_pago) {
-                                  toast('Modo ajuste: edite e saia do campo para salvar automaticamente.', {
-                                    icon: '✏️'
-                                  })
+                                  toast('Modo ajuste: edite e saia do campo para salvar automaticamente.', { icon: '✏️' })
                                 }
                               }}
                               className="text-sm text-yellow-300"
@@ -622,7 +703,7 @@ export default function Jogos() {
                               <button
                                 onClick={() => excluirResultado(rodada.id, index)}
                                 className="text-sm text-red-400"
-                                title="Remover resultado"
+                                title="Remover resultado (com estorno)"
                               >
                                 🗑️
                               </button>
@@ -684,3 +765,4 @@ export default function Jogos() {
     </div>
   )
 }
+```
