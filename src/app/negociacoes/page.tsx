@@ -1,8 +1,12 @@
+aí vai completo — agora usando `ImagemComFallback` tanto nos cards do adversário quanto no checklist dos jogadores oferecidos (mesmo comportamento do Mercado), mantendo o layout dark e os botões de excluir/cancelar:
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
+import ImagemComFallback from '@/components/ImagemComFallback'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -262,7 +266,6 @@ export default function NegociacoesPage() {
     if (!ids.length) return
     if (!window.confirm(`Cancelar ${ids.length} proposta(s) para este jogador?`)) return
 
-    // Deleta em lote
     const { error } = await supabase
       .from('propostas_app')
       .delete()
@@ -354,7 +357,6 @@ export default function NegociacoesPage() {
         alert('Selecione ao menos 1 jogador (o dinheiro é opcional).')
         return
       }
-      // valorNumerico pode ser null aqui — sem problemas (vai como NULL)
     }
 
     // Nome do time alvo
@@ -412,10 +414,6 @@ export default function NegociacoesPage() {
         return
       }
 
-      const labelValor =
-        valor_oferecido == null
-          ? '—'
-          : `R$ ${Number(valor_oferecido).toLocaleString('pt-BR')}`
       toast.success('✅ Proposta enviada!')
 
       // Reset dos campos do jogador
@@ -600,9 +598,11 @@ export default function NegociacoesPage() {
 
                   return (
                     <div key={jogador.id} className="border border-zinc-800 rounded-xl p-4 w-[300px] bg-[linear-gradient(to_bottom_right,rgba(39,39,42,.6),rgba(24,24,27,.7))] shadow-sm hover:shadow-lg hover:border-zinc-700 transition">
-                      <img
-                        src={jogador.imagem_url || '/jogador_padrao.png'}
+                      <ImagemComFallback
+                        src={jogador.imagem_url || undefined}
                         alt={jogador.nome}
+                        width={64}
+                        height={64}
                         className="w-16 h-16 rounded-full object-cover mb-3 mx-auto ring-2 ring-zinc-700"
                       />
                       <div className="text-center font-semibold">{jogador.nome}</div>
@@ -706,7 +706,7 @@ export default function NegociacoesPage() {
                                 Jogadores oferecidos (mín. 1 / ≥ 3 jogos)
                               </label>
 
-                              {/* Checklist em grid */}
+                              {/* Checklist em grid com miniatura */}
                               <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
                                 {elencoOfertavel.map((j) => {
                                   const marcado =
@@ -728,6 +728,13 @@ export default function NegociacoesPage() {
                                           onChange={() => toggleOferecido(jogador.id, j.id, j.podeOferecer)}
                                           disabled={disabled}
                                           className="accent-emerald-600"
+                                        />
+                                        <ImagemComFallback
+                                          src={j.imagem_url || undefined}
+                                          alt={j.nome}
+                                          width={28}
+                                          height={28}
+                                          className="w-7 h-7 rounded-full object-cover ring-1 ring-zinc-700"
                                         />
                                         <div className="flex flex-col">
                                           <span className="font-semibold text-white text-[13px] leading-4">
@@ -777,3 +784,4 @@ export default function NegociacoesPage() {
     </main>
   )
 }
+```
