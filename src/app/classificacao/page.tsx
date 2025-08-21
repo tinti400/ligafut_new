@@ -1,12 +1,3 @@
-Segue o **page de Classificação completo** (client component). Ele assume os endpoints:
-
-* `GET /api/classificacao-liga?temporada={n}`
-* `POST /api/iniciar-temporada` (body: `{ temporada }`)
-* `POST /api/encerrar-temporada` (body: `{ temporada }`)
-
-Pronto pra colar em `app/classificacao/page.tsx` (ou onde preferir). Depois você ajusta a API como quiser.
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -786,4 +777,3 @@ export default function ClassificacaoPage() {
     </div>
   )
 }
-```
