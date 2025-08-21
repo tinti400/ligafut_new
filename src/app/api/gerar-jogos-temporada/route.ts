@@ -1,4 +1,3 @@
-// app/api/gerar-jogos-temporada/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -35,17 +34,18 @@ function gerarTabela(teamsOrig: string[], duploTurno = true) {
     arr = [fixo, ...resto]
   }
   if (!duploTurno) return rodadas
-  const volta = rodadas.map(j => j.map(m => ({ mandante: m.visitante, visitante: m.mandante, bonus_pago: false })))
+  const volta = rodadas.map(js => js.map(j => ({ mandante: j.visitante, visitante: j.mandante, bonus_pago: false })))
   return [...rodadas, ...volta]
 }
 
 export async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceRole) {
-    return NextResponse.json({ erro: 'Variáveis de ambiente ausentes (URL/Service Role).' }, { status: 500 })
+  const supaKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !supaKey) {
+    return NextResponse.json({ erro: 'Env ausente: URL ou KEY.' }, { status: 500 })
   }
-  const supabase = createClient(url, serviceRole, { auth: { persistSession: false } })
+  const supabase = createClient(url, supaKey, { auth: { persistSession: false } })
 
   try {
     const body = await req.json().catch(() => ({}))
@@ -53,7 +53,6 @@ export async function POST(req: NextRequest) {
     const divisoes: number[] = Array.isArray(body?.divisoes) ? body.divisoes.map(Number) : [1, 2, 3]
     const duploTurno: boolean = body?.duploTurno ?? true
     const limparExistentes: boolean = body?.limparExistentes ?? false
-
     if (!Number.isInteger(temporada) || temporada <= 0) {
       return NextResponse.json({ erro: 'Temporada inválida.' }, { status: 400 })
     }
@@ -61,7 +60,6 @@ export async function POST(req: NextRequest) {
     const resumo: Record<number, { times: number; rodadas: number; jogos: number; skipped?: boolean; motivo?: string }> = {}
 
     for (const divisao of divisoes) {
-      // limpar existentes?
       if (limparExistentes) {
         const { error: errDel } = await supabase
           .from('rodadas')
@@ -70,7 +68,6 @@ export async function POST(req: NextRequest) {
           .eq('divisao', divisao)
         if (errDel) return NextResponse.json({ erro: errDel.message }, { status: 500 })
       } else {
-        // se já existe, pula
         const { count: existentes, error: errCount } = await supabase
           .from('rodadas')
           .select('id', { head: true, count: 'exact' })
@@ -118,7 +115,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, temporada, duploTurno, resumo })
   } catch (e: any) {
-    console.error(e)
     return NextResponse.json({ erro: e?.message ?? 'Falha ao gerar jogos.' }, { status: 500 })
   }
 }
