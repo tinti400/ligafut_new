@@ -27,6 +27,7 @@ type JogoQuartas = {
 
 /** Linha para inserir na copa_semi (campos *_volta e ordem podem não existir no schema) */
 type SemiInsert = {
+  rodada?: number
   ordem?: number
   id_time1: string
   id_time2: string
@@ -246,7 +247,7 @@ export default function QuartasPage() {
       vencedores.push({ id: vencedorId, nome: vencedorNome })
     }
 
-    // ===== SORTEIO das semifinais: embaralha vencedores e monta 1x2, 3x4 =====
+    // ===== SORTEIO das semifinais =====
     if (vencedores.length < 2) {
       toast.error('São necessários pelo menos 2 vencedores para sortear as semifinais.')
       return
@@ -257,6 +258,7 @@ export default function QuartasPage() {
     for (let i = 0; i < sorteados.length; i += 2) {
       if (sorteados[i + 1]) {
         semiBase.push({
+          rodada: 1,
           ordem: (i / 2) + 1,
           id_time1: sorteados[i].id,
           id_time2: sorteados[i + 1].id,
@@ -271,10 +273,10 @@ export default function QuartasPage() {
     }
 
     try {
-      // apaga tudo de forma segura (funciona para uuid/serial)
+      // apaga tudo de forma segura (uuid/serial)
       await supabase.from('copa_semi').delete().not('id', 'is', null).throwOnError()
 
-      // 1ª tentativa: inserir com 'ordem' + *_volta
+      // 1ª tentativa: inserir com 'ordem' + *_volta + 'rodada'
       let payload: SemiInsert[] = semiBase
       let ins = await supabase.from('copa_semi').insert(payload as any)
 
@@ -284,7 +286,7 @@ export default function QuartasPage() {
         ins = await supabase.from('copa_semi').insert(payloadSemVolta as any)
       }
 
-      // 3ª tentativa: remover também 'ordem' se coluna não existir
+      // 3ª tentativa: remover também 'ordem' se coluna não existir (mantém 'rodada')
       if (ins.error && mentionsOrdem(ins.error.message)) {
         const payloadSemOrdem = (payload as SemiInsert[]).map(({ ordem, ...rest }) => rest)
         const ins2 = await supabase.from('copa_semi').insert(payloadSemOrdem as any)
@@ -431,7 +433,7 @@ function MatchCard({
             label="Volta"
             left={{ name:jogo.time2, logo:logosById[jogo.id_time2], role:'Mandante', align:'right' }}
             right={{ name:jogo.time1, logo:logosById[jogo.id_time1], role:'Visitante', align:'left' }}
-            a={vol2}   // esquerda (mandante na volta) -> gols_time2_volta
+            a={vol2}   // esquerda -> gols_time2_volta
             b={vol1}   // direita -> gols_time1_volta
             onA={(v)=>setVol2(v)}
             onB={(v)=>setVol1(v)}
@@ -519,7 +521,7 @@ function ScoreRail({
   )
 }
 
-/** Lado do time (logo + nome + papel) */
+/** Lado do time (logo + nome + papel) exatamente como no layout de Oitavas */
 function TeamSide({
   name, logo, align, role
 }:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
