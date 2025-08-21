@@ -1,3 +1,12 @@
+Segue o arquivo completo ajustado para **garantir salário = 1% do valor do jogador**.
+Ele faz duas coisas:
+
+1. **Calcula** sempre no front com `calcularSalario(valor)`;
+2. **Sincroniza o banco** no `fetchElenco()` atualizando qualquer jogador cujo salário não esteja em 1% do valor.
+
+> Substitua o conteúdo do seu arquivo por este (copie só o código):
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -29,6 +38,11 @@ interface Jogador {
   lesionado?: boolean | null
   percentual?: number | null
 }
+
+/** ===== Regra de salário (1%) ===== */
+const SALARIO_PERCENTUAL = 0.01
+const calcularSalario = (valor: number | null | undefined) =>
+  Math.round(Number(valor || 0) * SALARIO_PERCENTUAL)
 
 /** ===== Util ===== */
 const bandeiras: Record<string, string> = {
@@ -103,7 +117,29 @@ export default function ElencoPage() {
       if (e1) throw e1
       if (e2) throw e2
 
-      setElenco((elencoData || []) as Jogador[])
+      // --- Garantia DB: sincroniza salários = 1% do valor ---
+      const needsUpdate = (elencoData || []).filter(j => {
+        const esperado = calcularSalario(j.valor)
+        return Number(j.salario || 0) !== esperado
+      })
+
+      if (needsUpdate.length > 0) {
+        await Promise.all(
+          needsUpdate.map(j =>
+            supabase.from('elenco')
+              .update({ salario: calcularSalario(j.valor) })
+              .eq('id', j.id)
+          )
+        )
+      }
+
+      // Atualiza estado já refletindo o salário esperado
+      const elencoComRegra = (elencoData || []).map(j => ({
+        ...j,
+        salario: calcularSalario(j.valor)
+      }))
+
+      setElenco(elencoComRegra as Jogador[])
       setSaldo(Number(timeData?.saldo || 0))
       setNomeTime(timeData?.nome || '')
       setSelecionados([])
@@ -211,7 +247,7 @@ export default function ElencoPage() {
         const baseValor = Number(jogador.valor || 0)
         const valorVenda = Math.round((baseValor * percentualNum / 100) * 0.7)
 
-        // 1) Inserir no mercado
+        // 1) Inserir no mercado (salário já como 1% do valor)
         {
           const { error } = await supabase.from('mercado_transferencias').insert({
             jogador_id: jogador.id,
@@ -220,7 +256,7 @@ export default function ElencoPage() {
             overall: jogador.overall,
             valor: baseValor,
             imagem_url: jogador.imagem_url || '',
-            salario: jogador.salario || 0,
+            salario: calcularSalario(baseValor),
             link_sofifa: jogador.link_sofifa || '',
             id_time_origem: jogador.id_time,
             status: 'disponivel',
@@ -306,7 +342,8 @@ export default function ElencoPage() {
     [elenco]
   )
   const salarioTotal = useMemo(
-    () => elenco.reduce((acc, j) => acc + Number(j.salario || 0), 0),
+    // usa a regra 1% independentemente do que veio do DB
+    () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
     [elenco]
   )
   const mediaOverall = useMemo(
@@ -328,7 +365,7 @@ export default function ElencoPage() {
     arr.sort((a, b) => {
       if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
       if (ordenacao === 'overall') return Number(b.overall || 0) - Number(a.overall || 0)
-      if (ordenacao === 'salario') return Number(b.salario || 0) - Number(a.salario || 0)
+      if (ordenacao === 'salario') return calcularSalario(b.valor) - calcularSalario(a.valor)
       if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
       if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
       if (ordenacao === 'posicao') return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
@@ -726,7 +763,7 @@ export default function ElencoPage() {
                     <p className="text-gray-300">OVR: <b>{jogador.overall ?? 0}</b></p>
                     <p className="text-gray-300">Jogos: <b>{jogador.jogos ?? 0}</b></p>
                     <p className="col-span-2 text-emerald-400 font-semibold">💰 {formatBRL(jogador.valor)}</p>
-                    <p className="col-span-2 text-gray-400">Salário: {formatBRL(jogador.salario)}</p>
+                    <p className="col-span-2 text-gray-400">Salário: {formatBRL(calcularSalario(jogador.valor))}</p>
                     <p className="col-span-2 text-gray-400">Percentual: {jogador.percentual ?? 100}%</p>
                   </div>
 
@@ -804,7 +841,7 @@ export default function ElencoPage() {
                     </td>
                     <td className="px-3 py-3">{jogador.overall ?? 0}</td>
                     <td className="px-3 py-3">{formatBRL(jogador.valor)}</td>
-                    <td className="px-3 py-3">{formatBRL(jogador.salario)}</td>
+                    <td className="px-3 py-3">{formatBRL(calcularSalario(jogador.valor))}</td>
                     <td className="px-3 py-3">{jogador.jogos ?? 0}</td>
                     <td className="px-3 py-3">{jogador.percentual ?? 100}%</td>
                     <td className="px-3 py-3">
@@ -831,3 +868,4 @@ export default function ElencoPage() {
     </div>
   )
 }
+```
