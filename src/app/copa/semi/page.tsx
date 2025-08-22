@@ -52,8 +52,13 @@ export default function SemiPage() {
   const [logosById, setLogosById] = useState<Record<string, string | null>>({})
   const [loading, setLoading] = useState(true)
 
+  // Ajuste se usar multi-temporada/divisão
+  const [temporadaSelecionada] = useState<number>(1)
+  const [divisaoSelecionada] = useState<number>(1)
+
   useEffect(() => {
     Promise.all([buscarJogos(), buscarClassificacao()]).finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function buscarJogos() {
@@ -105,6 +110,7 @@ export default function SemiPage() {
   }
 
   async function buscarClassificacao() {
+    // ajuste o filtro se sua tabela tiver temporada/divisão
     const { data, error } = await supabase.from('classificacao').select('id_time, pontos')
     if (!error && data) setClassificacao(data as any)
     else setClassificacao([])
@@ -152,68 +158,32 @@ export default function SemiPage() {
       return
     }
 
-    // recomputa vencedores
-    const vencedores: Array<{ id: string; nome: string }> = []
-    for (const jogo of jogos) {
-      const gols1 = (jogo.gols_time1 || 0) + (supportsVolta ? (jogo.gols_time1_volta || 0) : 0)
-      const gols2 = (jogo.gols_time2 || 0) + (supportsVolta ? (jogo.gols_time2_volta || 0) : 0)
-
-      let vencedorId = ''
-      let vencedorNome = ''
-      if (gols1 > gols2) {
-        vencedorId = jogo.id_time1
-        vencedorNome = jogo.time1
-      } else if (gols2 > gols1) {
-        vencedorId = jogo.id_time2
-        vencedorNome = jogo.time2
-      } else {
-        const p1 = pontosCampanha(jogo.id_time1)
-        const p2 = pontosCampanha(jogo.id_time2)
-        if (p1 >= p2) { vencedorId = jogo.id_time1; vencedorNome = jogo.time1 }
-        else { vencedorId = jogo.id_time2; vencedorNome = jogo.time2 }
-      }
-      vencedores.push({ id: vencedorId, nome: vencedorNome })
-    }
-
-    if (vencedores.length < 2) {
-      toast.error('É necessário ter pelo menos 2 vencedores para formar a Final.')
-      return
+    // (Opcional) validação local: aponta empates no agregado
+    const empates: number[] = []
+    jogos.forEach((j, i) => {
+      const g1 = (j.gols_time1 || 0) + (supportsVolta ? (j.gols_time1_volta || 0) : 0)
+      const g2 = (j.gols_time2 || 0) + (supportsVolta ? (j.gols_time2_volta || 0) : 0)
+      if (g1 === g2) empates.push(i + 1)
+    })
+    if (empates.length) {
+      // continua — a API pode resolver por gols fora ou vencedor manual
+      console.warn('Semis empatadas no agregado:', empates)
     }
 
     try {
-      // limpar final de forma segura
-      await supabase.from('copa_final').delete().not('id', 'is', null)
-
-      // 1) TABELA TIPO "LISTA" (duas linhas: id_time, time)
-      let tryList = await supabase.from('copa_final').insert(
-        vencedores.map(v => ({ id_time: v.id, time: v.nome })) as any
-      )
-
-      if (tryList.error) {
-        // 2) TABELA TIPO "PARTIDA" (uma linha: id_time1, id_time2, time1, time2, gols_*)
-        const baseRow: any = {
-          id_time1: vencedores[0].id,
-          id_time2: vencedores[1].id,
-          time1: vencedores[0].nome,
-          time2: vencedores[1].nome,
-          gols_time1: null,
-          gols_time2: null,
-          gols_time1_volta: null,
-          gols_time2_volta: null,
-        }
-        // tenta com *_volta e faz fallback sem elas
-        let tryMatch = await supabase.from('copa_final').insert(baseRow)
-        if (tryMatch.error && mentionsVolta(tryMatch.error.message)) {
-          const { gols_time1_volta, gols_time2_volta, ...semVolta } = baseRow
-          tryMatch = await supabase.from('copa_final').insert(semVolta)
-        }
-        if (tryMatch.error) throw tryMatch.error
-      }
+      const res = await fetch('/api/copa/definir-final', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ temporada: temporadaSelecionada, divisao: divisaoSelecionada })
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.erro || 'Falha ao definir Final')
 
       toast.success('Semifinal finalizada e Final definida!')
+      // redireciona para a página da final
+      window.location.href = '/copa/final'
     } catch (e: any) {
-      console.error(e)
-      toast.error(`Erro ao definir a Final: ${e?.message || e}`)
+      toast.error(e?.message || 'Erro ao definir a Final')
     }
   }
 
