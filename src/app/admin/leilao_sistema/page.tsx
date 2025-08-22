@@ -10,6 +10,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+const MAX_ATIVOS = 8
+
 type Leilao = {
   id: string
   nome: string
@@ -63,7 +65,6 @@ export default function LeilaoSistemaPage() {
       ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
       : '—'
 
-  // normalizador de URL (https, sem aspas, ignora lixo)
   const normalizeUrl = (u?: string | null) => {
     if (!u) return ''
     let url = String(u).trim().replace(/^"(.*)"$/, '$1')
@@ -73,7 +74,6 @@ export default function LeilaoSistemaPage() {
     return url
   }
 
-  // pega imagem do registro, tolerando variações de cabeçalho do Excel
   const pickImagemUrl = (row: any) => {
     const keys = [
       'imagem_url',
@@ -90,7 +90,6 @@ export default function LeilaoSistemaPage() {
         if (fixed) return fixed
       }
     }
-    // fallback: se a coluna veio com espaços estranhos
     for (const k in row || {}) {
       if (k && k.replace(/\s+/g, '').toLowerCase() === 'imagem_url') {
         const fixed = normalizeUrl(row[k])
@@ -130,7 +129,6 @@ export default function LeilaoSistemaPage() {
     }
   }
 
-  // Se id_time não for UUID, busca pelo nome do time e corrige no localStorage
   async function garantirIdTimeValido() {
     try {
       if (idTime && isUuid(idTime)) return
@@ -162,7 +160,7 @@ export default function LeilaoSistemaPage() {
       .select('*')
       .eq('status', 'ativo')
       .order('criado_em', { ascending: true })
-      .limit(3)
+      .limit(MAX_ATIVOS)
 
     if (!error && data) {
       const arr = data.map((l: any) => ({
@@ -356,8 +354,8 @@ export default function LeilaoSistemaPage() {
       <section className="mx-auto w-full max-w-6xl px-4 pb-10 pt-4">
         {/* Estado vazio / carregando */}
         {carregando ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[0, 1, 2].map((i) => (
+          <div className="grid grid-cols-1 gap-4 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: MAX_ATIVOS }).map((_, i) => (
               <div key={i} className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 animate-pulse">
                 <div className="flex items-center gap-3">
                   <div className="h-14 w-14 rounded-2xl bg-zinc-800" />
@@ -399,7 +397,6 @@ export default function LeilaoSistemaPage() {
 
               return (
                 <div key={leilao.id} className="relative">
-                  {/* Moldura gradiente por tier */}
                   <div className={classNames('rounded-2xl p-[1px] bg-gradient-to-br', tierGrad(leilao.valor_atual))}>
                     <article
                       className={classNames(
@@ -408,7 +405,6 @@ export default function LeilaoSistemaPage() {
                         tremores[leilao.id] ? 'animate-[pulse_0.3s_ease_1] ring-1 ring-emerald-500/30' : ''
                       )}
                     >
-                      {/* Barra de progresso do tempo */}
                       <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
                         <div
                           className="h-full bg-emerald-500 transition-[width] duration-1000"
@@ -416,7 +412,6 @@ export default function LeilaoSistemaPage() {
                         />
                       </div>
 
-                      {/* Topo: título + badge de status/tempo */}
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="text-sm font-semibold text-zinc-300">Leilão #{index + 1}</h2>
                         <span
@@ -434,7 +429,6 @@ export default function LeilaoSistemaPage() {
                         </span>
                       </div>
 
-                      {/* Corpo: imagem + dados do jogador */}
                       <div className="mt-3 flex items-center gap-4">
                         <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
                           {leilao.imagem_url ? (
@@ -481,14 +475,14 @@ export default function LeilaoSistemaPage() {
                         </div>
                       </div>
 
-                      {/* Ações: botões de incremento estilo segmented control */}
                       <div className="mt-4">
                         <div className="grid grid-cols-3 gap-2">
-                          {increments.map((inc) => {
+                          {[4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000].map((inc) => {
                             const disabled =
-                              disabledPorTempo ||
-                              disabledPorIdentidade ||
-                              disabledPorCooldown ||
+                              tempoRestante === 0 ||
+                              !!travadoPorIdentidade ||
+                              cooldownGlobal ||
+                              !!cooldownPorLeilao[leilao.id] ||
                               (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
 
                             return (
@@ -497,13 +491,13 @@ export default function LeilaoSistemaPage() {
                                 onClick={() => darLance(leilao.id, leilao.valor_atual, inc, tempoRestante)}
                                 disabled={disabled}
                                 title={
-                                  disabledPorTempo
+                                  tempoRestante === 0
                                     ? '⏱️ Leilão encerrado'
-                                    : disabledPorIdentidade
+                                    : travadoPorIdentidade
                                     ? '🔐 Faça login novamente (time não identificado)'
                                     : saldo !== null && Number(leilao.valor_atual) + inc > saldo
                                     ? '💸 Saldo insuficiente'
-                                    : disabledPorCooldown
+                                    : cooldownGlobal || !!cooldownPorLeilao[leilao.id]
                                     ? '⏳ Aguarde um instante...'
                                     : ''
                                 }
@@ -534,7 +528,6 @@ export default function LeilaoSistemaPage() {
                         )}
                       </div>
 
-                      {/* Encerrar (admin/manual) */}
                       {tempoRestante === 0 && (
                         <button
                           onClick={() => finalizarLeilaoAgora(leilao.id)}
@@ -546,7 +539,6 @@ export default function LeilaoSistemaPage() {
                     </article>
                   </div>
 
-                  {/* Selo "Encerrado" flutuante */}
                   {tempoRestante === 0 && (
                     <div className="pointer-events-none absolute -right-2 -top-2 rotate-3 rounded-lg border border-red-900/50 bg-red-950/70 px-2 py-1 text-[10px] font-semibold text-red-200 shadow">
                       ENCERRADO
@@ -559,7 +551,6 @@ export default function LeilaoSistemaPage() {
         )}
       </section>
 
-      {/* Safe-area mobile */}
       <div className="h-6 md:h-8" />
     </main>
   )
