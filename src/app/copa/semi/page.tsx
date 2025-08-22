@@ -36,7 +36,7 @@ const mentionsVolta = (msg?: string) => {
 }
 const mentionsTableMissing = (msg?: string) => {
   const s = String(msg || '').toLowerCase()
-  return s.includes('relation') && s.includes('does not exist')
+  return (s.includes('relation') || s.includes('table')) && s.includes('does not exist')
 }
 const normInt = (val: string): number | null => {
   if (val === '') return null
@@ -100,38 +100,63 @@ export default function SemiPage() {
     let tableInUse: 'copa_semi' | 'copa_semifinal' = 'copa_semi'
     let includeVolta = true
 
-    // 1) tenta copa_semi com *_volta
-    let { data, error } = await query('copa_semi', includeVolta)
+    // Tipos para evitar o erro de build
+    let data: any[] | null = null
+    let error: any = null
 
-    // 2) se erro por coluna *_volta, tenta sem volta
+    // 1) copa_semi com *_volta
+    { const r = await query('copa_semi', includeVolta); data = r.data as any[] | null; error = r.error as any }
+
+    // 2) se erro por *_volta, tenta sem volta
     if (error && mentionsVolta(error.message)) {
       setSupportsVolta(false)
       includeVolta = false
-      ;({ data, error } = await query('copa_semi', includeVolta))
+      const r = await query('copa_semi', includeVolta)
+      data = r.data as any[] | null
+      error = r.error as any
     }
 
-    // 3) se ainda deu erro (tabela não existe), tenta copa_semifinal
+    // 3) se ainda erro (tabela não existe), tenta copa_semifinal
     if (error && mentionsTableMissing(error.message)) {
       tableInUse = 'copa_semifinal'
       includeVolta = true
-      ;({ data, error } = await query('copa_semifinal', includeVolta))
+      const r1 = await query('copa_semifinal', includeVolta)
+      data = r1.data as any[] | null
+      error = r1.error as any
 
       if (error && mentionsVolta(error.message)) {
         setSupportsVolta(false)
         includeVolta = false
-        ;({ data, error } = await query('copa_semifinal', includeVolta))
+        const r2 = await query('copa_semifinal', includeVolta)
+        data = r2.data as any[] | null
+        error = r2.error as any
       }
     }
 
     if (error) {
-      toast.error('Erro ao buscar jogos: ' + error.message)
+      toast.error('Erro ao buscar jogos: ' + (error?.message || 'desconhecido'))
       setJogos([])
       setLogosById({})
       setLoading(false)
       return
     }
 
-    const arr = (data || []) as JogoSemi[]
+    // Normaliza linhas -> JogoSemi (sem cast direto)
+    const arr: JogoSemi[] = (data ?? []).map((r: any, i: number) => ({
+      id: Number(r.id),
+      ordem: r.ordem ?? i + 1,
+      id_time1: String(r.id_time1),
+      id_time2: String(r.id_time2),
+      time1: String(r.time1 ?? 'Time 1'),
+      time2: String(r.time2 ?? 'Time 2'),
+      gols_time1: r.gols_time1 ?? null,
+      gols_time2: r.gols_time2 ?? null,
+      gols_time1_volta: r.gols_time1_volta ?? null,
+      gols_time2_volta: r.gols_time2_volta ?? null,
+      temporada: r.temporada ?? null,
+      divisao: r.divisao ?? null,
+    }))
+
     setJogos(arr)
     setSemiTable(tableInUse)
 
@@ -143,7 +168,7 @@ export default function SemiPage() {
         .select('id, logo_url')
         .in('id', ids)
       const map: Record<string, string | null> = {}
-      ;(times || []).forEach(t => { map[t.id] = t.logo_url ?? null })
+      ;(times || []).forEach((t: any) => { map[t.id] = t.logo_url ?? null })
       setLogosById(map)
     } else {
       setLogosById({})
@@ -156,7 +181,7 @@ export default function SemiPage() {
     // ajuste o filtro se sua tabela tiver temporada/divisão
     const { data, error } = await supabase
       .from('classificacao')
-      .select('id_time, pontos, temporada, divisao')
+      .select('id_time,pontos,temporada,divisao')
       .eq('temporada', temporadaSelecionada)
       .eq('divisao', divisaoSelecionada)
 
@@ -185,7 +210,7 @@ export default function SemiPage() {
       .eq('id', jogo.id)
 
     if (error) {
-      toast.error('Erro ao salvar: ' + error.message)
+      toast.error('Erro ao salvar: ' + (error?.message || 'desconhecido'))
     } else {
       toast.success('Placar salvo!')
       setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, ...update } : j)))
@@ -213,9 +238,7 @@ export default function SemiPage() {
       const g2 = (j.gols_time2 || 0) + (supportsVolta ? (j.gols_time2_volta || 0) : 0)
       if (g1 === g2) empates.push(i + 1)
     })
-    if (empates.length) {
-      console.warn('Semis empatadas no agregado:', empates)
-    }
+    if (empates.length) console.warn('Semis empatadas no agregado:', empates)
 
     try {
       const res = await fetch('/api/copa/definir-final', {
