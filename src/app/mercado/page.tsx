@@ -71,7 +71,7 @@ function ModalConfirm({
 
 /* ================= Tipos ================= */
 type Jogador = {
-  id: string
+  id: string | number
   nome: string
   posicao: string
   overall: number
@@ -119,99 +119,99 @@ const JogadorCard = ({
   }
 
   const nacionalidade =
-    jogador.nacionalidade && jogador.nacionalidade.trim() !== '' ? jogador.nacionalidade : 'Resto do Mundo';
+    jogador.nacionalidade && jogador.nacionalidade.trim() !== '' ? jogador.nacionalidade : 'Resto do Mundo'
 
   return (
-    <div
-      className={[
-        'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
-        'hover:shadow-lg hover:shadow-black/30 transition-shadow',
-        loadingComprar ? 'opacity-70 pointer-events-none' : '',
-        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
-      ].join(' ')}
-    >
-      {/* Seleção admin */}
-      {isAdmin ? (
-        <label className="absolute left-3 top-3 inline-flex select-none items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-xs text-white backdrop-blur">
-          <input
-            type="checkbox"
-            checked={selecionado}
-            onChange={toggleSelecionado}
-            className="h-4 w-4 accent-red-500"
-          />
-          Excluir
-        </label>
-      ) : null}
+      <div
+        className={[
+          'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
+          'hover:shadow-lg hover:shadow-black/30 transition-shadow',
+          loadingComprar ? 'opacity-70 pointer-events-none' : '',
+          selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
+        ].join(' ')}
+      >
+        {/* Seleção admin */}
+        {isAdmin ? (
+          <label className="absolute left-3 top-3 inline-flex select-none items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-xs text-white backdrop-blur">
+            <input
+              type="checkbox"
+              checked={selecionado}
+              onChange={toggleSelecionado}
+              className="h-4 w-4 accent-red-500"
+            />
+            Excluir
+          </label>
+        ) : null}
 
-      {/* Cabeçalho do card */}
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <ImagemComFallback
-            src={jogador.imagem_url || jogador.foto || ''}
-            alt={jogador.nome}
-            width={80}
-            height={80}
-            className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
-          />
-          <span className="absolute -bottom-1 -right-1 rounded-full bg-gray-800 px-2 py-0.5 text-[10px] font-bold text-gray-200 ring-1 ring-white/10">
-            {jogador.posicao}
-          </span>
-        </div>
-        <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold leading-tight">{jogador.nome}</h3>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-300">
-            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">OVR {jogador.overall}</span>
-            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">🌎 {nacionalidade}</span>
+        {/* Cabeçalho do card */}
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <ImagemComFallback
+              src={jogador.imagem_url || jogador.foto || ''}
+              alt={jogador.nome}
+              width={80}
+              height={80}
+              className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
+            />
+            <span className="absolute -bottom-1 -right-1 rounded-full bg-gray-800 px-2 py-0.5 text-[10px] font-bold text-gray-200 ring-1 ring-white/10">
+              {jogador.posicao}
+            </span>
+          </div>
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-semibold leading-tight">{jogador.nome}</h3>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-300">
+              <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">OVR {jogador.overall}</span>
+              <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">🌎 {nacionalidade}</span>
+            </div>
           </div>
         </div>
+
+        {/* Valores */}
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
+            <p className="text-xs text-gray-400">Valor</p>
+            <p className="font-bold text-green-400">{formatarValor(jogador.valor)}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
+            <p className="text-xs text-gray-400">Salário</p>
+            <p className="font-semibold text-gray-200">{formatarValor(jogador.salario || 0)}</p>
+          </div>
+        </div>
+
+        {/* Admin: alterar preço */}
+        {isAdmin ? (
+          <div className="mt-3">
+            <label className="mb-1 block text-[11px] text-gray-300">💰 Alterar Preço (R$)</label>
+            <input
+              type="number"
+              min={1}
+              step={1000}
+              value={novoValor}
+              onChange={(e) => setNovoValor(Number(e.target.value))}
+              onBlur={handleBlur}
+              disabled={loadingAtualizarPreco}
+              className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-green-500"
+              placeholder="Novo valor"
+            />
+            {loadingAtualizarPreco && <p className="mt-1 text-[11px] text-gray-400">Atualizando...</p>}
+          </div>
+        ) : null}
+
+        {/* Ação */}
+        <button
+          onClick={onComprar}
+          disabled={loadingComprar || mercadoFechado}
+          className={[
+            'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
+            mercadoFechado
+              ? 'cursor-not-allowed bg-gray-700 text-gray-300'
+              : 'bg-green-600 text-white hover:bg-green-700'
+          ].join(' ')}
+          title={mercadoFechado ? 'Mercado fechado' : 'Comprar jogador'}
+        >
+          {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
+        </button>
       </div>
-
-      {/* Valores */}
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-          <p className="text-xs text-gray-400">Valor</p>
-          <p className="font-bold text-green-400">{formatarValor(jogador.valor)}</p>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-          <p className="text-xs text-gray-400">Salário</p>
-          <p className="font-semibold text-gray-200">{formatarValor(jogador.salario || 0)}</p>
-        </div>
-      </div>
-
-      {/* Admin: alterar preço */}
-      {isAdmin ? (
-        <div className="mt-3">
-          <label className="mb-1 block text-[11px] text-gray-300">💰 Alterar Preço (R$)</label>
-          <input
-            type="number"
-            min={1}
-            step={1000}
-            value={novoValor}
-            onChange={(e) => setNovoValor(Number(e.target.value))}
-            onBlur={handleBlur}
-            disabled={loadingAtualizarPreco}
-            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-green-500"
-            placeholder="Novo valor"
-          />
-          {loadingAtualizarPreco && <p className="mt-1 text-[11px] text-gray-400">Atualizando...</p>}
-        </div>
-      ) : null}
-
-      {/* Ação */}
-      <button
-        onClick={onComprar}
-        disabled={loadingComprar || mercadoFechado}
-        className={[
-          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
-          mercadoFechado
-            ? 'cursor-not-allowed bg-gray-700 text-gray-300'
-            : 'bg-green-600 text-white hover:bg-green-700'
-        ].join(' ')}
-        title={mercadoFechado ? 'Mercado fechado' : 'Comprar jogador'}
-      >
-        {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
-      </button>
-    </div>
   )
 }
 
@@ -223,7 +223,7 @@ export default function MercadoPage() {
   const [jogadores, setJogadores] = useState<Jogador[]>([])
   const [saldo, setSaldo] = useState(0)
   const [user, setUser] = useState<any>(null)
-  const [selecionados, setSelecionados] = useState<string[]>([])
+  const [selecionados, setSelecionados] = useState<(string | number)[]>([])
 
   // filtros
   const [filtroNome, setFiltroNome] = useState('')
@@ -237,11 +237,11 @@ export default function MercadoPage() {
   const [itensPorPagina, setItensPorPagina] = useState(40)
   const [paginaAtual, setPaginaAtual] = useState(1)
 
-  // estados
+  // estados gerais
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [loadingComprarId, setLoadingComprarId] = useState<string | null>(null)
-  const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | null>(null)
+  const [loadingComprarId, setLoadingComprarId] = useState<string | number | null>(null)
+  const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | number | null>(null)
   const [loadingExcluir, setLoadingExcluir] = useState(false)
 
   const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
@@ -330,6 +330,8 @@ export default function MercadoPage() {
       return Number.isFinite(num) ? num : 0
     }
 
+    type NovoJogador = Omit<Jogador, 'id'>
+
     const reader = new FileReader()
     reader.onload = async (event) => {
       try {
@@ -341,7 +343,7 @@ export default function MercadoPage() {
         const sheet = workbook.Sheets[sheetName]
         const json = XLSX.utils.sheet_to_json(sheet)
 
-        const jogadoresParaInserir = (json as any[]).map((raw) => {
+        const jogadoresParaInserir: NovoJogador[] = (json as any[]).map((raw) => {
           const row = normalizeKeys(raw)
 
           const nome = row['nome']
@@ -357,7 +359,8 @@ export default function MercadoPage() {
             throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
           }
 
-          return {
+          // payload solto para não travar a tipagem caso sua tabela tenha colunas extras como time_origem
+          const payload: any = {
             nome,
             posicao,
             overall,
@@ -367,13 +370,22 @@ export default function MercadoPage() {
             nacionalidade,
             time_origem,
           }
+
+          return payload as NovoJogador
         })
 
-        const { error } = await supabase.from('mercado_transferencias').insert(jogadoresParaInserir)
+        // pega de volta do Supabase já com `id`
+        const { data: inseridos, error } = await supabase
+          .from('mercado_transferencias')
+          .insert(jogadoresParaInserir as any[])
+          .select('*')
+
         if (error) throw error
 
-        toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
-        setJogadores((prev) => [...prev, ...jogadoresParaInserir])
+        toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
+
+        // atualiza estado apenas com objetos que têm id
+        setJogadores((prev) => [...prev, ...((inseridos as Jogador[]) ?? [])])
       } catch (error: any) {
         console.error('Erro ao importar:', error)
         toast.error(`Erro no upload: ${error.message || error}`)
@@ -499,7 +511,7 @@ export default function MercadoPage() {
   }
 
   /* ================= Admin: excluir/atualizar preço ================= */
-  const toggleSelecionado = (id: string) => {
+  const toggleSelecionado = (id: string | number) => {
     setSelecionados((prev) => (prev.includes(id) ? prev.filter((sel) => sel !== id) : [...prev, id]))
   }
 
@@ -529,14 +541,18 @@ export default function MercadoPage() {
     }
   }
 
-  const atualizarPreco = async (jogadorId: string, novoValor: number) => {
+  const atualizarPreco = async (jogadorId: string | number, novoValor: number) => {
     if (novoValor <= 0) {
       toast.error('Valor deve ser maior que zero')
       return
     }
     setLoadingAtualizarPrecoId(jogadorId)
     try {
-      const { error } = await supabase.from('mercado_transferencias').update({ valor: novoValor }).eq('id', jogadorId)
+      const { error } = await supabase
+        .from('mercado_transferencias')
+        .update({ valor: novoValor })
+        .eq('id', jogadorId)
+
       if (error) throw error
 
       setJogadores((prev) => prev.map((j) => (j.id === jogadorId ? { ...j, valor: novoValor } : j)))
@@ -839,7 +855,7 @@ export default function MercadoPage() {
         </div>
 
         {/* Paginação (topo) */}
-        {Math.max(1, Math.ceil(totalResultados / itensPorPagina)) > 1 ? (
+        {totalPaginas > 1 ? (
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
@@ -848,10 +864,10 @@ export default function MercadoPage() {
               ← Anterior
             </button>
             <span className="rounded-lg bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10">
-              Página <strong>{Math.min(Math.max(1, paginaAtual), Math.max(1, Math.ceil(totalResultados / itensPorPagina)))}</strong> de <strong>{Math.max(1, Math.ceil(totalResultados / itensPorPagina))}</strong>
+              Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
             </span>
             <button
-              onClick={() => setPaginaAtual((p) => Math.min(Math.max(1, Math.ceil(totalResultados / itensPorPagina)), p + 1))}
+              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
               className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               Próxima →
@@ -864,7 +880,7 @@ export default function MercadoPage() {
           {jogadoresPaginados.length > 0 ? (
             jogadoresPaginados.map((jogador) => (
               <JogadorCard
-                key={jogador.id}
+                key={String(jogador.id)}
                 jogador={jogador}
                 isAdmin={isAdmin}
                 selecionado={selecionados.includes(jogador.id)}
@@ -884,7 +900,7 @@ export default function MercadoPage() {
         </div>
 
         {/* Paginação (base) */}
-        {Math.max(1, Math.ceil(totalResultados / itensPorPagina)) > 1 ? (
+        {totalPaginas > 1 ? (
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
@@ -893,10 +909,10 @@ export default function MercadoPage() {
               ← Anterior
             </button>
             <span className="rounded-lg bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10">
-              Página <strong>{Math.min(Math.max(1, paginaAtual), Math.max(1, Math.ceil(totalResultados / itensPorPagina)))}</strong> de <strong>{Math.max(1, Math.ceil(totalResultados / itensPorPagina))}</strong>
+              Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
             </span>
             <button
-              onClick={() => setPaginaAtual((p) => Math.min(Math.max(1, Math.ceil(totalResultados / itensPorPagina)), p + 1))}
+              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
               className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               Próxima →
