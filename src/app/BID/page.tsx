@@ -1,20 +1,3 @@
-Aqui está o componente **BIDPage** completo, já com:
-
-* **Busca global** (passa por todas as páginas): digitou ≥ 2 caracteres, eu consulto o banco inteiro (descrição e nomes dos times) e trago tudo de uma vez.
-* **Debounce** (≈350ms) para a busca.
-* **Chips de filtro por tipo de evento** (Transferência, Empréstimo, Rescisão, Compra, Salário, Bônus).
-* **Realce do termo buscado** na descrição.
-* Melhorias visuais (header com “glass”, chips, botão flutuante “voltar ao topo”, estados vazios/skeleton mais caprichados).
-
-> Observações:
->
-> * Em modo busca, a paginação some (trago todos os resultados relevantes em uma listagem única).
-> * Para filtrar por nome de time, eu busco `times.nome ILIKE %termo%` e junto com `bid.descricao ILIKE %termo%`.
-> * Mantive todas as funcionalidades (comentários, reações, exclusão admin).
-
----
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1020,4 +1003,4 @@ function ComentarioForm({
     </div>
   )
 }
-```
+
