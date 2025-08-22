@@ -7,10 +7,14 @@ import toast from 'react-hot-toast'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import { FiRotateCcw, FiSave, FiTrash2, FiTarget } from 'react-icons/fi'
 
+/** === Supabase === */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
+/** === Temporada atual (escopo de edição) === */
+const TEMPORADA = process.env.NEXT_PUBLIC_TEMPORADA || '2025-26'
 
 /** =================== Tipos =================== */
 type Jogo = {
@@ -21,8 +25,8 @@ type Jogo = {
   gols_time1: number | null
   gols_time2: number | null
   bonus_pago?: boolean | null
+  temporada?: string | null
 }
-
 type TimeMini = { nome: string; logo_url: string }
 type TimeFull = {
   id: string
@@ -79,34 +83,19 @@ function atribuirPotes(times: TimeFull[]): Record<string, number> {
 
 type CalendarioItem = { rodada: number; casa: string; fora: string }
 
-/** =============== Gerador Champions Swiss ===============
- * Regras fortes:
- * - 8 rodadas
- * - 1 jogo por time em cada rodada (se número de participantes for ímpar, haverá 1 bye por rodada)
- * - 2 adversários de cada pote por time (relaxa se necessário)
- * - 4 mandos casa / 4 fora (relaxa se necessário)
- * - evitar mesmo país (opcional, best-effort)
- */
+/** =============== Gerador Champions Swiss (8 rodadas) =============== */
 function gerarChampionsSwiss(
   participantes: TimeFull[],
   evitarMesmoPais = true
 ): CalendarioItem[] {
-  let teams = [...participantes]
-
-  // ===== Excluir Palmeiras do sorteio =====
-  teams = teams.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
-
+  // Excluir Palmeiras
+  let teams = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
   const N = teams.length
   if (N < 2) return []
 
-  // BYE se ímpar
   const BYE = '__BYE__'
   if (N % 2 === 1) {
-    teams.push({
-      id: BYE,
-      nome: 'BYE',
-      logo_url: '',
-    } as TimeFull)
+    teams = [...teams, { id: BYE, nome: 'BYE', logo_url: '' } as TimeFull]
   }
 
   const ids = teams.map(t => t.id)
@@ -131,29 +120,22 @@ function gerarChampionsSwiss(
   const calendario: CalendarioItem[] = []
 
   for (let rodada = 1; rodada <= ROUNDS; rodada++) {
-    // disponíveis (não podem ter jogo duplicado na mesma rodada)
     const disponiveis = new Set(ids)
 
-    // se existir BYE, sempre emparelha alguém com BYE
+    // Se há BYE, um time “folga” nesta rodada
     if (ids.includes(BYE)) {
-      // prioriza o que ainda tem mais jogos remanescentes
       const candidatos = Array.from(disponiveis).filter(id => id !== BYE && remMatches[id] > 0)
       if (candidatos.length) {
         const a = candidatos.sort((x, y) => remMatches[y] - remMatches[x])[0]
-        // a folga nessa rodada
-        calendario.push({ rodada, casa: BYE, fora: a })
+        // Não insere jogo com BYE no calendário, apenas consome uma rodada do time
         disponiveis.delete(BYE)
         disponiveis.delete(a)
         remMatches[a] -= 1
-        // BYE não conta para casa/fora/potes
       } else {
-        // se não encontrou, só remove BYE da rodada
         disponiveis.delete(BYE)
       }
     }
 
-    // tentar parear todos os restantes
-    // estratégia: ordenar por "maior necessidade" (soma de needPot + balanceamento de mando)
     const scoreTeam = (id: string) => {
       if (id === BYE) return -1
       const np = needPot[id]
@@ -165,100 +147,79 @@ function gerarChampionsSwiss(
     while (true) {
       const livres = Array.from(disponiveis).filter(id => id !== BYE && remMatches[id] > 0)
       if (livres.length < 2) break
-
       livres.sort((a, b) => scoreTeam(b) - scoreTeam(a))
       const a = livres[0]
 
-      // Candidatos b
       const candAll = livres.slice(1).filter(b => !playedPairs.has(keyPair(a, b)))
+      const potA = potes[a] ?? 4
 
-      const candFilt = (mutuo: boolean, respeitaPais: boolean, respeitaMando: boolean) => {
-        let C = [...candAll]
-
-        // pote alvo: prefere quem satisfaz necessidade
-        const potA = potes[a] ?? 4
-        C = C.filter(b => remMatches[b] > 0)
-        if (mutuo) {
-          C = C.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0 && (needPot[b][potA] ?? 0) > 0)
-        } else {
-          C = C.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0)
+      const escolher = () => {
+        const trySet = (mutuo: boolean, pais: boolean, mando: boolean) => {
+          let C = [...candAll].filter(b => remMatches[b] > 0)
+          if (mutuo) C = C.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0 && (needPot[b][potA] ?? 0) > 0)
+          else C = C.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0)
+          if (pais && byId[a]?.associacao) {
+            const pa = byId[a].associacao
+            const alt = C.filter(b => byId[b]?.associacao !== pa)
+            if (alt.length) C = alt
+          }
+          if (mando) {
+            C.sort((b1, b2) => {
+              const score = (x: string) => {
+                const sAHome = CASA_MAX - homeCnt[a]
+                const sAAway = FORA_MAX - awayCnt[a]
+                const sXHome = CASA_MAX - homeCnt[x]
+                const sXAway = FORA_MAX - awayCnt[x]
+                const mandoOk = (sAHome > 0 && sXAway > 0) || (sAAway > 0 && sXHome > 0) ? 2 : 0
+                const needSum = (needPot[a][potes[x] ?? 4] ?? 0) + (needPot[x][potA] ?? 0)
+                return mandoOk + needSum
+              }
+              return score(b2) - score(b1)
+            })
+          }
+          return C[0]
         }
-
-        if (respeitaPais && byId[a]?.associacao && C.length) {
-          const pa = byId[a].associacao
-          const alt = C.filter(b => byId[b]?.associacao !== pa)
-          if (alt.length) C = alt
-        }
-
-        // balancear mando
-        if (respeitaMando && C.length) {
-          C.sort((b1, b2) => {
-            const sobraAHome = CASA_MAX - homeCnt[a]
-            const sobraAAway = FORA_MAX - awayCnt[a]
-            const sobraB1Home = CASA_MAX - homeCnt[b1]
-            const sobraB1Away = FORA_MAX - awayCnt[b1]
-            const sobraB2Home = CASA_MAX - homeCnt[b2]
-            const sobraB2Away = FORA_MAX - awayCnt[b2]
-            const mandoOK1 = (sobraAHome > 0 && sobraB1Away > 0) || (sobraAAway > 0 && sobraB1Home > 0) ? 1 : 0
-            const mandoOK2 = (sobraAHome > 0 && sobraB2Away > 0) || (sobraAAway > 0 && sobraB2Home > 0) ? 1 : 0
-            const needSum1 = (needPot[a][potes[b1] ?? 4] ?? 0) + (needPot[b1][potA] ?? 0)
-            const needSum2 = (needPot[a][potes[b2] ?? 4] ?? 0) + (needPot[b2][potA] ?? 0)
-            return (mandoOK2 - mandoOK1) || (needSum2 - needSum1)
-          })
-        }
-        return C
+        return (
+          trySet(true, true, true) ??
+          trySet(true, true, false) ??
+          trySet(true, false, false) ??
+          trySet(false, true, true) ??
+          trySet(false, false, false) ??
+          candAll[0]
+        )
       }
 
-      let b =
-        candFilt(true, evitarMesmoPais, true)[0] ?? // mutuo+pais+mando
-        candFilt(true, evitarMesmoPais, false)[0] ?? // mutuo+pais
-        candFilt(true, false, false)[0] ??           // mutuo
-        candFilt(false, evitarMesmoPais, true)[0] ?? // so A precisa +pais+mando
-        candFilt(false, false, false)[0] ??          // so A precisa
-        candAll[0]                                   // qualquer
+      const b = escolher()
+      if (!b) { disponiveis.delete(a); continue }
 
-      if (!b) {
-        // não achou parceiro para 'a' nesta rodada; remove 'a' para não travar
-        disponiveis.delete(a)
-        continue
-      }
-
-      // decidir mando
+      // Decide mando (balanceando 4/4)
       let casa = a, fora = b
       if (homeCnt[a] >= CASA_MAX && awayCnt[a] < FORA_MAX) { casa = b; fora = a }
       else if (homeCnt[b] >= CASA_MAX && awayCnt[b] < FORA_MAX) { casa = a; fora = b }
       else {
-        // prefere quem tem mais "sobra" de mando
-        const sobraAHome = CASA_MAX - homeCnt[a]
-        const sobraAAway = FORA_MAX - awayCnt[a]
-        const sobraBHome = CASA_MAX - homeCnt[b]
-        const sobraBAway = FORA_MAX - awayCnt[b]
+        const sobraAHome = CASA_MAX - homeCnt[a], sobraAAway = FORA_MAX - awayCnt[a]
+        const sobraBHome = CASA_MAX - homeCnt[b], sobraBAway = FORA_MAX - awayCnt[b]
         if (sobraBHome > sobraAHome && sobraAAway > 0) { casa = b; fora = a }
       }
 
-      // aplica pareamento
       calendario.push({ rodada, casa, fora })
       playedPairs.add(keyPair(a, b))
       disponiveis.delete(a)
       disponiveis.delete(b)
-      if (casa !== BYE) { homeCnt[casa] += 1; remMatches[casa] -= 1 }
-      if (fora !== BYE) { awayCnt[fora] += 1; remMatches[fora] -= 1 }
+      homeCnt[casa] += 1
+      awayCnt[fora] += 1
+      remMatches[a] -= 1
+      remMatches[b] -= 1
 
-      // consome necessidades de pote (se ambos não forem BYE)
-      if (a !== BYE && b !== BYE) {
-        const pa = potes[a] ?? 4
-        const pb = potes[b] ?? 4
-        needPot[a][pb] = Math.max(0, (needPot[a][pb] ?? 0) - 1)
-        needPot[b][pa] = Math.max(0, (needPot[b][pa] ?? 0) - 1)
-      }
+      // consome necessidades de pote
+      const pa = potes[a] ?? 4
+      const pb = potes[b] ?? 4
+      if (needPot[a]) needPot[a][pb] = Math.max(0, (needPot[a][pb] ?? 0) - 1)
+      if (needPot[b]) needPot[b][pa] = Math.max(0, (needPot[b][pa] ?? 0) - 1)
     }
   }
 
-  // garante que NÃO criou mais de 1 jogo por rodada por time
-  // (o algoritmo já garante, pois pareia dentro de cada rodada com set de disponíveis)
-  // e que o total de rodadas é exatamente 8 (ROUNDS)
-
-  // remove partidas com BYE (apenas marcam folga, não inserimos no banco)
+  // remove jogos com BYE (não são inseridos)
   return calendario.filter(m => m.casa !== '__BYE__' && m.fora !== '__BYE__')
 }
 
@@ -320,14 +281,11 @@ export default function FaseLigaAdminPage() {
     const { data, error } = await supabase
       .from('copa_fase_liga')
       .select('*')
+      .eq('temporada', TEMPORADA)         // <-- filtra pela temporada
       .order('rodada', { ascending: true })
       .order('id', { ascending: true })
-    if (error) {
-      toast.error('Erro ao buscar jogos')
-      return
-    }
+    if (error) { toast.error('Erro ao buscar jogos'); return }
     setJogos((data || []) as Jogo[])
-    // garante nomes: baixa qualquer id que não esteja no map
     const ids = uniq((data || []).flatMap((j: any) => [j.time1, j.time2]).filter(Boolean))
     await ensureTimesInMap(ids)
   }
@@ -336,10 +294,7 @@ export default function FaseLigaAdminPage() {
     const { data, error } = await supabase
       .from('times')
       .select('id, nome, logo_url, pote, overall, valor, associacao')
-    if (error) {
-      toast.error('Erro ao buscar times')
-      return
-    }
+    if (error) { toast.error('Erro ao buscar times'); return }
     const mini: Record<string, TimeMini> = {}
     const full: Record<string, TimeFull> = {}
     ;(data || []).forEach((t: any) => {
@@ -350,69 +305,55 @@ export default function FaseLigaAdminPage() {
     setFullTimes(full)
   }
 
-  /** Busca nomes para IDs que não estão no map (evita mostrar UUID na UI) */
   async function ensureTimesInMap(ids: string[]) {
     const faltantes = ids.filter(id => !timesMap[id])
     if (!faltantes.length) return
-    const { data } = await supabase
-      .from('times')
-      .select('id, nome, logo_url')
-      .in('id', faltantes)
+    const { data } = await supabase.from('times').select('id, nome, logo_url').in('id', faltantes)
     const novo: Record<string, TimeMini> = { ...timesMap }
-    ;(data || []).forEach((t: any) => {
-      novo[t.id] = { nome: t.nome, logo_url: t.logo_url }
-    })
+    ;(data || []).forEach((t: any) => { novo[t.id] = { nome: t.nome, logo_url: t.logo_url } })
     setTimesMap(novo)
   }
 
   async function atualizarClassificacao() {
     const { error } = await supabase.rpc('atualizar_classificacao_copa')
-    if (error) {
-      console.error('RPC atualizar_classificacao_copa error:', error)
-      toast.error('Erro ao atualizar classificação!')
-    }
+    if (error) { console.error(error); toast.error('Erro ao atualizar classificação!') }
   }
 
   /** ======== Gerar Fase Champions (modelo suíço) ======== */
   async function gerarSwiss() {
-    if (!isAdmin) {
-      toast.error('Apenas admin pode gerar a fase.')
-      return
-    }
+    if (!isAdmin) { toast.error('Apenas admin pode gerar a fase.'); return }
     setGerando(true)
     try {
-      // participantes: se a tabela já existe, usa ela; senão, usa todos os times
-      const { data: existentes } = await supabase.from('copa_fase_liga').select('time1, time2')
+      // participantes: prioriza ids já existentes da temporada; senão, todos de `times`
+      const { data: existentes } = await supabase
+        .from('copa_fase_liga')
+        .select('time1, time2')
+        .eq('temporada', TEMPORADA)
+
       const setIds = new Set<string>()
       if (existentes && existentes.length > 0) {
         existentes.forEach((j: any) => { if (j.time1) setIds.add(j.time1); if (j.time2) setIds.add(j.time2) })
       } else {
         Object.keys(fullTimes).forEach(id => setIds.add(id))
       }
-      // monta array de TimeFull (completos)
-      let participantes = Array.from(setIds).map(id => fullTimes[id]).filter(Boolean)
 
-      // EXCLUI Palmeiras pelo nome
+      let participantes = Array.from(setIds).map(id => fullTimes[id]).filter(Boolean)
       participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
 
-      if (participantes.length < 2) {
-        toast.error('Participantes insuficientes (após excluir Palmeiras).')
-        setGerando(false)
-        return
-      }
+      if (participantes.length < 2) { toast.error('Participantes insuficientes.'); setGerando(false); return }
 
       const calendario = gerarChampionsSwiss(participantes, evitarMesmoPais)
 
-      // limpa jogos antigos
-      const { error: erroDel } = await supabase.from('copa_fase_liga').delete().neq('id', -1)
-      if (erroDel) {
-        toast.error('Erro ao limpar tabela de jogos.')
-        setGerando(false)
-        return
-      }
+      // limpa SOMENTE a temporada atual
+      const { error: erroDel } = await supabase
+        .from('copa_fase_liga')
+        .delete()
+        .eq('temporada', TEMPORADA)
+      if (erroDel) { toast.error('Erro ao limpar jogos da temporada.'); setGerando(false); return }
 
-      // insere novos jogos
+      // insere novos jogos desta temporada (rodadas 1..8)
       const rows = calendario.map(j => ({
+        temporada: TEMPORADA,
         rodada: j.rodada,
         time1: j.casa,
         time2: j.fora,
@@ -425,11 +366,7 @@ export default function FaseLigaAdminPage() {
         for (let i = 0; i < rows.length; i += BATCH) {
           const chunk = rows.slice(i, i + BATCH)
           const { error: erroIns } = await supabase.from('copa_fase_liga').insert(chunk)
-          if (erroIns) {
-            toast.error('Erro ao inserir confrontos.')
-            setGerando(false)
-            return
-          }
+          if (erroIns) { toast.error('Erro ao inserir confrontos.'); setGerando(false); return }
         }
       }
 
@@ -438,11 +375,11 @@ export default function FaseLigaAdminPage() {
 
       await supabase.from('bid').insert([{
         tipo_evento: 'Sistema',
-        descricao: 'Fase Liga (modelo suíço) gerada no formato UEFA Champions 24/25. Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído do sorteio.',
+        descricao: `Fase Liga (modelo suíço) gerada para ${TEMPORADA}. Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         valor: null
       }])
 
-      toast.success('✅ Fase Champions (suíço) gerada com 8 rodadas!')
+      toast.success('✅ Fase Champions gerada com 8 rodadas!')
     } finally {
       setGerando(false)
     }
@@ -561,7 +498,7 @@ export default function FaseLigaAdminPage() {
           <div>
             <h1 className="text-center text-3xl font-extrabold tracking-tight">
               <span className="bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent">
-                UEFA Champions — Fase Liga (modelo suíço)
+                UEFA Champions — Fase Liga (modelo suíço) • {TEMPORADA}
               </span>
             </h1>
             <p className="mt-1 text-sm text-zinc-400">
@@ -584,10 +521,10 @@ export default function FaseLigaAdminPage() {
                 onClick={() => setAbrirModalSwiss(true)}
                 disabled={gerando}
                 className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60"
-                title="Apaga jogos atuais e cria NOVOS confrontos no modelo suíço"
+                title="Apaga jogos da temporada atual e cria 8 rodadas novas"
               >
                 <FiRotateCcw />
-                {gerando ? 'Gerando...' : 'Gerar Fase Champions (modelo suíço)'}
+                {gerando ? 'Gerando...' : 'Gerar Fase Champions (8 rodadas)'}
               </button>
             </div>
           )}
@@ -608,7 +545,7 @@ export default function FaseLigaAdminPage() {
           </select>
         </div>
 
-        {/* Lista de Rodadas */}
+        {/* Lista de Rodadas (1..8) */}
         {loading ? (
           <div className="py-10 text-center text-zinc-300">🔄 Carregando jogos...</div>
         ) : (
@@ -703,8 +640,8 @@ export default function FaseLigaAdminPage() {
       <ModalConfirm
         open={abrirModalSwiss}
         danger
-        title="Gerar Fase Champions (modelo suíço)?"
-        message="Isso apaga TODOS os jogos atuais e cria exatamente 8 rodadas novas (4 casa / 4 fora, 2 adversários por pote). Palmeiras será excluído do sorteio."
+        title="Gerar Fase Champions (8 rodadas)?"
+        message={`Isso apaga TODOS os jogos da temporada "${TEMPORADA}" e cria exatamente 8 rodadas (4 casa / 4 fora, 2 adversários por pote). Palmeiras será excluído do sorteio.`}
         confirmText={gerando ? 'Gerando...' : 'Sim, gerar'}
         cancelText="Cancelar"
         onConfirm={gerarSwiss}
