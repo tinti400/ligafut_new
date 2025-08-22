@@ -69,8 +69,34 @@ function ModalConfirm({
   )
 }
 
+/* ================= Tipos ================= */
+type Jogador = {
+  id: string
+  nome: string
+  posicao: string
+  overall: number
+  valor: number
+  salario?: number | null
+  nacionalidade?: string | null
+  imagem_url?: string | null
+  foto?: string | null
+  link_sofifa?: string | null
+}
+
+type JogadorCardProps = {
+  jogador: Jogador
+  isAdmin: boolean
+  selecionado: boolean
+  toggleSelecionado: () => void
+  onComprar: () => void
+  onAtualizarPreco: (novoValor: number) => void
+  loadingComprar: boolean
+  loadingAtualizarPreco: boolean
+  mercadoFechado: boolean
+}
+
 /* ================= Card do jogador ================= */
-function JogadorCard({
+const JogadorCard = ({
   jogador,
   isAdmin,
   selecionado,
@@ -80,17 +106,7 @@ function JogadorCard({
   loadingComprar,
   loadingAtualizarPreco,
   mercadoFechado,
-}: {
-  jogador: any
-  isAdmin: boolean
-  selecionado: boolean
-  toggleSelecionado: () => void
-  onComprar: () => void
-  onAtualizarPreco: (novoValor: number) => void
-  loadingComprar: boolean
-  loadingAtualizarPreco: boolean
-  mercadoFechado: boolean
-}) {
+}: JogadorCardProps) => {
   const [novoValor, setNovoValor] = useState<number>(jogador.valor)
 
   const handleBlur = () => {
@@ -103,19 +119,19 @@ function JogadorCard({
   }
 
   const nacionalidade =
-    jogador.nacionalidade && jogador.nacionalidade.trim() !== '' ? jogador.nacionalidade : 'Resto do Mundo'
+    jogador.nacionalidade && jogador.nacionalidade.trim() !== '' ? jogador.nacionalidade : 'Resto do Mundo';
 
   return (
     <div
       className={[
-        'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-850 to-gray-900 p-4',
+        'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
         'hover:shadow-lg hover:shadow-black/30 transition-shadow',
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
         selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
       ].join(' ')}
     >
       {/* Seleção admin */}
-      {isAdmin && (
+      {isAdmin ? (
         <label className="absolute left-3 top-3 inline-flex select-none items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-xs text-white backdrop-blur">
           <input
             type="checkbox"
@@ -125,13 +141,13 @@ function JogadorCard({
           />
           Excluir
         </label>
-      )}
+      ) : null}
 
       {/* Cabeçalho do card */}
       <div className="flex items-center gap-3">
         <div className="relative">
           <ImagemComFallback
-            src={jogador.imagem_url}
+            src={jogador.imagem_url || jogador.foto || ''}
             alt={jogador.nome}
             width={80}
             height={80}
@@ -163,7 +179,7 @@ function JogadorCard({
       </div>
 
       {/* Admin: alterar preço */}
-      {isAdmin && (
+      {isAdmin ? (
         <div className="mt-3">
           <label className="mb-1 block text-[11px] text-gray-300">💰 Alterar Preço (R$)</label>
           <input
@@ -179,7 +195,7 @@ function JogadorCard({
           />
           {loadingAtualizarPreco && <p className="mt-1 text-[11px] text-gray-400">Atualizando...</p>}
         </div>
-      )}
+      ) : null}
 
       {/* Ação */}
       <button
@@ -204,7 +220,7 @@ export default function MercadoPage() {
   const router = useRouter()
   const { isAdmin } = useAdmin()
 
-  const [jogadores, setJogadores] = useState<any[]>([])
+  const [jogadores, setJogadores] = useState<Jogador[]>([])
   const [saldo, setSaldo] = useState(0)
   const [user, setUser] = useState<any>(null)
   const [selecionados, setSelecionados] = useState<string[]>([])
@@ -221,7 +237,7 @@ export default function MercadoPage() {
   const [itensPorPagina, setItensPorPagina] = useState(40)
   const [paginaAtual, setPaginaAtual] = useState(1)
 
-  // estados gerais
+  // estados
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [loadingComprarId, setLoadingComprarId] = useState<string | null>(null)
@@ -230,7 +246,7 @@ export default function MercadoPage() {
 
   const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
   const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
-  const [jogadorParaComprar, setJogadorParaComprar] = useState<any | null>(null)
+  const [jogadorParaComprar, setJogadorParaComprar] = useState<Jogador | null>(null)
 
   // upload
   const [uploadLoading, setUploadLoading] = useState(false)
@@ -286,16 +302,56 @@ export default function MercadoPage() {
     setUploadLoading(true)
     setMsg('Lendo planilha...')
 
+    // helpers
+    const normalizeKeys = (obj: any) =>
+      Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+      )
+
+    const sanitizeUrl = (u?: any) => {
+      if (!u) return ''
+      const s = String(u).trim().replace(/\s/g, '%20')
+      return s
+    }
+
+    const pickImagemUrl = (row: Record<string, any>) => {
+      const cand =
+        row['imagem_url'] ??
+        row['foto'] ??
+        row['imagem url'] ??
+        row['url_imagem'] ??
+        row['imagem']
+      return sanitizeUrl(cand)
+    }
+
+    const toNumber = (v: any) => {
+      if (v === null || v === undefined || v === '') return 0
+      const num = Number(String(v).replace(/[^\d.-]/g, ''))
+      return Number.isFinite(num) ? num : 0
+    }
+
     const reader = new FileReader()
     reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer)
         const workbook = XLSX.read(data, { type: 'array' })
-        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const sheetName = workbook.SheetNames.includes('Consolidado')
+          ? 'Consolidado'
+          : workbook.SheetNames[0]
+        const sheet = workbook.Sheets[sheetName]
         const json = XLSX.utils.sheet_to_json(sheet)
 
-        const jogadoresParaInserir = (json as any[]).map((item) => {
-          const { nome, posicao, overall, valor, foto: imagem_url, link_sofifa, nacionalidade, time_origem } = item
+        const jogadoresParaInserir = (json as any[]).map((raw) => {
+          const row = normalizeKeys(raw)
+
+          const nome = row['nome']
+          const posicao = row['posicao']
+          const overall = toNumber(row['overall'])
+          const valor = toNumber(row['valor'])
+          const link_sofifa = row['link_sofifa'] ?? row['sofifa'] ?? ''
+          const nacionalidade = row['nacionalidade'] ?? row['pais'] ?? ''
+          const time_origem = row['time_origem'] ?? row['time'] ?? ''
+          const imagem_url = pickImagemUrl(row)
 
           if (!nome || !posicao || !overall || !valor) {
             throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
@@ -304,8 +360,8 @@ export default function MercadoPage() {
           return {
             nome,
             posicao,
-            overall: parseInt(overall),
-            valor: parseInt(valor),
+            overall,
+            valor,
             imagem_url,
             link_sofifa,
             nacionalidade,
@@ -332,7 +388,7 @@ export default function MercadoPage() {
   }
 
   /* ================= Compra ================= */
-  const solicitarCompra = (jogador: any) => {
+  const solicitarCompra = (jogador: Jogador) => {
     if (marketStatus === 'fechado') {
       toast.error('O mercado está fechado. Não é possível comprar jogadores.')
       return
@@ -383,7 +439,7 @@ export default function MercadoPage() {
         return
       }
 
-      const jogador = deletedJogador[0]
+      const jogador = deletedJogador[0] as Jogador
       if (jogador.valor > saldo) {
         toast.error('Saldo insuficiente.')
         return
@@ -406,7 +462,7 @@ export default function MercadoPage() {
         posicao: jogador.posicao,
         overall: jogador.overall,
         valor: jogador.valor,
-        imagem_url: jogador.imagem_url,
+        imagem_url: (jogador.imagem_url || jogador.foto || '') as string,
         salario: salario,
         jogos: 0,
         link_sofifa: jogador.link_sofifa || '',
@@ -609,7 +665,7 @@ export default function MercadoPage() {
               <p className="font-semibold text-green-400">{formatarValor(saldo)}</p>
             </div>
 
-            {isAdmin && (
+            {isAdmin ? (
               <>
                 <button
                   onClick={toggleMarketStatus}
@@ -647,7 +703,7 @@ export default function MercadoPage() {
                   className="hidden"
                 />
               </>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -765,7 +821,7 @@ export default function MercadoPage() {
             </div>
           </div>
 
-          {isAdmin && (
+          {isAdmin ? (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 onClick={solicitarExcluirSelecionados}
@@ -777,13 +833,13 @@ export default function MercadoPage() {
               >
                 {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
               </button>
-              {msg && <span className="text-sm text-gray-300">{msg}</span>}
+              {msg ? <span className="text-sm text-gray-300">{msg}</span> : null}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Paginação (topo) */}
-        {totalPaginas > 1 && (
+        {Math.max(1, Math.ceil(totalResultados / itensPorPagina)) > 1 ? (
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
@@ -792,16 +848,16 @@ export default function MercadoPage() {
               ← Anterior
             </button>
             <span className="rounded-lg bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10">
-              Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
+              Página <strong>{Math.min(Math.max(1, paginaAtual), Math.max(1, Math.ceil(totalResultados / itensPorPagina)))}</strong> de <strong>{Math.max(1, Math.ceil(totalResultados / itensPorPagina))}</strong>
             </span>
             <button
-              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+              onClick={() => setPaginaAtual((p) => Math.min(Math.max(1, Math.ceil(totalResultados / itensPorPagina)), p + 1))}
               className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               Próxima →
             </button>
           </div>
-        )}
+        ) : null}
 
         {/* Grid de jogadores */}
         <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -828,7 +884,7 @@ export default function MercadoPage() {
         </div>
 
         {/* Paginação (base) */}
-        {totalPaginas > 1 && (
+        {Math.max(1, Math.ceil(totalResultados / itensPorPagina)) > 1 ? (
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
@@ -837,23 +893,23 @@ export default function MercadoPage() {
               ← Anterior
             </button>
             <span className="rounded-lg bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10">
-              Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
+              Página <strong>{Math.min(Math.max(1, paginaAtual), Math.max(1, Math.ceil(totalResultados / itensPorPagina)))}</strong> de <strong>{Math.max(1, Math.ceil(totalResultados / itensPorPagina))}</strong>
             </span>
             <button
-              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+              onClick={() => setPaginaAtual((p) => Math.min(Math.max(1, Math.ceil(totalResultados / itensPorPagina)), p + 1))}
               className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               Próxima →
             </button>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Modais */}
       <ModalConfirm
         visible={modalComprarVisivel}
         titulo="Confirmar Compra"
-        mensagem={`Deseja comprar ${jogadorParaComprar?.nome} por ${
+        mensagem={`Deseja comprar ${jogadorParaComprar?.nome ?? ''} por ${
           jogadorParaComprar ? formatarValor(jogadorParaComprar.valor) : ''
         }?`}
         onConfirm={confirmarCompra}
