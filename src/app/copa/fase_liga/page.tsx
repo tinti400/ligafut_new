@@ -55,9 +55,8 @@ const FORA_MAX = 4
 /** =================== Utils =================== */
 const clampInt = (n: number) => (Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n))
 const keyPair = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
-const uniq = <T,>(arr: T[]) => Array.from(new Set(arr))
 
-/** atribui potes por prioridade: já existente > overall desc > valor desc */
+/** Atribui potes: já existente > overall desc > valor desc */
 function atribuirPotes(times: TimeFull[]): Record<string, number> {
   const temPote = times.some(t => (t.pote ?? 0) >= 1 && (t.pote ?? 0) <= 4)
   if (temPote) {
@@ -65,134 +64,107 @@ function atribuirPotes(times: TimeFull[]): Record<string, number> {
     times.forEach(t => { out[t.id] = Math.max(1, Math.min(4, Math.floor(t.pote || 1))) })
     return out
   }
-  const ordenados = [...times].sort((a, b) => {
+  const ord = [...times].sort((a, b) => {
     const oa = a.overall ?? 0, ob = b.overall ?? 0
     if (ob !== oa) return ob - oa
     const va = a.valor ?? 0, vb = b.valor ?? 0
     return vb - va
   })
-  const n = ordenados.length
+  const n = ord.length
   const q = Math.max(1, Math.floor(n / 4))
   const out: Record<string, number> = {}
-  ordenados.forEach((t, idx) => {
-    const pote = Math.min(4, Math.floor(idx / q) + 1)
-    out[t.id] = pote
-  })
+  ord.forEach((t, i) => { out[t.id] = Math.min(4, Math.floor(i / q) + 1) })
   return out
 }
 
 type CalendarioItem = { rodada: number; casa: string; fora: string }
 
-/** =============== Gerador Champions Swiss (8 rodadas) =============== */
+/** ====== Gerador Champions Swiss (8 rodadas, sem BYE) ======
+ * - 8 rodadas
+ * - 2 adversários de cada pote por time (relaxa se faltar pares)
+ * - 4 casa / 4 fora (best-effort)
+ * - Evitar mesmo país (opcional, best-effort)
+ * Pré-condição: número de participantes PAR.
+ */
 function gerarChampionsSwiss(
   participantes: TimeFull[],
   evitarMesmoPais = true
 ): CalendarioItem[] {
-  // Excluir Palmeiras
-  let teams = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
-  const N = teams.length
-  if (N < 2) return []
+  const ids = participantes.map(t => t.id)
+  const N = ids.length
+  if (N < 2 || N % 2 === 1) return [] // deve ser par
 
-  const BYE = '__BYE__'
-  if (N % 2 === 1) {
-    teams = [...teams, { id: BYE, nome: 'BYE', logo_url: '' } as TimeFull]
-  }
-
-  const ids = teams.map(t => t.id)
   const byId: Record<string, TimeFull> = {}
-  teams.forEach(t => { byId[t.id] = t })
+  participantes.forEach(t => { byId[t.id] = t })
+  const potes = atribuirPotes(participantes)
 
-  const potes = atribuirPotes(teams.filter(t => t.id !== BYE))
   const needPot: Record<string, Record<number, number>> = {}
-  const remMatches: Record<string, number> = {}
   const homeCnt: Record<string, number> = {}
   const awayCnt: Record<string, number> = {}
   const playedPairs: Set<string> = new Set()
+  const jogosRestantes: Record<string, number> = {}
 
   ids.forEach(id => {
-    if (id === BYE) return
     needPot[id] = { 1: ADVERSARIOS_POR_POTE, 2: ADVERSARIOS_POR_POTE, 3: ADVERSARIOS_POR_POTE, 4: ADVERSARIOS_POR_POTE }
-    remMatches[id] = ROUNDS
     homeCnt[id] = 0
     awayCnt[id] = 0
+    jogosRestantes[id] = ROUNDS
   })
 
   const calendario: CalendarioItem[] = []
 
   for (let rodada = 1; rodada <= ROUNDS; rodada++) {
-    const disponiveis = new Set(ids)
-
-    // Se há BYE, um time “folga” nesta rodada
-    if (ids.includes(BYE)) {
-      const candidatos = Array.from(disponiveis).filter(id => id !== BYE && remMatches[id] > 0)
-      if (candidatos.length) {
-        const a = candidatos.sort((x, y) => remMatches[y] - remMatches[x])[0]
-        // Não insere jogo com BYE no calendário, apenas consome uma rodada do time
-        disponiveis.delete(BYE)
-        disponiveis.delete(a)
-        remMatches[a] -= 1
-      } else {
-        disponiveis.delete(BYE)
-      }
-    }
+    const livres = new Set(ids)
 
     const scoreTeam = (id: string) => {
-      if (id === BYE) return -1
       const np = needPot[id]
-      const needScore = (np?.[1] ?? 0) + (np?.[2] ?? 0) + (np?.[3] ?? 0) + (np?.[4] ?? 0)
+      const needScore = (np[1] + np[2] + np[3] + np[4])
       const mandoScore = (CASA_MAX - homeCnt[id]) + (FORA_MAX - awayCnt[id])
-      return (remMatches[id] ?? 0) * 10 + needScore * 2 + mandoScore
+      return jogosRestantes[id] * 10 + needScore * 2 + mandoScore
     }
 
-    while (true) {
-      const livres = Array.from(disponiveis).filter(id => id !== BYE && remMatches[id] > 0)
-      if (livres.length < 2) break
-      livres.sort((a, b) => scoreTeam(b) - scoreTeam(a))
-      const a = livres[0]
+    while (livres.size >= 2) {
+      const arr = Array.from(livres).sort((a, b) => scoreTeam(b) - scoreTeam(a))
+      const a = arr[0]
 
-      const candAll = livres.slice(1).filter(b => !playedPairs.has(keyPair(a, b)))
+      // Candidatos para b
+      let cand = arr.slice(1).filter(b => !playedPairs.has(keyPair(a, b)))
+
+      // filtro de pote necessário
       const potA = potes[a] ?? 4
+      let L = cand.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0 && (needPot[b][potA] ?? 0) > 0)
 
-      const escolher = () => {
-        const trySet = (mutuo: boolean, pais: boolean, mando: boolean) => {
-          let C = [...candAll].filter(b => remMatches[b] > 0)
-          if (mutuo) C = C.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0 && (needPot[b][potA] ?? 0) > 0)
-          else C = C.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0)
-          if (pais && byId[a]?.associacao) {
-            const pa = byId[a].associacao
-            const alt = C.filter(b => byId[b]?.associacao !== pa)
-            if (alt.length) C = alt
-          }
-          if (mando) {
-            C.sort((b1, b2) => {
-              const score = (x: string) => {
-                const sAHome = CASA_MAX - homeCnt[a]
-                const sAAway = FORA_MAX - awayCnt[a]
-                const sXHome = CASA_MAX - homeCnt[x]
-                const sXAway = FORA_MAX - awayCnt[x]
-                const mandoOk = (sAHome > 0 && sXAway > 0) || (sAAway > 0 && sXHome > 0) ? 2 : 0
-                const needSum = (needPot[a][potes[x] ?? 4] ?? 0) + (needPot[x][potA] ?? 0)
-                return mandoOk + needSum
-              }
-              return score(b2) - score(b1)
-            })
-          }
-          return C[0]
-        }
-        return (
-          trySet(true, true, true) ??
-          trySet(true, true, false) ??
-          trySet(true, false, false) ??
-          trySet(false, true, true) ??
-          trySet(false, false, false) ??
-          candAll[0]
-        )
+      if (evitarMesmoPais && byId[a]?.associacao) {
+        const pa = byId[a].associacao
+        const alt = L.filter(b => byId[b]?.associacao !== pa)
+        if (alt.length) L = alt
       }
+      if (!L.length) {
+        L = cand.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0)
+        if (evitarMesmoPais && byId[a]?.associacao) {
+          const pa = byId[a].associacao
+          const alt = L.filter(b => byId[b]?.associacao !== pa)
+          if (alt.length) L = alt
+        }
+      }
+      if (!L.length) L = cand // relaxa totalmente
 
-      const b = escolher()
-      if (!b) { disponiveis.delete(a); continue }
+      // balancear mando
+      L.sort((b1, b2) => {
+        const sobraAHome = CASA_MAX - homeCnt[a], sobraAAway = FORA_MAX - awayCnt[a]
+        const s1H = CASA_MAX - homeCnt[b1], s1A = FORA_MAX - awayCnt[b1]
+        const s2H = CASA_MAX - homeCnt[b2], s2A = FORA_MAX - awayCnt[b2]
+        const mandoOK1 = (sobraAHome > 0 && s1A > 0) || (sobraAAway > 0 && s1H > 0) ? 1 : 0
+        const mandoOK2 = (sobraAHome > 0 && s2A > 0) || (sobraAAway > 0 && s2H > 0) ? 1 : 0
+        const needSum1 = (needPot[a][potes[b1] ?? 4] ?? 0) + (needPot[b1][potA] ?? 0)
+        const needSum2 = (needPot[a][potes[b2] ?? 4] ?? 0) + (needPot[b2][potA] ?? 0)
+        return (mandoOK2 - mandoOK1) || (needSum2 - needSum1)
+      })
 
-      // Decide mando (balanceando 4/4)
+      const b = L[0]
+      if (!b) { livres.delete(a); continue }
+
+      // decide mando
       let casa = a, fora = b
       if (homeCnt[a] >= CASA_MAX && awayCnt[a] < FORA_MAX) { casa = b; fora = a }
       else if (homeCnt[b] >= CASA_MAX && awayCnt[b] < FORA_MAX) { casa = a; fora = b }
@@ -204,23 +176,18 @@ function gerarChampionsSwiss(
 
       calendario.push({ rodada, casa, fora })
       playedPairs.add(keyPair(a, b))
-      disponiveis.delete(a)
-      disponiveis.delete(b)
-      homeCnt[casa] += 1
-      awayCnt[fora] += 1
-      remMatches[a] -= 1
-      remMatches[b] -= 1
+      livres.delete(a); livres.delete(b)
+      homeCnt[casa] += 1; awayCnt[fora] += 1
+      jogosRestantes[a] -= 1; jogosRestantes[b] -= 1
 
-      // consome necessidades de pote
-      const pa = potes[a] ?? 4
-      const pb = potes[b] ?? 4
-      if (needPot[a]) needPot[a][pb] = Math.max(0, (needPot[a][pb] ?? 0) - 1)
-      if (needPot[b]) needPot[b][pa] = Math.max(0, (needPot[b][pa] ?? 0) - 1)
+      // consome necessidades
+      const pa = potes[a] ?? 4, pb = potes[b] ?? 4
+      needPot[a][pb] = Math.max(0, needPot[a][pb] - 1)
+      needPot[b][pa] = Math.max(0, needPot[b][pa] - 1)
     }
   }
 
-  // remove jogos com BYE (não são inseridos)
-  return calendario.filter(m => m.casa !== '__BYE__' && m.fora !== '__BYE__')
+  return calendario
 }
 
 /** =================== Modal =================== */
@@ -264,7 +231,6 @@ export default function FaseLigaAdminPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<Jogo[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, TimeMini>>({})
-  const [fullTimes, setFullTimes] = useState<Record<string, TimeFull>>({})
   const [filtroTime, setFiltroTime] = useState<string>('Todos')
   const [loading, setLoading] = useState(true)
   const [salvandoId, setSalvandoId] = useState<number | null>(null)
@@ -272,46 +238,33 @@ export default function FaseLigaAdminPage() {
   const [abrirModalSwiss, setAbrirModalSwiss] = useState(false)
   const [evitarMesmoPais, setEvitarMesmoPais] = useState(true)
   const [gerando, setGerando] = useState(false)
+  const [temColunaTemporada, setTemColunaTemporada] = useState<boolean>(true)
 
   useEffect(() => {
-    Promise.all([buscarTimes(), buscarJogos()]).finally(() => setLoading(false))
+    Promise.all([detectarColunaTemporada(), buscarJogos(), carregarTimesBase()]).finally(() => setLoading(false))
   }, [])
 
-  async function buscarJogos() {
-    const { data, error } = await supabase
-      .from('copa_fase_liga')
-      .select('*')
-      .eq('temporada', TEMPORADA)         // <-- filtra pela temporada
-      .order('rodada', { ascending: true })
-      .order('id', { ascending: true })
-    if (error) { toast.error('Erro ao buscar jogos'); return }
-    setJogos((data || []) as Jogo[])
-    const ids = uniq((data || []).flatMap((j: any) => [j.time1, j.time2]).filter(Boolean))
-    await ensureTimesInMap(ids)
+  async function detectarColunaTemporada() {
+    const { error } = await supabase.from('copa_fase_liga').select('id, temporada').limit(1)
+    setTemColunaTemporada(!error)
   }
 
-  async function buscarTimes() {
+  async function carregarTimesBase() {
     const { data, error } = await supabase
       .from('times')
-      .select('id, nome, logo_url, pote, overall, valor, associacao')
-    if (error) { toast.error('Erro ao buscar times'); return }
-    const mini: Record<string, TimeMini> = {}
-    const full: Record<string, TimeFull> = {}
-    ;(data || []).forEach((t: any) => {
-      mini[t.id] = { nome: t.nome, logo_url: t.logo_url }
-      full[t.id] = t as TimeFull
-    })
-    setTimesMap(mini)
-    setFullTimes(full)
-  }
-
-  async function ensureTimesInMap(ids: string[]) {
-    const faltantes = ids.filter(id => !timesMap[id])
-    if (!faltantes.length) return
-    const { data } = await supabase.from('times').select('id, nome, logo_url').in('id', faltantes)
-    const novo: Record<string, TimeMini> = { ...timesMap }
+      .select('id, nome, logo_url')
+    if (error) return
+    const novo: Record<string, TimeMini> = {}
     ;(data || []).forEach((t: any) => { novo[t.id] = { nome: t.nome, logo_url: t.logo_url } })
     setTimesMap(novo)
+  }
+
+  async function buscarJogos() {
+    let q = supabase.from('copa_fase_liga').select('*')
+    if (temColunaTemporada) q = q.eq('temporada', TEMPORADA)
+    const { data, error } = await q.order('rodada', { ascending: true }).order('id', { ascending: true })
+    if (error) { toast.error('Erro ao buscar jogos'); return }
+    setJogos((data || []) as Jogo[])
   }
 
   async function atualizarClassificacao() {
@@ -324,36 +277,53 @@ export default function FaseLigaAdminPage() {
     if (!isAdmin) { toast.error('Apenas admin pode gerar a fase.'); return }
     setGerando(true)
     try {
-      // participantes: prioriza ids já existentes da temporada; senão, todos de `times`
-      const { data: existentes } = await supabase
-        .from('copa_fase_liga')
-        .select('time1, time2')
-        .eq('temporada', TEMPORADA)
+      // carrega participantes DIRETO do banco (não depende de estado)
+      const { data: timesData, error: errTimes } = await supabase
+        .from('times')
+        .select('id, nome, logo_url, pote, overall, valor, associacao')
+      if (errTimes) { toast.error('Erro ao carregar times'); return }
 
-      const setIds = new Set<string>()
-      if (existentes && existentes.length > 0) {
-        existentes.forEach((j: any) => { if (j.time1) setIds.add(j.time1); if (j.time2) setIds.add(j.time2) })
-      } else {
-        Object.keys(fullTimes).forEach(id => setIds.add(id))
+      // exclui Palmeiras
+      let participantes: TimeFull[] = (timesData || []).filter(
+        (t: any) => !((t.nome || '').toLowerCase().includes('palmeiras'))
+      ) as TimeFull[]
+
+      // garante número PAR
+      if (participantes.length % 2 === 1) {
+        const ord = [...participantes].sort((a, b) => {
+          const oa = a.overall ?? 0, ob = b.overall ?? 0
+          if (oa !== ob) return oa - ob // remove o mais fraco
+          const va = a.valor ?? 0, vb = b.valor ?? 0
+          return va - vb
+        })
+        const removido = ord[0]
+        participantes = participantes.filter(t => t.id !== removido.id)
+        toast('Participantes ímpares: removi 1 clube para manter par.', { icon: 'ℹ️' })
+        await supabase.from('bid').insert([{
+          tipo_evento: 'Sistema',
+          descricao: `Ajuste de paridade: ${removido.nome} removido da fase liga para manter número par de participantes.`,
+          valor: null
+        }])
       }
 
-      let participantes = Array.from(setIds).map(id => fullTimes[id]).filter(Boolean)
-      participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
-
-      if (participantes.length < 2) { toast.error('Participantes insuficientes.'); setGerando(false); return }
+      if (participantes.length < 2) { toast.error('Participantes insuficientes.'); return }
 
       const calendario = gerarChampionsSwiss(participantes, evitarMesmoPais)
+      const totalJogos = calendario.length
+      if (!totalJogos) { toast.error('Falha ao gerar calendário.'); return }
 
-      // limpa SOMENTE a temporada atual
-      const { error: erroDel } = await supabase
-        .from('copa_fase_liga')
-        .delete()
-        .eq('temporada', TEMPORADA)
-      if (erroDel) { toast.error('Erro ao limpar jogos da temporada.'); setGerando(false); return }
+      // limpa jogos (somente temporada se existir a coluna)
+      if (temColunaTemporada) {
+        const { error: delErr } = await supabase.from('copa_fase_liga').delete().eq('temporada', TEMPORADA)
+        if (delErr) { toast.error('Erro ao limpar jogos da temporada.'); return }
+      } else {
+        const { error: delErr } = await supabase.from('copa_fase_liga').delete().neq('id', -1)
+        if (delErr) { toast.error('Erro ao limpar tabela de jogos.'); return }
+      }
 
-      // insere novos jogos desta temporada (rodadas 1..8)
+      // monta inserts
       const rows = calendario.map(j => ({
-        temporada: TEMPORADA,
+        ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
         rodada: j.rodada,
         time1: j.casa,
         time2: j.fora,
@@ -361,13 +331,13 @@ export default function FaseLigaAdminPage() {
         gols_time2: null,
         bonus_pago: false
       }))
-      if (rows.length) {
-        const BATCH = 1000
-        for (let i = 0; i < rows.length; i += BATCH) {
-          const chunk = rows.slice(i, i + BATCH)
-          const { error: erroIns } = await supabase.from('copa_fase_liga').insert(chunk)
-          if (erroIns) { toast.error('Erro ao inserir confrontos.'); setGerando(false); return }
-        }
+
+      // insere em lotes
+      const BATCH = 1000
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const chunk = rows.slice(i, i + BATCH)
+        const { error: insErr } = await supabase.from('copa_fase_liga').insert(chunk)
+        if (insErr) { toast.error('Erro ao inserir confrontos.'); return }
       }
 
       await atualizarClassificacao()
@@ -375,11 +345,11 @@ export default function FaseLigaAdminPage() {
 
       await supabase.from('bid').insert([{
         tipo_evento: 'Sistema',
-        descricao: `Fase Liga (modelo suíço) gerada para ${TEMPORADA}. Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
+        descricao: `Fase Liga (modelo suíço) gerada ${temColunaTemporada ? `para ${TEMPORADA}` : '(sem coluna de temporada)'}. Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         valor: null
       }])
 
-      toast.success('✅ Fase Champions gerada com 8 rodadas!')
+      toast.success(`✅ Gerado com sucesso: ${totalJogos} jogos em 8 rodadas!`)
     } finally {
       setGerando(false)
     }
@@ -411,7 +381,6 @@ export default function FaseLigaAdminPage() {
       .eq('id', jogo.id)
     if (erroPago) { toast.error('Erro ao travar pagamento!'); setSalvandoId(null); return }
 
-    // cálculo financeiro
     const time1Id = jogo.time1
     const time2Id = jogo.time2
     const g1 = jogo.gols_time1 ?? 0
@@ -498,7 +467,7 @@ export default function FaseLigaAdminPage() {
           <div>
             <h1 className="text-center text-3xl font-extrabold tracking-tight">
               <span className="bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent">
-                UEFA Champions — Fase Liga (modelo suíço) • {TEMPORADA}
+                UEFA Champions — Fase Liga (modelo suíço){temColunaTemporada ? ` • ${TEMPORADA}` : ''}
               </span>
             </h1>
             <p className="mt-1 text-sm text-zinc-400">
@@ -521,7 +490,7 @@ export default function FaseLigaAdminPage() {
                 onClick={() => setAbrirModalSwiss(true)}
                 disabled={gerando}
                 className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60"
-                title="Apaga jogos da temporada atual e cria 8 rodadas novas"
+                title="Gera 8 rodadas no modelo suíço"
               >
                 <FiRotateCcw />
                 {gerando ? 'Gerando...' : 'Gerar Fase Champions (8 rodadas)'}
@@ -641,7 +610,7 @@ export default function FaseLigaAdminPage() {
         open={abrirModalSwiss}
         danger
         title="Gerar Fase Champions (8 rodadas)?"
-        message={`Isso apaga TODOS os jogos da temporada "${TEMPORADA}" e cria exatamente 8 rodadas (4 casa / 4 fora, 2 adversários por pote). Palmeiras será excluído do sorteio.`}
+        message={`Isso apaga os jogos ${temColunaTemporada ? `da temporada "${TEMPORADA}"` : 'atuais'} e cria exatamente 8 rodadas (4 casa / 4 fora, 2 adversários por pote). Palmeiras será excluído do sorteio.`}
         confirmText={gerando ? 'Gerando...' : 'Sim, gerar'}
         cancelText="Cancelar"
         onConfirm={gerarSwiss}
