@@ -160,7 +160,7 @@ function useDebounce<T>(value: T, delay = 350) {
   return debounced
 }
 
-/** ========= Highlight pequeno ========= */
+/** ========= Highlight ========= */
 function Highlight({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>
   const parts = text.split(new RegExp(`(${escapeRegExp(query)})`, 'gi'))
@@ -279,9 +279,6 @@ export default function BIDPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedBusca])
-
-  /** ====== Se mudar o filtro de time tipoChip, só filtra em memória ====== */
-  // (Nada a fazer aqui porque filtros são aplicados no memo `eventosFiltrados`)
 
   async function carregarDados(paginaAtual = 1) {
     if (buscaAtiva) return // em modo busca, não usa paginação
@@ -533,20 +530,56 @@ export default function BIDPage() {
     setMinhasReacoes(mineMap)
   }
 
+  // ⚠️ AQUI ESTÁ A FUNÇÃO QUE FALTAVA
+  async function toggleReacao(idEventoRaw: IDEvt, emoji: Emoji) {
+    const idEvento = String(idEventoRaw)
+    if (!idTimeLogado) {
+      toast.error('Faça login no seu time para reagir.')
+      return
+    }
+    if (reagindo[idEvento]) return
+
+    setReagindo((p) => ({ ...p, [idEvento]: true }))
+    try {
+      const { data: existente, error: selErr } = await supabase
+        .from('bid_reacoes')
+        .select('id')
+        .eq('id_evento', idEvento)
+        .eq('id_time', idTimeLogado)
+        .eq('emoji', emoji)
+        .maybeSingle()
+      if (selErr) throw selErr
+
+      if (existente) {
+        const { error: delErr } = await supabase.from('bid_reacoes').delete().eq('id', existente.id)
+        if (delErr) throw delErr
+      } else {
+        const { error: insErr } = await supabase
+          .from('bid_reacoes')
+          .insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
+        if (insErr) throw insErr
+      }
+
+      await carregarReacoesParaEventos([idEvento])
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Não foi possível reagir: ${err?.message || 'erro'}`)
+    } finally {
+      setReagindo((p) => ({ ...p, [idEvento]: false }))
+    }
+  }
+
   /** ====== Filtros / Agrupamento ====== */
   const eventosFiltrados = useMemo(() => {
     const termo = debouncedBusca.trim().toLowerCase()
     return eventos.filter((evento) => {
-      // filtro por time selecionado
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
       if (!timeOK) return false
 
-      // filtro por chip de tipo
       const tipoKey = getTipoKey(evento.tipo_evento)
       const tipoOK = tipoFiltro === 'todos' || tipoKey === tipoFiltro
       if (!tipoOK) return false
 
-      // filtro por texto (em modo paginação normal a busca é local; em modo global os dados já vieram filtrados)
       if (!buscaAtiva && termo) {
         const nome1 = timesMap[evento.id_time1]?.nome || ''
         const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
@@ -900,7 +933,7 @@ export default function BIDPage() {
                           {/* Form */}
                           <ComentarioForm
                             idEvento={idEvento}
-                            comentarioAtual={comentarioAtual}
+                            comentarioAtual={novoComentario[idEvento] || ''}
                             setTexto={onChangeComentario}
                             enviando={!!comentando[idEvento]}
                             podeComentar={!!idTimeLogado}
@@ -1003,4 +1036,3 @@ function ComentarioForm({
     </div>
   )
 }
-
