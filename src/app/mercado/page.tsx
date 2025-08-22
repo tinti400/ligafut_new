@@ -122,96 +122,96 @@ const JogadorCard = ({
     jogador.nacionalidade && jogador.nacionalidade.trim() !== '' ? jogador.nacionalidade : 'Resto do Mundo'
 
   return (
-      <div
-        className={[
-          'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
-          'hover:shadow-lg hover:shadow-black/30 transition-shadow',
-          loadingComprar ? 'opacity-70 pointer-events-none' : '',
-          selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
-        ].join(' ')}
-      >
-        {/* Seleção admin */}
-        {isAdmin ? (
-          <label className="absolute left-3 top-3 inline-flex select-none items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-xs text-white backdrop-blur">
-            <input
-              type="checkbox"
-              checked={selecionado}
-              onChange={toggleSelecionado}
-              className="h-4 w-4 accent-red-500"
-            />
-            Excluir
-          </label>
-        ) : null}
+    <div
+      className={[
+        'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
+        'hover:shadow-lg hover:shadow-black/30 transition-shadow',
+        loadingComprar ? 'opacity-70 pointer-events-none' : '',
+        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
+      ].join(' ')}
+    >
+      {/* Seleção admin */}
+      {isAdmin ? (
+        <label className="absolute left-3 top-3 inline-flex select-none items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-xs text-white backdrop-blur">
+          <input
+            type="checkbox"
+            checked={selecionado}
+            onChange={toggleSelecionado}
+            className="h-4 w-4 accent-red-500"
+          />
+          Excluir
+        </label>
+      ) : null}
 
-        {/* Cabeçalho do card */}
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <ImagemComFallback
-              src={jogador.imagem_url || jogador.foto || ''}
-              alt={jogador.nome}
-              width={80}
-              height={80}
-              className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
-            />
-            <span className="absolute -bottom-1 -right-1 rounded-full bg-gray-800 px-2 py-0.5 text-[10px] font-bold text-gray-200 ring-1 ring-white/10">
-              {jogador.posicao}
-            </span>
-          </div>
-          <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold leading-tight">{jogador.nome}</h3>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-300">
-              <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">OVR {jogador.overall}</span>
-              <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">🌎 {nacionalidade}</span>
-            </div>
+      {/* Cabeçalho do card */}
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <ImagemComFallback
+            src={jogador.imagem_url || jogador.foto || ''}
+            alt={jogador.nome}
+            width={80}
+            height={80}
+            className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
+          />
+          <span className="absolute -bottom-1 -right-1 rounded-full bg-gray-800 px-2 py-0.5 text-[10px] font-bold text-gray-200 ring-1 ring-white/10">
+            {jogador.posicao}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <h3 className="truncate text-base font-semibold leading-tight">{jogador.nome}</h3>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-300">
+            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">OVR {jogador.overall}</span>
+            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">🌎 {nacionalidade}</span>
           </div>
         </div>
-
-        {/* Valores */}
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-            <p className="text-xs text-gray-400">Valor</p>
-            <p className="font-bold text-green-400">{formatarValor(jogador.valor)}</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-            <p className="text-xs text-gray-400">Salário</p>
-            <p className="font-semibold text-gray-200">{formatarValor(jogador.salario || 0)}</p>
-          </div>
-        </div>
-
-        {/* Admin: alterar preço */}
-        {isAdmin ? (
-          <div className="mt-3">
-            <label className="mb-1 block text-[11px] text-gray-300">💰 Alterar Preço (R$)</label>
-            <input
-              type="number"
-              min={1}
-              step={1000}
-              value={novoValor}
-              onChange={(e) => setNovoValor(Number(e.target.value))}
-              onBlur={handleBlur}
-              disabled={loadingAtualizarPreco}
-              className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-green-500"
-              placeholder="Novo valor"
-            />
-            {loadingAtualizarPreco && <p className="mt-1 text-[11px] text-gray-400">Atualizando...</p>}
-          </div>
-        ) : null}
-
-        {/* Ação */}
-        <button
-          onClick={onComprar}
-          disabled={loadingComprar || mercadoFechado}
-          className={[
-            'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
-            mercadoFechado
-              ? 'cursor-not-allowed bg-gray-700 text-gray-300'
-              : 'bg-green-600 text-white hover:bg-green-700'
-          ].join(' ')}
-          title={mercadoFechado ? 'Mercado fechado' : 'Comprar jogador'}
-        >
-          {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
-        </button>
       </div>
+
+      {/* Valores */}
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
+          <p className="text-xs text-gray-400">Valor</p>
+          <p className="font-bold text-green-400">{formatarValor(jogador.valor)}</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
+          <p className="text-xs text-gray-400">Salário</p>
+          <p className="font-semibold text-gray-200">{formatarValor(jogador.salario || 0)}</p>
+        </div>
+      </div>
+
+      {/* Admin: alterar preço */}
+      {isAdmin ? (
+        <div className="mt-3">
+          <label className="mb-1 block text-[11px] text-gray-300">💰 Alterar Preço (R$)</label>
+          <input
+            type="number"
+            min={1}
+            step={1000}
+            value={novoValor}
+            onChange={(e) => setNovoValor(Number(e.target.value))}
+            onBlur={handleBlur}
+            disabled={loadingAtualizarPreco}
+            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-green-500"
+            placeholder="Novo valor"
+          />
+          {loadingAtualizarPreco && <p className="mt-1 text-[11px] text-gray-400">Atualizando...</p>}
+        </div>
+      ) : null}
+
+      {/* Ação */}
+      <button
+        onClick={onComprar}
+        disabled={loadingComprar || mercadoFechado}
+        className={[
+          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
+          mercadoFechado
+            ? 'cursor-not-allowed bg-gray-700 text-gray-300'
+            : 'bg-green-600 text-white hover:bg-green-700'
+        ].join(' ')}
+        title={mercadoFechado ? 'Mercado fechado' : 'Comprar jogador'}
+      >
+        {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
+      </button>
+    </div>
   )
 }
 
@@ -254,6 +254,12 @@ export default function MercadoPage() {
 
   // mercado
   const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
+
+  // --- Exclusão por faixa de OVR ---
+  const [delOverallMin, setDelOverallMin] = useState<number | ''>('')        // ex.: 79
+  const [delOverallMax, setDelOverallMax] = useState<number | ''>('')        // ex.: 80
+  const [modalExcluirFaixaVisivel, setModalExcluirFaixaVisivel] = useState(false)
+  const [loadingExcluirFaixa, setLoadingExcluirFaixa] = useState(false)
 
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
@@ -582,6 +588,62 @@ export default function MercadoPage() {
     }
   }
 
+  // ======= Exclusão por FAIXA de OVR =======
+  const afetadosFaixa = useMemo(() => {
+    if (delOverallMin === '' || delOverallMax === '') return 0
+    const min = delOverallMin as number
+    const max = delOverallMax as number
+    return jogadores.filter((j) => j.overall >= min && j.overall <= max).length
+  }, [jogadores, delOverallMin, delOverallMax])
+
+  const solicitarExcluirPorFaixa = () => {
+    if (delOverallMin === '' || delOverallMax === '') {
+      toast.error('Informe OVR mínimo e máximo.')
+      return
+    }
+    if ((delOverallMin as number) > (delOverallMax as number)) {
+      toast.error('OVR mín não pode ser maior que o OVR máx.')
+      return
+    }
+    if (afetadosFaixa === 0) {
+      toast.error('Nenhum jogador nessa faixa.')
+      return
+    }
+    setModalExcluirFaixaVisivel(true)
+  }
+
+  const confirmarExcluirPorFaixa = async () => {
+    setLoadingExcluirFaixa(true)
+    try {
+      const min = delOverallMin as number
+      const max = delOverallMax as number
+
+      // calcula ids afetados localmente (para atualizar estado)
+      const idsAfetados = new Set(
+        jogadores.filter((j) => j.overall >= min && j.overall <= max).map((j) => j.id)
+      )
+
+      const { error } = await supabase
+        .from('mercado_transferencias')
+        .delete()
+        .gte('overall', min)
+        .lte('overall', max)
+
+      if (error) throw error
+
+      setJogadores((prev) => prev.filter((j) => !idsAfetados.has(j.id)))
+      setSelecionados((prev) => prev.filter((id) => !idsAfetados.has(id)))
+
+      toast.success(`Excluídos ${idsAfetados.size} jogadores com OVR entre ${min} e ${max}.`)
+    } catch (e) {
+      console.error('Erro ao excluir por faixa:', e)
+      toast.error('Erro ao excluir por faixa.')
+    } finally {
+      setLoadingExcluirFaixa(false)
+      setModalExcluirFaixaVisivel(false)
+    }
+  }
+
   /* ================= Filtros e listagem ================= */
   const jogadoresFiltrados = useMemo(() => {
     const lista = jogadores
@@ -849,6 +911,37 @@ export default function MercadoPage() {
               >
                 {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
               </button>
+
+              {/* --- Novo: Exclusão por faixa de OVR --- */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-300">Excluir por OVR</label>
+                <input
+                  type="number"
+                  placeholder="mín"
+                  min={0}
+                  max={99}
+                  value={delOverallMin}
+                  onChange={(e) => setDelOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-20 rounded-lg border border-white/10 bg-gray-800 px-2 py-1 text-sm outline-none focus:border-red-500"
+                />
+                <input
+                  type="number"
+                  placeholder="máx"
+                  min={0}
+                  max={99}
+                  value={delOverallMax}
+                  onChange={(e) => setDelOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-20 rounded-lg border border-white/10 bg-gray-800 px-2 py-1 text-sm outline-none focus:border-red-500"
+                />
+                <button
+                  onClick={solicitarExcluirPorFaixa}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition"
+                  title="Excluir todos os jogadores do mercado nessa faixa de OVR"
+                >
+                  Excluir por OVR {afetadosFaixa > 0 ? `(${afetadosFaixa})` : ''}
+                </button>
+              </div>
+
               {msg ? <span className="text-sm text-gray-300">{msg}</span> : null}
             </div>
           ) : null}
@@ -943,6 +1036,16 @@ export default function MercadoPage() {
         onConfirm={confirmarExcluirSelecionados}
         onCancel={() => setModalExcluirVisivel(false)}
         loading={loadingExcluir}
+      />
+
+      {/* Modal: exclusão por faixa de OVR */}
+      <ModalConfirm
+        visible={modalExcluirFaixaVisivel}
+        titulo="Excluir por faixa de OVR"
+        mensagem={`Tem certeza que deseja excluir todos os jogadores com OVR entre ${delOverallMin} e ${delOverallMax}? (${afetadosFaixa} afetado${afetadosFaixa === 1 ? '' : 's'})`}
+        onConfirm={confirmarExcluirPorFaixa}
+        onCancel={() => setModalExcluirFaixaVisivel(false)}
+        loading={loadingExcluirFaixa}
       />
     </>
   )
