@@ -35,7 +35,7 @@ type JogoLiga = {
   id?: number
   id_time1?: string | null
   id_time2?: string | null
-  time1?: string | null // pode ser nome OU id dependendo do seu seed
+  time1?: string | null // pode guardar nome OU id
   time2?: string | null
   gols_time1: number | null
   gols_time2: number | null
@@ -43,22 +43,18 @@ type JogoLiga = {
 
 /** ===== Constantes ===== */
 const TOTAL_TIMES = 30
-// Times a ocultar (removidos da tabela e das partidas)
 const TIMES_EXCLUIDOS = ['palmeiras', 'sociedade esportiva palmeiras']
 
 /** ===== Utils ===== */
 function norm(s?: string | null) {
   return (s || '').toLowerCase().trim()
 }
-
 function ehExcluido(timesMap: Record<string, TimeInfo>, idOuNome?: string | null) {
   if (!idOuNome) return false
-  // bate por id
   if (timesMap[idOuNome]) {
     const n = norm(timesMap[idOuNome]?.nome)
     return TIMES_EXCLUIDOS.includes(n)
   }
-  // bate por nome
   return TIMES_EXCLUIDOS.includes(norm(idOuNome))
 }
 
@@ -74,7 +70,6 @@ export default function ClassificacaoCopaPage() {
 
   useEffect(() => {
     carregarTudo()
-    // playoff já existe?
     supabase.from('copa_playoff').select('id').limit(1).then(({ data }) => {
       setExistePlayoff(!!data && data.length > 0)
     })
@@ -88,20 +83,19 @@ export default function ClassificacaoCopaPage() {
       const { data: times, error: errTimes } = await supabase
         .from('times')
         .select('id, nome, logo_url, logo')
-
       if (errTimes) throw errTimes
+
       const mapa: Record<string, TimeInfo> = {}
       for (const t of (times || [])) {
-        // pula excluídos
-        if (TIMES_EXCLUIDOS.includes(norm(t.nome))) continue
+        if (TIMES_EXCLUIDOS.includes(norm(t.nome))) continue // exclui Palmeiras
         mapa[t.id] = { id: t.id, nome: t.nome, logo_url: t.logo_url, logo: t.logo }
       }
       setTimesMap(mapa)
 
-      // 2) Jogos da fase liga (tenta copa_fase_liga, senão fase_liga)
+      // 2) Jogos fase liga (preferir copa_fase_liga)
       const jogos = await carregarJogosFaseLiga()
 
-      // 3) Monta tabela base
+      // 3) Base da classificação
       const base: Record<string, LinhaClassificacao> = {}
       Object.values(mapa).forEach((t) => {
         base[t.id] = {
@@ -117,14 +111,12 @@ export default function ClassificacaoCopaPage() {
         }
       })
 
-      // 4) Aplica resultados
+      // 4) Aplicar resultados
       for (const j of jogos) {
         if (j.gols_time1 == null || j.gols_time2 == null) continue
 
         const id1 = resolverIdDoTime(j, 1, mapa)
         const id2 = resolverIdDoTime(j, 2, mapa)
-
-        // ignora partidas com times desconhecidos ou excluídos
         if (!id1 || !id2) continue
         if (ehExcluido(mapa, id1) || ehExcluido(mapa, id2)) continue
         if (!base[id1] || !base[id2]) continue
@@ -169,7 +161,6 @@ export default function ClassificacaoCopaPage() {
     }
   }
 
-  // Tenta pegar da copa_fase_liga; se vier vazio, tenta fase_liga
   async function carregarJogosFaseLiga(): Promise<JogoLiga[]> {
     const { data: jogosCopa, error: errCopa } = await supabase
       .from('copa_fase_liga')
@@ -189,7 +180,6 @@ export default function ClassificacaoCopaPage() {
     return (jogosAlt || []) as JogoLiga[]
   }
 
-  // Resolve id do time a partir do registro do jogo (aceita id_timeX, timeX com id, ou timeX nome)
   function resolverIdDoTime(j: JogoLiga, lado: 1 | 2, mapa: Record<string, TimeInfo>): string | null {
     const idDireto = lado === 1 ? j.id_time1 : j.id_time2
     if (idDireto && mapa[idDireto]) return idDireto
@@ -197,10 +187,10 @@ export default function ClassificacaoCopaPage() {
     const raw = lado === 1 ? j.time1 : j.time2
     if (!raw) return null
 
-    // pode ser um id salvo no campo timeX
+    // campo timeX pode ter id
     if (mapa[raw]) return raw
 
-    // caso seja nome, procura por nome
+    // ou pode ter nome -> bater por nome
     const nome = norm(raw)
     for (const [id, info] of Object.entries(mapa)) {
       if (norm(info.nome) === nome) return id
@@ -246,7 +236,7 @@ export default function ClassificacaoCopaPage() {
         return
       }
 
-      const classificados = classificacaoOrdenada.slice(8, 24) // 9º a 24º (0-based)
+      const classificados = classificacaoOrdenada.slice(8, 24) // 9º a 24º
       const embaralhados = shuffle(classificados)
 
       const jogos: any[] = []
@@ -274,7 +264,6 @@ export default function ClassificacaoCopaPage() {
         })
       }
 
-      // evita duplicidade
       const { data: exist } = await supabase.from('copa_playoff').select('id').limit(1)
       if (exist && exist.length > 0) {
         setExistePlayoff(true)
@@ -374,20 +363,41 @@ export default function ClassificacaoCopaPage() {
 
       {/* Tabela */}
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="overflow-x-auto rounded-xl border border-zinc-800 shadow-lg shadow-black/20">
+        <div className="overflow-x-auto rounded-xl border border-zinc-800 shadow-lg shadow-black/20 overflow-hidden">
           <table className="w-full text-sm text-left">
-            <thead className="bg-zinc-900 sticky top-[56px] z-10 text-zinc-300">
-              <tr className="[&>th]:px-3 [&>th]:py-2 border-b border-zinc-800">
-                <th>#</th>
-                <th>Time</th>
-                <th className="text-center">J</th>
-                <th className="text-center">Pts</th>
-                <th className="text-center">V</th>
-                <th className="text-center">E</th>
-                <th className="text-center">D</th>
-                <th className="text-center">GP</th>
-                <th className="text-center">GC</th>
-                <th className="text-center">SG</th>
+            {/* CABEÇALHO no estilo da 2ª imagem */}
+            <thead className="sticky top-[56px] z-10">
+              <tr className="bg-gradient-to-b from-zinc-900 to-zinc-950 border-b border-amber-500/30">
+                <th className="px-4 py-3 w-16 text-amber-300 uppercase text-[11px] font-semibold tracking-wider text-left">
+                  Pos
+                </th>
+                <th className="px-4 py-3 min-w-[220px] text-amber-300 uppercase text-[11px] font-semibold tracking-wider text-left">
+                  Time
+                </th>
+                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  J
+                </th>
+                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  Pts
+                </th>
+                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  V
+                </th>
+                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  E
+                </th>
+                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  D
+                </th>
+                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  GP
+                </th>
+                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  GC
+                </th>
+                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
+                  SG
+                </th>
               </tr>
             </thead>
 
@@ -480,7 +490,7 @@ export default function ClassificacaoCopaPage() {
 
         {/* Nota sobre exclusão */}
         <p className="mt-3 text-[11px] text-zinc-500">
-          * Partidas envolvendo times excluídos (ex.: Palmeiras) não contam na classificação para manter justiça entre os demais clubes.
+          * Partidas envolvendo times excluídos (ex.: Palmeiras) não entram no cômputo para manter justiça entre os demais clubes.
         </p>
       </div>
     </div>
