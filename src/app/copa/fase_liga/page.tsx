@@ -290,8 +290,8 @@ export default function FaseLigaAdminPage() {
     let bonus1 = BONUS_EMPATE, bonus2 = BONUS_EMPATE
     if (g1 > g2) { bonus1 = BONUS_VITORIA; bonus2 = BONUS_DERROTA }
     else if (g2 > g1) { bonus1 = BONUS_DERROTA; bonus2 = BONUS_VITORIA }
-    const total1 = TAXA_POR_JOGO + bonus1 + (g1*PREMIO_GOL_MARCADO) - (g2*PENALIDADE_GOL_SOFRRIDO)
-    const total2 = TAXA_POR_JOGO + bonus2 + (g2*PREMIO_GOL_MARCADO) - (g1*PENALIDADE_GOL_SOFRRIDO)
+    const total1 = TAXA_POR_JOGO + bonus1 + (g1 * PREMIO_GOL_MARCADO) - (g2*PENALIDADE_GOL_SOFRRIDO)
+    const total2 = TAXA_POR_JOGO + bonus2 + (g2 * PREMIO_GOL_MARCADO) - (g1*PENALIDADE_GOL_SOFRRIDO)
 
     // typo fix
     const PENALIDADE_GOL_SOFRRIDO = PENALIDADE_GOL_SOFRIDO
