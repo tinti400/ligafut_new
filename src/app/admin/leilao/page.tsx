@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 
@@ -10,7 +10,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const STORAGE_BUCKET = 'imagens' // <-- ajuste para o nome do seu bucket de Storage (público)
+const STORAGE_BUCKET = 'imagens' // ajuste para o nome do seu bucket público
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
 // ---------------- helpers ----------------
@@ -25,6 +25,7 @@ function pickStr(row: any, keys: string[]): string {
   for (const k in row) {
     if (
       k &&
+      keys.length &&
       k.replace(/\s+/g, '').toLowerCase() === keys[0].replace(/\s+/g, '').toLowerCase() &&
       String(row[k]).trim() !== ''
     ) {
@@ -43,6 +44,13 @@ function normalizeUrl(u: string): string {
   return url
 }
 
+function parseMoeda(n: any, fallback = 0): number {
+  if (n == null || n === '') return fallback
+  const s = String(n).replace(/\s/g, '').replace(/\./g, '').replace(',', '.').replace(/R\$/i, '')
+  const v = Number(s)
+  return Number.isFinite(v) ? v : fallback
+}
+
 function slugify(str: string) {
   return (str || '')
     .toLowerCase()
@@ -57,12 +65,15 @@ function slugify(str: string) {
 export default function AdminLeilaoPage() {
   const router = useRouter()
 
-  // Form - criação manual
+  // Form - criação manual (agora com TODOS os campos da planilha)
   const [jogador, setJogador] = useState('')
   const [posicao, setPosicao] = useState('CA')
   const [overall, setOverall] = useState(80)
-  const [valorInicial, setValorInicial] = useState(35_000_000)
-  const [duracaoMin, setDuracaoMin] = useState(2) // duração padrão (global)
+  const [valorInicial, setValorInicial] = useState(35_000_000) // vira valor_atual
+  const [origem, setOrigem] = useState('') // time_origem
+  const [nacionalidade, setNacionalidade] = useState('')
+  const [linkSofifa, setLinkSofifa] = useState('')
+  const [duracaoMin, setDuracaoMin] = useState(2) // duração padrão
   const [imagemFile, setImagemFile] = useState<File | null>(null)
   const [imagemUrl, setImagemUrl] = useState('')
 
@@ -94,7 +105,6 @@ export default function AdminLeilaoPage() {
 
     if (!error) {
       setFila(data || [])
-      // inicializa durações individuais com o global (sem travar)
       const init: Record<string, number> = {}
       ;(data || []).forEach((j) => (init[j.id] = duracaoMin))
       setDuracoesFila((prev) => ({ ...init, ...prev }))
@@ -133,7 +143,7 @@ export default function AdminLeilaoPage() {
 
   const criarLeilaoManual = async () => {
     try {
-      let finalImageUrl = imagemUrl
+      let finalImageUrl = normalizeUrl(imagemUrl)
       if (imagemFile) {
         finalImageUrl = await uploadImagemParaStorage(imagemFile)
         setImagemUrl(finalImageUrl)
@@ -146,10 +156,13 @@ export default function AdminLeilaoPage() {
         nome: jogador,
         posicao,
         overall,
-        valor_atual: valorInicial,
+        valor_atual: Number(valorInicial) || 35_000_000, // usa o "valor" do form
+        origem: norm(origem),
+        nacionalidade: norm(nacionalidade),
+        link_sofifa: normalizeUrl(linkSofifa) || null,
+        imagem_url: finalImageUrl || null,
         id_time_vencedor: null,
         nome_time_vencedor: null,
-        imagem_url: finalImageUrl || null,
         fim,
         criado_em: agora,
         status: 'ativo'
@@ -157,11 +170,18 @@ export default function AdminLeilaoPage() {
 
       if (error) throw new Error(error.message)
 
+      // reset
       setJogador('')
+      setPosicao('CA')
       setOverall(80)
       setValorInicial(35_000_000)
+      setOrigem('')
+      setNacionalidade('')
+      setLinkSofifa('')
+      setDuracaoMin(2)
       setImagemFile(null)
       setImagemUrl('')
+
       alert('✅ Leilão criado!')
       router.refresh()
       buscarLeiloesAtivos()
@@ -183,7 +203,6 @@ export default function AdminLeilaoPage() {
           status: 'ativo',
           criado_em: agora,
           fim,
-          // respeita valor_atual da fila; se vazio, usa default
           valor_atual: Number(jog?.valor_atual) > 0 ? Number(jog.valor_atual) : 35_000_000,
           id_time_vencedor: null,
           nome_time_vencedor: null
@@ -200,7 +219,7 @@ export default function AdminLeilaoPage() {
     }
   }
 
-  // ---------- IMPORTAÇÃO DO EXCEL ----------
+  // ---------- IMPORTAÇÃO DO EXCEL (com TODAS as colunas) ----------
   const handleImportar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -214,15 +233,26 @@ export default function AdminLeilaoPage() {
         const data = new Uint8Array(event.target?.result as ArrayBuffer)
         const workbook = XLSX.read(data, { type: 'array' })
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
+
+        // defval: preenche vazio com '' para evitar undefined
         const json = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as any[]
 
         const rows = json.map((item) => {
           const nome = pickStr(item, ['nome'])
-          const posicao = pickStr(item, ['posicao'])
+          const posicaoRaw = pickStr(item, ['posicao'])
+          const posicao = POSICOES.includes(posicaoRaw) ? posicaoRaw : 'MEI'
           const overall = Number(item?.overall || 0) || 80
-          const origem = pickStr(item, ['time_origem', 'origem'])
+
+          // ---- valor (planilha) -> valor_atual
+          const valor = parseMoeda(item?.valor, 35_000_000)
+
+          // time_origem
+          const origem = pickStr(item, ['time_origem', 'origem', 'time origem'])
+
+          // nacionalidade
           const nacionalidade = pickStr(item, ['nacionalidade'])
 
+          // imagem_url e link_sofifa (aceita variações/typos)
           const imagemRaw = pickStr(item, [
             'imagem_url',
             'Imagem_url',
@@ -230,7 +260,14 @@ export default function AdminLeilaoPage() {
             'imagem URL',
             'imagemURL'
           ])
-          const linkRaw = pickStr(item, ['link_sofifa', 'Link_sofifa', 'link Sofifa', 'link'])
+          const linkRaw = pickStr(item, [
+            'link_sofifa',
+            'Link_sofifa',
+            'link Sofifa',
+            'link',
+            'link_soffia',   // tolera erro de digitação
+            'sofifa'
+          ])
 
           const imagem_url = normalizeUrl(imagemRaw)
           const link_sofifa = normalizeUrl(linkRaw)
@@ -242,7 +279,7 @@ export default function AdminLeilaoPage() {
             nome,
             posicao,
             overall,
-            valor_atual: 35_000_000,
+            valor_atual: valor,           // usa a coluna "valor" como preço inicial
             origem,
             nacionalidade,
             imagem_url: imagem_url || null,
@@ -255,16 +292,19 @@ export default function AdminLeilaoPage() {
           }
         })
 
+        // filtra linhas sem nome/posição
         const validos = rows.filter((r) => r.nome && r.posicao)
+
         setMsg(`Importando ${validos.length} registros...`)
 
+        // insert em lote pra performance
         const chunkSize = 500
         for (let i = 0; i < validos.length; i += chunkSize) {
           const chunk = validos.slice(i, i + chunkSize)
           const { error } = await supabase.from('leiloes_sistema').insert(chunk)
           if (error) {
             console.error('Erro ao inserir chunk:', error.message)
-            setMsg(`Erro no chunk ${i / chunkSize + 1}: ${error.message}`)
+            setMsg(`Erro ao inserir (chunk ${i / chunkSize + 1}): ${error.message}`)
           } else {
             setMsg(`Importados ${Math.min(i + chunk.length, validos.length)} / ${validos.length}`)
           }
@@ -295,7 +335,6 @@ export default function AdminLeilaoPage() {
     return `${minutos}m ${segundos}s`
   }
 
-  // ======== UI Helpers
   const AbaButton = ({ id, label }: { id: typeof aba; label: string }) => (
     <button
       onClick={() => setAba(id)}
@@ -309,7 +348,6 @@ export default function AdminLeilaoPage() {
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100 p-4">
       <div className="mx-auto max-w-6xl">
-        {/* Header */}
         <header className="sticky top-0 z-10 bg-gray-950/80 backdrop-blur border-b border-gray-800 mb-6">
           <div className="max-w-6xl mx-auto px-1 py-4 flex flex-wrap items-center gap-2 justify-between">
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
@@ -324,7 +362,6 @@ export default function AdminLeilaoPage() {
           </div>
         </header>
 
-        {/* Cartão principal */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-xl p-5">
           {/* ====== Criar Manual ====== */}
           {aba === 'criar' && (
@@ -334,7 +371,7 @@ export default function AdminLeilaoPage() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="text-sm font-medium text-gray-300">Nome do jogador</label>
+                      <label className="text-sm font-medium text-gray-300">Nome</label>
                       <input
                         type="text"
                         placeholder="Ex.: Erling Haaland"
@@ -343,6 +380,7 @@ export default function AdminLeilaoPage() {
                         className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
                       />
                     </div>
+
                     <div>
                       <label className="text-sm font-medium text-gray-300">Posição</label>
                       <select
@@ -355,6 +393,7 @@ export default function AdminLeilaoPage() {
                         ))}
                       </select>
                     </div>
+
                     <div>
                       <label className="text-sm font-medium text-gray-300">Overall</label>
                       <input
@@ -364,8 +403,9 @@ export default function AdminLeilaoPage() {
                         className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
                       />
                     </div>
+
                     <div>
-                      <label className="text-sm font-medium text-gray-300">Valor inicial</label>
+                      <label className="text-sm font-medium text-gray-300">Valor (inicial)</label>
                       <input
                         type="number"
                         value={valorInicial}
@@ -374,6 +414,38 @@ export default function AdminLeilaoPage() {
                       />
                       <p className="mt-1 text-xs text-gray-400">{formatMoeda(valorInicial)}</p>
                     </div>
+
+                    <div>
+                      <label className="text-sm font-medium text-gray-300">time_origem</label>
+                      <input
+                        type="text"
+                        value={origem}
+                        onChange={(e) => setOrigem(e.target.value)}
+                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium text-gray-300">nacionalidade</label>
+                      <input
+                        type="text"
+                        value={nacionalidade}
+                        onChange={(e) => setNacionalidade(e.target.value)}
+                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium text-gray-300">link_sofifa</label>
+                      <input
+                        type="url"
+                        placeholder="https://sofifa.com/player/..."
+                        value={linkSofifa}
+                        onChange={(e) => setLinkSofifa(e.target.value)}
+                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      />
+                    </div>
+
                     <div>
                       <label className="text-sm font-medium text-gray-300">Duração (min)</label>
                       <input
@@ -384,20 +456,15 @@ export default function AdminLeilaoPage() {
                         className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
                       />
                     </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Imagem do jogador</label>
+
+                    <div className="sm:col-span-2">
+                      <label className="text-sm font-medium text-gray-300">imagem_url (upload ou URL)</label>
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0] || null
-                          setImagemFile(f)
-                        }}
+                        onChange={(e) => setImagemFile(e.target.files?.[0] || null)}
                         className="mt-1 w-full p-2 rounded-lg bg-gray-800 border border-gray-700"
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        (Opcional) Se você já tiver uma URL pública, cole abaixo:
-                      </p>
                       <input
                         type="url"
                         placeholder="https://..."
@@ -445,7 +512,10 @@ export default function AdminLeilaoPage() {
                     <li><b>Nome:</b> {jogador || '—'}</li>
                     <li><b>Posição:</b> {posicao}</li>
                     <li><b>Overall:</b> {overall}</li>
-                    <li><b>Valor inicial:</b> {formatMoeda(valorInicial)}</li>
+                    <li><b>Valor:</b> {formatMoeda(valorInicial)}</li>
+                    <li><b>Origem:</b> {origem || '—'}</li>
+                    <li><b>Nacionalidade:</b> {nacionalidade || '—'}</li>
+                    <li><b>link_sofifa:</b> {linkSofifa || '—'}</li>
                     <li><b>Duração:</b> {duracaoMin} min</li>
                   </ul>
                 </div>
@@ -470,8 +540,8 @@ export default function AdminLeilaoPage() {
                 {msg && <p className="text-green-400 mt-2">{msg}</p>}
               </div>
               <p className="text-xs text-gray-400">
-                Dicas: colunas aceitas (nome, posicao, overall, time_origem/origem, nacionalidade,
-                imagem_url, link_sofifa). As não encontradas são ignoradas.
+                Colunas suportadas: <b>nome</b>, <b>posicao</b>, <b>overall</b>, <b>valor</b>,
+                <b> time_origem</b>, <b>nacionalidade</b>, <b>imagem_url</b>, <b>link_sofifa</b>.
               </p>
             </section>
           )}
@@ -496,9 +566,19 @@ export default function AdminLeilaoPage() {
                           onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
                         />
                       )}
-                      <p className="text-lg font-bold">{leilao.nome} <span className="text-sm font-medium text-gray-400">({leilao.posicao})</span></p>
-                      <p className="text-sm"><b>⏱ Tempo restante:</b> {formatarTempo(leilao.fim)}</p>
+                      <p className="text-lg font-bold">
+                        {leilao.nome}{' '}
+                        <span className="text-sm font-medium text-gray-400">({leilao.posicao})</span>
+                      </p>
+                      <p className="text-sm"><b>⏱ Tempo:</b> {formatarTempo(leilao.fim)}</p>
                       <p className="text-sm"><b>💰 Lance atual:</b> {formatMoeda(Number(leilao.valor_atual) || 0)}</p>
+                      {leilao.origem && <p className="text-xs text-gray-300"><b>Origem:</b> {leilao.origem}</p>}
+                      {leilao.nacionalidade && <p className="text-xs text-gray-300"><b>Nacionalidade:</b> {leilao.nacionalidade}</p>}
+                      {leilao.link_sofifa && (
+                        <a href={leilao.link_sofifa} target="_blank" rel="noreferrer" className="text-xs text-yellow-400 underline">
+                          Ver no SoFIFA
+                        </a>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -536,9 +616,14 @@ export default function AdminLeilaoPage() {
                         </span>
                       </div>
                       <p className="text-sm text-gray-300">Overall: <b>{jog.overall}</b></p>
-                      <p className="text-sm text-gray-300">
-                        💰 {formatMoeda(Number(jog.valor_atual) || 35_000_000)}
-                      </p>
+                      <p className="text-sm text-gray-300">💰 {formatMoeda(Number(jog.valor_atual) || 35_000_000)}</p>
+                      {jog.origem && <p className="text-xs text-gray-300 mt-1"><b>Origem:</b> {jog.origem}</p>}
+                      {jog.nacionalidade && <p className="text-xs text-gray-300"><b>Nacionalidade:</b> {jog.nacionalidade}</p>}
+                      {jog.link_sofifa && (
+                        <a href={jog.link_sofifa} target="_blank" rel="noreferrer" className="text-xs text-yellow-400 underline">
+                          Ver no SoFIFA
+                        </a>
+                      )}
 
                       <div className="mt-3 grid grid-cols-[1fr,auto] gap-2">
                         <input
