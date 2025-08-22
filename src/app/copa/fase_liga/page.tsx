@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
-import { FiRefreshCw, FiRotateCcw, FiSave, FiTrash2, FiShuffle } from 'react-icons/fi'
+import { FiRotateCcw, FiSave, FiTrash2, FiShuffle } from 'react-icons/fi'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,7 +42,7 @@ function gerarRoundRobin(ids: string[], doubleRound: boolean) {
   const teams = [...ids]
   if (teams.length < 2) return []
 
-  if (teams.length % 2 === 1) teams.push(BYE) // adiciona bye se ímpar
+  if (teams.length % 2 === 1) teams.push(BYE)
   const n = teams.length
   const rounds = n - 1
   const half = n / 2
@@ -56,7 +56,6 @@ function gerarRoundRobin(ids: string[], doubleRound: boolean) {
       const b = arr[n - 1 - i]
       if (a === BYE || b === BYE) continue
 
-      // alterna mando para balancear
       const par = (r + i) % 2 === 0
       const casa = par ? a : b
       const fora = par ? b : a
@@ -73,7 +72,7 @@ function gerarRoundRobin(ids: string[], doubleRound: boolean) {
 
   if (!doubleRound) return calendario
 
-  // returno: inverte mandos e continua numerando as rodadas
+  // returno
   const returno = calendario.map((j) => ({
     rodada: j.rodada + rounds,
     casa: j.fora,
@@ -178,10 +177,14 @@ export default function FaseLigaAdminPage() {
   }
 
   async function atualizarClassificacao() {
-    await supabase.rpc('atualizar_classificacao_copa').catch(() => {})
+    const { error } = await supabase.rpc('atualizar_classificacao_copa')
+    if (error) {
+      console.error('RPC atualizar_classificacao_copa error:', error)
+      toast.error('Erro ao atualizar classificação!')
+    }
   }
 
-  /** ========= NOVO: Recomeçar temporada com NOVOS confrontos ========= */
+  /** ========= Recomeçar temporada com NOVOS confrontos ========= */
   async function recomeçarTemporadaNovosConfrontos() {
     if (!isAdmin) {
       toast.error('Apenas admin pode reiniciar a temporada.')
@@ -189,19 +192,18 @@ export default function FaseLigaAdminPage() {
     }
     setGerando(true)
     try {
-      // 1) Descobrir participantes atuais (a partir da tabela existente)
+      // 1) Participantes atuais a partir da própria tabela ou fallback em `times`
       const { data: dadosExistentes, error: erroExistentes } = await supabase
         .from('copa_fase_liga')
         .select('time1, time2')
 
-      let participantes = new Set<string>()
+      const participantes = new Set<string>()
       if (!erroExistentes && (dadosExistentes?.length || 0) > 0) {
         dadosExistentes!.forEach((j: any) => {
           if (j.time1) participantes.add(j.time1)
           if (j.time2) participantes.add(j.time2)
         })
       } else {
-        // fallback: todos os times
         const { data: todosTimes, error: erroTimes } = await supabase.from('times').select('id')
         if (erroTimes) {
           toast.error('Não foi possível obter participantes.')
@@ -219,10 +221,10 @@ export default function FaseLigaAdminPage() {
       }
       if (embaralhar) lista = shuffle(lista)
 
-      // 2) Gerar tabela (round-robin, com/sem returno)
-      const calendario = gerarRoundRobin(lista, doubleRound) // [{rodada,casa,fora},...]
+      // 2) Gera calendário (turno e opcional returno)
+      const calendario = gerarRoundRobin(lista, doubleRound)
 
-      // 3) Apagar todos os jogos antigos
+      // 3) Limpa jogos antigos
       const { error: erroDelete } = await supabase.from('copa_fase_liga').delete().neq('id', -1)
       if (erroDelete) {
         toast.error('Erro ao limpar tabela de jogos.')
@@ -230,7 +232,7 @@ export default function FaseLigaAdminPage() {
         return
       }
 
-      // 4) Inserir novos jogos
+      // 4) Insere novos jogos
       const rows = calendario.map((j) => ({
         rodada: j.rodada,
         time1: j.casa,
@@ -253,10 +255,10 @@ export default function FaseLigaAdminPage() {
         }
       }
 
-      // 5) Recalcular classificação zerada
+      // 5) Recalcula classificação zerada
       await atualizarClassificacao()
 
-      // 6) Registrar no BID
+      // 6) Registra no BID
       await supabase.from('bid').insert([
         {
           tipo_evento: 'Sistema',
@@ -273,7 +275,7 @@ export default function FaseLigaAdminPage() {
     }
   }
 
-  /** ===== Salvar placar + premiação (mantém sua lógica e trava de bônus) ===== */
+  /** ===== Salvar placar + premiação ===== */
   async function salvarPlacar(jogo: Jogo) {
     setSalvandoId(jogo.id)
 
@@ -308,10 +310,10 @@ export default function FaseLigaAdminPage() {
       return
     }
 
-    // Atualiza classificação
+    // Atualiza classificação via função dedicada
     await atualizarClassificacao()
 
-    // Marca bônus como pago ANTES de pagar
+    // Marca bônus como pago
     const { error: erroBonus } = await supabase
       .from('copa_fase_liga')
       .update({ bonus_pago: true })
@@ -323,7 +325,7 @@ export default function FaseLigaAdminPage() {
       return
     }
 
-    // ====== Cálculo da premiação (mesma regra que você já usa) ======
+    // ====== Cálculo da premiação ======
     const time1Id = jogo.time1
     const time2Id = jogo.time2
     const g1 = jogo.gols_time1 ?? 0
@@ -353,7 +355,7 @@ export default function FaseLigaAdminPage() {
     const total1 = bonus1 + premioGols1 - descontoSofrido1
     const total2 = bonus2 + premioGols2 - descontoSofrido2
 
-    // Atualiza saldos (RPC)
+    // Atualiza saldos
     const { error: erroSaldo1 } = await supabase.rpc('atualizar_saldo', {
       id_time: time1Id,
       valor: total1
