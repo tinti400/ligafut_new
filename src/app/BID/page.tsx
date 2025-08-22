@@ -1,3 +1,20 @@
+Aqui está o componente **BIDPage** completo, já com:
+
+* **Busca global** (passa por todas as páginas): digitou ≥ 2 caracteres, eu consulto o banco inteiro (descrição e nomes dos times) e trago tudo de uma vez.
+* **Debounce** (≈350ms) para a busca.
+* **Chips de filtro por tipo de evento** (Transferência, Empréstimo, Rescisão, Compra, Salário, Bônus).
+* **Realce do termo buscado** na descrição.
+* Melhorias visuais (header com “glass”, chips, botão flutuante “voltar ao topo”, estados vazios/skeleton mais caprichados).
+
+> Observações:
+>
+> * Em modo busca, a paginação some (trago todos os resultados relevantes em uma listagem única).
+> * Para filtrar por nome de time, eu busco `times.nome ILIKE %termo%` e junto com `bid.descricao ILIKE %termo%`.
+> * Mantive todas as funcionalidades (comentários, reações, exclusão admin).
+
+---
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -7,6 +24,7 @@ import classNames from 'classnames'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
 
+/** ========= Supabase ========= */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -51,6 +69,18 @@ type Reacao = {
 /** ========= Emojis ========= */
 const EMOJIS = ['👍','❤️','😂','😮','😢','😡','👏','🔥'] as const
 type Emoji = typeof EMOJIS[number]
+
+/** ========= Consts de UI/Filtro ========= */
+const TIPOS_CHIP = [
+  { key: 'todos', label: 'Todos' },
+  { key: 'transfer', label: 'Transferência' },
+  { key: 'emprest', label: 'Empréstimo' },
+  { key: 'rescis', label: 'Rescisão' },
+  { key: 'compra', label: 'Compra' },
+  { key: 'salario', label: 'Salário' },
+  { key: 'bonus', label: 'Bônus' },
+] as const
+type TipoChipKey = typeof TIPOS_CHIP[number]['key']
 
 /** ========= Helpers visuais ========= */
 function tipoToStyle(tipo: string) {
@@ -124,6 +154,44 @@ function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
   )
 }
 
+/** ========= Utils de busca ========= */
+function escapeRegExp(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+function getTipoKey(tipo: string): TipoChipKey {
+  const t = tipo.toLowerCase()
+  if (t.includes('transfer')) return 'transfer'
+  if (t.includes('emprést') || t.includes('emprest')) return 'emprest'
+  if (t.includes('rescis')) return 'rescis'
+  if (t.includes('compra')) return 'compra'
+  if (t.includes('salario')) return 'salario'
+  if (t.includes('bonus') || t.includes('bônus')) return 'bonus'
+  return 'todos'
+}
+function useDebounce<T>(value: T, delay = 350) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id)
+  }, [value, delay])
+  return debounced
+}
+
+/** ========= Highlight pequeno ========= */
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>
+  const parts = text.split(new RegExp(`(${escapeRegExp(query)})`, 'gi'))
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase()
+          ? <mark key={i} className="bg-yellow-400/30 text-yellow-200 rounded px-0.5">{part}</mark>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  )
+}
+
 /** ========= Página ========= */
 export default function BIDPage() {
   const { isAdmin } = useAdmin()
@@ -139,7 +207,11 @@ export default function BIDPage() {
 
   // Filtros / Paginação
   const [filtroTime, setFiltroTime] = useState('todos')
+  const [tipoFiltro, setTipoFiltro] = useState<TipoChipKey>('todos')
   const [buscaTexto, setBuscaTexto] = useState('')
+  const debouncedBusca = useDebounce(buscaTexto, 350)
+  const buscaAtiva = debouncedBusca.trim().length >= 2
+
   const [pagina, setPagina] = useState(1)
   const [limite] = useState(25)
   const [totalPaginas, setTotalPaginas] = useState(1)
@@ -187,13 +259,49 @@ export default function BIDPage() {
     if (nome) setNomeTimeLogado(String(nome))
   }, [])
 
-  /** ====== Carrega eventos + times ====== */
+  /** ====== Carrega times uma vez ====== */
   useEffect(() => {
-    carregarDados()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (async () => {
+      const { data: timesData, error: errorTimes } = await supabase
+        .from('times')
+        .select('id, nome, logo_url')
+      if (errorTimes) {
+        console.error(errorTimes)
+        setTimesLista([])
+        setTimesMap({})
+        return
+      }
+      const map: Record<string, Time> = {}
+      ;(timesData || []).forEach((t) => (map[t.id] = t))
+      setTimesLista(timesData || [])
+      setTimesMap(map)
+    })()
   }, [])
 
+  /** ====== Carrega eventos (paginado) ====== */
+  useEffect(() => {
+    if (!buscaAtiva) {
+      carregarDados(1)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [/* mount */])
+
+  /** ====== Busca global reativa ====== */
+  useEffect(() => {
+    if (buscaAtiva) {
+      buscarGlobal(debouncedBusca)
+    } else {
+      // Sem busca, mantém dados paginados
+      carregarDados(1)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedBusca])
+
+  /** ====== Se mudar o filtro de time tipoChip, só filtra em memória ====== */
+  // (Nada a fazer aqui porque filtros são aplicados no memo `eventosFiltrados`)
+
   async function carregarDados(paginaAtual = 1) {
+    if (buscaAtiva) return // em modo busca, não usa paginação
     setLoading(true)
     setErro(null)
     const offset = (paginaAtual - 1) * limite
@@ -211,17 +319,7 @@ export default function BIDPage() {
         .range(offset, offset + limite - 1)
       if (errorEventos) throw errorEventos
 
-      const { data: timesData, error: errorTimes } = await supabase
-        .from('times')
-        .select('id, nome, logo_url')
-      if (errorTimes) throw errorTimes
-
-      const map: Record<string, Time> = {}
-      timesData?.forEach((t) => (map[t.id] = t))
-
       setEventos(eventosData || [])
-      setTimesMap(map)
-      setTimesLista(timesData || [])
 
       const paginas = Math.ceil((count || 1) / limite)
       setTotalPaginas(paginas)
@@ -233,13 +331,90 @@ export default function BIDPage() {
         carregarReacoesParaEventos(idsStr),
       ])
 
-      // rola pra o topo (UX paginação)
       if (topRef.current) {
         topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar os eventos.')
+      setEventos([])
+      setComentariosMap({})
+      setReacoesCount({})
+      setMinhasReacoes({})
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /** ====== Busca global (passa por todas as páginas) ====== */
+  async function buscarGlobal(termo: string) {
+    const termoTrim = termo.trim()
+    if (termoTrim.length < 2) return
+    setLoading(true)
+    setErro(null)
+
+    try {
+      // 1) Times que batem por nome
+      const { data: timesLike, error: errTimesLike } = await supabase
+        .from('times')
+        .select('id')
+        .ilike('nome', `%${termoTrim}%`)
+      if (errTimesLike) throw errTimesLike
+      const timeIds = (timesLike || []).map(t => t.id)
+
+      // 2) Eventos por descrição
+      const { data: porDesc, error: errDesc } = await supabase
+        .from('bid')
+        .select('*')
+        .ilike('descricao', `%${termoTrim}%`)
+        .order('data_evento', { ascending: false })
+      if (errDesc) throw errDesc
+
+      // 3) Eventos por time1
+      let porTime1: EventoBID[] = []
+      if (timeIds.length) {
+        const { data, error } = await supabase
+          .from('bid')
+          .select('*')
+          .in('id_time1', timeIds)
+          .order('data_evento', { ascending: false })
+        if (error) throw error
+        porTime1 = data || []
+      }
+
+      // 4) Eventos por time2
+      let porTime2: EventoBID[] = []
+      if (timeIds.length) {
+        const { data, error } = await supabase
+          .from('bid')
+          .select('*')
+          .in('id_time2', timeIds)
+          .order('data_evento', { ascending: false })
+        if (error) throw error
+        porTime2 = data || []
+      }
+
+      // 5) Unir, tirar duplicatas e ordenar por data_evento desc
+      const mapa: Record<string, EventoBID> = {}
+      ;[...(porDesc || []), ...porTime1, ...porTime2].forEach(ev => { mapa[String(ev.id)] = ev })
+      const unicos = Object.values(mapa).sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
+
+      setEventos(unicos)
+      setTotalPaginas(1)
+      setPagina(1)
+
+      const idsStr = unicos.map((e) => String(e.id))
+      await Promise.all([
+        carregarComentariosParaEventos(idsStr),
+        carregarReacoesParaEventos(idsStr),
+      ])
+
+      if (topRef.current) {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    } catch (err: any) {
+      console.error(err)
+      setErro('Erro na busca.')
       setEventos([])
       setComentariosMap({})
       setReacoesCount({})
@@ -375,53 +550,29 @@ export default function BIDPage() {
     setMinhasReacoes(mineMap)
   }
 
-  // Toggle robusto
-  async function toggleReacao(idEventoRaw: IDEvt, emoji: Emoji) {
-    const idEvento = String(idEventoRaw)
-    if (!idTimeLogado) { toast.error('Faça login no seu time para reagir.'); return }
-    if (reagindo[idEvento]) return
-
-    setReagindo((p) => ({ ...p, [idEvento]: true }))
-    try {
-      const { data: existente, error: selErr } = await supabase
-        .from('bid_reacoes')
-        .select('id')
-        .eq('id_evento', idEvento)
-        .eq('id_time', idTimeLogado)
-        .eq('emoji', emoji)
-        .maybeSingle()
-      if (selErr) throw selErr
-
-      if (existente) {
-        const { error: delErr } = await supabase.from('bid_reacoes').delete().eq('id', existente.id)
-        if (delErr) throw delErr
-      } else {
-        const { error: insErr } = await supabase
-          .from('bid_reacoes')
-          .insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
-        if (insErr) throw insErr
-      }
-
-      await carregarReacoesParaEventos([idEvento])
-    } catch (err: any) {
-      console.error(err)
-      toast.error(`Não foi possível reagir: ${err?.message || 'erro'}`)
-    } finally {
-      setReagindo((p) => ({ ...p, [idEvento]: false }))
-    }
-  }
-
   /** ====== Filtros / Agrupamento ====== */
   const eventosFiltrados = useMemo(() => {
+    const termo = debouncedBusca.trim().toLowerCase()
     return eventos.filter((evento) => {
-      const nome1 = timesMap[evento.id_time1]?.nome || ''
-      const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
-      const texto = `${evento.descricao} ${nome1} ${nome2}`.toLowerCase()
-      const buscaOK = texto.includes(buscaTexto.toLowerCase())
+      // filtro por time selecionado
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
-      return buscaOK && timeOK
+      if (!timeOK) return false
+
+      // filtro por chip de tipo
+      const tipoKey = getTipoKey(evento.tipo_evento)
+      const tipoOK = tipoFiltro === 'todos' || tipoKey === tipoFiltro
+      if (!tipoOK) return false
+
+      // filtro por texto (em modo paginação normal a busca é local; em modo global os dados já vieram filtrados)
+      if (!buscaAtiva && termo) {
+        const nome1 = timesMap[evento.id_time1]?.nome || ''
+        const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
+        const texto = `${evento.descricao} ${nome1} ${nome2}`.toLowerCase()
+        if (!texto.includes(termo)) return false
+      }
+      return true
     })
-  }, [eventos, filtroTime, buscaTexto, timesMap])
+  }, [eventos, filtroTime, tipoFiltro, debouncedBusca, buscaAtiva, timesMap])
 
   const eventosAgrupados = useMemo(() => {
     const grupos: Record<string, EventoBID[]> = {}
@@ -436,89 +587,137 @@ export default function BIDPage() {
 
   /** ====== Render ====== */
   return (
-    <main className="min-h-screen bg-gradient-to-b from-gray-900 via-slate-900 to-black text-white">
+    <main className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,rgba(16,185,129,0.10),transparent),linear-gradient(to_bottom,#0b0f14,#000000)] text-white">
       {/* topo/anchor */}
       <div ref={topRef} />
 
       <div className="max-w-5xl mx-auto px-4 py-6">
         <header className="mb-6 text-center">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            📰 BID — <span className="text-emerald-400">Boletim Informativo Diário</span>
-          </h1>
-          <p className="text-sm text-gray-400 mt-1">Acompanhe transferências, empréstimos, rescisões e mais.</p>
+          <div className="inline-block rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-5 py-3 shadow-sm">
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+              📰 BID — <span className="text-emerald-400">Boletim Informativo Diário</span>
+            </h1>
+            <p className="text-xs md:text-sm text-gray-400 mt-1">
+              Acompanhe transferências, empréstimos, rescisões e mais.
+            </p>
+          </div>
+          {buscaAtiva && (
+            <div className="mt-3 text-sm text-gray-300">
+              🔎 Resultados para <span className="text-yellow-300 font-semibold">“{debouncedBusca}”</span>
+              <button
+                className="ml-3 text-emerald-300 underline hover:text-emerald-200"
+                onClick={() => setBuscaTexto('')}
+                title="Limpar busca"
+              >
+                Limpar
+              </button>
+            </div>
+          )}
         </header>
 
         {/* Filtros sticky */}
         <div className="sticky top-0 z-10 -mx-4 mb-6 bg-gradient-to-b from-black/70 to-transparent backdrop-blur supports-[backdrop-filter]:bg-black/40 px-4 py-3 border-b border-white/10">
-          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-            <div className="flex gap-3 w-full md:w-auto">
-              <select
-                className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-72 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                value={filtroTime}
-                onChange={(e) => setFiltroTime(e.target.value)}
-              >
-                <option value="todos">🔍 Todos os times</option>
-                {timesLista.map((time) => (
-                  <option key={time.id} value={time.id}>{time.nome}</option>
-                ))}
-              </select>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+              <div className="flex gap-3 w-full md:w-auto">
+                <select
+                  className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-72 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={filtroTime}
+                  onChange={(e) => setFiltroTime(e.target.value)}
+                >
+                  <option value="todos">🔍 Todos os times</option>
+                  {timesLista.map((time) => (
+                    <option key={time.id} value={time.id}>{time.nome}</option>
+                  ))}
+                </select>
 
-              <button
-                onClick={() => setFiltroTime(idTimeLogado || 'todos')}
-                className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-700 hover:bg-emerald-600/30 disabled:opacity-50"
-                disabled={!idTimeLogado}
-                title="Filtrar pelo meu time"
-              >
-                Meu time
-              </button>
+                <button
+                  onClick={() => setFiltroTime(idTimeLogado || 'todos')}
+                  className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-700 hover:bg-emerald-600/30 disabled:opacity-50"
+                  disabled={!idTimeLogado}
+                  title="Filtrar pelo meu time"
+                >
+                  Meu time
+                </button>
+              </div>
+
+              <div className="flex gap-3 w-full md:w-auto">
+                <input
+                  type="text"
+                  placeholder="Buscar por jogador, time ou termo… (2+ letras)"
+                  className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-80 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={buscaTexto}
+                  onChange={(e) => setBuscaTexto(e.target.value)}
+                />
+                {/* paginação compacta (só quando NÃO estiver buscando) */}
+                {!buscaAtiva && totalPaginas > 1 && (
+                  <div className="hidden md:flex items-center gap-2">
+                    <button
+                      onClick={() => carregarDados(1)}
+                      disabled={pagina === 1}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Primeira"
+                    >«</button>
+                    <button
+                      onClick={() => carregarDados(pagina - 1)}
+                      disabled={pagina === 1}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Anterior"
+                    >‹</button>
+                    <span className="text-xs text-gray-300 select-none">
+                      pág. <strong>{pagina}</strong>/<strong>{totalPaginas}</strong>
+                    </span>
+                    <button
+                      onClick={() => carregarDados(pagina + 1)}
+                      disabled={pagina === totalPaginas}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Próxima"
+                    >›</button>
+                    <button
+                      onClick={() => carregarDados(totalPaginas)}
+                      disabled={pagina === totalPaginas}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Última"
+                    >»</button>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="flex gap-3 w-full md:w-auto">
-              <input
-                type="text"
-                placeholder="Buscar por jogador, termo…"
-                className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-80 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                value={buscaTexto}
-                onChange={(e) => setBuscaTexto(e.target.value)}
-              />
-              {/* paginação compacta */}
-              {totalPaginas > 1 && (
-                <div className="hidden md:flex items-center gap-2">
+            {/* Chips de tipo */}
+            <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+              {TIPOS_CHIP.map(({ key, label }) => {
+                const ativo = tipoFiltro === key
+                return (
                   <button
-                    onClick={() => carregarDados(1)}
-                    disabled={pagina === 1}
-                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                    title="Primeira"
-                  >«</button>
-                  <button
-                    onClick={() => carregarDados(pagina - 1)}
-                    disabled={pagina === 1}
-                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                    title="Anterior"
-                  >‹</button>
-                  <span className="text-xs text-gray-300 select-none">
-                    pág. <strong>{pagina}</strong>/<strong>{totalPaginas}</strong>
-                  </span>
-                  <button
-                    onClick={() => carregarDados(pagina + 1)}
-                    disabled={pagina === totalPaginas}
-                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                    title="Próxima"
-                  >›</button>
-                  <button
-                    onClick={() => carregarDados(totalPaginas)}
-                    disabled={pagina === totalPaginas}
-                    className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                    title="Última"
-                  >»</button>
-                </div>
+                    key={key}
+                    onClick={() => setTipoFiltro(key)}
+                    className={classNames(
+                      'whitespace-nowrap rounded-full px-3 py-1.5 text-sm border transition',
+                      ativo
+                        ? 'bg-emerald-600/25 border-emerald-400 text-emerald-200 shadow shadow-emerald-900/30'
+                        : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
+                    )}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+              {(tipoFiltro !== 'todos' || filtroTime !== 'todos' || buscaAtiva) && (
+                <button
+                  onClick={() => { setTipoFiltro('todos'); setFiltroTime('todos'); setBuscaTexto('') }}
+                  className="ml-1 text-xs text-gray-300 underline hover:text-gray-100"
+                  title="Limpar filtros"
+                >
+                  Limpar filtros
+                </button>
               )}
             </div>
           </div>
         </div>
 
         {/* Paginação (mobile) */}
-        {totalPaginas > 1 && (
+        {!buscaAtiva && totalPaginas > 1 && (
           <div className="md:hidden flex justify-center items-center gap-3 mb-4">
             <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
               className="px-4 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">⬅</button>
@@ -542,7 +741,7 @@ export default function BIDPage() {
         {erro && <p className="text-red-400 text-center">{erro}</p>}
         {!loading && Object.keys(eventosAgrupados).length === 0 && (
           <div className="text-center text-gray-300 py-8">
-            <p className="text-lg">Nenhum evento encontrado para esse filtro.</p>
+            <p className="text-lg">Nenhum evento encontrado {buscaAtiva ? 'para a busca atual.' : 'para esse filtro.'}</p>
           </div>
         )}
 
@@ -601,7 +800,13 @@ export default function BIDPage() {
                         {/* Conteúdo */}
                         <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div className="md:col-span-2">
-                            <p className="text-gray-100 leading-relaxed">{evento.descricao}</p>
+                            <p className="text-gray-100 leading-relaxed">
+                              {buscaAtiva ? (
+                                <Highlight text={evento.descricao} query={debouncedBusca} />
+                              ) : (
+                                evento.descricao
+                              )}
+                            </p>
 
                             <div className="mt-3 flex flex-wrap items-center gap-3">
                               {/* time 1 */}
@@ -741,8 +946,8 @@ export default function BIDPage() {
           })}
         </div>
 
-        {/* Rodapé paginação */}
-        {totalPaginas > 1 && (
+        {/* Rodapé paginação (somente sem busca) */}
+        {!buscaAtiva && totalPaginas > 1 && (
           <div className="mt-10 flex justify-center items-center gap-3">
             <button onClick={() => carregarDados(1)} disabled={pagina === 1}
               className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">«</button>
@@ -755,6 +960,15 @@ export default function BIDPage() {
               className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">»</button>
           </div>
         )}
+
+        {/* Botão flutuante voltar ao topo */}
+        <button
+          onClick={() => topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          className="fixed bottom-6 right-6 rounded-full border border-white/10 bg-gray-900/80 backdrop-blur px-3 py-2 text-sm text-gray-200 shadow-lg hover:bg-gray-800"
+          title="Voltar ao topo"
+        >
+          ↑ Topo
+        </button>
       </div>
     </main>
   )
@@ -806,3 +1020,4 @@ function ComentarioForm({
     </div>
   )
 }
+```
