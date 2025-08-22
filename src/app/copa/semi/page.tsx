@@ -23,9 +23,6 @@ type JogoSemi = {
   // opcionais (schema pode não ter)
   gols_time1_volta?: number | null
   gols_time2_volta?: number | null
-  // opcionais (caso existam)
-  temporada?: number | null
-  divisao?: number | null
 }
 type Classificacao = { id_time: string; pontos: number }
 
@@ -33,10 +30,6 @@ type Classificacao = { id_time: string; pontos: number }
 const mentionsVolta = (msg?: string) => {
   const s = String(msg || '').toLowerCase()
   return s.includes('gols_time1_volta') || s.includes('gols_time2_volta') || s.includes('_volta')
-}
-const mentionsTableMissing = (msg?: string) => {
-  const s = String(msg || '').toLowerCase()
-  return (s.includes('relation') || s.includes('table')) && s.includes('does not exist')
 }
 const normInt = (val: string): number | null => {
   if (val === '') return null
@@ -58,7 +51,6 @@ export default function SemiPage() {
   const [classificacao, setClassificacao] = useState<Classificacao[]>([])
   const [logosById, setLogosById] = useState<Record<string, string | null>>({})
   const [loading, setLoading] = useState(true)
-  const [semiTable, setSemiTable] = useState<'copa_semi' | 'copa_semifinal'>('copa_semi')
 
   // Ajuste se usar multi-temporada/divisão
   const [temporadaSelecionada] = useState<number>(1)
@@ -71,94 +63,34 @@ export default function SemiPage() {
 
   async function buscarJogos() {
     setLoading(true)
+    // tenta ler com colunas *_volta
+    const q1 = await supabase
+      .from('copa_semi')
+      .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
+      .order('ordem', { ascending: true })
 
-    const buildSelect = (includeVolta: boolean) =>
-      [
-        'id',
-        'ordem',
-        'id_time1',
-        'id_time2',
-        'time1',
-        'time2',
-        'gols_time1',
-        'gols_time2',
-        includeVolta ? 'gols_time1_volta' : null,
-        includeVolta ? 'gols_time2_volta' : null,
-        'temporada',
-        'divisao',
-      ].filter(Boolean).join(',')
+    let data: any[] | null = q1.data as any
+    let error = q1.error
 
-    async function query(table: 'copa_semi' | 'copa_semifinal', includeVolta: boolean) {
-      return supabase
-        .from(table)
-        .select(buildSelect(includeVolta))
-        .eq('temporada', temporadaSelecionada)      // remova se não tiver essas colunas
-        .eq('divisao', divisaoSelecionada)          // remova se não tiver essas colunas
-        .order('ordem', { ascending: true })
-    }
-
-    let tableInUse: 'copa_semi' | 'copa_semifinal' = 'copa_semi'
-    let includeVolta = true
-
-    // Tipos para evitar o erro de build
-    let data: any[] | null = null
-    let error: any = null
-
-    // 1) copa_semi com *_volta
-    { const r = await query('copa_semi', includeVolta); data = r.data as any[] | null; error = r.error as any }
-
-    // 2) se erro por *_volta, tenta sem volta
     if (error && mentionsVolta(error.message)) {
       setSupportsVolta(false)
-      includeVolta = false
-      const r = await query('copa_semi', includeVolta)
-      data = r.data as any[] | null
-      error = r.error as any
-    }
-
-    // 3) se ainda erro (tabela não existe), tenta copa_semifinal
-    if (error && mentionsTableMissing(error.message)) {
-      tableInUse = 'copa_semifinal'
-      includeVolta = true
-      const r1 = await query('copa_semifinal', includeVolta)
-      data = r1.data as any[] | null
-      error = r1.error as any
-
-      if (error && mentionsVolta(error.message)) {
-        setSupportsVolta(false)
-        includeVolta = false
-        const r2 = await query('copa_semifinal', includeVolta)
-        data = r2.data as any[] | null
-        error = r2.error as any
-      }
+      const q2 = await supabase
+        .from('copa_semi')
+        .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2')
+        .order('ordem', { ascending: true })
+      data = q2.data as any
+      error = q2.error
     }
 
     if (error) {
-      toast.error('Erro ao buscar jogos: ' + (error?.message || 'desconhecido'))
+      toast.error('Erro ao buscar jogos')
       setJogos([])
-      setLogosById({})
       setLoading(false)
       return
     }
 
-    // Normaliza linhas -> JogoSemi (sem cast direto)
-    const arr: JogoSemi[] = (data ?? []).map((r: any, i: number) => ({
-      id: Number(r.id),
-      ordem: r.ordem ?? i + 1,
-      id_time1: String(r.id_time1),
-      id_time2: String(r.id_time2),
-      time1: String(r.time1 ?? 'Time 1'),
-      time2: String(r.time2 ?? 'Time 2'),
-      gols_time1: r.gols_time1 ?? null,
-      gols_time2: r.gols_time2 ?? null,
-      gols_time1_volta: r.gols_time1_volta ?? null,
-      gols_time2_volta: r.gols_time2_volta ?? null,
-      temporada: r.temporada ?? null,
-      divisao: r.divisao ?? null,
-    }))
-
+    const arr = (data || []) as JogoSemi[]
     setJogos(arr)
-    setSemiTable(tableInUse)
 
     // logos
     const ids = Array.from(new Set(arr.flatMap(j => [j.id_time1, j.id_time2])))
@@ -168,7 +100,7 @@ export default function SemiPage() {
         .select('id, logo_url')
         .in('id', ids)
       const map: Record<string, string | null> = {}
-      ;(times || []).forEach((t: any) => { map[t.id] = t.logo_url ?? null })
+      ;(times || []).forEach(t => { map[t.id] = t.logo_url ?? null })
       setLogosById(map)
     } else {
       setLogosById({})
@@ -179,12 +111,7 @@ export default function SemiPage() {
 
   async function buscarClassificacao() {
     // ajuste o filtro se sua tabela tiver temporada/divisão
-    const { data, error } = await supabase
-      .from('classificacao')
-      .select('id_time,pontos,temporada,divisao')
-      .eq('temporada', temporadaSelecionada)
-      .eq('divisao', divisaoSelecionada)
-
+    const { data, error } = await supabase.from('classificacao').select('id_time, pontos')
     if (!error && data) setClassificacao(data as any)
     else setClassificacao([])
   }
@@ -205,12 +132,12 @@ export default function SemiPage() {
     }
 
     const { error } = await supabase
-      .from(semiTable) // atualiza na tabela correta
+      .from('copa_semi')
       .update(update)
       .eq('id', jogo.id)
 
     if (error) {
-      toast.error('Erro ao salvar: ' + (error?.message || 'desconhecido'))
+      toast.error('Erro ao salvar')
     } else {
       toast.success('Placar salvo!')
       setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, ...update } : j)))
@@ -238,7 +165,10 @@ export default function SemiPage() {
       const g2 = (j.gols_time2 || 0) + (supportsVolta ? (j.gols_time2_volta || 0) : 0)
       if (g1 === g2) empates.push(i + 1)
     })
-    if (empates.length) console.warn('Semis empatadas no agregado:', empates)
+    if (empates.length) {
+      // continua — a API pode resolver por gols fora ou vencedor manual
+      console.warn('Semis empatadas no agregado:', empates)
+    }
 
     try {
       const res = await fetch('/api/copa/definir-final', {
@@ -246,22 +176,13 @@ export default function SemiPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ temporada: temporadaSelecionada, divisao: divisaoSelecionada })
       })
-
-      // parse robusto (mesmo se vier HTML)
-      const raw = await res.text()
-      let payload: any = {}
-      try { payload = raw ? JSON.parse(raw) : {} } catch { payload = { erro: raw } }
-
-      if (!res.ok) {
-        const step = payload?.step ? `[${payload.step}] ` : ''
-        const msg  = payload?.erro || res.statusText || 'Falha ao definir Final'
-        throw new Error(step + msg)
-      }
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.erro || 'Falha ao definir Final')
 
       toast.success('Semifinal finalizada e Final definida!')
+      // redireciona para a página da final
       window.location.href = '/copa/final'
     } catch (e: any) {
-      console.error('definir-final:', e)
       toast.error(e?.message || 'Erro ao definir a Final')
     }
   }
@@ -273,15 +194,9 @@ export default function SemiPage() {
       <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
 
       <header className="flex items-center justify-between mb-6">
-        <div className="space-y-0.5">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
-            Semifinal
-          </h1>
-          <p className="text-xs text-white/60">
-            Tabela: <code className="opacity-80">{semiTable}</code>{' '}
-            · Volta: <code className="opacity-80">{supportsVolta ? 'sim' : 'não'}</code>
-          </p>
-        </div>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+          Semifinal
+        </h1>
 
         {isAdmin && (
           <button
