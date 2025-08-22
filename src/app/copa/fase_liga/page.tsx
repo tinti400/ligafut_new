@@ -13,7 +13,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-/** === Temporada atual (escopo de edição) === */
+/** === Temporada atual (escopo) === */
 const TEMPORADA = process.env.NEXT_PUBLIC_TEMPORADA || '2025-26'
 
 /** =================== Tipos =================== */
@@ -48,13 +48,31 @@ const PENALIDADE_GOL_SOFRIDO = 160_000
 
 /** =================== Swiss Config =================== */
 const ROUNDS = 8
-const ADVERSARIOS_POR_POTE = 2 // total 8 (2 de cada pote)
+const ADVERSARIOS_POR_POTE = 2
 const CASA_MAX = 4
 const FORA_MAX = 4
 
 /** =================== Utils =================== */
 const clampInt = (n: number) => (Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n))
 const keyPair = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+
+/** ===== Select resiliente da tabela times ===== */
+async function safeSelectTimes(minimal = false) {
+  // ordem de tentativas (para evitar 400)
+  const queries = minimal
+    ? ['id,nome,logo_url', '*']
+    : [
+        'id,nome,logo_url,pote,overall,valor,associacao',
+        'id,nome,logo_url,pote,overall,valor',
+        'id,nome,logo_url',
+        '*',
+      ]
+  for (const q of queries) {
+    const { data, error } = await supabase.from('times').select(q)
+    if (!error) return data as any[]
+  }
+  return [] as any[]
+}
 
 /** Atribui potes: já existente > overall desc > valor desc */
 function atribuirPotes(times: TimeFull[]): Record<string, number> {
@@ -79,20 +97,14 @@ function atribuirPotes(times: TimeFull[]): Record<string, number> {
 
 type CalendarioItem = { rodada: number; casa: string; fora: string }
 
-/** ====== Gerador Champions Swiss (8 rodadas, sem BYE) ======
- * - 8 rodadas
- * - 2 adversários de cada pote por time (relaxa se faltar pares)
- * - 4 casa / 4 fora (best-effort)
- * - Evitar mesmo país (opcional, best-effort)
- * Pré-condição: número de participantes PAR.
- */
+/** ====== Gerador Champions Swiss (8 rodadas, sem BYE) ====== */
 function gerarChampionsSwiss(
   participantes: TimeFull[],
   evitarMesmoPais = true
 ): CalendarioItem[] {
   const ids = participantes.map(t => t.id)
   const N = ids.length
-  if (N < 2 || N % 2 === 1) return [] // deve ser par
+  if (N < 2 || N % 2 === 1) return [] // precisa ser par
 
   const byId: Record<string, TimeFull> = {}
   participantes.forEach(t => { byId[t.id] = t })
@@ -127,18 +139,24 @@ function gerarChampionsSwiss(
       const arr = Array.from(livres).sort((a, b) => scoreTeam(b) - scoreTeam(a))
       const a = arr[0]
 
-      // Candidatos para b
+      // candidatos que ainda não jogaram entre si
       let cand = arr.slice(1).filter(b => !playedPairs.has(keyPair(a, b)))
 
-      // filtro de pote necessário
       const potA = potes[a] ?? 4
-      let L = cand.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0 && (needPot[b][potA] ?? 0) > 0)
+      // 1) necessidade mútua de pote
+      let L = cand.filter(b =>
+        (needPot[a][potes[b] ?? 4] ?? 0) > 0 &&
+        (needPot[b][potA] ?? 0) > 0
+      )
 
+      // 2) evitar mesmo país (best-effort)
       if (evitarMesmoPais && byId[a]?.associacao) {
         const pa = byId[a].associacao
         const alt = L.filter(b => byId[b]?.associacao !== pa)
         if (alt.length) L = alt
       }
+
+      // 3) se vazio, relaxa para só A precisar
       if (!L.length) {
         L = cand.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0)
         if (evitarMesmoPais && byId[a]?.associacao) {
@@ -147,9 +165,10 @@ function gerarChampionsSwiss(
           if (alt.length) L = alt
         }
       }
-      if (!L.length) L = cand // relaxa totalmente
 
-      // balancear mando
+      if (!L.length) L = cand // 4) qualquer, último recurso
+
+      // 5) ordenar por chance de manter 4/4 mandos
       L.sort((b1, b2) => {
         const sobraAHome = CASA_MAX - homeCnt[a], sobraAAway = FORA_MAX - awayCnt[a]
         const s1H = CASA_MAX - homeCnt[b1], s1A = FORA_MAX - awayCnt[b1]
@@ -164,7 +183,7 @@ function gerarChampionsSwiss(
       const b = L[0]
       if (!b) { livres.delete(a); continue }
 
-      // decide mando
+      // mando
       let casa = a, fora = b
       if (homeCnt[a] >= CASA_MAX && awayCnt[a] < FORA_MAX) { casa = b; fora = a }
       else if (homeCnt[b] >= CASA_MAX && awayCnt[b] < FORA_MAX) { casa = a; fora = b }
@@ -241,21 +260,28 @@ export default function FaseLigaAdminPage() {
   const [temColunaTemporada, setTemColunaTemporada] = useState<boolean>(true)
 
   useEffect(() => {
-    Promise.all([detectarColunaTemporada(), buscarJogos(), carregarTimesBase()]).finally(() => setLoading(false))
+    ;(async () => {
+      await detectarColunaTemporada()
+      await Promise.all([carregarTimesBase(), buscarJogos()])
+      setLoading(false)
+    })()
   }, [])
 
   async function detectarColunaTemporada() {
-    const { error } = await supabase.from('copa_fase_liga').select('id, temporada').limit(1)
+    const { error } = await supabase.from('copa_fase_liga').select('id,temporada').limit(1)
     setTemColunaTemporada(!error)
   }
 
   async function carregarTimesBase() {
-    const { data, error } = await supabase
-      .from('times')
-      .select('id, nome, logo_url')
-    if (error) return
+    const rows = await safeSelectTimes(true)
     const novo: Record<string, TimeMini> = {}
-    ;(data || []).forEach((t: any) => { novo[t.id] = { nome: t.nome, logo_url: t.logo_url } })
+    rows.forEach((t: any) => {
+      const nome =
+        t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id)
+      const logo =
+        t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png'
+      novo[t.id] = { nome, logo_url: logo }
+    })
     setTimesMap(novo)
   }
 
@@ -277,31 +303,36 @@ export default function FaseLigaAdminPage() {
     if (!isAdmin) { toast.error('Apenas admin pode gerar a fase.'); return }
     setGerando(true)
     try {
-      // carrega participantes DIRETO do banco (não depende de estado)
-      const { data: timesData, error: errTimes } = await supabase
-        .from('times')
-        .select('id, nome, logo_url, pote, overall, valor, associacao')
-      if (errTimes) { toast.error('Erro ao carregar times'); return }
+      // Carrega times direto do banco (resiliente)
+      const rows = await safeSelectTimes(false)
 
-      // exclui Palmeiras
-      let participantes: TimeFull[] = (timesData || []).filter(
-        (t: any) => !((t.nome || '').toLowerCase().includes('palmeiras'))
-      ) as TimeFull[]
+      // Mapeia colunas variáveis
+      let participantes: TimeFull[] = rows.map((t: any) => ({
+        id: t.id,
+        nome: t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id),
+        logo_url: t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png',
+        pote: t.pote ?? t.pot ?? null,
+        overall: t.overall ?? t.rating ?? null,
+        valor: t.valor ?? t.value ?? null,
+        associacao: t.associacao ?? t.pais ?? t.country ?? null,
+      }))
 
-      // garante número PAR
+      // Exclui Palmeiras
+      participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
+
+      // Garante número par
       if (participantes.length % 2 === 1) {
         const ord = [...participantes].sort((a, b) => {
-          const oa = a.overall ?? 0, ob = b.overall ?? 0
-          if (oa !== ob) return oa - ob // remove o mais fraco
-          const va = a.valor ?? 0, vb = b.valor ?? 0
-          return va - vb
+          const oa = (a.overall ?? 0) - (b.overall ?? 0)
+          if (oa !== 0) return oa
+          return (a.valor ?? 0) - (b.valor ?? 0)
         })
         const removido = ord[0]
         participantes = participantes.filter(t => t.id !== removido.id)
-        toast('Participantes ímpares: removi 1 clube para manter par.', { icon: 'ℹ️' })
+        toast('Participantes ímpares: removi 1 clube para manter paridade.', { icon: 'ℹ️' })
         await supabase.from('bid').insert([{
           tipo_evento: 'Sistema',
-          descricao: `Ajuste de paridade: ${removido.nome} removido da fase liga para manter número par de participantes.`,
+          descricao: `Ajuste de paridade: ${removido.nome} removido para manter número par de participantes.`,
           valor: null
         }])
       }
@@ -309,10 +340,9 @@ export default function FaseLigaAdminPage() {
       if (participantes.length < 2) { toast.error('Participantes insuficientes.'); return }
 
       const calendario = gerarChampionsSwiss(participantes, evitarMesmoPais)
-      const totalJogos = calendario.length
-      if (!totalJogos) { toast.error('Falha ao gerar calendário.'); return }
+      if (!calendario.length) { toast.error('Falha ao gerar calendário.'); return }
 
-      // limpa jogos (somente temporada se existir a coluna)
+      // Limpa jogos apenas da temporada (se existir a coluna)
       if (temColunaTemporada) {
         const { error: delErr } = await supabase.from('copa_fase_liga').delete().eq('temporada', TEMPORADA)
         if (delErr) { toast.error('Erro ao limpar jogos da temporada.'); return }
@@ -321,23 +351,22 @@ export default function FaseLigaAdminPage() {
         if (delErr) { toast.error('Erro ao limpar tabela de jogos.'); return }
       }
 
-      // monta inserts
-      const rows = calendario.map(j => ({
+      // Insere
+      const rowsInsert = calendario.map(j => ({
         ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
         rodada: j.rodada,
         time1: j.casa,
         time2: j.fora,
         gols_time1: null,
         gols_time2: null,
-        bonus_pago: false
+        bonus_pago: false,
       }))
 
-      // insere em lotes
       const BATCH = 1000
-      for (let i = 0; i < rows.length; i += BATCH) {
-        const chunk = rows.slice(i, i + BATCH)
+      for (let i = 0; i < rowsInsert.length; i += BATCH) {
+        const chunk = rowsInsert.slice(i, i + BATCH)
         const { error: insErr } = await supabase.from('copa_fase_liga').insert(chunk)
-        if (insErr) { toast.error('Erro ao inserir confrontos.'); return }
+        if (insErr) { console.error(insErr); toast.error('Erro ao inserir confrontos.'); return }
       }
 
       await atualizarClassificacao()
@@ -349,7 +378,7 @@ export default function FaseLigaAdminPage() {
         valor: null
       }])
 
-      toast.success(`✅ Gerado com sucesso: ${totalJogos} jogos em 8 rodadas!`)
+      toast.success(`✅ Gerado com sucesso: ${rowsInsert.length} jogos em ${ROUNDS} rodadas!`)
     } finally {
       setGerando(false)
     }
@@ -514,7 +543,7 @@ export default function FaseLigaAdminPage() {
           </select>
         </div>
 
-        {/* Lista de Rodadas (1..8) */}
+        {/* Lista de Rodadas */}
         {loading ? (
           <div className="py-10 text-center text-zinc-300">🔄 Carregando jogos...</div>
         ) : (
