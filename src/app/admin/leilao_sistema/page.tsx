@@ -10,7 +10,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const MAX_ATIVOS = 8
+const MAX_ATIVOS = 9
 
 type Leilao = {
   id: string
