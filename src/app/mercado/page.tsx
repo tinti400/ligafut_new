@@ -131,7 +131,7 @@ function JogadorCard({
       <div className="flex items-center gap-3">
         <div className="relative">
           <ImagemComFallback
-            src={jogador.imagem_url}
+            src={jogador.imagem_url || jogador.foto || ''}  {/* ✅ lê imagem da planilha em várias chaves */}
             alt={jogador.nome}
             width={80}
             height={80}
@@ -286,16 +286,60 @@ export default function MercadoPage() {
     setUploadLoading(true)
     setMsg('Lendo planilha...')
 
+    // helpers
+    const normalizeKeys = (obj: any) =>
+      Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+      )
+
+    const sanitizeUrl = (u?: any) => {
+      if (!u) return ''
+      const s = String(u).trim().replace(/\s/g, '%20')
+      return s
+    }
+
+    const pickImagemUrl = (row: Record<string, any>) => {
+      // aceita várias grafias comuns vindas da planilha
+      const cand =
+        row['imagem_url'] ??
+        row['foto'] ??
+        row['imagem url'] ??
+        row['url_imagem'] ??
+        row['imagem']
+
+      return sanitizeUrl(cand)
+    }
+
+    const toNumber = (v: any) => {
+      if (v === null || v === undefined || v === '') return 0
+      // remove separadores e converte
+      const num = Number(String(v).replace(/[^\d.-]/g, ''))
+      return Number.isFinite(num) ? num : 0
+    }
+
     const reader = new FileReader()
     reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer)
         const workbook = XLSX.read(data, { type: 'array' })
-        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        // prioriza a aba "Consolidado" se existir
+        const sheetName = workbook.SheetNames.includes('Consolidado')
+          ? 'Consolidado'
+          : workbook.SheetNames[0]
+        const sheet = workbook.Sheets[sheetName]
         const json = XLSX.utils.sheet_to_json(sheet)
 
-        const jogadoresParaInserir = (json as any[]).map((item) => {
-          const { nome, posicao, overall, valor, foto: imagem_url, link_sofifa, nacionalidade, time_origem } = item
+        const jogadoresParaInserir = (json as any[]).map((raw) => {
+          const row = normalizeKeys(raw)
+
+          const nome = row['nome']
+          const posicao = row['posicao']
+          const overall = toNumber(row['overall'])
+          const valor = toNumber(row['valor'])
+          const link_sofifa = row['link_sofifa'] ?? row['sofifa'] ?? ''
+          const nacionalidade = row['nacionalidade'] ?? row['pais'] ?? ''
+          const time_origem = row['time_origem'] ?? row['time'] ?? ''
+          const imagem_url = pickImagemUrl(row)
 
           if (!nome || !posicao || !overall || !valor) {
             throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
@@ -304,9 +348,9 @@ export default function MercadoPage() {
           return {
             nome,
             posicao,
-            overall: parseInt(overall),
-            valor: parseInt(valor),
-            imagem_url,
+            overall,
+            valor,
+            imagem_url,       // ✅ agora sempre preenche
             link_sofifa,
             nacionalidade,
             time_origem,
@@ -317,6 +361,7 @@ export default function MercadoPage() {
         if (error) throw error
 
         toast.success(`Importados ${jogadoresParaInserir.length} jogadores com sucesso!`)
+        // refletir na tela imediatamente
         setJogadores((prev) => [...prev, ...jogadoresParaInserir])
       } catch (error: any) {
         console.error('Erro ao importar:', error)
@@ -406,7 +451,7 @@ export default function MercadoPage() {
         posicao: jogador.posicao,
         overall: jogador.overall,
         valor: jogador.valor,
-        imagem_url: jogador.imagem_url,
+        imagem_url: jogador.imagem_url || jogador.foto || '',   // ✅ mantém a imagem no elenco
         salario: salario,
         jogos: 0,
         link_sofifa: jogador.link_sofifa || '',
@@ -817,7 +862,7 @@ export default function MercadoPage() {
                 onAtualizarPreco={(novo) => atualizarPreco(jogador.id, novo)}
                 loadingComprar={loadingComprarId === jogador.id}
                 loadingAtualizarPreco={loadingAtualizarPrecoId === jogador.id}
-                mercadoFechado={mercadoFechado}
+                mercadoFechado={marketStatus === 'fechado'}
               />
             ))
           ) : (
