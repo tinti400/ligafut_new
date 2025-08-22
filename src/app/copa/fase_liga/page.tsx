@@ -30,8 +30,13 @@ type Jogo = {
 }
 type TimeMini = { nome: string; logo_url: string }
 type TimeFull = {
-  id: string; nome: string; logo_url: string
-  pote?: number | null; overall?: number | null; valor?: number | null; associacao?: string | null
+  id: string
+  nome: string
+  logo_url: string
+  pote?: number | null
+  overall?: number | null
+  valor?: number | null
+  associacao?: string | null
 }
 
 /* ================= REGRAS FINANCEIRAS ================= */
@@ -83,11 +88,12 @@ function atribuirPotes(times: TimeFull[]): Record<string, number> {
   return out
 }
 
-/* ===== Swiss generator (mantido, sem mudança de regra) ===== */
+/* ===== Swiss generator (8 rodadas, sem BYE) ===== */
 type CalendarioItem = { rodada: number; casa: string; fora: string }
 function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true): CalendarioItem[] {
   const ids = participantes.map(t => t.id)
   if (ids.length < 2 || ids.length % 2 === 1) return []
+
   const byId: Record<string, TimeFull> = {}; participantes.forEach(t => { byId[t.id] = t })
   const potes = atribuirPotes(participantes)
   const needPot: Record<string, Record<number, number>> = {}
@@ -109,13 +115,20 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
     while (livres.size >= 2) {
       const arr = Array.from(livres).sort((a,b)=>scoreTeam(b)-scoreTeam(a))
       const a = arr[0]
+
       let cand = arr.slice(1).filter(b => !playedPairs.has(keyPair(a,b)))
+
       const potA = potes[a] ?? 4
-      let L = cand.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0 && (needPot[b][potA] ?? 0) > 0)
+      let L = cand.filter(b =>
+        (needPot[a][potes[b] ?? 4] ?? 0) > 0 &&
+        (needPot[b][potA] ?? 0) > 0
+      )
+
       if (evitarMesmoPais && byId[a]?.associacao) {
         const alt = L.filter(b => byId[b]?.associacao !== byId[a].associacao)
         if (alt.length) L = alt
       }
+
       if (!L.length) {
         L = cand.filter(b => (needPot[a][potes[b] ?? 4] ?? 0) > 0)
         if (evitarMesmoPais && byId[a]?.associacao) {
@@ -123,18 +136,22 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
           if (alt.length) L = alt
         }
       }
+
       if (!L.length) L = cand
+
       L.sort((b1,b2)=>{
         const sAH = CASA_MAX-homeCnt[a], sAA = FORA_MAX-awayCnt[a]
         const s1H = CASA_MAX-homeCnt[b1], s1A = FORA_MAX-awayCnt[b1]
         const s2H = CASA_MAX-homeCnt[b2], s2A = FORA_MAX-awayCnt[b2]
         const mando1 = (sAH>0&&s1A>0)||(sAA>0&&s1H>0)?1:0
         const mando2 = (sAH>0&&s2A>0)||(sAA>0&&s2H>0)?1:0
-        const need1 = (needPot[a][potes[b1]??4]??0)+(needPot[b1][potA]??0)
-        const need2 = (needPot[a][potes[b2]??4]??0)+(needPot[b2][potA]??0)
+        const need1 = (needPot[a][potes[b1] ?? 4] ?? 0) + (needPot[b1][potA] ?? 0)
+        const need2 = (needPot[a][potes[b2] ?? 4] ?? 0) + (needPot[b2][potA] ?? 0)
         return (mando2-mando1)||(need2-need1)
       })
+
       const b = L[0]; if (!b) { livres.delete(a); continue }
+
       let casa=a, fora=b
       if (homeCnt[a]>=CASA_MAX && awayCnt[a]<FORA_MAX) { casa=b; fora=a }
       else if (homeCnt[b]>=CASA_MAX && awayCnt[b]<FORA_MAX) { casa=a; fora=b }
@@ -143,10 +160,12 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
         const sBH = CASA_MAX-homeCnt[b], sBA = FORA_MAX-awayCnt[b]
         if (sBH>sAH && sAA>0) { casa=b; fora=a }
       }
+
       calendario.push({ rodada, casa, fora })
       playedPairs.add(keyPair(a,b))
       livres.delete(a); livres.delete(b)
       homeCnt[casa]++; awayCnt[fora]++; jogosRestantes[a]--; jogosRestantes[b]--
+
       const pa = potes[a]??4, pb = potes[b]??4
       needPot[a][pb]=Math.max(0,needPot[a][pb]-1)
       needPot[b][pa]=Math.max(0,needPot[b][pa]-1)
@@ -203,7 +222,6 @@ export default function FaseLigaAdminPage() {
     const { data, error } = await q.order('rodada', { ascending: true }).order('id', { ascending: true })
     if (error) { toast.error('Erro ao buscar jogos'); return }
     setJogos((data || []) as Jogo[])
-    // abre as duas primeiras rodadas por padrão
     const rds = new Set((data || []).map((j: any) => j.rodada))
     const obj: Record<number, boolean> = {}; Array.from(rds).slice(0,2).forEach((r:number)=>obj[r]=true)
     setRodadasAbertas(obj)
@@ -290,11 +308,9 @@ export default function FaseLigaAdminPage() {
     let bonus1 = BONUS_EMPATE, bonus2 = BONUS_EMPATE
     if (g1 > g2) { bonus1 = BONUS_VITORIA; bonus2 = BONUS_DERROTA }
     else if (g2 > g1) { bonus1 = BONUS_DERROTA; bonus2 = BONUS_VITORIA }
-    const total1 = TAXA_POR_JOGO + bonus1 + (g1 * PREMIO_GOL_MARCADO) - (g2*PENALIDADE_GOL_SOFRRIDO)
-    const total2 = TAXA_POR_JOGO + bonus2 + (g2 * PREMIO_GOL_MARCADO) - (g1*PENALIDADE_GOL_SOFRRIDO)
 
-    // typo fix
-    const PENALIDADE_GOL_SOFRRIDO = PENALIDADE_GOL_SOFRIDO
+    const total1 = TAXA_POR_JOGO + bonus1 + (g1 * PREMIO_GOL_MARCADO) - (g2 * PENALIDADE_GOL_SOFRIDO)
+    const total2 = TAXA_POR_JOGO + bonus2 + (g2 * PREMIO_GOL_MARCADO) - (g1 * PENALIDADE_GOL_SOFRIDO)
 
     await supabase.rpc('atualizar_saldo', { id_time: time1Id, valor: total1 })
     await supabase.rpc('atualizar_saldo', { id_time: time2Id, valor: total2 })
