@@ -20,7 +20,7 @@ export default function ImagemComFallback({
     [fallbackSrc]
   )
 
-  /** Sempre retorna **string | StaticImport** (nunca undefined) */
+  /** Sempre retorna string | StaticImport (nunca undefined) */
   function sanitizeOrFallback(input: ImageProps['src'] | undefined): string | NonNullable<ImageProps['src']> {
     if (!input) return normalizedFallback
     if (typeof input === 'string') {
@@ -49,7 +49,7 @@ export default function ImagemComFallback({
       src={imgSrc}
       alt={alt || 'Imagem'}
       onError={handleError}
-      unoptimized={isRemoteHttp}        // permite qualquer domínio externo
+      unoptimized={isRemoteHttp}        // permite qualquer domínio externo sem mexer no next.config
       referrerPolicy="no-referrer"
       {...rest}
     />
