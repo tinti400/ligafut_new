@@ -35,7 +35,7 @@ type JogoLiga = {
   id?: number
   id_time1?: string | null
   id_time2?: string | null
-  time1?: string | null // pode guardar nome OU id
+  time1?: string | null
   time2?: string | null
   gols_time1: number | null
   gols_time2: number | null
@@ -46,15 +46,10 @@ const TOTAL_TIMES = 30
 const TIMES_EXCLUIDOS = ['palmeiras', 'sociedade esportiva palmeiras']
 
 /** ===== Utils ===== */
-function norm(s?: string | null) {
-  return (s || '').toLowerCase().trim()
-}
-function ehExcluido(timesMap: Record<string, TimeInfo>, idOuNome?: string | null) {
+const norm = (s?: string | null) => (s || '').toLowerCase().trim()
+const ehExcluido = (mapa: Record<string, TimeInfo>, idOuNome?: string | null) => {
   if (!idOuNome) return false
-  if (timesMap[idOuNome]) {
-    const n = norm(timesMap[idOuNome]?.nome)
-    return TIMES_EXCLUIDOS.includes(n)
-  }
+  if (mapa[idOuNome]) return TIMES_EXCLUIDOS.includes(norm(mapa[idOuNome].nome))
   return TIMES_EXCLUIDOS.includes(norm(idOuNome))
 }
 
@@ -86,16 +81,16 @@ export default function ClassificacaoCopaPage() {
       if (errTimes) throw errTimes
 
       const mapa: Record<string, TimeInfo> = {}
-      for (const t of (times || [])) {
-        if (TIMES_EXCLUIDOS.includes(norm(t.nome))) continue // exclui Palmeiras
+      for (const t of times || []) {
+        if (TIMES_EXCLUIDOS.includes(norm(t.nome))) continue
         mapa[t.id] = { id: t.id, nome: t.nome, logo_url: t.logo_url, logo: t.logo }
       }
       setTimesMap(mapa)
 
-      // 2) Jogos fase liga (preferir copa_fase_liga)
+      // 2) Jogos fase liga
       const jogos = await carregarJogosFaseLiga()
 
-      // 3) Base da classificação
+      // 3) Base
       const base: Record<string, LinhaClassificacao> = {}
       Object.values(mapa).forEach((t) => {
         base[t.id] = {
@@ -114,7 +109,6 @@ export default function ClassificacaoCopaPage() {
       // 4) Aplicar resultados
       for (const j of jogos) {
         if (j.gols_time1 == null || j.gols_time2 == null) continue
-
         const id1 = resolverIdDoTime(j, 1, mapa)
         const id2 = resolverIdDoTime(j, 2, mapa)
         if (!id1 || !id2) continue
@@ -162,38 +156,30 @@ export default function ClassificacaoCopaPage() {
   }
 
   async function carregarJogosFaseLiga(): Promise<JogoLiga[]> {
-    const { data: jogosCopa, error: errCopa } = await supabase
+    const { data: a, error: ea } = await supabase
       .from('copa_fase_liga')
       .select('*')
       .not('gols_time1', 'is', null)
       .not('gols_time2', 'is', null)
+    if (!ea && a && a.length) return a as JogoLiga[]
 
-    if (!errCopa && jogosCopa && jogosCopa.length > 0) return jogosCopa as JogoLiga[]
-
-    const { data: jogosAlt, error: errAlt } = await supabase
+    const { data: b } = await supabase
       .from('fase_liga')
       .select('*')
       .not('gols_time1', 'is', null)
       .not('gols_time2', 'is', null)
-
-    if (errAlt) return []
-    return (jogosAlt || []) as JogoLiga[]
+    return (b || []) as JogoLiga[]
   }
 
-  function resolverIdDoTime(j: JogoLiga, lado: 1 | 2, mapa: Record<string, TimeInfo>): string | null {
-    const idDireto = lado === 1 ? j.id_time1 : j.id_time2
-    if (idDireto && mapa[idDireto]) return idDireto
-
+  function resolverIdDoTime(j: JogoLiga, lado: 1 | 2, mapa: Record<string, TimeInfo>) {
+    const direto = lado === 1 ? j.id_time1 : j.id_time2
+    if (direto && mapa[direto]) return direto
     const raw = lado === 1 ? j.time1 : j.time2
     if (!raw) return null
-
-    // campo timeX pode ter id
     if (mapa[raw]) return raw
-
-    // ou pode ter nome -> bater por nome
-    const nome = norm(raw)
+    const alvo = norm(raw)
     for (const [id, info] of Object.entries(mapa)) {
-      if (norm(info.nome) === nome) return id
+      if (norm(info.nome) === alvo) return id
     }
     return null
   }
@@ -206,16 +192,14 @@ export default function ClassificacaoCopaPage() {
       if (b.gols_pro !== a.gols_pro) return b.gols_pro - a.gols_pro
       return b.vitorias - a.vitorias
     })
-
     const filtrada = busca
       ? ordenada.filter((l) => norm(timesMap[l.id_time]?.nome).includes(norm(busca)))
       : ordenada
-
     return filtrada.slice(0, TOTAL_TIMES)
   }, [classificacao, busca, timesMap])
 
   /** ===== Playoff (9º–24º) ===== */
-  function shuffle<T>(arr: T[]): T[] {
+  const shuffle = <T,>(arr: T[]) => {
     const a = [...arr]
     for (let i = a.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
@@ -230,32 +214,27 @@ export default function ClassificacaoCopaPage() {
 
     try {
       setSorteando(true)
-
       if (classificacaoOrdenada.length < 24) {
         toast.error('É necessário ter ao menos 24 times na classificação.')
         return
       }
-
-      const classificados = classificacaoOrdenada.slice(8, 24) // 9º a 24º
+      const classificados = classificacaoOrdenada.slice(8, 24)
       const embaralhados = shuffle(classificados)
 
       const jogos: any[] = []
       let ordem = 1
       for (let i = 0; i < embaralhados.length; i += 2) {
-        const a = embaralhados[i]
-        const b = embaralhados[i + 1]
+        const a = embaralhados[i], b = embaralhados[i + 1]
         if (!a || !b) continue
         const nomeA = timesMap[a.id_time]?.nome ?? 'Indefinido'
         const nomeB = timesMap[b.id_time]?.nome ?? 'Indefinido'
 
-        // ida
         jogos.push({
           rodada: 1, ordem: ordem++,
           id_time1: a.id_time, id_time2: b.id_time,
           time1: nomeA, time2: nomeB,
           gols_time1: null, gols_time2: null
         })
-        // volta
         jogos.push({
           rodada: 2, ordem: ordem++,
           id_time1: b.id_time, id_time2: a.id_time,
@@ -269,12 +248,8 @@ export default function ClassificacaoCopaPage() {
         setExistePlayoff(true)
         return toast('Playoff já existe.')
       }
-
       const { error: insertErr } = await supabase.from('copa_playoff').insert(jogos)
-      if (insertErr) {
-        console.error(insertErr)
-        return toast.error('Erro ao salvar confrontos do playoff.')
-      }
+      if (insertErr) return toast.error('Erro ao salvar confrontos do playoff.')
       setExistePlayoff(true)
       toast.success('Playoff sorteado com sucesso!')
     } finally {
@@ -285,9 +260,8 @@ export default function ClassificacaoCopaPage() {
   async function limparEReSortear() {
     if (!isAdmin) return toast.error('Apenas administradores podem executar essa ação.')
     if (!confirm('Apagar confrontos do playoff e sortear novamente?')) return
-
-    const { error: delErr } = await supabase.from('copa_playoff').delete().neq('id', 0)
-    if (delErr) return toast.error('Erro ao limpar confrontos existentes.')
+    const { error } = await supabase.from('copa_playoff').delete().neq('id', 0)
+    if (error) return toast.error('Erro ao limpar confrontos existentes.')
     setExistePlayoff(false)
     await sortearPlayoffAleatorio()
   }
@@ -337,12 +311,9 @@ export default function ClassificacaoCopaPage() {
                   onClick={sortearPlayoffAleatorio}
                   className={classNames(
                     'px-3 py-2 rounded text-sm transition',
-                    existePlayoff
-                      ? 'bg-zinc-700 cursor-not-allowed'
-                      : 'bg-blue-600 hover:brightness-110',
+                    existePlayoff ? 'bg-zinc-700 cursor-not-allowed' : 'bg-blue-600 hover:brightness-110',
                     sorteando && 'opacity-80'
                   )}
-                  title={existePlayoff ? 'Já existe playoff. Use "Limpar e re-sortear".' : 'Sortear playoff (9º–24º) 100% aleatório'}
                 >
                   {sorteando ? 'Sorteando...' : 'Sortear Playoff'}
                 </button>
@@ -351,7 +322,6 @@ export default function ClassificacaoCopaPage() {
                   disabled={sorteando}
                   onClick={limparEReSortear}
                   className="px-3 py-2 rounded bg-red-600 text-white hover:brightness-110 text-sm"
-                  title="Apaga confrontos existentes e sorteia novamente"
                 >
                   Limpar e re-sortear
                 </button>
@@ -365,39 +335,19 @@ export default function ClassificacaoCopaPage() {
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="overflow-x-auto rounded-xl border border-zinc-800 shadow-lg shadow-black/20 overflow-hidden">
           <table className="w-full text-sm text-left">
-            {/* CABEÇALHO no estilo da 2ª imagem */}
-            <thead className="sticky top-[56px] z-10">
-              <tr className="bg-gradient-to-b from-zinc-900 to-zinc-950 border-b border-amber-500/30">
-                <th className="px-4 py-3 w-16 text-amber-300 uppercase text-[11px] font-semibold tracking-wider text-left">
-                  Pos
-                </th>
-                <th className="px-4 py-3 min-w-[220px] text-amber-300 uppercase text-[11px] font-semibold tracking-wider text-left">
-                  Time
-                </th>
-                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  J
-                </th>
-                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  Pts
-                </th>
-                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  V
-                </th>
-                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  E
-                </th>
-                <th className="px-3 py-3 w-14 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  D
-                </th>
-                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  GP
-                </th>
-                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  GC
-                </th>
-                <th className="px-3 py-3 w-16 text-center text-amber-300 uppercase text-[11px] font-semibold tracking-wider">
-                  SG
-                </th>
+            {/* CABEÇALHO alinhado ao seu exemplo */}
+            <thead className="sticky top-[56px] z-10 bg-black/70 text-yellow-300 border-b border-white/10">
+              <tr>
+                <th className="py-3 px-4 text-left">Pos</th>
+                <th className="py-3 px-4 text-left">Time</th>
+                <th className="py-3 px-2 text-center">J</th>
+                <th className="py-3 px-2 text-center">Pts</th>
+                <th className="py-3 px-2 text-center">V</th>
+                <th className="py-3 px-2 text-center">E</th>
+                <th className="py-3 px-2 text-center">D</th>
+                <th className="py-3 px-2 text-center">GP</th>
+                <th className="py-3 px-2 text-center">GC</th>
+                <th className="py-3 px-2 text-center">SG</th>
               </tr>
             </thead>
 
@@ -406,9 +356,7 @@ export default function ClassificacaoCopaPage() {
                 Array.from({ length: 12 }).map((_, i) => (
                   <tr key={`sk-${i}`} className="animate-pulse">
                     <td className="px-3 py-3 text-zinc-500">--</td>
-                    <td className="px-3 py-3">
-                      <div className="h-6 w-48 bg-zinc-800 rounded" />
-                    </td>
+                    <td className="px-3 py-3"><div className="h-6 w-48 bg-zinc-800 rounded" /></td>
                     <td className="px-3 py-3 text-center text-zinc-500">--</td>
                     <td className="px-3 py-3 text-center text-zinc-500">--</td>
                     <td className="px-3 py-3 text-center text-zinc-500">--</td>
@@ -433,22 +381,16 @@ export default function ClassificacaoCopaPage() {
                       : posicao <= 24
                       ? 'bg-yellow-950/20'
                       : 'bg-red-950/20',
-                    index % 2 === 0 ? 'bg-opacity-70' : 'bg-opacity-40',
+                    index % 2 === 0 ? 'bg-opacity-70' : 'bg-opacity-40'
                   )
 
                   return (
                     <tr key={linha.id_time} className={`${bgClass} hover:bg-zinc-900/60`}>
-                      <td className="px-3 py-2 text-zinc-300 font-bold">{posicao}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-4 py-2 text-zinc-300 font-bold">{posicao}</td>
+                      <td className="px-4 py-2">
                         <div className="flex items-center gap-3">
                           {escudo ? (
-                            <img
-                              src={escudo}
-                              alt={nome}
-                              width={28}
-                              height={28}
-                              className="rounded-full border border-zinc-700"
-                            />
+                            <img src={escudo} alt={nome} width={28} height={28} className="rounded-full border border-zinc-700" />
                           ) : (
                             <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700" />
                           )}
@@ -465,14 +407,14 @@ export default function ClassificacaoCopaPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-center text-zinc-300">{linha.jogos}</td>
-                      <td className="px-3 py-2 text-center font-bold text-white">{linha.pontos}</td>
-                      <td className="px-3 py-2 text-center">{linha.vitorias}</td>
-                      <td className="px-3 py-2 text-center">{linha.empates}</td>
-                      <td className="px-3 py-2 text-center">{linha.derrotas}</td>
-                      <td className="px-3 py-2 text-center">{linha.gols_pro}</td>
-                      <td className="px-3 py-2 text-center">{linha.gols_contra}</td>
-                      <td className="px-3 py-2 text-center">{linha.saldo}</td>
+                      <td className="px-2 py-2 text-center text-zinc-300">{linha.jogos}</td>
+                      <td className="px-2 py-2 text-center font-bold text-white">{linha.pontos}</td>
+                      <td className="px-2 py-2 text-center">{linha.vitorias}</td>
+                      <td className="px-2 py-2 text-center">{linha.empates}</td>
+                      <td className="px-2 py-2 text-center">{linha.derrotas}</td>
+                      <td className="px-2 py-2 text-center">{linha.gols_pro}</td>
+                      <td className="px-2 py-2 text-center">{linha.gols_contra}</td>
+                      <td className="px-2 py-2 text-center">{linha.saldo}</td>
                     </tr>
                   )
                 })
@@ -488,9 +430,8 @@ export default function ClassificacaoCopaPage() {
           <p><span className="text-red-400 font-semibold">Vermelho</span>: <b>fora</b> (25º+)</p>
         </div>
 
-        {/* Nota sobre exclusão */}
         <p className="mt-3 text-[11px] text-zinc-500">
-          * Partidas envolvendo times excluídos (ex.: Palmeiras) não entram no cômputo para manter justiça entre os demais clubes.
+          * Partidas envolvendo times excluídos (ex.: Palmeiras) não entram no cômputo.
         </p>
       </div>
     </div>
