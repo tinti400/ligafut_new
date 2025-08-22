@@ -16,6 +16,15 @@ const supabase = createClient(
 /** ========= Tipos ========= */
 type IDEvt = string | number
 
+interface Jogador {
+  id: string
+  nome: string
+  foto_url?: string | null
+  posicao?: string | null
+  idade?: number | null
+  nacionalidade?: string | null
+}
+
 interface EventoBID {
   id: IDEvt
   tipo_evento: string
@@ -24,6 +33,10 @@ interface EventoBID {
   id_time2?: string | null
   valor?: number | null
   data_evento: string
+  // dados opcionais de jogador
+  id_jogador?: string | null
+  nome_jogador?: string | null
+  foto_jogador_url?: string | null
 }
 
 interface Time {
@@ -175,14 +188,51 @@ function Highlight({ text, query }: { text: string; query: string }) {
   )
 }
 
+/** ========= Player Card ========= */
+function CardJogador({ j, highlight }: { j: Partial<Jogador>, highlight?: string }) {
+  if (!j?.nome && !j?.foto_url) return null
+
+  const nomeNode = highlight
+    ? <Highlight text={j.nome || ''} query={highlight} />
+    : <>{j.nome}</>
+
+  return (
+    <div className="rounded-lg bg-black/30 border border-white/10 p-3 flex gap-3 items-center">
+      {j.foto_url ? (
+        <img
+          src={j.foto_url}
+          alt={j.nome || 'Jogador'}
+          loading="lazy"
+          className="size-14 rounded-xl object-cover ring-1 ring-white/10"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+        />
+      ) : (
+        <div className="size-14 rounded-xl bg-gray-800 text-gray-300 grid place-items-center ring-1 ring-white/10">
+          <span className="text-lg">👤</span>
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="font-semibold text-white truncate">{nomeNode}</p>
+        <p className="text-xs text-gray-300">
+          {[j.posicao, j.nacionalidade].filter(Boolean).join(' • ') || 'Jogador'}
+        </p>
+        {typeof j.idade === 'number' && (
+          <p className="text-xs text-gray-400 mt-0.5">{j.idade} anos</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** ========= Página ========= */
 export default function BIDPage() {
   const { isAdmin } = useAdmin()
 
-  // Eventos e Times
+  // Eventos, times e jogadores
   const [eventos, setEventos] = useState<EventoBID[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
   const [timesLista, setTimesLista] = useState<Time[]>([])
+  const [jogadoresMap, setJogadoresMap] = useState<Record<string, Jogador>>({})
 
   // Estados gerais
   const [loading, setLoading] = useState(true)
@@ -267,19 +317,19 @@ export default function BIDPage() {
       carregarDados(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [/* mount */])
+  }, [])
 
   /** ====== Busca global reativa ====== */
   useEffect(() => {
     if (buscaAtiva) {
       buscarGlobal(debouncedBusca)
     } else {
-      // Sem busca, mantém dados paginados
       carregarDados(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedBusca])
 
+  /** ====== Dados: eventos paginados ====== */
   async function carregarDados(paginaAtual = 1) {
     if (buscaAtiva) return // em modo busca, não usa paginação
     setLoading(true)
@@ -299,13 +349,14 @@ export default function BIDPage() {
         .range(offset, offset + limite - 1)
       if (errorEventos) throw errorEventos
 
-      setEventos(eventosData || [])
+      setEventos(eventosData as EventoBID[] || [])
+      await carregarJogadoresParaEventos(eventosData as EventoBID[] || [])
 
       const paginas = Math.ceil((count || 1) / limite)
       setTotalPaginas(paginas)
       setPagina(paginaAtual)
 
-      const idsStr = (eventosData || []).map((e) => String(e.id))
+      const idsStr = (eventosData || []).map((e: any) => String(e.id))
       await Promise.all([
         carregarComentariosParaEventos(idsStr),
         carregarReacoesParaEventos(idsStr),
@@ -334,15 +385,13 @@ export default function BIDPage() {
     setErro(null)
 
     try {
-      // 1) Times que batem por nome
       const { data: timesLike, error: errTimesLike } = await supabase
         .from('times')
         .select('id')
         .ilike('nome', `%${termoTrim}%`)
       if (errTimesLike) throw errTimesLike
-      const timeIds = (timesLike || []).map(t => t.id)
+      const timeIds = (timesLike || []).map((t: any) => t.id)
 
-      // 2) Eventos por descrição
       const { data: porDesc, error: errDesc } = await supabase
         .from('bid')
         .select('*')
@@ -350,7 +399,6 @@ export default function BIDPage() {
         .order('data_evento', { ascending: false })
       if (errDesc) throw errDesc
 
-      // 3) Eventos por time1
       let porTime1: EventoBID[] = []
       if (timeIds.length) {
         const { data, error } = await supabase
@@ -359,10 +407,9 @@ export default function BIDPage() {
           .in('id_time1', timeIds)
           .order('data_evento', { ascending: false })
         if (error) throw error
-        porTime1 = data || []
+        porTime1 = data as EventoBID[] || []
       }
 
-      // 4) Eventos por time2
       let porTime2: EventoBID[] = []
       if (timeIds.length) {
         const { data, error } = await supabase
@@ -371,15 +418,17 @@ export default function BIDPage() {
           .in('id_time2', timeIds)
           .order('data_evento', { ascending: false })
         if (error) throw error
-        porTime2 = data || []
+        porTime2 = data as EventoBID[] || []
       }
 
-      // 5) Unir, tirar duplicatas e ordenar por data_evento desc
       const mapa: Record<string, EventoBID> = {}
-      ;[...(porDesc || []), ...porTime1, ...porTime2].forEach(ev => { mapa[String(ev.id)] = ev })
+      ;[...(porDesc as EventoBID[] || []), ...porTime1, ...porTime2]
+        .forEach((ev) => { mapa[String(ev.id)] = ev })
       const unicos = Object.values(mapa).sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
 
       setEventos(unicos)
+      await carregarJogadoresParaEventos(unicos)
+
       setTotalPaginas(1)
       setPagina(1)
 
@@ -401,6 +450,32 @@ export default function BIDPage() {
       setMinhasReacoes({})
     } finally {
       setLoading(false)
+    }
+  }
+
+  /** ====== Jogadores ====== */
+  async function carregarJogadoresParaEventos(lista: EventoBID[]) {
+    try {
+      const ids = Array.from(
+        new Set(
+          lista.map(ev => ev.id_jogador || '').filter(Boolean)
+        )
+      ).filter((id) => !jogadoresMap[id as string])
+
+      if (!ids.length) return
+
+      const { data, error } = await supabase
+        .from('jogadores')
+        .select('id, nome, foto_url, posicao, idade, nacionalidade')
+        .in('id', ids as string[])
+
+      if (error) { console.error(error); return }
+
+      const novoMap = { ...jogadoresMap }
+      ;(data || []).forEach((j: any) => { novoMap[j.id] = j })
+      setJogadoresMap(novoMap)
+    } catch (e) {
+      console.error(e)
     }
   }
 
@@ -530,13 +605,9 @@ export default function BIDPage() {
     setMinhasReacoes(mineMap)
   }
 
-  // ⚠️ AQUI ESTÁ A FUNÇÃO QUE FALTAVA
   async function toggleReacao(idEventoRaw: IDEvt, emoji: Emoji) {
     const idEvento = String(idEventoRaw)
-    if (!idTimeLogado) {
-      toast.error('Faça login no seu time para reagir.')
-      return
-    }
+    if (!idTimeLogado) { toast.error('Faça login no seu time para reagir.'); return }
     if (reagindo[idEvento]) return
 
     setReagindo((p) => ({ ...p, [idEvento]: true }))
@@ -786,7 +857,6 @@ export default function BIDPage() {
                     const time1 = timesMap[evento.id_time1]
                     const time2 = evento.id_time2 ? timesMap[evento.id_time2] : null
                     const comentarios = comentariosMap[idEvento] || []
-                    const comentarioAtual = novoComentario[idEvento] || ''
                     const counts = reacoesCount[idEvento] || {}
                     const mine = minhasReacoes[idEvento] || {}
                     const estilo = tipoToStyle(evento.tipo_evento)
@@ -850,8 +920,23 @@ export default function BIDPage() {
                             </div>
                           </div>
 
-                          {/* Lado direito: valor / estrelas */}
-                          <div className="md:col-span-1">
+                          {/* Lado direito: Jogador + valor/estrelas */}
+                          <div className="md:col-span-1 space-y-3">
+                            {/* Player Card */}
+                            {(() => {
+                              const jEv: Partial<Jogador> = {
+                                id: evento.id_jogador || undefined,
+                                nome: evento.nome_jogador || undefined,
+                                foto_url: evento.foto_jogador_url || undefined,
+                              }
+                              const jFromMap = evento.id_jogador ? jogadoresMap[evento.id_jogador] : undefined
+                              const jogador = jEv.nome || jEv.foto_url ? { ...jFromMap, ...jEv } : jFromMap
+                              return jogador ? (
+                                <CardJogador j={jogador} highlight={buscaAtiva ? debouncedBusca : ''} />
+                              ) : null
+                            })()}
+
+                            {/* Movimentação */}
                             {evento.valor != null && (
                               <div className="rounded-lg bg-black/30 border border-white/10 p-3">
                                 <p className="text-xs text-gray-400 mb-1">Movimentação</p>
