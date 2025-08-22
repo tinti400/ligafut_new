@@ -130,18 +130,23 @@ const JogadorCard = ({
         selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
       ].join(' ')}
     >
-      {/* Seleção admin */}
-      {isAdmin ? (
-        <label className="absolute left-3 top-3 inline-flex select-none items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-xs text-white backdrop-blur">
-          <input
-            type="checkbox"
-            checked={selecionado}
-            onChange={toggleSelecionado}
-            className="h-4 w-4 accent-red-500"
-          />
-          Excluir
-        </label>
-      ) : null}
+      {/* Seleção admin (canto superior direito, fora da foto) */}
+      {isAdmin && (
+        <div className="absolute right-2 top-2 z-10">
+          <label
+            className="inline-flex items-center gap-2 rounded-full bg-gray-900/80 px-3 py-1 text-xs text-white ring-1 ring-white/10 shadow"
+            title="Selecionar para excluir"
+          >
+            <input
+              type="checkbox"
+              checked={selecionado}
+              onChange={toggleSelecionado}
+              className="h-4 w-4 accent-red-500"
+            />
+            Excluir
+          </label>
+        </div>
+      )}
 
       {/* Cabeçalho do card */}
       <div className="flex items-center gap-3">
@@ -179,7 +184,7 @@ const JogadorCard = ({
       </div>
 
       {/* Admin: alterar preço */}
-      {isAdmin ? (
+      {isAdmin && (
         <div className="mt-3">
           <label className="mb-1 block text-[11px] text-gray-300">💰 Alterar Preço (R$)</label>
           <input
@@ -195,7 +200,7 @@ const JogadorCard = ({
           />
           {loadingAtualizarPreco && <p className="mt-1 text-[11px] text-gray-400">Atualizando...</p>}
         </div>
-      ) : null}
+      )}
 
       {/* Ação */}
       <button
@@ -233,6 +238,12 @@ export default function MercadoPage() {
   const [filtroValorMax, setFiltroValorMax] = useState<number | ''>('')
   const [filtroNacionalidade, setFiltroNacionalidade] = useState('')
 
+  // admin: exclusão por faixa de OVR
+  const [excluirOverallMin, setExcluirOverallMin] = useState<number>(79)
+  const [excluirOverallMax, setExcluirOverallMax] = useState<number>(80)
+  const [modalExcluirFaixaVisivel, setModalExcluirFaixaVisivel] = useState(false)
+  const [loadingExcluirFaixa, setLoadingExcluirFaixa] = useState(false)
+
   const [ordenarPor, setOrdenarPor] = useState('')
   const [itensPorPagina, setItensPorPagina] = useState(40)
   const [paginaAtual, setPaginaAtual] = useState(1)
@@ -254,12 +265,6 @@ export default function MercadoPage() {
 
   // mercado
   const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
-
-  // --- Exclusão por faixa de OVR ---
-  const [delOverallMin, setDelOverallMin] = useState<number | ''>('')        // ex.: 79
-  const [delOverallMax, setDelOverallMax] = useState<number | ''>('')        // ex.: 80
-  const [modalExcluirFaixaVisivel, setModalExcluirFaixaVisivel] = useState(false)
-  const [loadingExcluirFaixa, setLoadingExcluirFaixa] = useState(false)
 
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
@@ -365,7 +370,6 @@ export default function MercadoPage() {
             throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
           }
 
-          // payload solto para não travar a tipagem caso sua tabela tenha colunas extras como time_origem
           const payload: any = {
             nome,
             posicao,
@@ -380,7 +384,6 @@ export default function MercadoPage() {
           return payload as NovoJogador
         })
 
-        // pega de volta do Supabase já com `id`
         const { data: inseridos, error } = await supabase
           .from('mercado_transferencias')
           .insert(jogadoresParaInserir as any[])
@@ -390,8 +393,7 @@ export default function MercadoPage() {
 
         toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
 
-        // atualiza estado apenas com objetos que têm id
-        setJogadores((prev) => [...prev, ...((inseridos as Jogador[]) ?? [])])
+        setJogadores((prev) => [...prev, ...((inseridos as unknown as Jogador[]) ?? [])])
       } catch (error: any) {
         console.error('Erro ao importar:', error)
         toast.error(`Erro no upload: ${error.message || error}`)
@@ -472,7 +474,8 @@ export default function MercadoPage() {
         data_evento: new Date().toISOString(),
       })
 
-      const salario = Math.round(jogador.valor * 0.007)
+      // Salário = 1% do valor
+      const salario = Math.round(jogador.valor * 0.01)
 
       const { error: errorInsert } = await supabase.from('elenco').insert({
         id_time: user.id_time,
@@ -547,6 +550,41 @@ export default function MercadoPage() {
     }
   }
 
+  // Excluir por faixa de OVR
+  const solicitarExcluirPorFaixa = () => {
+    if (!isAdmin) return
+    if (excluirOverallMin > excluirOverallMax) {
+      toast.error('OVR mín não pode ser maior que o máx')
+      return
+    }
+    setModalExcluirFaixaVisivel(true)
+  }
+
+  const confirmarExcluirPorFaixa = async () => {
+    setLoadingExcluirFaixa(true)
+    try {
+      const { data: deletados, error } = await supabase
+        .from('mercado_transferencias')
+        .delete()
+        .gte('overall', excluirOverallMin)
+        .lte('overall', excluirOverallMax)
+        .select('id')
+
+      if (error) throw error
+
+      const ids = (deletados ?? []).map((d: any) => d.id)
+      setJogadores((prev) => prev.filter((j) => !ids.includes(j.id)))
+      setSelecionados((prev) => prev.filter((id) => !ids.includes(id)))
+      toast.success(`Excluídos ${ids.length} jogador(es) com OVR entre ${excluirOverallMin} e ${excluirOverallMax}.`)
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro ao excluir por faixa de OVR.')
+    } finally {
+      setLoadingExcluirFaixa(false)
+      setModalExcluirFaixaVisivel(false)
+    }
+  }
+
   const atualizarPreco = async (jogadorId: string | number, novoValor: number) => {
     if (novoValor <= 0) {
       toast.error('Valor deve ser maior que zero')
@@ -585,62 +623,6 @@ export default function MercadoPage() {
       toast.error('Erro ao alterar status do mercado.')
     } finally {
       setLoading(false)
-    }
-  }
-
-  // ======= Exclusão por FAIXA de OVR =======
-  const afetadosFaixa = useMemo(() => {
-    if (delOverallMin === '' || delOverallMax === '') return 0
-    const min = delOverallMin as number
-    const max = delOverallMax as number
-    return jogadores.filter((j) => j.overall >= min && j.overall <= max).length
-  }, [jogadores, delOverallMin, delOverallMax])
-
-  const solicitarExcluirPorFaixa = () => {
-    if (delOverallMin === '' || delOverallMax === '') {
-      toast.error('Informe OVR mínimo e máximo.')
-      return
-    }
-    if ((delOverallMin as number) > (delOverallMax as number)) {
-      toast.error('OVR mín não pode ser maior que o OVR máx.')
-      return
-    }
-    if (afetadosFaixa === 0) {
-      toast.error('Nenhum jogador nessa faixa.')
-      return
-    }
-    setModalExcluirFaixaVisivel(true)
-  }
-
-  const confirmarExcluirPorFaixa = async () => {
-    setLoadingExcluirFaixa(true)
-    try {
-      const min = delOverallMin as number
-      const max = delOverallMax as number
-
-      // calcula ids afetados localmente (para atualizar estado)
-      const idsAfetados = new Set(
-        jogadores.filter((j) => j.overall >= min && j.overall <= max).map((j) => j.id)
-      )
-
-      const { error } = await supabase
-        .from('mercado_transferencias')
-        .delete()
-        .gte('overall', min)
-        .lte('overall', max)
-
-      if (error) throw error
-
-      setJogadores((prev) => prev.filter((j) => !idsAfetados.has(j.id)))
-      setSelecionados((prev) => prev.filter((id) => !idsAfetados.has(id)))
-
-      toast.success(`Excluídos ${idsAfetados.size} jogadores com OVR entre ${min} e ${max}.`)
-    } catch (e) {
-      console.error('Erro ao excluir por faixa:', e)
-      toast.error('Erro ao excluir por faixa.')
-    } finally {
-      setLoadingExcluirFaixa(false)
-      setModalExcluirFaixaVisivel(false)
     }
   }
 
@@ -743,7 +725,7 @@ export default function MercadoPage() {
               <p className="font-semibold text-green-400">{formatarValor(saldo)}</p>
             </div>
 
-            {isAdmin ? (
+            {isAdmin && (
               <>
                 <button
                   onClick={toggleMarketStatus}
@@ -781,7 +763,7 @@ export default function MercadoPage() {
                   className="hidden"
                 />
               </>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
@@ -899,7 +881,8 @@ export default function MercadoPage() {
             </div>
           </div>
 
-          {isAdmin ? (
+          {/* Ações Admin */}
+          {isAdmin && (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 onClick={solicitarExcluirSelecionados}
@@ -912,43 +895,45 @@ export default function MercadoPage() {
                 {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
               </button>
 
-              {/* --- Novo: Exclusão por faixa de OVR --- */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-300">Excluir por OVR</label>
+              {/* Excluir por faixa de OVR */}
+              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-gray-800 px-3 py-2">
+                <span className="text-sm text-gray-300">Excluir OVR</span>
                 <input
                   type="number"
-                  placeholder="mín"
                   min={0}
                   max={99}
-                  value={delOverallMin}
-                  onChange={(e) => setDelOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-20 rounded-lg border border-white/10 bg-gray-800 px-2 py-1 text-sm outline-none focus:border-red-500"
+                  value={excluirOverallMin}
+                  onChange={(e) => setExcluirOverallMin(Number(e.target.value))}
+                  className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
                 />
+                <span className="text-sm text-gray-400">até</span>
                 <input
                   type="number"
-                  placeholder="máx"
                   min={0}
                   max={99}
-                  value={delOverallMax}
-                  onChange={(e) => setDelOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-20 rounded-lg border border-white/10 bg-gray-800 px-2 py-1 text-sm outline-none focus:border-red-500"
+                  value={excluirOverallMax}
+                  onChange={(e) => setExcluirOverallMax(Number(e.target.value))}
+                  className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
                 />
                 <button
                   onClick={solicitarExcluirPorFaixa}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition"
-                  title="Excluir todos os jogadores do mercado nessa faixa de OVR"
+                  disabled={loadingExcluirFaixa}
+                  className={[
+                    'rounded-lg px-3 py-1.5 text-sm font-semibold transition',
+                    loadingExcluirFaixa ? 'bg-gray-700 text-gray-300' : 'bg-red-600 text-white hover:bg-red-700',
+                  ].join(' ')}
                 >
-                  Excluir por OVR {afetadosFaixa > 0 ? `(${afetadosFaixa})` : ''}
+                  {loadingExcluirFaixa ? 'Processando...' : 'Excluir por OVR'}
                 </button>
               </div>
 
-              {msg ? <span className="text-sm text-gray-300">{msg}</span> : null}
+              {msg && <span className="text-sm text-gray-300">{msg}</span>}
             </div>
-          ) : null}
+          )}
         </div>
 
         {/* Paginação (topo) */}
-        {totalPaginas > 1 ? (
+        {totalPaginas > 1 && (
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
@@ -966,7 +951,7 @@ export default function MercadoPage() {
               Próxima →
             </button>
           </div>
-        ) : null}
+        )}
 
         {/* Grid de jogadores */}
         <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -993,7 +978,7 @@ export default function MercadoPage() {
         </div>
 
         {/* Paginação (base) */}
-        {totalPaginas > 1 ? (
+        {totalPaginas > 1 && (
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
@@ -1011,7 +996,7 @@ export default function MercadoPage() {
               Próxima →
             </button>
           </div>
-        ) : null}
+        )}
       </div>
 
       {/* Modais */}
@@ -1038,11 +1023,10 @@ export default function MercadoPage() {
         loading={loadingExcluir}
       />
 
-      {/* Modal: exclusão por faixa de OVR */}
       <ModalConfirm
         visible={modalExcluirFaixaVisivel}
         titulo="Excluir por faixa de OVR"
-        mensagem={`Tem certeza que deseja excluir todos os jogadores com OVR entre ${delOverallMin} e ${delOverallMax}? (${afetadosFaixa} afetado${afetadosFaixa === 1 ? '' : 's'})`}
+        mensagem={`Excluir todos os jogadores com OVR entre ${excluirOverallMin} e ${excluirOverallMax}? Esta ação não pode ser desfeita.`}
         onConfirm={confirmarExcluirPorFaixa}
         onCancel={() => setModalExcluirFaixaVisivel(false)}
         loading={loadingExcluirFaixa}
