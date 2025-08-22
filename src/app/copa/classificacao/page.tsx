@@ -269,7 +269,7 @@ export default function ClassificacaoCopaPage() {
   /** ===== UI ===== */
   return (
     <div className="bg-zinc-950 text-white min-h-screen">
-      {/* Topbar */}
+      {/* Topbar (continua sticky) */}
       <div className="sticky top-0 z-20 backdrop-blur bg-zinc-950/80 border-b border-zinc-800">
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
           <div className="flex items-center gap-3">
@@ -335,8 +335,8 @@ export default function ClassificacaoCopaPage() {
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="overflow-x-auto rounded-xl border border-zinc-800 shadow-lg shadow-black/20 overflow-hidden">
           <table className="w-full text-sm text-left">
-            {/* CABEÇALHO alinhado ao seu exemplo */}
-            <thead className="sticky top-[56px] z-10 bg-black/70 text-yellow-300 border-b border-white/10">
+            {/* CABEÇALHO ESTÁTICO (não cobre a 1ª linha) */}
+            <thead className="bg-black/70 text-yellow-300 border-b border-white/10">
               <tr>
                 <th className="py-3 px-4 text-left">Pos</th>
                 <th className="py-3 px-4 text-left">Time</th>
