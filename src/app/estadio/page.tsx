@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { createClient } from '@supabase/supabase-js'
 import {
   Sector,
@@ -13,7 +14,9 @@ import {
   optimizePrices,
   type EstadioContext,
   type PriceMap,
-} from '@/utils/estadioEngine' // se não tiver alias, use '../../utils/estadioEngine'
+} from '@/utils/estadioEngine'
+
+const StadiumMini3D = dynamic(() => import('@/components/StadiumMini3D'), { ssr: false })
 
 // ===== Constantes
 const UPGRADE_COST = 150_000_000 // custo fixo de evolução: 150 mi
@@ -25,14 +28,12 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// ===== Tipos locais
 type EstadioRow = {
   id_time: string
   nome: string
   nivel: number
   capacidade: number
   [k: `preco_${string}`]: number | any
-  // opcionais
   socio_percentual?: number | null
   socio_preco?: number | null
   infra_score?: number | null
@@ -49,14 +50,18 @@ export default function EstadioPage() {
   const [weather, setWeather] = useState<'bom' | 'chuva'>('bom')
   const [dayType, setDayType] = useState<'semana' | 'fim'>('semana')
   const [dayTime, setDayTime] = useState<'dia' | 'noite'>('noite')
-  const [opponentStrength, setOpponentStrength] = useState(70) // 0..100
-  const [moraleTec, setMoraleTec] = useState(7.5) // 0..10
-  const [moraleTor, setMoraleTor] = useState(60) // 0..100
+  const [opponentStrength, setOpponentStrength] = useState(70)
+  const [moraleTec, setMoraleTec] = useState(7.5)
+  const [moraleTor, setMoraleTor] = useState(60)
 
   // extras
-  const [sociosPct, setSociosPct] = useState(15) // % dos lugares
+  const [sociosPct, setSociosPct] = useState(15)
   const [sociosPreco, setSociosPreco] = useState(25)
   const [infraScore, setInfraScore] = useState(55)
+
+  // maquete 3D
+  const [previewLevel, setPreviewLevel] = useState(1)
+  const [previewNight, setPreviewNight] = useState(false)
 
   const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
   const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') || '' : ''
@@ -67,6 +72,10 @@ export default function EstadioPage() {
     loadSaldo()
     loadMorais()
   }, [idTime])
+
+  useEffect(() => {
+    if (estadio?.nivel) setPreviewLevel(estadio.nivel)
+  }, [estadio?.nivel])
 
   async function loadEstadio() {
     const { data } = await supabase.from('estadios').select('*').eq('id_time', idTime).maybeSingle()
@@ -166,7 +175,7 @@ export default function EstadioPage() {
 
   const result = useMemo(() => simulate(capacity, prices, ctx), [capacity, prices, ctx])
 
-  // Projeção por nível (1..10) – para a maquete
+  // Projeção por nível (1..10) – para dados rápidos da maquete
   const baseCapL1 = useMemo(() => {
     const est = Math.round(capacity / Math.pow(GROWTH_PER_LEVEL, level - 1))
     return Math.max(1000, est)
@@ -247,7 +256,7 @@ export default function EstadioPage() {
   }
 
   if (!estadio) {
-    return <div className="p-6 text-white">🔄 Carregando Estádio 2.0...</div>
+    return <div className="p-6 text-white">🔄 Carregando Estádio 3D...</div>
   }
 
   // ======= UI
@@ -395,44 +404,73 @@ export default function EstadioPage() {
             </div>
           </section>
 
-          {/* Maquete / Projeção visual */}
+          {/* Maquete 3D / Projeção visual */}
           <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">🧱 Maquete do Estádio (Níveis 1 → {NIVEL_MAXIMO})</h2>
-            <p className="text-xs text-zinc-400 mb-3">
-              Cada miniatura usa preços de referência e o contexto atual para simular público, custos e renda. Visual evolui de “CT” até “Mega Arena”.
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold">🏗️ Maquete 3D do Estádio</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPreviewNight((v) => !v)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border ${
+                    previewNight ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300' : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                  }`}
+                >
+                  {previewNight ? '🌙 Noite' : '☀️ Dia'}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-400 mt-1 mb-3">
+              Gire com o mouse/gestos. Evolução visual do “CT” → “Mega Arena” conforme o nível.
             </p>
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-              {projections.map(({ lvl, cap, sim }) => (
-                <MiniCard key={lvl} active={lvl === level}>
-                  <StadiumMiniature
-                    level={lvl}
-                    night={dayTime === 'noite'}
-                    roofProgress={roofProgressForLevel(lvl)}
-                    tierCount={tiersForLevel(lvl)}
-                    lightsCount={lightsForLevel(lvl)}
-                    screens={screensForLevel(lvl)}
-                  />
-                  <div className="mt-2 text-xs text-zinc-300 flex items-center justify-between">
-                    <span className="font-semibold">Nível {lvl}</span>
-                    <span>{cap.toLocaleString()} lugares</span>
-                  </div>
-                  <div className="mt-1 text-[11px] text-zinc-400">
-                    Público: <b className="text-zinc-200">{sim.totalAudience.toLocaleString()}</b> •
-                    Ocup.: <b className="text-zinc-200">{Math.round(sim.occupancy * 100)}%</b>
-                  </div>
-                  <div className="mt-1 text-[11px] text-zinc-400">
-                    Bruta: <b className="text-zinc-200">{brl(sim.totalRevenue)}</b>
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-400">
-                    Custos: <b className="text-zinc-200">{brl(sim.totalCost)}</b>
-                  </div>
-                  <div className="mt-0.5 text-[11px]">
-                    <span className={`font-semibold ${sim.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      Líquida: {brl(sim.profit)}
-                    </span>
-                  </div>
-                </MiniCard>
-              ))}
+
+            <StadiumMini3D level={previewLevel} night={previewNight} primaryColor="#22c55e" />
+
+            {/* seletor de nível */}
+            <div className="mt-3">
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setPreviewLevel(n)}
+                    className={`px-2.5 py-1.5 rounded-md text-sm border ${
+                      previewLevel === n
+                        ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
+                        : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    Nível {n}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3">
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={previewLevel}
+                  onChange={(e) => setPreviewLevel(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            {/* dados rápidos do nível escolhido */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+              {(() => {
+                const item = projections.find(p => p.lvl === previewLevel)
+                if (!item) return null
+                const { cap, sim } = item
+                return (
+                  <>
+                    <Info label="Capacidade" value={cap.toLocaleString()} />
+                    <Info label="Público proj." value={sim.totalAudience.toLocaleString()} />
+                    <Info label="Renda bruta" value={brl(sim.totalRevenue)} />
+                    <Info label="Líquida" value={brl(sim.profit)} />
+                  </>
+                )
+              })()}
             </div>
           </section>
         </div>
@@ -472,156 +510,6 @@ export default function EstadioPage() {
   )
 }
 
-/* ====== Maquete SVG ====== */
-function StadiumMiniature({
-  level,
-  night,
-  roofProgress, // 0..1
-  tierCount,    // 1..3
-  lightsCount,  // 0..6
-  screens,      // 0..2
-}: {
-  level: number
-  night: boolean
-  roofProgress: number
-  tierCount: number
-  lightsCount: number
-  screens: number
-}) {
-  // dimensões básicas
-  const W = 220
-  const H = 130
-
-  // altura de arquibancada por nível
-  const standH = 18 + level * 5
-  const pad = 10
-
-  // cores base
-  const grass = '#1f8b3f'
-  const dirt = '#4b5563'
-  const stand = '#9ca3af'
-  const standDark = '#6b7280'
-  const roof = '#d4d4d8'
-  const roofDark = '#a1a1aa'
-  const pole = '#94a3b8'
-  const lightOn = night ? '#ffe16b' : '#cbd5e1'
-  const screen = '#111827'
-  const screenGlow = '#22d3ee'
-
-  // helpers geom
-  function tier(y: number, scaleX = 1) {
-    const baseW = (W - pad * 2) * scaleX
-    const x1 = (W - baseW) / 2
-    const y1 = y
-    const x2 = W - x1
-    const y2 = y + standH
-    return `M ${x1} ${y2} L ${x1 + 8} ${y1} L ${x2 - 8} ${y1} L ${x2} ${y2} Z`
-  }
-
-  const tiers = []
-  const tiersGap = 6
-  for (let i = 0; i < tierCount; i++) {
-    tiers.push(tier(20 + i * (standH + tiersGap), 1 - i * 0.1))
-  }
-
-  // cobertura (progresso cobre do 0 ao total)
-  const roofY = 18
-  const roofX1 = 22
-  const roofX2 = W - roofX1
-  const roofW = roofX2 - roofX1
-  const roofCoverW = roofW * roofProgress
-
-  // postes de luz
-  const lightPositions = [
-    { x: 22, y: 12 },
-    { x: W - 22, y: 12 },
-    { x: 60, y: 8 },
-    { x: W - 60, y: 8 },
-    { x: 100, y: 6 },
-    { x: W - 100, y: 6 },
-  ].slice(0, lightsCount)
-
-  // telões
-  const screenPositions = [
-    { x: W / 2 - 28, y: 6, w: 56, h: 10 },
-    { x: W / 2 - 20, y: H - 20, w: 40, h: 8 },
-  ].slice(0, screens)
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-      {/* Céu */}
-      <rect x="0" y="0" width={W} height={H} fill={night ? '#0b1020' : '#0b1324'} opacity={night ? 0.9 : 0.6} />
-
-      {/* Gramado */}
-      <rect x={pad} y={H - 38} width={W - pad * 2} height={24} fill={grass} stroke="#0f172a" strokeWidth="1" />
-      {/* Linha central */}
-      <rect x={W / 2 - 1} y={H - 38} width="2" height="24" fill="#e5e7eb" opacity="0.6" />
-
-      {/* Pista/entorno */}
-      <rect x={pad - 4} y={H - 14} width={W - (pad - 4) * 2} height={8} fill={dirt} opacity="0.8" />
-
-      {/* Arquibancadas (camadas) */}
-      {tiers.map((d, i) => (
-        <path key={i} d={d} fill={i % 2 === 0 ? stand : standDark} stroke="#0f172a" strokeWidth="1" opacity={0.95 - i * 0.05} />
-      ))}
-
-      {/* Cobertura */}
-      <g>
-        <rect x={roofX1} y={roofY} width={roofW} height="8" fill={roofDark} opacity="0.6" />
-        <rect x={roofX1} y={roofY} width={roofCoverW} height="8" fill={roof} />
-      </g>
-
-      {/* Postes e luzes */}
-      {lightPositions.map((p, i) => (
-        <g key={i}>
-          <rect x={p.x - 1.2} y={p.y} width="2.4" height={H - p.y - 20} fill={pole} />
-          <circle cx={p.x} cy={p.y} r="4" fill={lightOn} opacity={night ? 1 : 0.7} />
-          {night && <circle cx={p.x} cy={p.y} r="8" fill={lightOn} opacity="0.25" />}
-        </g>
-      ))}
-
-      {/* Telões */}
-      {screenPositions.map((s, i) => (
-        <g key={i}>
-          <rect x={s.x} y={s.y} width={s.w} height={s.h} fill={screen} stroke="#374151" strokeWidth="1" />
-          <rect x={s.x + 3} y={s.y + 3} width={s.w - 6} height={s.h - 6} fill={screenGlow} opacity={night ? 0.5 : 0.25} />
-        </g>
-      ))}
-
-      {/* Fachada / base */}
-      <rect x={pad - 6} y={H - 10} width={W - (pad - 6) * 2} height="6" fill="#374151" />
-    </svg>
-  )
-}
-
-/* ====== Lógica de features por nível ====== */
-function tiersForLevel(lvl: number) {
-  if (lvl >= 9) return 3
-  if (lvl >= 5) return 2
-  return 1
-}
-
-function roofProgressForLevel(lvl: number) {
-  if (lvl >= 9) return 1
-  if (lvl >= 7) return 0.75
-  if (lvl >= 5) return 0.5
-  if (lvl >= 3) return 0.25
-  return 0.05 // quase sem cobertura, “CTzão”
-}
-
-function lightsForLevel(lvl: number) {
-  if (lvl >= 9) return 6
-  if (lvl >= 6) return 4
-  if (lvl >= 3) return 2
-  return 0
-}
-
-function screensForLevel(lvl: number) {
-  if (lvl >= 8) return 2
-  if (lvl >= 5) return 1
-  return 0
-}
-
 /* ====== UI helpers ====== */
 function KPI({ label, value }: { label: string; value: string }) {
   return (
@@ -642,16 +530,11 @@ function MoneyCard({ title, value, subtitle }: { title: string; value: string; s
   )
 }
 
-function MiniCard({ children, active }: { children: React.ReactNode; active?: boolean }) {
+function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      className={`rounded-2xl border p-3 transition-all ${
-        active
-          ? 'border-emerald-500/70 bg-emerald-500/5 shadow-sm'
-          : 'border-zinc-800 bg-zinc-950/40 hover:bg-zinc-900/60'
-      }`}
-    >
-      {children}
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className="text-sm font-semibold">{value}</div>
     </div>
   )
 }
