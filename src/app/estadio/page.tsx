@@ -1,11 +1,3 @@
-aqui está o **`src/app/estadio/page.tsx`** completo, já com:
-
-* botão **Salvar parâmetros** (só contexto) no bloco “Contexto da Partida”
-* `saveAll` atualizado para salvar **preços + contexto** (pode usar como “Salvar tudo”)
-* `loadEstadio` lendo de volta os campos `ctx_*` para preencher a tela
-* tudo o resto que você já tinha (mini 3D, equilíbrio preço×público, breakdown de custos)
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -803,4 +795,4 @@ function screensForLevel(lvl: number) {
   if (lvl >= 5) return 1
   return 0
 }
-```
+
