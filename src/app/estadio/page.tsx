@@ -16,7 +16,7 @@ import {
   type PriceMap,
 } from '@/utils/estadioEngine'
 
-// componente 3D (miniatura)
+// componente 3D
 const StadiumMini3D = dynamic(() => import('@/components/StadiumMini3D'), { ssr: false })
 
 // ===== Constantes
@@ -39,23 +39,39 @@ type EstadioRow = {
   socio_preco?: number | null
   infra_score?: number | null
 
-  // contexto salvo no DB
-  ctx_importancia?: 'normal' | 'decisao' | 'final' | null
+  // Campos OPCIONAIS (se existirem na tabela) para persistir contexto:
+  ctx_importance?: 'normal' | 'decisao' | 'final' | null
   ctx_derby?: boolean | null
-  ctx_clima?: 'bom' | 'chuva' | null
-  ctx_dia_tipo?: 'semana' | 'fim' | null
-  ctx_dia_hora?: 'dia' | 'noite' | null
-  ctx_forca_adv?: number | null
-  ctx_moral_tecnico?: number | null
-  ctx_moral_torcida?: number | null
+  ctx_weather?: 'bom' | 'chuva' | null
+  ctx_day_type?: 'semana' | 'fim' | null
+  ctx_day_time?: 'dia' | 'noite' | null
+  ctx_opponent_strength?: number | null
+  ctx_morale_tecnico?: number | null
+  ctx_morale_torcida?: number | null
 }
+
+type PersistedCtx = {
+  importance: 'normal' | 'decisao' | 'final'
+  derby: boolean
+  weather: 'bom' | 'chuva'
+  dayType: 'semana' | 'fim'
+  dayTime: 'dia' | 'noite'
+  opponentStrength: number
+  moraleTec: number
+  moraleTor: number
+  sociosPct: number
+  sociosPreco: number
+  infraScore: number
+  balanceWeight: number
+}
+type PersistedPrices = PriceMap & { _stamp?: number }
 
 export default function EstadioPage() {
   const [estadio, setEstadio] = useState<EstadioRow | null>(null)
   const [prices, setPrices] = useState<PriceMap>(() => ({ ...referencePrices(1) }))
   const [saldo, setSaldo] = useState(0)
 
-  // contexto (UI)
+  // contexto (com defaults)
   const [importance, setImportance] = useState<'normal' | 'decisao' | 'final'>('normal')
   const [derby, setDerby] = useState(false)
   const [weather, setWeather] = useState<'bom' | 'chuva'>('bom')
@@ -70,21 +86,64 @@ export default function EstadioPage() {
   const [sociosPreco, setSociosPreco] = useState(25)
   const [infraScore, setInfraScore] = useState(55)
 
-  // 3D mini
+  // 3D
   const [previewLevel, setPreviewLevel] = useState(1)
   const [previewNight, setPreviewNight] = useState(false)
 
-  // equilíbrio preço x público (0..1) para autopreço "balanced"
+  // equilíbrio preço x público (0..1)
   const [balanceWeight, setBalanceWeight] = useState(0.35)
 
-  const idTime =
-    typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
-  const nomeTime =
-    typeof window !== 'undefined' ? localStorage.getItem('nome_time') || '' : ''
+  const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
+  const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') || '' : ''
 
-  // ===== carregamento principal
+  // ======= LocalStorage helpers
+  const LS_KEYS = {
+    ctx: (id: string) => `lf_estadio_ctx_${id}`,
+    prices: (id: string) => `lf_estadio_prices_${id}`,
+  }
+  function loadLSCtx(id: string): PersistedCtx | null {
+    try {
+      const raw = localStorage.getItem(LS_KEYS.ctx(id))
+      return raw ? (JSON.parse(raw) as PersistedCtx) : null
+    } catch { return null }
+  }
+  function saveLSCtx(id: string, ctx: PersistedCtx) {
+    try { localStorage.setItem(LS_KEYS.ctx(id), JSON.stringify(ctx)) } catch {}
+  }
+  function loadLSPrices(id: string): PersistedPrices | null {
+    try {
+      const raw = localStorage.getItem(LS_KEYS.prices(id))
+      return raw ? (JSON.parse(raw) as PersistedPrices) : null
+    } catch { return null }
+  }
+  function saveLSPrices(id: string, p: PriceMap) {
+    try { localStorage.setItem(LS_KEYS.prices(id), JSON.stringify({ ...p, _stamp: Date.now() })) } catch {}
+  }
+
+  // ======= lifecycle
   useEffect(() => {
     if (!idTime) return
+
+    // 1) aplica os últimos valores locais imediatamente (UX melhor e resistente a ausência de colunas no DB)
+    const lsc = loadLSCtx(idTime)
+    if (lsc) {
+      setImportance(lsc.importance)
+      setDerby(lsc.derby)
+      setWeather(lsc.weather)
+      setDayType(lsc.dayType)
+      setDayTime(lsc.dayTime)
+      setOpponentStrength(lsc.opponentStrength)
+      setMoraleTec(lsc.moraleTec)
+      setMoraleTor(lsc.moraleTor)
+      setSociosPct(lsc.sociosPct)
+      setSociosPreco(lsc.sociosPreco)
+      setInfraScore(lsc.infraScore)
+      setBalanceWeight(lsc.balanceWeight ?? 0.35)
+    }
+    const lsp = loadLSPrices(idTime)
+    if (lsp) setPrices({ ...lsp })
+
+    // 2) carrega do Supabase (se existir, sobrepõe o que for válido)
     loadEstadio()
     loadSaldo()
     loadMorais()
@@ -95,11 +154,7 @@ export default function EstadioPage() {
   }, [estadio?.nivel])
 
   async function loadEstadio() {
-    const { data } = await supabase
-      .from('estadios')
-      .select('*')
-      .eq('id_time', idTime)
-      .maybeSingle()
+    const { data } = await supabase.from('estadios').select('*').eq('id_time', idTime).maybeSingle()
 
     if (!data) {
       const refLvl1 = referencePrices(1)
@@ -108,12 +163,7 @@ export default function EstadioPage() {
         nome: nomeTime ? `Estádio ${nomeTime}` : 'Estádio LigaFut',
         nivel: 1,
         capacidade: 18000,
-        ...Object.fromEntries(
-          (Object.keys(sectorProportion) as Sector[]).map((s) => [
-            `preco_${s}`,
-            refLvl1[s],
-          ])
-        ),
+        ...Object.fromEntries((Object.keys(sectorProportion) as Sector[]).map((s) => [`preco_${s}`, refLvl1[s]])),
         socio_percentual: 15,
         socio_preco: 25,
         infra_score: 55,
@@ -121,7 +171,15 @@ export default function EstadioPage() {
       await supabase.from('estadios').insert(novo)
       setEstadio(novo)
       setPrices({ ...refLvl1 })
-      hydrateContextFromLocalOrDefaults(novo)
+      setSociosPct(15)
+      setSociosPreco(25)
+      setInfraScore(55)
+      saveLSPrices(idTime, refLvl1)
+      saveLSCtx(idTime, {
+        importance, derby, weather, dayType, dayTime,
+        opponentStrength, moraleTec, moraleTor,
+        sociosPct: 15, sociosPreco: 25, infraScore: 55, balanceWeight
+      })
       return
     }
 
@@ -145,141 +203,45 @@ export default function EstadioPage() {
       await supabase.from('estadios').update(patch).eq('id_time', idTime)
     }
 
+    // Preços DB -> estado (mas prefere LS se existir)
+    const lsp = loadLSPrices(idTime)
+    setPrices(lsp ? { ...lsp } : loaded)
+
+    // Contexto DB/LS -> estado
+    const lsc = loadLSCtx(idTime)
+    setSociosPct(typeof data.socio_percentual === 'number' ? data.socio_percentual : (lsc?.sociosPct ?? 15))
+    setSociosPreco(typeof data.socio_preco === 'number' ? data.socio_preco : (lsc?.sociosPreco ?? 25))
+    setInfraScore(typeof data.infra_score === 'number' ? data.infra_score : (lsc?.infraScore ?? 55))
+
+    setImportance((data.ctx_importance as any) || lsc?.importance || 'normal')
+    setDerby(typeof data.ctx_derby === 'boolean' ? data.ctx_derby : (lsc?.derby ?? false))
+    setWeather((data.ctx_weather as any) || lsc?.weather || 'bom')
+    setDayType((data.ctx_day_type as any) || lsc?.dayType || 'semana')
+    setDayTime((data.ctx_day_time as any) || lsc?.dayTime || 'noite')
+    setOpponentStrength(typeof data.ctx_opponent_strength === 'number' ? data.ctx_opponent_strength : (lsc?.opponentStrength ?? 70))
+    setMoraleTec(typeof data.ctx_morale_tecnico === 'number' ? data.ctx_morale_tecnico : (lsc?.moraleTec ?? 7.5))
+    setMoraleTor(typeof data.ctx_morale_torcida === 'number' ? data.ctx_morale_torcida : (lsc?.moraleTor ?? 60))
+    setBalanceWeight(lsc?.balanceWeight ?? 0.35)
+
     setEstadio(data as EstadioRow)
-    setPrices(loaded)
-
-    // extras
-    if (typeof data.socio_percentual === 'number')
-      setSociosPct(Number(data.socio_percentual) || 0)
-    if (typeof data.socio_preco === 'number')
-      setSociosPreco(Number(data.socio_preco) || 0)
-    if (typeof data.infra_score === 'number')
-      setInfraScore(Number(data.infra_score) || 50)
-
-    // contexto do DB (ou localStorage como fallback)
-    hydrateContextFromDbOrLocal(data as EstadioRow)
-  }
-
-  function hydrateContextFromDbOrLocal(row: EstadioRow) {
-    const fromDb =
-      row.ctx_importancia ||
-      row.ctx_derby != null ||
-      row.ctx_clima ||
-      row.ctx_dia_tipo ||
-      row.ctx_dia_hora ||
-      row.ctx_forca_adv != null ||
-      row.ctx_moral_tecnico != null ||
-      row.ctx_moral_torcida != null
-
-    if (fromDb) {
-      if (row.ctx_importancia) setImportance(row.ctx_importancia)
-      if (typeof row.ctx_derby === 'boolean') setDerby(row.ctx_derby)
-      if (row.ctx_clima) setWeather(row.ctx_clima)
-      if (row.ctx_dia_tipo) setDayType(row.ctx_dia_tipo)
-      if (row.ctx_dia_hora) setDayTime(row.ctx_dia_hora)
-      if (typeof row.ctx_forca_adv === 'number')
-        setOpponentStrength(Number(row.ctx_forca_adv))
-      if (typeof row.ctx_moral_tecnico === 'number')
-        setMoraleTec(Number(row.ctx_moral_tecnico))
-      if (typeof row.ctx_moral_torcida === 'number')
-        setMoraleTor(Number(row.ctx_moral_torcida))
-    } else {
-      hydrateContextFromLocalOrDefaults(row)
-    }
-  }
-
-  function hydrateContextFromLocalOrDefaults(row: EstadioRow) {
-    // tenta localStorage do usuário
-    try {
-      const raw =
-        typeof window !== 'undefined'
-          ? localStorage.getItem(`lf_estadio_ctx_${row.id_time}`)
-          : null
-      if (raw) {
-        const j = JSON.parse(raw)
-        if (j.importance) setImportance(j.importance)
-        if (typeof j.derby === 'boolean') setDerby(j.derby)
-        if (j.weather) setWeather(j.weather)
-        if (j.dayType) setDayType(j.dayType)
-        if (j.dayTime) setDayTime(j.dayTime)
-        if (typeof j.opponentStrength === 'number')
-          setOpponentStrength(j.opponentStrength)
-        if (typeof j.moraleTec === 'number') setMoraleTec(j.moraleTec)
-        if (typeof j.moraleTor === 'number') setMoraleTor(j.moraleTor)
-        if (typeof j.sociosPct === 'number') setSociosPct(j.sociosPct)
-        if (typeof j.sociosPreco === 'number') setSociosPreco(j.sociosPreco)
-        if (typeof j.infraScore === 'number') setInfraScore(j.infraScore)
-        return
-      }
-    } catch {}
-    // defaults já estão nos useState
   }
 
   async function loadSaldo() {
-    const { data } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', idTime)
-      .maybeSingle()
+    const { data } = await supabase.from('times').select('saldo').eq('id', idTime).maybeSingle()
     if (data?.saldo != null) setSaldo(data.saldo)
   }
 
   async function loadMorais() {
-    const { data: c } = await supabase
-      .from('classificacao')
-      .select('pontos')
-      .eq('id_time', idTime)
-      .maybeSingle()
+    const { data: c } = await supabase.from('classificacao').select('pontos').eq('id_time', idTime).maybeSingle()
     if (c?.pontos != null) {
       const pts = Number(c.pontos) || 0
       const mt = clamp(4 + Math.min(6, pts / 10), 0, 10)
       setMoraleTec(mt)
       await supabase.from('times').update({ moral_tecnico: mt }).eq('id', idTime)
     }
-    const { data: t } = await supabase
-      .from('times')
-      .select('moral_torcida')
-      .eq('id', idTime)
-      .maybeSingle()
+    const { data: t } = await supabase.from('times').select('moral_torcida').eq('id', idTime).maybeSingle()
     if (t?.moral_torcida != null) setMoraleTor(t.moral_torcida || 50)
   }
-
-  // ===== Autosave localStorage do contexto
-  useEffect(() => {
-    if (!idTime) return
-    const payload = {
-      importance,
-      derby,
-      weather,
-      dayType,
-      dayTime,
-      opponentStrength,
-      moraleTec,
-      moraleTor,
-      sociosPct,
-      sociosPreco,
-      infraScore,
-    }
-    try {
-      localStorage.setItem(
-        `lf_estadio_ctx_${idTime}`,
-        JSON.stringify({ ...payload, ts: Date.now() })
-      )
-    } catch {}
-  }, [
-    idTime,
-    importance,
-    derby,
-    weather,
-    dayType,
-    dayTime,
-    opponentStrength,
-    moraleTec,
-    moraleTor,
-    sociosPct,
-    sociosPreco,
-    infraScore,
-  ])
 
   // ======= helpers
   const level = estadio?.nivel ?? 1
@@ -303,24 +265,14 @@ export default function EstadioPage() {
       level,
     }),
     [
-      importance,
-      derby,
-      weather,
-      dayType,
-      dayTime,
-      opponentStrength,
-      moraleTec,
-      moraleTor,
-      sociosPct,
-      sociosPreco,
-      infraScore,
-      level,
+      importance, derby, weather, dayType, dayTime, opponentStrength,
+      moraleTec, moraleTor, sociosPct, sociosPreco, infraScore, level
     ]
   )
 
   const result = useMemo(() => simulate(capacity, prices, ctx), [capacity, prices, ctx])
 
-  // Projeções para os cards de info
+  // Projeções (para os cards de info)
   const baseCapL1 = useMemo(() => {
     const est = Math.round(capacity / Math.pow(GROWTH_PER_LEVEL, level - 1))
     return Math.max(1000, est)
@@ -338,9 +290,64 @@ export default function EstadioPage() {
     return arr
   }, [baseCapL1, ctx])
 
-  // ======= ações de preço
+  // ======= ações
   function setPrice(s: Sector, v: number) {
     setPrices((p) => ({ ...p, [s]: clamp(Math.round(v || 0), 1, limits[s]) }))
+  }
+
+  async function saveAll() {
+    if (!estadio) return
+    const payload: any = {}
+    ;(Object.keys(prices) as Sector[]).forEach((s) => (payload[`preco_${s}`] = prices[s]))
+    payload.socio_percentual = sociosPct
+    payload.socio_preco = sociosPreco
+    payload.infra_score = infraScore
+
+    // salva LS para manter no refresh mesmo sem colunas no DB
+    saveLSPrices(idTime, prices)
+    saveLSCtx(idTime, {
+      importance, derby, weather, dayType, dayTime, opponentStrength,
+      moraleTec, moraleTor, sociosPct, sociosPreco, infraScore, balanceWeight
+    })
+
+    const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
+    if (error) {
+      console.warn('[saveAll] erro:', error.message)
+      alert('Preços salvos localmente. (Campos extras ignorados no banco, se não existirem).')
+    } else {
+      alert('💾 Configurações salvas com sucesso!')
+      setEstadio({ ...(estadio as any), ...payload })
+    }
+  }
+
+  async function saveContextOnly() {
+    // salva LS sempre
+    saveLSCtx(idTime, {
+      importance, derby, weather, dayType, dayTime, opponentStrength,
+      moraleTec, moraleTor, sociosPct, sociosPreco, infraScore, balanceWeight
+    })
+
+    // tenta persistir no DB (se as colunas existirem)
+    const payload: Partial<EstadioRow> = {
+      ctx_importance: importance,
+      ctx_derby: derby,
+      ctx_weather: weather,
+      ctx_day_type: dayType,
+      ctx_day_time: dayTime,
+      ctx_opponent_strength: opponentStrength,
+      ctx_morale_tecnico: moraleTec,
+      ctx_morale_torcida: moraleTor,
+      socio_percentual: sociosPct,
+      socio_preco: sociosPreco,
+      infra_score: infraScore,
+    }
+    const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
+    if (error) {
+      console.warn('[saveContextOnly] erro (colunas podem não existir):', error.message)
+      alert('Parâmetros salvos localmente. Para salvar no banco, crie as colunas ctx_* na tabela "estadios".')
+    } else {
+      alert('✅ Parâmetros salvos!')
+    }
   }
 
   function autoPriceRevenue() {
@@ -354,55 +361,6 @@ export default function EstadioPage() {
   function autoPriceBalanced() {
     const p = optimizePrices(capacity, prices, ctx, 'balanced', balanceWeight)
     setPrices(p)
-  }
-
-  // ======= persistências
-  async function saveContext() {
-    if (!estadio) return
-    const payload = {
-      ctx_importancia: importance,
-      ctx_derby: derby,
-      ctx_clima: weather,
-      ctx_dia_tipo: dayType,
-      ctx_dia_hora: dayTime,
-      ctx_forca_adv: opponentStrength,
-      ctx_moral_tecnico: moraleTec,
-      ctx_moral_torcida: moraleTor,
-      socio_percentual: sociosPct,
-      socio_preco: sociosPreco,
-      infra_score: infraScore,
-    }
-    const { error } = await supabase
-      .from('estadios')
-      .update(payload)
-      .eq('id_time', idTime)
-    if (error) {
-      alert('Não foi possível salvar os parâmetros agora.')
-      console.warn('[saveContext] erro:', error.message)
-      return
-    }
-    setEstadio((e) => (e ? ({ ...e, ...payload } as any) : e))
-    alert('✅ Parâmetros salvos!')
-  }
-
-  async function savePrices() {
-    if (!estadio) return
-    const payload: any = {}
-    ;(Object.keys(prices) as Sector[]).forEach((s) => (payload[`preco_${s}`] = prices[s]))
-    const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
-    if (error) {
-      console.warn('[savePrices] erro:', error.message)
-      alert('Não foi possível salvar os preços agora.')
-    } else {
-      alert('💾 Preços salvos!')
-      setEstadio({ ...(estadio as any), ...payload })
-    }
-  }
-
-  async function saveAll() {
-    // salva contexto + preços
-    await saveContext()
-    await savePrices()
   }
 
   async function upgradeLevel() {
@@ -425,7 +383,7 @@ export default function EstadioPage() {
       return alert('Não foi possível melhorar agora.')
     }
     alert('🏗️ Estádio evoluído com sucesso!')
-    setEstadio((e) => (e ? ({ ...e, nivel: novoNivel, capacidade: novaCapacidade } as any) : e))
+    setEstadio((e) => (e ? { ...e, nivel: novoNivel, capacidade: novaCapacidade } as any : e))
     setSaldo((s) => s - custo)
   }
 
@@ -461,20 +419,12 @@ export default function EstadioPage() {
           <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-bold">🎮 Contexto da Partida</h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={saveContext}
-                  className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
-                >
-                  Salvar parâmetros
-                </button>
-                <button
-                  onClick={saveAll}
-                  className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold"
-                >
-                  Salvar tudo
-                </button>
-              </div>
+              <button
+                onClick={saveContextOnly}
+                className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
+              >
+                Salvar parâmetros
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -591,18 +541,10 @@ export default function EstadioPage() {
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
               <h2 className="text-lg font-bold">💵 Preços por setor</h2>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setPrices(referencePrices(level))}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm"
-                >
-                  Ref. do nível
-                </button>
-                <button
-                  onClick={savePrices}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
-                >
-                  Salvar preços
-                </button>
+                <button onClick={() => setPrices(referencePrices(level))}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">Ref. do nível</button>
+                <button onClick={saveAll}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold">Salvar</button>
               </div>
             </div>
 
@@ -654,9 +596,7 @@ export default function EstadioPage() {
                 <button
                   onClick={() => setPreviewNight((v) => !v)}
                   className={`px-3 py-1.5 rounded-lg text-sm border ${
-                    previewNight
-                      ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300'
-                      : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                    previewNight ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300' : 'bg-zinc-800 border-zinc-700 text-zinc-300'
                   }`}
                 >
                   {previewNight ? '🌙 Noite' : '☀️ Dia'}
@@ -665,7 +605,7 @@ export default function EstadioPage() {
             </div>
 
             <p className="text-xs text-zinc-400 mt-1 mb-3">
-              Miniatura 3D. Evolução visual do “CT” → “Mega Arena” conforme o nível.
+              Miniatura 3D (sem orbit). Evolução visual do “CT” → “Mega Arena” conforme o nível.
             </p>
 
             <StadiumMini3D
@@ -711,7 +651,7 @@ export default function EstadioPage() {
             {/* dados rápidos do nível escolhido */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
               {(() => {
-                const item = projections.find((p) => p.lvl === previewLevel)
+                const item = projections.find(p => p.lvl === previewLevel)
                 if (!item) return null
                 const { cap, sim } = item
                 return (
@@ -732,12 +672,7 @@ export default function EstadioPage() {
           <section className="sticky top-6 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
             <h3 className="text-lg font-bold">📊 Resumo</h3>
             <div className="mt-3 space-y-2 text-sm">
-              <KV
-                k="Público total"
-                v={`${result.totalAudience.toLocaleString()} / ${result.totalCapacity.toLocaleString()} (${Math.round(
-                  result.occupancy * 100
-                )}%)`}
-              />
+              <KV k="Público total" v={`${result.totalAudience.toLocaleString()} / ${result.totalCapacity.toLocaleString()} (${Math.round(result.occupancy * 100)}%)`} />
               <KV k="Renda bruta" v={brl(result.totalRevenue)} />
               <KV k="Custos (fixos/var)" v={`${brl(result.fixedCost)} / ${brl(result.variableCost)}`} />
               <KV k="Renda líquida" v={brl(result.profit)} />
@@ -754,12 +689,8 @@ export default function EstadioPage() {
                 </p>
                 <p className="text-sm text-zinc-300">Custo: <b>{brl(UPGRADE_COST)}</b></p>
                 <p className="text-xs text-zinc-500 mt-1">Saldo: {brl(saldo)}</p>
-                <button
-                  onClick={upgradeLevel}
-                  className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold"
-                >
-                  Melhorar Estádio
-                </button>
+                <button onClick={upgradeLevel}
+                  className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold">Melhorar Estádio</button>
               </>
             ) : (
               <div className="text-green-400 font-semibold">🏆 Nível máximo alcançado</div>
@@ -815,7 +746,8 @@ function Toggle({ label, on, setOn }: { label: string; on: boolean; setOn: (v: b
       <button
         onClick={() => setOn(!on)}
         className={`px-3 py-2 rounded-lg text-sm border ${
-          on ? 'bg-emerald-600/20 border-emerald-600 text-emerald-300' : 'bg-zinc-900 border-zinc-700 text-zinc-300'
+          on ? 'bg-emerald-600/20 border-emerald-600 text-emerald-300'
+             : 'bg-zinc-900 border-zinc-700 text-zinc-300'
         }`}
       >
         {label}
@@ -840,11 +772,7 @@ function Select<T extends string>({
         onChange={(e) => onChange(e.target.value as T)}
         className="w-full border border-zinc-800 rounded-lg bg-zinc-900 px-2 py-2 text-sm outline-none"
       >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </label>
   )
@@ -914,7 +842,7 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
 }
 
-/* ====== Features visuais por nível (para a miniatura 3D) ====== */
+/* ====== Features visuais por nível ====== */
 function tiersForLevel(lvl: number) {
   if (lvl >= 9) return 3
   if (lvl >= 5) return 2
@@ -937,4 +865,4 @@ function screensForLevel(lvl: number) {
   if (lvl >= 8) return 2
   if (lvl >= 5) return 1
   return 0
-}`
+}
