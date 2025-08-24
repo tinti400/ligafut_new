@@ -1,215 +1,198 @@
 'use client'
 
-import { Canvas, ThreeEvent } from '@react-three/fiber'
-import { OrbitControls, Environment, Html } from '@react-three/drei'
-import { useMemo } from 'react'
+import React, { Suspense, useMemo, useRef } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-export type Stadium3DProps = {
-  level: number            // 1..10
-  night?: boolean
-  primaryColor?: string    // cor do clube para detalhes
+export type StadiumMini3DProps = {
+  level: number
+  night: boolean
+  roofProgress: number   // 0..1
+  tierCount: number      // 1..3
+  lightsCount: number    // 0..6
+  screens: number        // 0..2
+  width?: number
+  height?: number
+  autoRotate?: boolean
 }
 
-export default function StadiumMini3D({ level, night = false, primaryColor = '#22c55e' }: Stadium3DProps) {
-  // features por nível
-  const tiers = level >= 9 ? 3 : level >= 5 ? 2 : 1
-  const roofK = level >= 9 ? 1 : level >= 7 ? 0.75 : level >= 5 ? 0.5 : level >= 3 ? 0.25 : 0.05
-  const lights = level >= 9 ? 6 : level >= 6 ? 4 : level >= 3 ? 2 : 0
-  const screens = level >= 8 ? 2 : level >= 5 ? 1 : 0
+function Rotator({ children, speed = 0.003, enable = true }: { children: React.ReactNode; speed?: number; enable?: boolean }) {
+  const ref = useRef<THREE.Group>(null!)
+  useFrame(() => {
+    if (!enable) return
+    ref.current.rotation.y += speed
+  })
+  return <group ref={ref}>{children}</group>
+}
 
-  const seatColor = new THREE.Color(primaryColor).lerp(new THREE.Color('#8b949e'), 0.4).getStyle()
-  const roofColor = '#dadde3'
-  const roofBeam = '#a0a6b1'
-  const concrete = '#9aa3ad'
-  const track = '#4b5563'
-  const grass = '#1f8b3f'
-  const line = '#e5e7eb'
+function Ground({ night }: { night: boolean }) {
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={[0, -0.01, 0]} receiveShadow>
+      <planeGeometry args={[20, 20]} />
+      <meshStandardMaterial color={night ? '#0b3b19' : '#1f8b3f'} />
+    </mesh>
+  )
+}
 
-  // dimensões base
-  const fieldW = 60
-  const fieldH = 38
-  const pad = 10
+function Pitch() {
+  return (
+    <mesh position={[0, 0.01, 0]} rotation-x={-Math.PI / 2} receiveShadow>
+      <planeGeometry args={[8, 4.8]} />
+      <meshStandardMaterial color="#1ca64a" />
+    </mesh>
+  )
+}
 
-  const standData = useMemo(() => {
-    const arr: { w: number; h: number; d: number; x: number; z: number; rotY: number }[] = []
-    // quatro lados, cada um com "tiers" anéis (empilhados atrás)
-    const depthPerTier = 6
-    const heightPerTier = 4.5
-    const gap = 1.5
-    const baseW = fieldW + pad * 2
-    const baseH = fieldH + pad * 2
+function Bowl({ tierCount, level }: { tierCount: number; level: number }) {
+  // Raio e altura variam levemente com o nível
+  const baseR = useMemo(() => 3.5 + Math.min(3, level * 0.25), [level])
+  const h = 0.3
 
-    for (let t = 0; t < tiers; t++) {
-      const back = t * (depthPerTier + gap)
-      const h = heightPerTier
-      const d = depthPerTier
+  const tiers = Array.from({ length: tierCount }).map((_, i) => {
+    const rTop = baseR - i * 0.35
+    const rBot = rTop * 0.82
+    const y = 0.15 + i * (h + 0.08)
+    const color = i % 2 === 0 ? '#9ca3af' : '#6b7280'
+    return (
+      <mesh key={i} position={[0, y, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[rTop, rBot, h, 48]} />
+        <meshStandardMaterial color={color} metalness={0.2} roughness={0.7} />
+      </mesh>
+    )
+  })
 
-      // norte (atrás do gol)
-      arr.push({ w: baseW, h, d, x: 0, z: -(baseH / 2 + d / 2 + back), rotY: 0 })
-      // sul
-      arr.push({ w: baseW, h, d, x: 0, z: (baseH / 2 + d / 2 + back), rotY: Math.PI })
-      // leste
-      arr.push({ w: baseH, h, d, x: (baseW / 2 + d / 2 + back), z: 0, rotY: -Math.PI / 2 })
-      // oeste
-      arr.push({ w: baseH, h, d, x: -(baseW / 2 + d / 2 + back), z: 0, rotY: Math.PI / 2 })
-    }
-    return arr
-  }, [tiers])
+  return <group>{tiers}</group>
+}
 
-  const roofPieces = useMemo(() => {
-    const pieces: { w: number; t: number; l: number; x: number; z: number; rotY: number }[] = []
-    const wN = (fieldW + pad * 2) * roofK
-    const lE = (fieldH + pad * 2) * roofK
-    const t = 0.6
-    const hUp = 8 + tiers * 3.5
-
-    // norte
-    pieces.push({ w: wN, t, l: 6, x: 0, z: -(fieldH / 2 + pad + 7), rotY: 0 })
-    // sul
-    pieces.push({ w: wN, t, l: 6, x: 0, z: (fieldH / 2 + pad + 7), rotY: Math.PI })
-    // leste
-    pieces.push({ w: lE, t, l: 6, x: (fieldW / 2 + pad + 7), z: 0, rotY: -Math.PI / 2 })
-    // oeste
-    pieces.push({ w: lE, t, l: 6, x: -(fieldW / 2 + pad + 7), z: 0, rotY: Math.PI / 2 })
-
-    return { pieces, hUp }
-  }, [roofK, tiers, fieldW, fieldH, pad])
-
-  const lightPoints = useMemo(() => {
-    const pts = [
-      { x: fieldW / 2 + pad + 12, z: fieldH / 2 + pad + 12 },
-      { x: -(fieldW / 2 + pad + 12), z: fieldH / 2 + pad + 12 },
-      { x: fieldW / 2 + pad + 12, z: -(fieldH / 2 + pad + 12) },
-      { x: -(fieldW / 2 + pad + 12), z: -(fieldH / 2 + pad + 12) },
-      { x: 0, z: fieldH / 2 + pad + 16 },
-      { x: 0, z: -(fieldH / 2 + pad + 16) },
-    ].slice(0, lights)
-    return pts
-  }, [lights, fieldW, fieldH, pad])
-
-  const screenRects = useMemo(() => {
-    const arr = [
-      { x: 0, y: 8 + tiers * 2.5, z: -(fieldH / 2 + pad + 8), w: 18, h: 10, rotY: 0 },
-      { x: 0, y: 8 + tiers * 2.5, z: (fieldH / 2 + pad + 8), w: 18, h: 10, rotY: Math.PI },
-    ].slice(0, screens)
-    return arr
-  }, [screens, tiers, fieldH, pad])
+function Roof({ progress = 0, level }: { progress: number; level: number }) {
+  if (progress <= 0.01) return null
+  const inner = 2.6 + Math.min(2, level * 0.12)
+  const outer = inner + 0.6
+  const theta = Math.min(Math.PI * 2, Math.max(0.05, Math.PI * 2 * progress))
 
   return (
-    <div className="w-full h-72 md:h-96 rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950">
-      <Canvas camera={{ position: [90, 80, 90], fov: 40 }}>
-        {/* ambiente / luz */}
-        <ambientLight intensity={night ? 0.25 : 0.6} />
-        <directionalLight position={[50, 100, 20]} intensity={night ? 0.25 : 0.8} castShadow />
-        <Environment preset="city" />
+    <group position={[0, 0.65 + level * 0.02, 0]}>
+      <mesh rotation-x={-Math.PI / 2} receiveShadow castShadow>
+        {/* RingGeometry(innerRadius, outerRadius, thetaSegments, phiSegments, thetaStart, thetaLength) */}
+        <ringGeometry args={[inner, outer, 96, 1, 0, theta]} />
+        <meshStandardMaterial color="#d4d4d8" side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  )
+}
 
-        {/* gramado */}
-        <group position={[0, 0, 0]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-            <planeGeometry args={[fieldW + pad * 4, fieldH + pad * 4]} />
-            <meshStandardMaterial color={grass} />
-          </mesh>
-
-          {/* linhas simples */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
-            <planeGeometry args={[fieldW, fieldH]} />
-            <meshBasicMaterial color={grass} />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}>
-            <planeGeometry args={[0.3, fieldH]} />
-            <meshBasicMaterial color={line} />
-          </mesh>
-
-          {/* pista/entorno */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
-            <ringGeometry args={[Math.max(fieldW, fieldH) * 0.6, Math.max(fieldW, fieldH) * 0.78, 64]} />
-            <meshStandardMaterial color={track} side={THREE.DoubleSide} />
-          </mesh>
-        </group>
-
-        {/* arquibancadas */}
-        <group position={[0, 0, 0]}>
-          {standData.map((s, i) => (
-            <group key={i} position={[s.x, 0, s.z]} rotation={[0, s.rotY, 0]}>
-              {/* base inclinada */}
-              <mesh position={[0, s.h / 2, 0]} rotation={[-0.45, 0, 0]} castShadow>
-                <boxGeometry args={[s.w, s.h, s.d]} />
-                <meshStandardMaterial color={concrete} />
-              </mesh>
-              {/* assentos (faixa colorida) */}
-              <mesh position={[0, s.h + 0.2, -s.d * 0.2]} rotation={[-0.45, 0, 0]}>
-                <boxGeometry args={[s.w * 0.9, 0.5, s.d * 0.6]} />
-                <meshStandardMaterial color={seatColor} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-
-        {/* cobertura */}
-        <group position={[0, roofPieces.hUp, 0]}>
-          {roofPieces.pieces.map((r, i) => (
-            <group key={i} position={[r.x, 0, r.z]} rotation={[0, r.rotY, 0]}>
-              <mesh position={[0, 0, 0]}>
-                <boxGeometry args={[r.w, r.t, r.l]} />
-                <meshStandardMaterial color={roofColor} />
-              </mesh>
-              {/* vigas */}
-              <mesh position={[0, -1.2, 0]}>
-                <boxGeometry args={[r.w * 0.95, 0.25, r.l * 0.9]} />
-                <meshStandardMaterial color={roofBeam} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-
-        {/* refletores */}
-        <group>
-          {lightPoints.map((p, i) => (
-            <group key={i} position={[p.x, 0, p.z]}>
-              <mesh position={[0, 10 + tiers * 2, 0]}>
-                <cylinderGeometry args={[0.25, 0.25, 20, 8]} />
-                <meshStandardMaterial color="#b8c2cc" />
-              </mesh>
-              <pointLight
-                position={[0, 21 + tiers * 2, 0]}
-                intensity={night ? 2.5 : 0.6}
-                distance={80}
-                color={night ? '#fff5b1' : '#ffffff'}
-                castShadow
-              />
-              <mesh position={[0, 21 + tiers * 2, 0]}>
-                <sphereGeometry args={[0.8, 16, 16]} />
-                <meshBasicMaterial color={night ? '#ffe16b' : '#e2e8f0'} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-
-        {/* telões */}
-        <group>
-          {screenRects.map((s, i) => (
-            <group key={i} position={[s.x, s.y, s.z]} rotation={[0, s.rotY, 0]}>
-              <mesh>
-                <boxGeometry args={[s.w, s.h, 0.6]} />
-                <meshStandardMaterial color="#0f172a" />
-              </mesh>
-              {/* brilho */}
-              <mesh position={[0, 0, 0.31]}>
-                <planeGeometry args={[s.w * 0.9, s.h * 0.7]} />
-                <meshBasicMaterial color={night ? '#22d3ee' : '#7dd3fc'} transparent opacity={night ? 0.6 : 0.35} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-
-        {/* chão base */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
-          <planeGeometry args={[200, 200]} />
-          <meshStandardMaterial color={night ? '#0b1020' : '#0b1324'} />
+function LightPoles({ count, night }: { count: number; night: boolean }) {
+  if (count <= 0) return null
+  const radius = 4.2
+  const poles = Array.from({ length: count }).map((_, i) => {
+    const ang = (i / count) * Math.PI * 2
+    const x = Math.cos(ang) * radius
+    const z = Math.sin(ang) * radius
+    const color = night ? '#ffe16b' : '#cbd5e1'
+    return (
+      <group key={i} position={[x, 0, z]} rotation-y={-ang}>
+        <mesh position={[0, 0.8, 0]} castShadow>
+          <cylinderGeometry args={[0.04, 0.04, 1.6, 12]} />
+          <meshStandardMaterial color="#94a3b8" />
         </mesh>
+        <mesh position={[0, 1.7, 0]} castShadow>
+          <sphereGeometry args={[0.09, 16, 16]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+        {night && (
+          <pointLight
+            position={[0, 1.7, 0]}
+            intensity={2.2}
+            distance={6}
+            color={color}
+          />
+        )}
+      </group>
+    )
+  })
+  return <group>{poles}</group>
+}
 
-        <OrbitControls enablePan={false} maxPolarAngle={Math.PI / 2.2} minDistance={80} maxDistance={140} />
+function Screens({ count }: { count: number }) {
+  if (count <= 0) return null
+  const items = []
+  const radius = 3.3
+  const heights = [0.9, 0.4]
+  const sizes = [
+    { w: 1.2, h: 0.6 },
+    { w: 0.9, h: 0.45 },
+  ]
+
+  for (let i = 0; i < count; i++) {
+    const ang = (i === 0 ? 0 : Math.PI) // frente e trás
+    const x = Math.cos(ang) * radius
+    const z = Math.sin(ang) * radius
+    const y = heights[i] || 0.9
+    const { w, h } = sizes[i] || sizes[0]
+    items.push(
+      <group key={i} position={[x, y, z]} rotation-y={-ang}>
+        <mesh castShadow>
+          <boxGeometry args={[w, h, 0.04]} />
+          <meshStandardMaterial color="#111827" />
+        </mesh>
+        <mesh position={[0, 0, 0.022]}>
+          <planeGeometry args={[w * 0.92, h * 0.8]} />
+          <meshBasicMaterial color="#22d3ee" transparent opacity={0.5} />
+        </mesh>
+      </group>
+    )
+  }
+  return <group>{items}</group>
+}
+
+export default function StadiumMini3D({
+  level,
+  night,
+  roofProgress,
+  tierCount,
+  lightsCount,
+  screens,
+  width = 220,
+  height = 160,
+  autoRotate = true,
+}: StadiumMini3DProps) {
+  const bg = night ? '#0b1020' : '#0b1324'
+  const ambientI = night ? 0.2 : 0.6
+  const dirI = night ? 0.4 : 0.9
+
+  return (
+    <div style={{ width: '100%', height }}>
+      <Canvas
+        shadows
+        camera={{ position: [4.5, 3.2, 5.2], fov: 38 }}
+        gl={{ antialias: true, alpha: true }}
+      >
+        {/* Fundo */}
+        <color attach="background" args={[bg]} />
+        <fog attach="fog" args={[bg, 12, 22]} />
+
+        {/* Luzes */}
+        <ambientLight intensity={ambientI} />
+        <directionalLight
+          position={[6, 8, 4]}
+          intensity={dirI}
+          castShadow
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
+        />
+
+        <Suspense fallback={null}>
+          <Rotator enable={autoRotate}>
+            <group position={[0, 0, 0]}>
+              <Ground night={night} />
+              <Pitch />
+              <Bowl tierCount={tierCount} level={level} />
+              <Roof progress={roofProgress} level={level} />
+              <LightPoles count={lightsCount} night={night} />
+              <Screens count={screens} />
+            </group>
+          </Rotator>
+        </Suspense>
       </Canvas>
     </div>
   )
