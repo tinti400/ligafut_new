@@ -13,7 +13,11 @@ import {
   optimizePrices,
   type EstadioContext,
   type PriceMap,
-} from '@/utils/estadioEngine'
+} from '@/utils/estadioEngine' // se não tiver alias, use '../../utils/estadioEngine'
+
+// ===== Constantes
+const UPGRADE_COST = 150_000_000 // custo fixo de evolução: 150 mi
+const GROWTH_PER_LEVEL = 1.12     // crescimento de capacidade por nível
 
 // ===== Supabase
 const supabase = createClient(
@@ -28,7 +32,7 @@ type EstadioRow = {
   nivel: number
   capacidade: number
   [k: `preco_${string}`]: number | any
-  // opcionais (se tiver na tabela; se não, seguimos sem persistir)
+  // opcionais
   socio_percentual?: number | null
   socio_preco?: number | null
   infra_score?: number | null
@@ -36,10 +40,7 @@ type EstadioRow = {
 
 export default function EstadioPage() {
   const [estadio, setEstadio] = useState<EstadioRow | null>(null)
-  const [prices, setPrices] = useState<PriceMap>(() => {
-    const ref = referencePrices(1)
-    return { ...ref }
-  })
+  const [prices, setPrices] = useState<PriceMap>(() => ({ ...referencePrices(1) }))
   const [saldo, setSaldo] = useState(0)
 
   // contexto
@@ -71,38 +72,37 @@ export default function EstadioPage() {
     const { data } = await supabase.from('estadios').select('*').eq('id_time', idTime).maybeSingle()
 
     if (!data) {
-      // cria com padrão
-      const ref = referencePrices(1)
+      const refLvl1 = referencePrices(1)
       const novo: EstadioRow = {
         id_time: idTime,
         nome: nomeTime ? `Estádio ${nomeTime}` : 'Estádio LigaFut',
         nivel: 1,
         capacidade: 18000,
-        ...Object.fromEntries((Object.keys(sectorProportion) as Sector[]).map((s) => [`preco_${s}`, ref[s]])),
+        ...Object.fromEntries((Object.keys(sectorProportion) as Sector[]).map((s) => [`preco_${s}`, refLvl1[s]])),
         socio_percentual: 15,
         socio_preco: 25,
         infra_score: 55,
       }
       await supabase.from('estadios').insert(novo)
       setEstadio(novo)
-      setPrices({ ...ref })
+      setPrices({ ...refLvl1 })
       setSociosPct(15)
       setSociosPreco(25)
       setInfraScore(55)
       return
     }
 
-    const lvl = Math.max(1, Math.min(NIVEL_MAXIMO, Number(data.nivel || 1)))
+    const lvl = clamp(Number(data.nivel || 1), 1, NIVEL_MAXIMO)
     const patch: Partial<EstadioRow> = {}
-    const ref = referencePrices(lvl)
-    const loaded: PriceMap = { ...ref }
+    const refLvl = referencePrices(lvl)
+    const loaded: PriceMap = { ...refLvl }
 
     ;(Object.keys(sectorProportion) as Sector[]).forEach((s) => {
       const col = `preco_${s}` as const
       const v = Number((data as any)[col])
       if (!Number.isFinite(v) || v <= 0) {
-        patch[col] = ref[s]
-        loaded[s] = ref[s]
+        patch[col] = refLvl[s]
+        loaded[s] = refLvl[s]
       } else {
         loaded[s] = v
       }
@@ -115,7 +115,6 @@ export default function EstadioPage() {
     setEstadio(data as EstadioRow)
     setPrices(loaded)
 
-    // extras (se existirem)
     if (typeof data.socio_percentual === 'number') setSociosPct(data.socio_percentual || 0)
     if (typeof data.socio_preco === 'number') setSociosPreco(data.socio_preco || 0)
     if (typeof data.infra_score === 'number') setInfraScore(data.infra_score || 50)
@@ -127,13 +126,11 @@ export default function EstadioPage() {
   }
 
   async function loadMorais() {
-    // moral técnica baseada em pontos atuais (se quiser mantém sua lógica antiga)
     const { data: c } = await supabase.from('classificacao').select('pontos').eq('id_time', idTime).maybeSingle()
     if (c?.pontos != null) {
       const pts = Number(c.pontos) || 0
-      const mt = clamp(4 + Math.min(6, pts / 10), 0, 10) // simples: ~4..10
+      const mt = clamp(4 + Math.min(6, pts / 10), 0, 10)
       setMoraleTec(mt)
-      // tenta persistir (se houver coluna)
       await supabase.from('times').update({ moral_tecnico: mt }).eq('id', idTime)
     }
     const { data: t } = await supabase.from('times').select('moral_torcida').eq('id', idTime).maybeSingle()
@@ -143,7 +140,7 @@ export default function EstadioPage() {
   // ======= helpers
   const level = estadio?.nivel ?? 1
   const capacity = estadio?.capacidade ?? 10000
-  const ref = referencePrices(level)
+  const refPrices = referencePrices(level)
   const limits = priceLimits(level)
 
   const ctx: EstadioContext = useMemo(
@@ -169,6 +166,24 @@ export default function EstadioPage() {
 
   const result = useMemo(() => simulate(capacity, prices, ctx), [capacity, prices, ctx])
 
+  // Projeção por nível (1..10) – para a maquete
+  const baseCapL1 = useMemo(() => {
+    const est = Math.round(capacity / Math.pow(GROWTH_PER_LEVEL, level - 1))
+    return Math.max(1000, est)
+  }, [capacity, level])
+
+  const projections = useMemo(() => {
+    const arr: { lvl: number; cap: number; sim: ReturnType<typeof simulate> }[] = []
+    for (let lvl = 1; lvl <= NIVEL_MAXIMO; lvl++) {
+      const cap = Math.round(baseCapL1 * Math.pow(GROWTH_PER_LEVEL, lvl - 1))
+      const pricesRef = referencePrices(lvl)
+      const ctxLvl: EstadioContext = { ...ctx, level: lvl }
+      const sim = simulate(cap, pricesRef, ctxLvl)
+      arr.push({ lvl, cap, sim })
+    }
+    return arr
+  }, [baseCapL1, ctx])
+
   // ======= ações
   function setPrice(s: Sector, v: number) {
     setPrices((p) => ({ ...p, [s]: clamp(Math.round(v || 0), 1, limits[s]) }))
@@ -178,7 +193,6 @@ export default function EstadioPage() {
     if (!estadio) return
     const payload: any = {}
     ;(Object.keys(prices) as Sector[]).forEach((s) => (payload[`preco_${s}`] = prices[s]))
-    // extras se existir no schema
     payload.socio_percentual = sociosPct
     payload.socio_preco = sociosPreco
     payload.infra_score = infraScore
@@ -206,12 +220,12 @@ export default function EstadioPage() {
   async function upgradeLevel() {
     if (!estadio) return
     if (level >= NIVEL_MAXIMO) return alert('Nível máximo atingido.')
-    // custo de upgrade simples (você pode plugar seu cálculo antigo)
-    const custo = Math.round(250000 + 150000 * level)
+
+    const custo = UPGRADE_COST
     if (saldo < custo) return alert('💸 Saldo insuficiente para evoluir o estádio.')
 
     const novoNivel = level + 1
-    const novaCapacidade = Math.round(capacity * 1.12) // +12% por nível (ajuste à vontade)
+    const novaCapacidade = Math.round(capacity * GROWTH_PER_LEVEL)
 
     const { error: e1 } = await supabase
       .from('estadios')
@@ -249,9 +263,10 @@ export default function EstadioPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <KPI label="Público" value={`${result.totalAudience.toLocaleString()} / ${result.totalCapacity.toLocaleString()}`} />
-            <KPI label="Lucro estimado" value={brl(result.profit)} />
+            <KPI label="Renda bruta" value={brl(result.totalRevenue)} />
+            <KPI label="Renda líquida" value={brl(result.profit)} />
           </div>
         </div>
       </div>
@@ -314,8 +329,18 @@ export default function EstadioPage() {
             </div>
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-zinc-300">
               <div>🎟️ Ocupação: <b>{Math.round(result.occupancy * 100)}%</b></div>
-              <div>💸 Receita: <b>{brl(result.totalRevenue)}</b></div>
+              <div>💰 Renda bruta: <b>{brl(result.totalRevenue)}</b></div>
               <div>📉 Custos: <b>{brl(result.totalCost)} (Fixos {brl(result.fixedCost)} / Var {brl(result.variableCost)})</b></div>
+            </div>
+          </section>
+
+          {/* Finanças detalhadas */}
+          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-3">💰 Finanças da Partida</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <MoneyCard title="Renda bruta" value={brl(result.totalRevenue)} subtitle="Ingressos pagantes + sócios" />
+              <MoneyCard title="Custos totais" value={brl(result.totalCost)} subtitle={`Fixos ${brl(result.fixedCost)} • Variáveis ${brl(result.variableCost)}`} />
+              <MoneyCard title="Renda líquida" value={brl(result.profit)} subtitle="Bruta − Custos" />
             </div>
           </section>
 
@@ -337,7 +362,7 @@ export default function EstadioPage() {
                 const lim = limits[sector]
                 const seats = Math.floor(capacity * sectorProportion[sector])
                 const row = result.perSector.find((r) => r.sector === sector)!
-                const refPrice = referencePrices(level)[sector]
+                const refPrice = refPrices[sector]
 
                 return (
                   <div key={sector} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
@@ -362,11 +387,52 @@ export default function EstadioPage() {
                       <div>🎫 Pagantes: <b>{row.paidSeats.toLocaleString()}</b></div>
                       <div>🪪 Sócios: <b>{row.sociosSeats.toLocaleString()}</b></div>
                       <div>🏁 Ocupação: <b>{Math.round(row.occupancy * 100)}%</b></div>
-                      <div>💰 Receita setor: <b>{brl(row.revenuePaid + row.revenueSocios)}</b></div>
+                      <div>💵 Renda setor: <b>{brl(row.revenuePaid + row.revenueSocios)}</b></div>
                     </div>
                   </div>
                 )
               })}
+            </div>
+          </section>
+
+          {/* Maquete / Projeção visual */}
+          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+            <h2 className="text-lg font-bold mb-3">🧱 Maquete do Estádio (Níveis 1 → {NIVEL_MAXIMO})</h2>
+            <p className="text-xs text-zinc-400 mb-3">
+              Cada miniatura usa preços de referência e o contexto atual para simular público, custos e renda. Visual evolui de “CT” até “Mega Arena”.
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+              {projections.map(({ lvl, cap, sim }) => (
+                <MiniCard key={lvl} active={lvl === level}>
+                  <StadiumMiniature
+                    level={lvl}
+                    night={dayTime === 'noite'}
+                    roofProgress={roofProgressForLevel(lvl)}
+                    tierCount={tiersForLevel(lvl)}
+                    lightsCount={lightsForLevel(lvl)}
+                    screens={screensForLevel(lvl)}
+                  />
+                  <div className="mt-2 text-xs text-zinc-300 flex items-center justify-between">
+                    <span className="font-semibold">Nível {lvl}</span>
+                    <span>{cap.toLocaleString()} lugares</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-400">
+                    Público: <b className="text-zinc-200">{sim.totalAudience.toLocaleString()}</b> •
+                    Ocup.: <b className="text-zinc-200">{Math.round(sim.occupancy * 100)}%</b>
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-400">
+                    Bruta: <b className="text-zinc-200">{brl(sim.totalRevenue)}</b>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-400">
+                    Custos: <b className="text-zinc-200">{brl(sim.totalCost)}</b>
+                  </div>
+                  <div className="mt-0.5 text-[11px]">
+                    <span className={`font-semibold ${sim.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      Líquida: {brl(sim.profit)}
+                    </span>
+                  </div>
+                </MiniCard>
+              ))}
             </div>
           </section>
         </div>
@@ -377,9 +443,9 @@ export default function EstadioPage() {
             <h3 className="text-lg font-bold">📊 Resumo</h3>
             <div className="mt-3 space-y-2 text-sm">
               <KV k="Público total" v={`${result.totalAudience.toLocaleString()} / ${result.totalCapacity.toLocaleString()} (${Math.round(result.occupancy * 100)}%)`} />
-              <KV k="Receita total" v={brl(result.totalRevenue)} />
+              <KV k="Renda bruta" v={brl(result.totalRevenue)} />
               <KV k="Custos (fixos/var)" v={`${brl(result.fixedCost)} / ${brl(result.variableCost)}`} />
-              <KV k="Lucro" v={brl(result.profit)} />
+              <KV k="Renda líquida" v={brl(result.profit)} />
             </div>
           </section>
 
@@ -389,9 +455,9 @@ export default function EstadioPage() {
               <>
                 <p className="text-sm text-zinc-300 mt-1">
                   Próximo nível: <b>{level + 1}</b> • Capacidade estimada:{' '}
-                  <b>{Math.round(capacity * 1.12).toLocaleString()}</b>
+                  <b>{Math.round(capacity * GROWTH_PER_LEVEL).toLocaleString()}</b>
                 </p>
-                <p className="text-sm text-zinc-300">Custo: <b>{brl(250000 + 150000 * level)}</b></p>
+                <p className="text-sm text-zinc-300">Custo: <b>{brl(UPGRADE_COST)}</b></p>
                 <p className="text-xs text-zinc-500 mt-1">Saldo: {brl(saldo)}</p>
                 <button onClick={upgradeLevel}
                   className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold">Melhorar Estádio</button>
@@ -406,12 +472,186 @@ export default function EstadioPage() {
   )
 }
 
+/* ====== Maquete SVG ====== */
+function StadiumMiniature({
+  level,
+  night,
+  roofProgress, // 0..1
+  tierCount,    // 1..3
+  lightsCount,  // 0..6
+  screens,      // 0..2
+}: {
+  level: number
+  night: boolean
+  roofProgress: number
+  tierCount: number
+  lightsCount: number
+  screens: number
+}) {
+  // dimensões básicas
+  const W = 220
+  const H = 130
+
+  // altura de arquibancada por nível
+  const standH = 18 + level * 5
+  const pad = 10
+
+  // cores base
+  const grass = '#1f8b3f'
+  const dirt = '#4b5563'
+  const stand = '#9ca3af'
+  const standDark = '#6b7280'
+  const roof = '#d4d4d8'
+  const roofDark = '#a1a1aa'
+  const pole = '#94a3b8'
+  const lightOn = night ? '#ffe16b' : '#cbd5e1'
+  const screen = '#111827'
+  const screenGlow = '#22d3ee'
+
+  // helpers geom
+  function tier(y: number, scaleX = 1) {
+    const baseW = (W - pad * 2) * scaleX
+    const x1 = (W - baseW) / 2
+    const y1 = y
+    const x2 = W - x1
+    const y2 = y + standH
+    return `M ${x1} ${y2} L ${x1 + 8} ${y1} L ${x2 - 8} ${y1} L ${x2} ${y2} Z`
+  }
+
+  const tiers = []
+  const tiersGap = 6
+  for (let i = 0; i < tierCount; i++) {
+    tiers.push(tier(20 + i * (standH + tiersGap), 1 - i * 0.1))
+  }
+
+  // cobertura (progresso cobre do 0 ao total)
+  const roofY = 18
+  const roofX1 = 22
+  const roofX2 = W - roofX1
+  const roofW = roofX2 - roofX1
+  const roofCoverW = roofW * roofProgress
+
+  // postes de luz
+  const lightPositions = [
+    { x: 22, y: 12 },
+    { x: W - 22, y: 12 },
+    { x: 60, y: 8 },
+    { x: W - 60, y: 8 },
+    { x: 100, y: 6 },
+    { x: W - 100, y: 6 },
+  ].slice(0, lightsCount)
+
+  // telões
+  const screenPositions = [
+    { x: W / 2 - 28, y: 6, w: 56, h: 10 },
+    { x: W / 2 - 20, y: H - 20, w: 40, h: 8 },
+  ].slice(0, screens)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+      {/* Céu */}
+      <rect x="0" y="0" width={W} height={H} fill={night ? '#0b1020' : '#0b1324'} opacity={night ? 0.9 : 0.6} />
+
+      {/* Gramado */}
+      <rect x={pad} y={H - 38} width={W - pad * 2} height={24} fill={grass} stroke="#0f172a" strokeWidth="1" />
+      {/* Linha central */}
+      <rect x={W / 2 - 1} y={H - 38} width="2" height="24" fill="#e5e7eb" opacity="0.6" />
+
+      {/* Pista/entorno */}
+      <rect x={pad - 4} y={H - 14} width={W - (pad - 4) * 2} height={8} fill={dirt} opacity="0.8" />
+
+      {/* Arquibancadas (camadas) */}
+      {tiers.map((d, i) => (
+        <path key={i} d={d} fill={i % 2 === 0 ? stand : standDark} stroke="#0f172a" strokeWidth="1" opacity={0.95 - i * 0.05} />
+      ))}
+
+      {/* Cobertura */}
+      <g>
+        <rect x={roofX1} y={roofY} width={roofW} height="8" fill={roofDark} opacity="0.6" />
+        <rect x={roofX1} y={roofY} width={roofCoverW} height="8" fill={roof} />
+      </g>
+
+      {/* Postes e luzes */}
+      {lightPositions.map((p, i) => (
+        <g key={i}>
+          <rect x={p.x - 1.2} y={p.y} width="2.4" height={H - p.y - 20} fill={pole} />
+          <circle cx={p.x} cy={p.y} r="4" fill={lightOn} opacity={night ? 1 : 0.7} />
+          {night && <circle cx={p.x} cy={p.y} r="8" fill={lightOn} opacity="0.25" />}
+        </g>
+      ))}
+
+      {/* Telões */}
+      {screenPositions.map((s, i) => (
+        <g key={i}>
+          <rect x={s.x} y={s.y} width={s.w} height={s.h} fill={screen} stroke="#374151" strokeWidth="1" />
+          <rect x={s.x + 3} y={s.y + 3} width={s.w - 6} height={s.h - 6} fill={screenGlow} opacity={night ? 0.5 : 0.25} />
+        </g>
+      ))}
+
+      {/* Fachada / base */}
+      <rect x={pad - 6} y={H - 10} width={W - (pad - 6) * 2} height="6" fill="#374151" />
+    </svg>
+  )
+}
+
+/* ====== Lógica de features por nível ====== */
+function tiersForLevel(lvl: number) {
+  if (lvl >= 9) return 3
+  if (lvl >= 5) return 2
+  return 1
+}
+
+function roofProgressForLevel(lvl: number) {
+  if (lvl >= 9) return 1
+  if (lvl >= 7) return 0.75
+  if (lvl >= 5) return 0.5
+  if (lvl >= 3) return 0.25
+  return 0.05 // quase sem cobertura, “CTzão”
+}
+
+function lightsForLevel(lvl: number) {
+  if (lvl >= 9) return 6
+  if (lvl >= 6) return 4
+  if (lvl >= 3) return 2
+  return 0
+}
+
+function screensForLevel(lvl: number) {
+  if (lvl >= 8) return 2
+  if (lvl >= 5) return 1
+  return 0
+}
+
 /* ====== UI helpers ====== */
 function KPI({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
       <div className="text-xs uppercase tracking-wider text-zinc-400">{label}</div>
       <div className="text-lg font-bold">{value}</div>
+    </div>
+  )
+}
+
+function MoneyCard({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
+      <div className="text-xs uppercase tracking-wider text-zinc-400">{title}</div>
+      <div className="text-lg font-bold">{value}</div>
+      {subtitle && <div className="text-xs text-zinc-500 mt-1">{subtitle}</div>}
+    </div>
+  )
+}
+
+function MiniCard({ children, active }: { children: React.ReactNode; active?: boolean }) {
+  return (
+    <div
+      className={`rounded-2xl border p-3 transition-all ${
+        active
+          ? 'border-emerald-500/70 bg-emerald-500/5 shadow-sm'
+          : 'border-zinc-800 bg-zinc-950/40 hover:bg-zinc-900/60'
+      }`}
+    >
+      {children}
     </div>
   )
 }
