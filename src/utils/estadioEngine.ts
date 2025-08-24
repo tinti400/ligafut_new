@@ -1,4 +1,6 @@
+// utils/estadioEngine.ts
 export type Sector = 'popular' | 'norte' | 'sul' | 'leste' | 'oeste' | 'camarote'
+
 export const NIVEL_MAXIMO = 10
 
 // Proporção de lugares por setor (soma ~1)
@@ -11,7 +13,7 @@ export const sectorProportion: Record<Sector, number> = {
   camarote: 0.05,
 }
 
-// Custo variável médio por torcedor (limpeza, segurança leve por setor, insumos)
+// Custo variável médio por torcedor (limpeza, segurança, operação)
 export const variableCostPerSector: Record<Sector, number> = {
   popular: 6,
   norte: 7,
@@ -44,6 +46,7 @@ const priceLimitMult: Record<Sector, number> = {
 export function brl(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Math.round(v))
 }
+
 export function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
 }
@@ -59,6 +62,7 @@ export function referencePrices(level: number): Record<Sector, number> {
     camarote: Math.round(baseRef.camarote * mult),
   }
 }
+
 export function priceLimits(level: number): Record<Sector, number> {
   const ref = referencePrices(level)
   return Object.fromEntries(
@@ -80,13 +84,14 @@ export type EstadioContext = {
   opponentStrength: number // 0..100
   moraleTec: number // 0..10
   moraleTor: number // 0..100
-  sociosPct: number // % lugares p/ sócios (0..50)
-  sociosPreco: number
+  sociosPct: number // % dos lugares reservados p/ sócios (0..50)
+  sociosPreco: number // preço do ingresso de sócio
   infraScore: number // 0..100
   level: number // 1..NIVEL_MAXIMO
 }
 
 type SegmentId = 'pop' | 'familia' | 'turista' | 'corp'
+
 type Segment = {
   id: SegmentId
   share: number
@@ -96,10 +101,34 @@ type Segment = {
 }
 
 const segments: Segment[] = [
-  { id: 'pop', share: 0.40, priceK: 0.95, comfortK: 0.45, attraction: { popular: 1, norte: 0.9, sul: 0.9, leste: 0.55, oeste: 0.5, camarote: 0.15 } },
-  { id: 'familia', share: 0.30, priceK: 0.75, comfortK: 0.85, attraction: { popular: 0.6, norte: 0.7, sul: 0.7, leste: 1, oeste: 0.9, camarote: 0.25 } },
-  { id: 'turista', share: 0.20, priceK: 0.55, comfortK: 0.65, attraction: { popular: 0.45, norte: 0.55, sul: 0.55, leste: 0.9, oeste: 1, camarote: 0.5 } },
-  { id: 'corp', share: 0.10, priceK: 0.35, comfortK: 0.95, attraction: { popular: 0.05, norte: 0.05, sul: 0.05, leste: 0.4, oeste: 0.7, camarote: 1 } },
+  {
+    id: 'pop',
+    share: 0.40,
+    priceK: 0.95,
+    comfortK: 0.45,
+    attraction: { popular: 1, norte: 0.9, sul: 0.9, leste: 0.55, oeste: 0.5, camarote: 0.15 },
+  },
+  {
+    id: 'familia',
+    share: 0.30,
+    priceK: 0.75,
+    comfortK: 0.85,
+    attraction: { popular: 0.6, norte: 0.7, sul: 0.7, leste: 1, oeste: 0.9, camarote: 0.25 },
+  },
+  {
+    id: 'turista',
+    share: 0.20,
+    priceK: 0.55,
+    comfortK: 0.65,
+    attraction: { popular: 0.45, norte: 0.55, sul: 0.55, leste: 0.9, oeste: 1, camarote: 0.5 },
+  },
+  {
+    id: 'corp',
+    share: 0.10,
+    priceK: 0.35,
+    comfortK: 0.95,
+    attraction: { popular: 0.05, norte: 0.05, sul: 0.05, leste: 0.4, oeste: 0.7, camarote: 1 },
+  },
 ]
 
 function baseInterest(ctx: EstadioContext) {
@@ -114,29 +143,12 @@ function baseInterest(ctx: EstadioContext) {
   return clamp(0.65 * imp * derby * opp * mt * tor * clima * dia * hora, 0.3, 1.6)
 }
 
-// Custos fixos por jogo (sobe com nível e infra)
-function fixedCost(ctx: EstadioContext) {
+// custos fixos por jogo (sobe com nível e infra)
+function fixedCostParts(ctx: EstadioContext) {
   const base = 45000
-  const lv = 18000 * (ctx.level - 1)
+  const level = 18000 * (ctx.level - 1)
   const infra = 900 * clamp(ctx.infraScore, 0, 100)
-  return base + lv + infra
-}
-
-// Custo operacional (escala com público) — policiais, staff, energia, limpeza
-function operationalCost(audience: number, ctx: EstadioContext) {
-  const A = Math.max(0, audience)
-  const kDerby = ctx.derby ? 1.30 : 1.0
-  const kImp = ctx.importance === 'final' ? 1.25 : ctx.importance === 'decisao' ? 1.15 : 1.0
-  const kNoite = ctx.dayTime === 'noite' ? 1.08 : 1.0
-  const kChuva = ctx.weather === 'chuva' ? 1.05 : 1.0
-  const kNivel = 1 + 0.15 * (ctx.level - 1) // arenas maiores encarecem operação
-
-  const police   = (8000 + 3.2 * A) * kDerby * kImp
-  const staff    = (0.9  * A) * kNivel
-  const energy   = (6000 + 0.9 * A) * kNoite * kChuva
-  const cleaning = 0.65 * A
-
-  return Math.round((police + staff + energy + cleaning) * 1.0) // margem extra
+  return { base, level, infra, total: base + level + infra }
 }
 
 export type PriceMap = Record<Sector, number>
@@ -153,15 +165,22 @@ export type SectorResult = {
   variableCost: number
 }
 
+export type CostBreakdown = {
+  fixed: { base: number; level: number; infra: number; total: number }
+  variable: { bySector: Record<Sector, number>; perSpectatorAvg: number; total: number }
+}
+
 export type SimulationResult = {
   perSector: SectorResult[]
   totalAudience: number
   totalCapacity: number
   totalRevenue: number
+  revenueTickets: number
+  revenueSocios: number
   totalCost: number
-  variableCost: number          // soma dos custos variáveis por setor (pessoa)
+  variableCost: number
   fixedCost: number
-  operationalCost: number       // custo operacional que cresce com o público
+  costs: CostBreakdown
   profit: number
   avgTicket: number
   occupancy: number
@@ -181,19 +200,25 @@ export function simulate(
 
   // capacidade por setor
   const seats: Record<Sector, number> = Object.fromEntries(
-    (Object.keys(sectorProportion) as Sector[]).map((s) => [s, Math.floor(capacity * sectorProportion[s])])
+    (Object.keys(sectorProportion) as Sector[]).map((s) => [
+      s,
+      Math.floor(capacity * sectorProportion[s]),
+    ])
   ) as Record<Sector, number>
 
   // sócios (reserva)
   const totalSocios = Math.floor(capacity * clamp(ctx.sociosPct, 0, 50) / 100)
   const sociosDist = sociosDistribution()
   const sociosSeats: Record<Sector, number> = Object.fromEntries(
-    (Object.keys(seats) as Sector[]).map((s) => [s, Math.min(Math.floor(totalSocios * sociosDist[s]), seats[s])])
+    (Object.keys(seats) as Sector[]).map((s) =>
+      [s, Math.min(Math.floor(totalSocios * sociosDist[s]), seats[s])]
+    )
   ) as Record<Sector, number>
 
-  // demanda potencial por setor
+  // demanda potencial
   const infraBoost = 1 + 0.5 * (clamp(ctx.infraScore, 0, 100) / 100 - 0.5) // 0.75..1.25
-  const fanBase = capacity * (0.9 + 0.6 * clamp(ctx.opponentStrength, 0, 100) / 100) // ~0.9..1.5x
+  const fanBase = capacity * (0.9 + 0.6 * clamp(ctx.opponentStrength, 0, 100) / 100)
+
   const demandPotential: Record<Sector, number> = { popular: 0, norte: 0, sul: 0, leste: 0, oeste: 0, camarote: 0 }
 
   ;(Object.keys(seats) as Sector[]).forEach((sector) => {
@@ -211,12 +236,15 @@ export function simulate(
 
   // Alocação real
   const perSector: SectorResult[] = []
-  let totalPaidTickets = 0
+  let totalPaid = 0
   let totalRevenuePaid = 0
   let totalRevenueSocios = 0
   let totalVarCost = 0
   let totalSeats = 0
-  let totalAudience = 0
+
+  const varCostBySector: Record<Sector, number> = {
+    popular: 0, norte: 0, sul: 0, leste: 0, oeste: 0, camarote: 0
+  }
 
   ;(Object.keys(seats) as Sector[]).forEach((sector) => {
     const cap = seats[sector]
@@ -231,74 +259,110 @@ export function simulate(
     const vCost = (paidSeats + socios) * variableCostPerSector[sector]
 
     totalSeats += cap
-    totalPaidTickets += paidSeats
-    totalAudience += paidSeats + socios
+    totalPaid += paidSeats + socios
     totalRevenuePaid += revenuePaid
     totalRevenueSocios += revenueSoc
     totalVarCost += vCost
+    varCostBySector[sector] = vCost
 
     perSector.push({
-      sector, price, seats: cap, sociosSeats: socios, paidSeats,
+      sector,
+      price,
+      seats: cap,
+      sociosSeats: socios,
+      paidSeats,
       occupancy: (paidSeats + socios) / cap,
-      revenuePaid, revenueSocios: revenueSoc, variableCost: vCost,
+      revenuePaid,
+      revenueSocios: revenueSoc,
+      variableCost: vCost,
     })
   })
 
-  const F = fixedCost(ctx)
-  const O = operationalCost(totalAudience, ctx)
+  const Fparts = fixedCostParts(ctx)
+  const F = Fparts.total
   const totalRevenue = totalRevenuePaid + totalRevenueSocios
-  const totalCost = totalVarCost + F + O
+  const totalCost = totalVarCost + F
   const profit = totalRevenue - totalCost
-  const occupancy = totalSeats > 0 ? totalAudience / totalSeats : 0
-  const avgTicket = totalPaidTickets > 0 ? totalRevenuePaid / totalPaidTickets : 0
+  const occupancy = totalSeats > 0 ? totalPaid / totalSeats : 0
+
+  const avgTicket = totalPaid > 0 ? totalRevenuePaid / (totalPaid - (totalRevenueSocios > 0 ? totalRevenueSocios / (ctx.sociosPreco || 1) : 0)) : 0
 
   return {
     perSector,
-    totalAudience,
+    totalAudience: totalPaid,
     totalCapacity: totalSeats,
     totalRevenue,
+    revenueTickets: totalRevenuePaid,
+    revenueSocios: totalRevenueSocios,
     totalCost,
     variableCost: totalVarCost,
     fixedCost: F,
-    operationalCost: O,
+    costs: {
+      fixed: { base: Fparts.base, level: Fparts.level, infra: Fparts.infra, total: F },
+      variable: {
+        bySector: varCostBySector,
+        perSpectatorAvg: totalPaid > 0 ? totalVarCost / totalPaid : 0,
+        total: totalVarCost,
+      },
+    },
     profit,
-    avgTicket,
+    avgTicket: isFinite(avgTicket) ? avgTicket : 0,
     occupancy,
   }
 }
 
-export type OptimizeMode = 'maxProfit' | 'targetOccupancy'
+export type OptimizeMode = 'maxProfit' | 'targetOccupancy' | 'balanced'
+
+/**
+ * mode:
+ *  - 'maxProfit': maximiza lucro
+ *  - 'targetOccupancy': tenta bater meta (param = ocupação desejada, ex: 0.92)
+ *  - 'balanced': equilíbrio lucro x público (param = peso do público 0..1; 0.35 é um bom ponto)
+ */
 export function optimizePrices(
   capacity: number,
   current: PriceMap,
   ctx: EstadioContext,
   mode: OptimizeMode,
-  targetOcc: number = 0.92
+  param: number = mode === 'targetOccupancy' ? 0.92 : mode === 'balanced' ? 0.35 : 0
 ): PriceMap {
   const ref = referencePrices(ctx.level)
   const lim = priceLimits(ctx.level)
+
+  // grade de busca
   const multipliers = [0.6, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.3, 1.5, 1.7, 1.8]
 
   const sectors = Object.keys(sectorProportion) as Sector[]
-  let basePrices = { ...current }
 
+  let basePrices = { ...current }
   for (let pass = 0; pass < 2; pass++) {
     for (const s of sectors) {
-      let localBest = basePrices[s]
-      let localScore = -Infinity
+      let bestPrice = basePrices[s]
+      let bestScore = -Infinity
       for (const m of multipliers) {
         const trial = { ...basePrices, [s]: clamp(Math.round(ref[s] * m), 1, lim[s]) }
         const sim = simulate(capacity, trial, ctx)
-        const score = mode === 'maxProfit'
-          ? sim.profit
-          : -Math.abs(sim.occupancy - targetOcc) * 1e6 + sim.profit * 0.001
-        if (score > localScore) {
-          localScore = score
-          localBest = trial[s]
+
+        let score: number
+        if (mode === 'maxProfit') {
+          score = sim.profit
+        } else if (mode === 'targetOccupancy') {
+          const targetOcc = param
+          score = -Math.abs(sim.occupancy - targetOcc) * 1e6 + sim.profit * 0.001
+        } else {
+          // balanced: pondera lucro e público (escala pública ~120 por pessoa)
+          const w = clamp(param, 0, 1)
+          score = sim.profit + w * 120 * sim.totalAudience
+        }
+
+        if (score > bestScore) {
+          bestScore = score
+          bestPrice = trial[s]
         }
       }
-      basePrices[s] = localBest
+      basePrices[s] = bestPrice
     }
   }
+
   return basePrices
 }
