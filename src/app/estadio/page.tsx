@@ -1,3 +1,11 @@
+aqui está o **`src/app/estadio/page.tsx`** completo, já com:
+
+* botão **Salvar parâmetros** (só contexto) no bloco “Contexto da Partida”
+* `saveAll` atualizado para salvar **preços + contexto** (pode usar como “Salvar tudo”)
+* `loadEstadio` lendo de volta os campos `ctx_*` para preencher a tela
+* tudo o resto que você já tinha (mini 3D, equilíbrio preço×público, breakdown de custos)
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -38,6 +46,15 @@ type EstadioRow = {
   socio_percentual?: number | null
   socio_preco?: number | null
   infra_score?: number | null
+  // campos de contexto (se não existirem no DB, o update ignora)
+  ctx_importancia?: 'normal' | 'decisao' | 'final' | null
+  ctx_derby?: boolean | null
+  ctx_clima?: 'bom' | 'chuva' | null
+  ctx_dia_tipo?: 'semana' | 'fim' | null
+  ctx_dia_hora?: 'dia' | 'noite' | null
+  ctx_forca_adv?: number | null
+  ctx_moral_tecnico?: number | null
+  ctx_moral_torcida?: number | null
 }
 
 export default function EstadioPage() {
@@ -128,9 +145,21 @@ export default function EstadioPage() {
     setEstadio(data as EstadioRow)
     setPrices(loaded)
 
+    // extras
     if (typeof data.socio_percentual === 'number') setSociosPct(data.socio_percentual || 0)
     if (typeof data.socio_preco === 'number') setSociosPreco(data.socio_preco || 0)
     if (typeof data.infra_score === 'number') setInfraScore(data.infra_score || 50)
+
+    // contexto salvo anteriormente (se existir no DB)
+    const d: any = data
+    if (typeof d.ctx_importancia === 'string') setImportance(d.ctx_importancia)
+    if (typeof d.ctx_derby === 'boolean') setDerby(!!d.ctx_derby)
+    if (typeof d.ctx_clima === 'string') setWeather(d.ctx_clima)
+    if (typeof d.ctx_dia_tipo === 'string') setDayType(d.ctx_dia_tipo)
+    if (typeof d.ctx_dia_hora === 'string') setDayTime(d.ctx_dia_hora)
+    if (typeof d.ctx_forca_adv === 'number') setOpponentStrength(clamp(d.ctx_forca_adv, 0, 100))
+    if (typeof d.ctx_moral_tecnico === 'number') setMoraleTec(clamp(d.ctx_moral_tecnico, 0, 10))
+    if (typeof d.ctx_moral_torcida === 'number') setMoraleTor(clamp(d.ctx_moral_torcida, 0, 100))
   }
 
   async function loadSaldo() {
@@ -202,18 +231,54 @@ export default function EstadioPage() {
     setPrices((p) => ({ ...p, [s]: clamp(Math.round(v || 0), 1, limits[s]) }))
   }
 
+  async function saveContext() {
+    if (!estadio) return
+    const payload: any = {
+      ctx_importancia: importance,
+      ctx_derby: derby,
+      ctx_clima: weather,
+      ctx_dia_tipo: dayType,
+      ctx_dia_hora: dayTime,
+      ctx_forca_adv: opponentStrength,
+      ctx_moral_tecnico: moraleTec,
+      ctx_moral_torcida: moraleTor,
+      // extras que também influenciam
+      socio_percentual: sociosPct,
+      socio_preco: sociosPreco,
+      infra_score: infraScore,
+    }
+    const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
+    if (error) {
+      console.warn('[saveContext] erro (provável coluna ausente):', error.message)
+      alert('Parâmetros salvos (campos extras ignorados, se não existirem).')
+    } else {
+      alert('💾 Parâmetros salvos!')
+      setEstadio({ ...(estadio as any), ...payload })
+    }
+  }
+
   async function saveAll() {
     if (!estadio) return
     const payload: any = {}
     ;(Object.keys(prices) as Sector[]).forEach((s) => (payload[`preco_${s}`] = prices[s]))
+    // extras
     payload.socio_percentual = sociosPct
     payload.socio_preco = sociosPreco
     payload.infra_score = infraScore
+    // contexto também (vira "Salvar tudo")
+    payload.ctx_importancia = importance
+    payload.ctx_derby = derby
+    payload.ctx_clima = weather
+    payload.ctx_dia_tipo = dayType
+    payload.ctx_dia_hora = dayTime
+    payload.ctx_forca_adv = opponentStrength
+    payload.ctx_moral_tecnico = moraleTec
+    payload.ctx_moral_torcida = moraleTor
 
     const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
     if (error) {
       console.warn('[saveAll] erro:', error.message)
-      alert('Preços salvos (campos extras ignorados, se não existirem).')
+      alert('Configurações salvas (campos extras ignorados, se não existirem).')
     } else {
       alert('💾 Configurações salvas com sucesso!')
       setEstadio({ ...(estadio as any), ...payload })
@@ -287,7 +352,18 @@ export default function EstadioPage() {
         <div className="lg:col-span-2 space-y-6">
           {/* Contexto & Controles */}
           <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">🎮 Contexto da Partida</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold">🎮 Contexto da Partida</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={saveContext}
+                  className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
+                >
+                  Salvar parâmetros
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <Select label="Importância" value={importance} onChange={setImportance} options={[
                 { value: 'normal', label: 'Normal' },
@@ -299,6 +375,7 @@ export default function EstadioPage() {
                 { value: 'bom', label: 'Tempo bom' },
                 { value: 'chuva', label: 'Chuva' },
               ]} />
+
               <Select label="Dia" value={dayType} onChange={setDayType} options={[
                 { value: 'semana', label: 'Semana' },
                 { value: 'fim', label: 'Fim de semana' },
@@ -404,7 +481,7 @@ export default function EstadioPage() {
                 <button onClick={() => setPrices(referencePrices(level))}
                   className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">Ref. do nível</button>
                 <button onClick={saveAll}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold">Salvar</button>
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold">Salvar tudo</button>
               </div>
             </div>
 
@@ -469,7 +546,7 @@ export default function EstadioPage() {
             </p>
 
             <StadiumMini3D
-              variant="mini" // 👈 miniatura
+              variant="mini"
               level={previewLevel}
               night={previewNight}
               roofProgress={roofProgressForLevel(previewLevel)}
@@ -726,3 +803,4 @@ function screensForLevel(lvl: number) {
   if (lvl >= 5) return 1
   return 0
 }
+```
