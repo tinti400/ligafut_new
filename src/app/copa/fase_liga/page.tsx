@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
-import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import {
   FiRotateCcw, FiSave, FiTrash2, FiTarget,
   FiMinus, FiPlus, FiChevronDown, FiChevronUp
@@ -40,7 +39,8 @@ type TimeFull = {
 }
 
 /* ================= REGRAS FINANCEIRAS ================= */
-const TAXA_POR_JOGO = 10_000_000
+/** Estes valores também são passados ao RPC para manter tudo consistente */
+const TAXA_POR_JOGO = 10_000_000           // bônus de participação
 const BONUS_VITORIA = 15_000_000
 const BONUS_EMPATE = 7_500_000
 const BONUS_DERROTA = 5_000_000
@@ -49,7 +49,6 @@ const PENALIDADE_GOL_SOFRIDO = 160_000
 
 /* ================= SWISS CONFIG ================= */
 const ROUNDS = 8
-const ADVERSARIOS_POR_POTE = 2
 const CASA_MAX = 4
 const FORA_MAX = 4
 
@@ -292,43 +291,59 @@ export default function FaseLigaAdminPage() {
 
   async function salvarPlacar(jogo: Jogo) {
     setSalvandoId(jogo.id)
-    const { data: existente, error: erroVer } = await supabase.from('copa_fase_liga').select('bonus_pago').eq('id', jogo.id).single()
+
+    // evita pagar 2x
+    const { data: existente, error: erroVer } =
+      await supabase.from('copa_fase_liga').select('bonus_pago').eq('id', jogo.id).single()
     if (erroVer) { toast.error('Erro ao verificar status do jogo'); setSalvandoId(null); return }
     if (existente?.bonus_pago) { toast.error('❌ Pagamento já efetuado para esse jogo!'); setSalvandoId(null); return }
 
-    const { error: erroPlacar } = await supabase.from('copa_fase_liga').update({ gols_time1: jogo.gols_time1, gols_time2: jogo.gols_time2 }).eq('id', jogo.id)
+    // salva placar
+    const { error: erroPlacar } = await supabase
+      .from('copa_fase_liga')
+      .update({ gols_time1: jogo.gols_time1, gols_time2: jogo.gols_time2 })
+      .eq('id', jogo.id)
     if (erroPlacar) { toast.error('Erro ao salvar placar!'); setSalvandoId(null); return }
 
+    // atualiza classificação
     await atualizarClassificacao()
-    const { error: erroPago } = await supabase.from('copa_fase_liga').update({ bonus_pago: true }).eq('id', jogo.id)
-    if (erroPago) { toast.error('Erro ao travar pagamento!'); setSalvandoId(null); return }
 
-    const time1Id = jogo.time1, time2Id = jogo.time2
-    const g1 = jogo.gols_time1 ?? 0, g2 = jogo.gols_time2 ?? 0
-    let bonus1 = BONUS_EMPATE, bonus2 = BONUS_EMPATE
-    if (g1 > g2) { bonus1 = BONUS_VITORIA; bonus2 = BONUS_DERROTA }
-    else if (g2 > g1) { bonus1 = BONUS_DERROTA; bonus2 = BONUS_VITORIA }
+    // paga via RPC (participação + desempenho + gols) E marca bonus_pago=true
+    const { data: pagamentos, error: erroRpc } = await supabase.rpc('pagar_premios_partida', {
+      _jogo_id: jogo.id,
+      _taxa: TAXA_POR_JOGO,
+      _bonus_vitoria: BONUS_VITORIA,
+      _bonus_empate: BONUS_EMPATE,
+      _bonus_derrota: BONUS_DERROTA,
+      _premio_gol_marcado: PREMIO_GOL_MARCADO,
+      _multa_gol_sofrido: PENALIDADE_GOL_SOFRIDO,
+    })
 
-    const total1 = TAXA_POR_JOGO + bonus1 + (g1 * PREMIO_GOL_MARCADO) - (g2 * PENALIDADE_GOL_SOFRIDO)
-    const total2 = TAXA_POR_JOGO + bonus2 + (g2 * PREMIO_GOL_MARCADO) - (g1 * PENALIDADE_GOL_SOFRIDO)
+    if (erroRpc) {
+      console.error(erroRpc)
+      toast.error('Erro ao pagar participação/desempenho')
+      setSalvandoId(null)
+      return
+    }
 
-    await supabase.rpc('atualizar_saldo', { id_time: time1Id, valor: total1 })
-    await supabase.rpc('atualizar_saldo', { id_time: time2Id, valor: total2 })
-    await registrarMovimentacao({ id_time: time1Id, tipo: 'entrada', valor: total1, descricao: `Fase Liga (suíço): ${g1}x${g2}` })
-    await registrarMovimentacao({ id_time: time2Id, tipo: 'entrada', valor: total2, descricao: `Fase Liga (suíço): ${g2}x${g1}` })
+    const n1 = timesMap[jogo.time1]?.nome ?? 'Time 1'
+    const n2 = timesMap[jogo.time2]?.nome ?? 'Time 2'
+    const total1 = Number(pagamentos?.[0]?.total_time1 ?? 0)
+    const total2 = Number(pagamentos?.[0]?.total_time2 ?? 0)
 
-    const n1 = timesMap[time1Id]?.nome ?? 'Time 1'
-    const n2 = timesMap[time2Id]?.nome ?? 'Time 2'
-    let tag = '🤝 Empate'; if (g1>g2) tag=`🏆 Vitória de ${n1}`; else if (g2>g1) tag=`🏆 Vitória de ${n2}`
-    await supabase.from('bid').insert([{ tipo_evento:'Jogo', descricao:`${n1} ${g1}x${g2} ${n2} — ${tag} • 💰 Taxa por jogo: R$ ${TAXA_POR_JOGO.toLocaleString('pt-BR')}.`, id_time1: time1Id, id_time2: time2Id, valor:null }])
+    toast.success(`✅ Pagos! ${n1} +${total1.toLocaleString('pt-BR')} | ${n2} +${total2.toLocaleString('pt-BR')}`)
 
-    toast.success('✅ Placar salvo e pagamentos efetuados!')
+    // recarrega jogos para refletir bonus_pago=true
+    await buscarJogos()
     setSalvandoId(null)
   }
 
   async function excluirPlacar(jogo: Jogo) {
     setSalvandoId(jogo.id)
-    const { error } = await supabase.from('copa_fase_liga').update({ gols_time1: null, gols_time2: null, bonus_pago: false }).eq('id', jogo.id)
+    const { error } = await supabase
+      .from('copa_fase_liga')
+      .update({ gols_time1: null, gols_time2: null, bonus_pago: false })
+      .eq('id', jogo.id)
     if (error) toast.error('Erro ao excluir resultado!')
     else { await atualizarClassificacao(); toast.success('🗑️ Resultado excluído!'); await buscarJogos() }
     setSalvandoId(null)
