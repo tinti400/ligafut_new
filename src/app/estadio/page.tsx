@@ -16,11 +16,12 @@ import {
   type PriceMap,
 } from '@/utils/estadioEngine'
 
+// componente 3D
 const StadiumMini3D = dynamic(() => import('@/components/StadiumMini3D'), { ssr: false })
 
 // ===== Constantes
-const UPGRADE_COST = 150_000_000 // custo fixo de evolução: 150 mi
-const GROWTH_PER_LEVEL = 1.12     // crescimento de capacidade por nível
+const UPGRADE_COST = 150_000_000
+const GROWTH_PER_LEVEL = 1.12
 
 // ===== Supabase
 const supabase = createClient(
@@ -59,9 +60,12 @@ export default function EstadioPage() {
   const [sociosPreco, setSociosPreco] = useState(25)
   const [infraScore, setInfraScore] = useState(55)
 
-  // maquete 3D
+  // 3D
   const [previewLevel, setPreviewLevel] = useState(1)
   const [previewNight, setPreviewNight] = useState(false)
+
+  // equilíbrio preço x público (0..1)
+  const [balanceWeight, setBalanceWeight] = useState(0.35)
 
   const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
   const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') || '' : ''
@@ -175,7 +179,7 @@ export default function EstadioPage() {
 
   const result = useMemo(() => simulate(capacity, prices, ctx), [capacity, prices, ctx])
 
-  // Projeção por nível (1..10) – para dados rápidos da maquete
+  // Projeções (para os cards de info)
   const baseCapL1 = useMemo(() => {
     const est = Math.round(capacity / Math.pow(GROWTH_PER_LEVEL, level - 1))
     return Math.max(1000, est)
@@ -208,7 +212,7 @@ export default function EstadioPage() {
 
     const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
     if (error) {
-      console.warn('[saveAll] erro (provável coluna que não existe):', error.message)
+      console.warn('[saveAll] erro:', error.message)
       alert('Preços salvos (campos extras ignorados, se não existirem).')
     } else {
       alert('💾 Configurações salvas com sucesso!')
@@ -220,32 +224,30 @@ export default function EstadioPage() {
     const p = optimizePrices(capacity, prices, ctx, 'maxProfit')
     setPrices(p)
   }
-
   function autoPriceOccupancy(target = 0.92) {
     const p = optimizePrices(capacity, prices, ctx, 'targetOccupancy', target)
+    setPrices(p)
+  }
+  function autoPriceBalanced() {
+    const p = optimizePrices(capacity, prices, ctx, 'balanced', balanceWeight)
     setPrices(p)
   }
 
   async function upgradeLevel() {
     if (!estadio) return
     if (level >= NIVEL_MAXIMO) return alert('Nível máximo atingido.')
-
     const custo = UPGRADE_COST
     if (saldo < custo) return alert('💸 Saldo insuficiente para evoluir o estádio.')
-
     const novoNivel = level + 1
     const novaCapacidade = Math.round(capacity * GROWTH_PER_LEVEL)
-
     const { error: e1 } = await supabase
       .from('estadios')
       .update({ nivel: novoNivel, capacidade: novaCapacidade })
       .eq('id_time', idTime)
-
     const { error: e2 } = await supabase
       .from('times')
       .update({ saldo: saldo - custo })
       .eq('id', idTime)
-
     if (e1 || e2) {
       console.warn(e1?.message || e2?.message)
       return alert('Não foi possível melhorar agora.')
@@ -297,7 +299,6 @@ export default function EstadioPage() {
                 { value: 'bom', label: 'Tempo bom' },
                 { value: 'chuva', label: 'Chuva' },
               ]} />
-
               <Select label="Dia" value={dayType} onChange={setDayType} options={[
                 { value: 'semana', label: 'Semana' },
                 { value: 'fim', label: 'Fim de semana' },
@@ -320,7 +321,7 @@ export default function EstadioPage() {
             </div>
           </section>
 
-          {/* Sócios & metas */}
+          {/* Sócios & metas / Autopreços */}
           <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
             <h2 className="text-lg font-bold mb-3">👥 Sócios & Metas</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -331,11 +332,27 @@ export default function EstadioPage() {
                 <button onClick={() => autoPriceOccupancy(0.92)} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold">
                   Autopreço (Bater 92%)
                 </button>
-                <button onClick={() => autoPriceRevenue()} className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-sm font-semibold">
+                <button onClick={autoPriceRevenue} className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-sm font-semibold">
                   Autopreço (Max Lucro)
                 </button>
               </div>
             </div>
+
+            {/* equilíbrio preço x público */}
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mt-3">
+              <Slider
+                label={`Equilíbrio público × lucro: ${Math.round(balanceWeight * 100)}% público`}
+                min={0} max={1} step={0.01}
+                value={balanceWeight}
+                onChange={setBalanceWeight}
+              />
+              <div className="flex items-end">
+                <button onClick={autoPriceBalanced} className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-sm font-semibold">
+                  Autopreço (Equilíbrio)
+                </button>
+              </div>
+            </div>
+
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-zinc-300">
               <div>🎟️ Ocupação: <b>{Math.round(result.occupancy * 100)}%</b></div>
               <div>💰 Renda bruta: <b>{brl(result.totalRevenue)}</b></div>
@@ -343,13 +360,39 @@ export default function EstadioPage() {
             </div>
           </section>
 
-          {/* Finanças detalhadas */}
+          {/* Finanças / Custos detalhados */}
           <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
             <h2 className="text-lg font-bold mb-3">💰 Finanças da Partida</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <MoneyCard title="Renda bruta" value={brl(result.totalRevenue)} subtitle="Ingressos pagantes + sócios" />
+              <MoneyCard title="Renda bruta" value={brl(result.totalRevenue)} subtitle={`Ingressos ${brl(result.revenueTickets)} • Sócios ${brl(result.revenueSocios)}`} />
               <MoneyCard title="Custos totais" value={brl(result.totalCost)} subtitle={`Fixos ${brl(result.fixedCost)} • Variáveis ${brl(result.variableCost)}`} />
               <MoneyCard title="Renda líquida" value={brl(result.profit)} subtitle="Bruta − Custos" />
+            </div>
+
+            {/* custos detalhados */}
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                <div className="font-semibold mb-2">🧱 Custos fixos (descrição)</div>
+                <ul className="space-y-1 text-zinc-300">
+                  <li>• Base operacional: <b>{brl(result.costs.fixed.base)}</b></li>
+                  <li>• Acréscimo por nível: <b>{brl(result.costs.fixed.level)}</b></li>
+                  <li>• Qualidade/infraestrutura: <b>{brl(result.costs.fixed.infra)}</b></li>
+                  <li className="text-zinc-400 mt-1">Total fixos: <b className="text-zinc-200">{brl(result.costs.fixed.total)}</b></li>
+                </ul>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                <div className="font-semibold mb-2">👥 Custos variáveis (por setor)</div>
+                <ul className="space-y-1 text-zinc-300">
+                  {(Object.keys(sectorProportion) as Sector[]).map((s) => (
+                    <li key={s}>• {labelSector(s)}: <b>{brl(result.costs.variable.bySector[s])}</b></li>
+                  ))}
+                </ul>
+                <div className="text-xs text-zinc-400 mt-2">
+                  Média por espectador: <b className="text-zinc-300">{brl(result.costs.variable.perSpectatorAvg)}</b>
+                </div>
+                <div className="text-xs text-zinc-400">Total variáveis: <b className="text-zinc-300">{brl(result.costs.variable.total)}</b></div>
+              </div>
             </div>
           </section>
 
@@ -397,6 +440,7 @@ export default function EstadioPage() {
                       <div>🪪 Sócios: <b>{row.sociosSeats.toLocaleString()}</b></div>
                       <div>🏁 Ocupação: <b>{Math.round(row.occupancy * 100)}%</b></div>
                       <div>💵 Renda setor: <b>{brl(row.revenuePaid + row.revenueSocios)}</b></div>
+                      <div className="text-zinc-400">💼 Custo var. setor: <b className="text-zinc-300">{brl(row.variableCost)}</b></div>
                     </div>
                   </div>
                 )
@@ -404,7 +448,7 @@ export default function EstadioPage() {
             </div>
           </section>
 
-          {/* Maquete 3D / Projeção visual */}
+          {/* Maquete 3D / mini */}
           <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold">🏗️ Maquete 3D do Estádio</h2>
@@ -421,11 +465,11 @@ export default function EstadioPage() {
             </div>
 
             <p className="text-xs text-zinc-400 mt-1 mb-3">
-              Gire com o mouse/gestos. Evolução visual do “CT” → “Mega Arena” conforme o nível.
+              Miniatura 3D (sem orbit). Evolução visual do “CT” → “Mega Arena” conforme o nível.
             </p>
 
-            {/* >>> PROPS CORRETAS PARA O COMPONENTE 3D <<< */}
             <StadiumMini3D
+              variant="mini" // 👈 miniatura
               level={previewLevel}
               night={previewNight}
               roofProgress={roofProgressForLevel(previewLevel)}
@@ -658,7 +702,7 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
 }
 
-/* ====== Features visuais por nível (para o componente 3D) ====== */
+/* ====== Features visuais por nível ====== */
 function tiersForLevel(lvl: number) {
   if (lvl >= 9) return 3
   if (lvl >= 5) return 2
