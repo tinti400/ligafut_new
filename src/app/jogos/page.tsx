@@ -5,6 +5,16 @@ import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
 
+// 🔽 usa o motor do estádio para calcular público/renda reais
+import {
+  simulate,
+  referencePrices,
+  type Sector,
+  type PriceMap,
+  type EstadioContext,
+  sectorProportion,
+} from '@/utils/estadioEngine'
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -130,6 +140,71 @@ async function ajustarJogosElenco(timeId: string, delta: number) {
         .eq('id', j.id)
     )
   )
+}
+
+/** ========= Público & Renda com base no ESTÁDIO do mandante ========= */
+function asImportance(s: any): 'normal'|'decisao'|'final' {
+  return s === 'final' ? 'final' : s === 'decisao' ? 'decisao' : 'normal'
+}
+function asWeather(s: any): 'bom'|'chuva' {
+  return s === 'chuva' ? 'chuva' : 'bom'
+}
+function asDayType(s: any): 'semana'|'fim' {
+  return s === 'fim' ? 'fim' : 'semana'
+}
+function asDayTime(s: any): 'dia'|'noite' {
+  return s === 'dia' ? 'dia' : 'noite'
+}
+
+async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ publico: number; renda: number; erro?: string }> {
+  // pega configuração de estádio do mandante
+  const { data: est, error } = await supabase
+    .from('estadios')
+    .select('*')
+    .eq('id_time', mandanteId)
+    .maybeSingle()
+
+  if (error || !est) {
+    return {
+      publico: Math.floor(Math.random() * 30000) + 10000,
+      renda: (Math.floor(Math.random() * 30000) + 10000) * 80,
+      erro: 'Estádio não encontrado (usando fallback aleatório).'
+    }
+  }
+
+  const nivel = Number(est.nivel || 1)
+  const capacidade = Number(est.capacidade || 18000)
+
+  // preços por setor
+  const ref = referencePrices(nivel)
+  const prices: PriceMap = (Object.keys(sectorProportion) as Sector[]).reduce((acc, s) => {
+    const col = `preco_${s}`
+    const v = Number(est[col])
+    acc[s] = Number.isFinite(v) && v > 0 ? Math.round(v) : ref[s]
+    return acc
+  }, {} as PriceMap)
+
+  // contexto salvo no estádio (com defaults)
+  const ctx: EstadioContext = {
+    importance: asImportance(est.ctx_importancia),
+    derby: !!est.ctx_derby,
+    weather: asWeather(est.ctx_clima),
+    dayType: asDayType(est.ctx_dia),
+    dayTime: asDayTime(est.ctx_horario),
+    opponentStrength: Number.isFinite(Number(est.ctx_forca_adv)) ? Number(est.ctx_forca_adv) : 70,
+    moraleTec: Number.isFinite(Number(est.ctx_moral_tec)) ? Number(est.ctx_moral_tec) : 7.5,
+    moraleTor: Number.isFinite(Number(est.ctx_moral_tor)) ? Number(est.ctx_moral_tor) : 60,
+    sociosPct: Number.isFinite(Number(est.socio_percentual)) ? Number(est.socio_percentual) : 15,
+    sociosPreco: Number.isFinite(Number(est.socio_preco)) ? Number(est.socio_preco) : 25,
+    infraScore: Number.isFinite(Number(est.infra_score)) ? Number(est.infra_score) : 55,
+    level: nivel,
+  }
+
+  const sim = simulate(capacidade, prices, ctx)
+  return {
+    publico: Math.round(sim.totalAudience),
+    renda: Math.round(sim.totalRevenue),
+  }
 }
 
 /** ===================== Salários (com registro) ===================== */
@@ -307,12 +382,16 @@ export default function Jogos() {
     const jogo = novaLista[index]
     if (!jogo) { setIsSalvando(false); return }
 
-    const publico = Math.floor(Math.random() * 30000) + 10000
-    const precoMedio = 80
-    const renda = publico * precoMedio
-
     const mandanteId = jogo.mandante
     const visitanteId = jogo.visitante
+
+    // 🔥 público/renda via ESTÁDIO do mandante
+    const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
+    if (pr.erro) {
+      toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
+    }
+    const publico = pr.publico
+    const renda = pr.renda
 
     // receita: 95% mandante / 5% visitante
     const receitaMandante = renda * 0.95
@@ -324,7 +403,7 @@ export default function Jogos() {
     const salariosMandante = await descontarSalariosComRegistro(mandanteId)
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-    // premiação por desempenho (+50% via calcularPremiacao)
+    // premiação por desempenho (+50%)
     const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
     const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
@@ -350,7 +429,7 @@ export default function Jogos() {
     await ajustarJogosElenco(mandanteId, +1)
     await ajustarJogosElenco(visitanteId, +1)
 
-    // grava o jogo na rodada com todos os valores para estorno
+    // grava o jogo na rodada com os valores para estorno
     const gmNum = Number.isFinite(gm) ? gm : 0
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
@@ -382,10 +461,10 @@ export default function Jogos() {
 
     toast.success(
       `✅ Placar salvo! ${feitos}/${total} jogos desta rodada com placar.
-🎟️ Público: ${publico.toLocaleString()}  |  💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${receitaMandante.toLocaleString()} + bônus
-💵 ${visitanteNome}: R$ ${receitaVisitante.toLocaleString()} + bônus`,
-      { duration: 8000 }
+🎟️ Público (do estádio): ${publico.toLocaleString()}  |  💰 Renda (do estádio): R$ ${renda.toLocaleString()}
+💵 ${mandanteNome}: R$ ${Math.round(receitaMandante).toLocaleString()} + bônus
+💵 ${visitanteNome}: R$ ${Math.round(receitaVisitante).toLocaleString()} + bônus`,
+      { duration: 9000 }
     )
 
     setEditandoRodada(null)
@@ -762,4 +841,3 @@ export default function Jogos() {
     </div>
   )
 }
-
