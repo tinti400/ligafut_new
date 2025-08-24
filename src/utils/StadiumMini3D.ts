@@ -1,199 +1,104 @@
 'use client'
 
-import React, { Suspense, useMemo, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import * as THREE from 'three'
-
-export type StadiumMini3DProps = {
-  level: number
-  night: boolean
-  roofProgress: number   // 0..1
-  tierCount: number      // 1..3
-  lightsCount: number    // 0..6
-  screens: number        // 0..2
-  width?: number
-  height?: number
-  autoRotate?: boolean
-}
-
-function Rotator({ children, speed = 0.003, enable = true }: { children: React.ReactNode; speed?: number; enable?: boolean }) {
-  const ref = useRef<THREE.Group>(null!)
-  useFrame(() => {
-    if (!enable) return
-    ref.current.rotation.y += speed
-  })
-  return <group ref={ref}>{children}</group>
-}
-
-function Ground({ night }: { night: boolean }) {
-  return (
-    <mesh rotation-x={-Math.PI / 2} position={[0, -0.01, 0]} receiveShadow>
-      <planeGeometry args={[20, 20]} />
-      <meshStandardMaterial color={night ? '#0b3b19' : '#1f8b3f'} />
-    </mesh>
-  )
-}
-
-function Pitch() {
-  return (
-    <mesh position={[0, 0.01, 0]} rotation-x={-Math.PI / 2} receiveShadow>
-      <planeGeometry args={[8, 4.8]} />
-      <meshStandardMaterial color="#1ca64a" />
-    </mesh>
-  )
-}
-
-function Bowl({ tierCount, level }: { tierCount: number; level: number }) {
-  // Raio e altura variam levemente com o nível
-  const baseR = useMemo(() => 3.5 + Math.min(3, level * 0.25), [level])
-  const h = 0.3
-
-  const tiers = Array.from({ length: tierCount }).map((_, i) => {
-    const rTop = baseR - i * 0.35
-    const rBot = rTop * 0.82
-    const y = 0.15 + i * (h + 0.08)
-    const color = i % 2 === 0 ? '#9ca3af' : '#6b7280'
-    return (
-      <mesh key={i} position={[0, y, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[rTop, rBot, h, 48]} />
-        <meshStandardMaterial color={color} metalness={0.2} roughness={0.7} />
-      </mesh>
-    )
-  })
-
-  return <group>{tiers}</group>
-}
-
-function Roof({ progress = 0, level }: { progress: number; level: number }) {
-  if (progress <= 0.01) return null
-  const inner = 2.6 + Math.min(2, level * 0.12)
-  const outer = inner + 0.6
-  const theta = Math.min(Math.PI * 2, Math.max(0.05, Math.PI * 2 * progress))
-
-  return (
-    <group position={[0, 0.65 + level * 0.02, 0]}>
-      <mesh rotation-x={-Math.PI / 2} receiveShadow castShadow>
-        {/* RingGeometry(innerRadius, outerRadius, thetaSegments, phiSegments, thetaStart, thetaLength) */}
-        <ringGeometry args={[inner, outer, 96, 1, 0, theta]} />
-        <meshStandardMaterial color="#d4d4d8" side={THREE.DoubleSide} />
-      </mesh>
-    </group>
-  )
-}
-
-function LightPoles({ count, night }: { count: number; night: boolean }) {
-  if (count <= 0) return null
-  const radius = 4.2
-  const poles = Array.from({ length: count }).map((_, i) => {
-    const ang = (i / count) * Math.PI * 2
-    const x = Math.cos(ang) * radius
-    const z = Math.sin(ang) * radius
-    const color = night ? '#ffe16b' : '#cbd5e1'
-    return (
-      <group key={i} position={[x, 0, z]} rotation-y={-ang}>
-        <mesh position={[0, 0.8, 0]} castShadow>
-          <cylinderGeometry args={[0.04, 0.04, 1.6, 12]} />
-          <meshStandardMaterial color="#94a3b8" />
-        </mesh>
-        <mesh position={[0, 1.7, 0]} castShadow>
-          <sphereGeometry args={[0.09, 16, 16]} />
-          <meshBasicMaterial color={color} />
-        </mesh>
-        {night && (
-          <pointLight
-            position={[0, 1.7, 0]}
-            intensity={2.2}
-            distance={6}
-            color={color}
-          />
-        )}
-      </group>
-    )
-  })
-  return <group>{poles}</group>
-}
-
-function Screens({ count }: { count: number }) {
-  if (count <= 0) return null
-  const items = []
-  const radius = 3.3
-  const heights = [0.9, 0.4]
-  const sizes = [
-    { w: 1.2, h: 0.6 },
-    { w: 0.9, h: 0.45 },
-  ]
-
-  for (let i = 0; i < count; i++) {
-    const ang = (i === 0 ? 0 : Math.PI) // frente e trás
-    const x = Math.cos(ang) * radius
-    const z = Math.sin(ang) * radius
-    const y = heights[i] || 0.9
-    const { w, h } = sizes[i] || sizes[0]
-    items.push(
-      <group key={i} position={[x, y, z]} rotation-y={-ang}>
-        <mesh castShadow>
-          <boxGeometry args={[w, h, 0.04]} />
-          <meshStandardMaterial color="#111827" />
-        </mesh>
-        <mesh position={[0, 0, 0.022]}>
-          <planeGeometry args={[w * 0.92, h * 0.8]} />
-          <meshBasicMaterial color="#22d3ee" transparent opacity={0.5} />
-        </mesh>
-      </group>
-    )
-  }
-  return <group>{items}</group>
-}
-
 export default function StadiumMini3D({
   level,
   night,
-  roofProgress,
-  tierCount,
-  lightsCount,
-  screens,
-  width = 220,
-  height = 160,
-  autoRotate = true,
-}: StadiumMini3DProps) {
-  const bg = night ? '#0b1020' : '#0b1324'
-  const ambientI = night ? 0.2 : 0.6
-  const dirI = night ? 0.4 : 0.9
+  roofProgress, // 0..1
+  tierCount,    // 1..3
+  lightsCount,  // 0..6
+  screens,      // 0..2
+}: {
+  level: number
+  night: boolean
+  roofProgress: number
+  tierCount: number
+  lightsCount: number
+  screens: number
+}) {
+  const W = 220
+  const H = 130
+  const standH = 18 + level * 5
+  const pad = 10
+
+  const grass = '#1f8b3f'
+  const dirt = '#4b5563'
+  const stand = '#9ca3af'
+  const standDark = '#6b7280'
+  const roof = '#d4d4d8'
+  const roofDark = '#a1a1aa'
+  const pole = '#94a3b8'
+  const lightOn = night ? '#ffe16b' : '#cbd5e1'
+  const screen = '#111827'
+  const screenGlow = '#22d3ee'
+
+  function tier(y: number, scaleX = 1) {
+    const baseW = (W - pad * 2) * scaleX
+    const x1 = (W - baseW) / 2
+    const y1 = y
+    const x2 = W - x1
+    const y2 = y + standH
+    return `M ${x1} ${y2} L ${x1 + 8} ${y1} L ${x2 - 8} ${y1} L ${x2} ${y2} Z`
+  }
+
+  const tiers: string[] = []
+  const tiersGap = 6
+  for (let i = 0; i < tierCount; i++) {
+    tiers.push(tier(20 + i * (standH + tiersGap), 1 - i * 0.1))
+  }
+
+  const roofY = 18
+  const roofX1 = 22
+  const roofX2 = W - roofX1
+  const roofW = roofX2 - roofX1
+  const roofCoverW = roofW * roofProgress
+
+  const lightPositions = [
+    { x: 22, y: 12 },
+    { x: W - 22, y: 12 },
+    { x: 60, y: 8 },
+    { x: W - 60, y: 8 },
+    { x: 100, y: 6 },
+    { x: W - 100, y: 6 },
+  ].slice(0, lightsCount)
+
+  const screenPositions = [
+    { x: W / 2 - 28, y: 6, w: 56, h: 10 },
+    { x: W / 2 - 20, y: H - 20, w: 40, h: 8 },
+  ].slice(0, screens)
 
   return (
-    <div style={{ width: '100%', height }}>
-      <Canvas
-        shadows
-        camera={{ position: [4.5, 3.2, 5.2], fov: 38 }}
-        gl={{ antialias: true, alpha: true }}
-      >
-        {/* Fundo */}
-        <color attach="background" args={[bg]} />
-        <fog attach="fog" args={[bg, 12, 22]} />
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+      <rect x="0" y="0" width={W} height={H} fill={night ? '#0b1020' : '#0b1324'} opacity={night ? 0.9 : 0.6} />
 
-        {/* Luzes */}
-        <ambientLight intensity={ambientI} />
-        <directionalLight
-          position={[6, 8, 4]}
-          intensity={dirI}
-          castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
-        />
+      <rect x={pad} y={H - 38} width={W - pad * 2} height={24} fill={grass} stroke="#0f172a" strokeWidth="1" />
+      <rect x={W / 2 - 1} y={H - 38} width="2" height="24" fill="#e5e7eb" opacity="0.6" />
+      <rect x={pad - 4} y={H - 14} width={W - (pad - 4) * 2} height={8} fill={dirt} opacity="0.8" />
 
-        <Suspense fallback={null}>
-          <Rotator enable={autoRotate}>
-            <group position={[0, 0, 0]}>
-              <Ground night={night} />
-              <Pitch />
-              <Bowl tierCount={tierCount} level={level} />
-              <Roof progress={roofProgress} level={level} />
-              <LightPoles count={lightsCount} night={night} />
-              <Screens count={screens} />
-            </group>
-          </Rotator>
-        </Suspense>
-      </Canvas>
-    </div>
+      {tiers.map((d, i) => (
+        <path key={i} d={d} fill={i % 2 === 0 ? stand : standDark} stroke="#0f172a" strokeWidth="1" opacity={0.95 - i * 0.05} />
+      ))}
+
+      <g>
+        <rect x={roofX1} y={roofY} width={roofW} height="8" fill={roofDark} opacity="0.6" />
+        <rect x={roofX1} y={roofY} width={roofCoverW} height="8" fill={roof} />
+      </g>
+
+      {lightPositions.map((p, i) => (
+        <g key={i}>
+          <rect x={p.x - 1.2} y={p.y} width="2.4" height={H - p.y - 20} fill={pole} />
+          <circle cx={p.x} cy={p.y} r="4" fill={lightOn} opacity={night ? 1 : 0.7} />
+          {night && <circle cx={p.x} cy={p.y} r="8" fill={lightOn} opacity="0.25" />}
+        </g>
+      ))}
+
+      {screenPositions.map((s, i) => (
+        <g key={i}>
+          <rect x={s.x} y={s.y} width={s.w} height={s.h} fill={screen} stroke="#374151" strokeWidth="1" />
+          <rect x={s.x + 3} y={s.y + 3} width={s.w - 6} height={s.h - 6} fill={screenGlow} opacity={night ? 0.5 : 0.25} />
+        </g>
+      ))}
+
+      <rect x={pad - 6} y={H - 10} width={W - (pad - 6) * 2} height="6" fill="#374151" />
+    </svg>
   )
 }
