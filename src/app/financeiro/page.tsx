@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast, { Toaster } from 'react-hot-toast'
 
@@ -10,6 +10,7 @@ const supabase = createClient(
 )
 
 type Time = { id: string; nome: string }
+
 type Movimento = {
   id: string
   id_time: string
@@ -49,7 +50,7 @@ export default function Page() {
           💼 Painel Financeiro — Últimos 30 dias
         </h1>
         <p className="text-zinc-400 text-center mt-2">
-          Selecione um time para ver extrato detalhado com <em>Saldo Anterior</em> e <em>Saldo Atual</em>
+          Selecione um time para ver extrato com <em>Saldo Anterior</em> e <em>Saldo Atual</em>
         </p>
       </header>
 
@@ -89,7 +90,7 @@ export default function Page() {
 }
 
 function PainelFinanceiro({ id_time }: { id_time: string }) {
-  // Datas (últimos 30 dias, agora → local do navegador)
+  // Datas (últimos 30 dias, relativos ao agora)
   const { startISO, endISO, startLabel, endLabel } = useMemo(() => {
     const end = new Date()
     const start = new Date()
@@ -105,7 +106,7 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
 
   // Estados
   const [nomeTime, setNomeTime] = useState<string>('')
-  const [saldoAtual, setSaldoAtual] = useState<number>(0)
+  const [saldoAtual, setSaldoAtual] = useState<number>(0) // vem de public.times.saldo
   const [folhaSalarial, setFolhaSalarial] = useState<number>(0)
 
   const [movs, setMovs] = useState<Movimento[]>([])
@@ -132,6 +133,11 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
     debitos: 0,
   })
 
+  // Reset de página ao trocar time/busca
+  useEffect(() => {
+    setPagina(0)
+  }, [id_time, busca])
+
   useEffect(() => {
     let cancelado = false
     async function carregar() {
@@ -146,7 +152,7 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
         if (errT) throw errT
         if (cancelado) return
         setNomeTime(t?.nome || 'Time')
-        setSaldoAtual(Number(t?.saldo || 0))
+        setSaldoAtual(Number(t?.saldo || 0)) // <-- aqui é o caixa atual (fechamento real)
 
         // 2) Folha salarial atual (elenco)
         const { data: elenco } = await supabase
@@ -158,7 +164,7 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
           setFolhaSalarial(folha)
         }
 
-        // 3) Movimentações do período (últimos 30 dias)
+        // 3) Movimentações do período (últimos 30 dias) a partir da VIEW
         let query = supabase
           .from('v_movimentacoes_com_saldos')
           .select('*', { count: 'estimated' })
@@ -189,20 +195,16 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
         setMovs(movsPeriodo)
         setTotalMovs(count || 0)
 
-        // 4) Calcular abertura/fechamento do período
+        // 4) Abertura e Fechamento (fechamento SEMPRE = times.saldo)
         let abertura = 0
-        let fechamento = saldoAtual // por padrão
         if (movsPeriodo.length > 0) {
-          // para abertura: pegar a MAIS ANTIGA do período e usar saldo_antes dela
+          // abertura = saldo_antes da linha mais antiga do período
           const maisAntiga = [...movsPeriodo].sort(
             (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
           )[0]
           abertura = Number(maisAntiga.saldo_antes)
-          // para fechamento: pegar a MAIS RECENTE do período (ou saldoAtual, devem ser iguais)
-          const maisRecente = movsPeriodo[0]
-          fechamento = Number(maisRecente.saldo_apos)
         } else {
-          // Sem movimentos nos 30 dias: buscamos a última antes do início para abrir corretamente
+          // sem movimentos: pega a última linha ANTES do início para abrir
           const { data: rowAntes } = await supabase
             .from('v_movimentacoes_com_saldos')
             .select('saldo_apos, created_at')
@@ -212,16 +214,17 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
             .order('id', { ascending: false })
             .limit(1)
             .maybeSingle()
-
-          abertura = Number(rowAntes?.saldo_apos ?? saldoAtual)
-          fechamento = saldoAtual
+          abertura = Number(rowAntes?.saldo_apos ?? Number(t?.saldo || 0))
         }
+
+        const fechamento = Number(t?.saldo || 0) // <-- fechamento real (tabela times)
+
         if (!cancelado) {
           setSaldoAbertura(abertura)
           setSaldoFechamento(fechamento)
         }
 
-        // 5) KPIs a partir das linhas do período
+        // 5) KPIs por tipo (somente do período)
         const k = {
           vendas: 0,
           compras: 0,
@@ -241,8 +244,9 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
           if (tipo === 'venda') k.vendas += Math.max(0, v)
           if (tipo === 'compra') k.compras += Math.abs(Math.min(0, v))
           if (tipo === 'leilao') {
-            k.leiloes += Math.abs(Math.min(0, v))
-            k.compras += Math.abs(Math.min(0, v)) // leilão conta como compra
+            const out = Math.abs(Math.min(0, v))
+            k.leiloes += out
+            k.compras += out // leilão conta como compra
           }
           if (tipo === 'bonus') k.bonus_resultado += Math.max(0, v)
           if (tipo === 'bonus_gol') k.bonus_gols += Math.max(0, v)
@@ -250,15 +254,13 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
         }
         if (!cancelado) setKpis(k)
 
-        // 6) Checagem de consistência: abertura + (∑valores do período) deve = fechamento
-        const somaPeriodo =
-          movsPeriodo.reduce((acc, m) => acc + Number(m.valor || 0), 0) || 0
-        const fechamentoEsperado = (abertura ?? 0) + somaPeriodo
-        const diff = Math.abs(fechamentoEsperado - (fechamento ?? 0))
+        // 6) Consistência: abertura + (∑ valores do período) deve = times.saldo
+        const somaPeriodo = movsPeriodo.reduce((acc, m) => acc + Number(m.valor || 0), 0)
+        const diff = Math.abs((abertura + somaPeriodo) - fechamento)
         if (!cancelado) {
           setInconsistencia(diff)
           if (diff > 0.01) {
-            toast.error('⚠️ Inconsistência de saldo detectada no período (ver detalhes nos cards).')
+            toast.error('⚠️ Inconsistência de saldo detectada no período.')
           }
         }
       } catch (e: any) {
@@ -290,7 +292,7 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
             </p>
           </div>
           <div className="text-right">
-            <div className="text-xs text-zinc-400">Caixa atual</div>
+            <div className="text-xs text-zinc-400">Caixa atual (times.saldo)</div>
             <div className="text-xl font-semibold">{fmtBRL(saldoAtual)}</div>
           </div>
         </div>
@@ -301,10 +303,7 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
         <KpiCard title="Saldo de Abertura" value={fmtBRL(saldoAbertura)} />
         <KpiCard title="Créditos (30d)" value={fmtBRL(kpis.creditos)} positive />
         <KpiCard title="Débitos (30d)" value={fmtBRL(kpis.debitos)} negative />
-        <KpiCard
-          title="Saldo de Fechamento"
-          value={fmtBRL(saldoFechamento)}
-        />
+        <KpiCard title="Saldo de Fechamento (times.saldo)" value={fmtBRL(saldoFechamento)} />
       </div>
 
       {/* Consistência */}
@@ -320,7 +319,7 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
               {(kpis.creditos - kpis.debitos).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               {'  =  '}
               {(Number(saldoAbertura ?? 0) + (kpis.creditos - kpis.debitos)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              {'  •  Fechamento: '}
+              {'  •  Fechamento (times.saldo): '}
               {(saldoFechamento ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
             </div>
           </div>
@@ -369,7 +368,7 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
           >
             Exportar CSV
           </button>
-          <span className="text-xs text-zinc-500">Registros: {totalMovs} (estimado)</span>
+          <span className="text-xs text-zinc-500">Registros: {totalPaginas > 1 ? `${totalMovs} (estimado)` : `${movs.length}`}</span>
         </div>
       </div>
 
@@ -444,15 +443,22 @@ function PainelFinanceiro({ id_time }: { id_time: string }) {
   )
 }
 
-/* ---------- UI helpers ---------- */
-function KpiCard({ title, value, positive, negative }: { title: string; value: string; positive?: boolean; negative?: boolean }) {
+/* ---------- UI helpers (aceitam className) ---------- */
+function KpiCard({
+  title, value, positive, negative,
+}: { title: string; value: string; positive?: boolean; negative?: boolean }) {
   return (
-    <div className={`rounded-2xl p-4 border ${positive ? 'border-emerald-400/30 bg-emerald-400/10' : negative ? 'border-red-400/30 bg-red-400/10' : 'border-white/10 bg-white/5'}`}>
+    <div className={`rounded-2xl p-4 border ${
+      positive ? 'border-emerald-400/30 bg-emerald-400/10'
+      : negative ? 'border-red-400/30 bg-red-400/10'
+      : 'border-white/10 bg-white/5'
+    }`}>
       <div className="text-xs text-zinc-300/80">{title}</div>
       <div className="text-lg font-semibold mt-1">{value}</div>
     </div>
   )
 }
+
 function KpiMini({ title, value, emoji }: { title: string; value: string; emoji: string }) {
   return (
     <div className="rounded-2xl p-3 border border-white/10 bg-white/5">
@@ -461,12 +467,27 @@ function KpiMini({ title, value, emoji }: { title: string; value: string; emoji:
     </div>
   )
 }
-function Th({ children, align }: { children: any; align?: 'left' | 'right' }) {
-  return <th className={`py-3 px-4 ${align === 'right' ? 'text-right' : ''}`}>{children}</th>
+
+function Th({
+  children, align, className,
+}: { children: ReactNode; align?: 'left' | 'right'; className?: string }) {
+  return (
+    <th className={`py-3 px-4 ${align === 'right' ? 'text-right' : ''} ${className ?? ''}`}>
+      {children}
+    </th>
+  )
 }
-function Td({ children, align, colSpan }: { children: any; align?: 'left' | 'right'; colSpan?: number }) {
-  return <td colSpan={colSpan} className={`py-2.5 px-4 ${align === 'right' ? 'text-right' : ''}`}>{children}</td>
+
+function Td({
+  children, align, colSpan, className,
+}: { children: ReactNode; align?: 'left' | 'right'; colSpan?: number; className?: string }) {
+  return (
+    <td colSpan={colSpan} className={`py-2.5 px-4 ${align === 'right' ? 'text-right' : ''} ${className ?? ''}`}>
+      {children}
+    </td>
+  )
 }
+
 function Skeleton() {
   return <div className="h-4 w-full rounded bg-zinc-800 animate-pulse" />
 }
