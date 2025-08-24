@@ -106,7 +106,12 @@ export default function ElencoPage() {
   const [ordenacao, setOrdenacao] = useState<Ordenacao>('valor')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
 
-  const [selecionados, setSelecionados] = useState<string[]>([])
+  const [selecionados, setSelecionados] = useState<string[]>([]) // Ações em massa (venda)
+
+  // ===== Escalação =====
+  const [titulares, setTitulares] = useState<string[]>([])          // exatamente 11
+  const [escalaFixada, setEscalaFixada] = useState<boolean>(false)  // bloqueio pós-salvar
+  const [salvandoEscalacao, setSalvandoEscalacao] = useState(false)
 
   // UI Mobile
   const [showFiltersMobile, setShowFiltersMobile] = useState(false)
@@ -116,6 +121,69 @@ export default function ElencoPage() {
     const t = setTimeout(() => setNomeDebounced(filtroNome), 250)
     return () => clearTimeout(t)
   }, [filtroNome])
+
+  /** ===== Helpers ===== */
+  const getFlagUrl = (pais?: string | null) => {
+    if (!pais) return ''
+    const key = Object.keys(bandeiras).find((nome) =>
+      nome.toLowerCase().replace(/[^a-z]/g, '') === (pais || '').toLowerCase().replace(/[^a-z]/g, '')
+    )
+    return key ? `https://flagcdn.com/w40/${bandeiras[key]}.png` : ''
+  }
+
+  const contar = (campo: keyof Jogador | string) => {
+    const contagem: Record<string, number> = {}
+    elenco.forEach((j) => {
+      const key = (j as any)[campo] || 'Outro'
+      contagem[key] = (contagem[key] || 0) + 1
+    })
+    return contagem
+  }
+
+  const contPorNac = useMemo(() => contar('nacionalidade'), [elenco])
+  const contPorPos = useMemo(() => contar('posicao'), [elenco])
+
+  /** ===== BID helper ===== */
+  async function registrarNoBID({
+    tipo_evento,
+    descricao,
+    id_time1,
+    valor
+  }: {
+    tipo_evento: string
+    descricao: string
+    id_time1: string
+    valor?: number | null
+  }) {
+    const { error } = await supabase.from('bid').insert({
+      tipo_evento,
+      descricao,
+      id_time1,
+      valor: valor ?? null,
+      data_evento: new Date().toISOString()
+    })
+    if (error) {
+      console.error('Erro ao registrar no BID:', error)
+      toast.error('⚠️ Falha ao registrar no BID.')
+    }
+  }
+
+  /** ===== Toggle titular (⭐) ===== */
+  const toggleTitular = (id: string) => {
+    if (escalaFixada) return
+    setTitulares(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(x => x !== id)
+      }
+      if (prev.length >= 11) {
+        toast('Limite de 11 titulares atingido.')
+        return prev
+      }
+      return [...prev, id]
+    })
+  }
+
+  const jogadorEhTitular = (id: string) => titulares.includes(id)
 
   /** ===== Fetch ===== */
   const fetchElenco = async () => {
@@ -129,6 +197,8 @@ export default function ElencoPage() {
         setSaldo(0)
         setNomeTime('')
         setSelecionados([])
+        setTitulares([])
+        setEscalaFixada(false)
         return
       }
 
@@ -156,16 +226,39 @@ export default function ElencoPage() {
         )
       }
 
-      // Atualiza estado já refletindo o salário esperado
       const elencoComRegra = (elencoData || []).map(j => ({
         ...j,
         salario: calcularSalario(j.valor)
-      }))
+      })) as Jogador[]
 
-      setElenco(elencoComRegra as Jogador[])
+      // Buscar escalação já salva (se existir)
+      let titularesSalvos: string[] = []
+      let fixada = false
+      try {
+        const { data: esc, error: e3 } = await supabase
+          .from('escalacoes')
+          .select('titulares, fixada')
+          .eq('id_time', id_time)
+          .single()
+
+        if (!e3 && esc) {
+          titularesSalvos = Array.isArray(esc.titulares) ? esc.titulares : []
+          fixada = !!esc.fixada
+        }
+      } catch (e: any) {
+        // se não existir linha, ignora
+      }
+
+      // Filtra titulares para garantir que ainda existem no elenco
+      const idsElenco = new Set(elencoComRegra.map(j => j.id))
+      const titularesValidos = titularesSalvos.filter((tid: string) => idsElenco.has(tid)).slice(0, 11)
+
+      setElenco(elencoComRegra)
       setSaldo(Number(timeData?.saldo || 0))
       setNomeTime(timeData?.nome || '')
       setSelecionados([])
+      setTitulares(titularesValidos)
+      setEscalaFixada(fixada)
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar elenco.')
@@ -179,68 +272,24 @@ export default function ElencoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** ===== Helpers ===== */
-  const getFlagUrl = (pais?: string | null) => {
-    if (!pais) return ''
-    const key = Object.keys(bandeiras).find((nome) =>
-      nome.toLowerCase().replace(/[^a-z]/g, '') === (pais || '').toLowerCase().replace(/[^a-z]/g, '')
-    )
-    return key ? `https://flagcdn.com/w40/${bandeiras[key]}.png` : ''
-  }
-
-  const contar = (campo: keyof Jogador | string) => {
-    const contagem: Record<string, number> = {}
-    elenco.forEach((j) => {
-      const key = (j as any)[campo] || 'Outro'
-      contagem[key] = (contagem[key] || 0) + 1
-    })
-    return contagem
-  }
-
-  const contPorNac = useMemo(() => contar('nacionalidade'), [elenco])
-  const contPorPos = useMemo(() => contar('posicao'), [elenco])
-
+  /** ===== Ações em massa ===== */
   const toggleSelecionado = (id: string) => {
     setSelecionados(prev =>
       prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
     )
   }
-
   const selecionarTodosFiltrados = () => {
     const ids = elencoFiltrado.map(j => j.id)
     setSelecionados(ids)
   }
   const limparSelecao = () => setSelecionados([])
 
-  /** ===== BID helper ===== */
-  async function registrarNoBID({
-    tipo_evento,
-    descricao,
-    id_time1,
-    valor
-  }: {
-    tipo_evento: string
-    descricao: string
-    id_time1: string
-    valor?: number | null
-  }) {
-    const { error } = await supabase.from('bid').insert({
-      tipo_evento,
-      descricao,
-      id_time1,
-      valor: valor ?? null,
-      data_evento: new Date().toISOString()
-    })
-    if (error) {
-      console.error('Erro ao registrar no BID:', error)
-      toast.error('⚠️ Falha ao registrar no BID.')
-    }
-  }
-
   /** ===== Ação: vender selecionados (parcial) ===== */
   const venderSelecionados = async () => {
     const jogadores = elenco.filter(j => selecionados.includes(j.id))
     if (jogadores.length === 0) return
+
+    const id_time_local = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
 
     for (const jogador of jogadores) {
       try {
@@ -306,19 +355,8 @@ export default function ElencoPage() {
         }
 
         // 3) Crédito atômico (RPC) + saldo novo
-        let saldoNovo: number | null = null
         {
-          let saldoAntigo = saldo
-          const { data: timeRow } = await supabase
-            .from('times')
-            .select('saldo')
-            .eq('id', jogador.id_time)
-            .single()
-          if (timeRow?.saldo != null) {
-            saldoAntigo = Number(timeRow.saldo)
-          }
-
-          const { data, error } = await supabase.rpc('increment_saldo_return', {
+          const { data: dataRPC, error } = await supabase.rpc('increment_saldo_return', {
             p_time_id: jogador.id_time,
             p_delta: valorVenda
           })
@@ -327,11 +365,10 @@ export default function ElencoPage() {
             toast.error(`❌ Falha ao creditar ${formatBRL(valorVenda)}.`)
             continue
           }
-          saldoNovo = Number(data)
 
-          const id_time_local = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+          const novoSaldo = Number(dataRPC)
           if (id_time_local && id_time_local === jogador.id_time) {
-            setSaldo(saldoNovo)
+            setSaldo(novoSaldo)
           }
 
           await registrarNoBID({
@@ -341,9 +378,7 @@ export default function ElencoPage() {
             valor: valorVenda
           })
 
-          toast.success(
-            `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+${formatBRL(valorVenda)}). Caixa: ${formatBRL(saldoAntigo)} → ${formatBRL(Number(saldoNovo))}`
-          )
+          toast.success(`✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+${formatBRL(valorVenda)}).`)
         }
       } catch (err) {
         console.error('Erro na venda:', err)
@@ -427,6 +462,66 @@ export default function ElencoPage() {
     return 'ring-gray-700'
   }
 
+  /** ===== Salvar / Fixar Escalação ===== */
+  const salvarEscalacao = async () => {
+    if (escalaFixada) return
+    if (titulares.length !== 11) {
+      toast('Selecione exatamente 11 titulares.')
+      return
+    }
+    const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+    if (!id_time) {
+      toast.error('Time não identificado.')
+      return
+    }
+    setSalvandoEscalacao(true)
+    try {
+      const { error } = await supabase
+        .from('escalacoes')
+        .upsert(
+          {
+            id_time,
+            titulares,
+            fixada: true,
+            fixada_em: new Date().toISOString()
+          },
+          { onConflict: 'id_time' }
+        )
+
+      if (error) throw error
+
+      setEscalaFixada(true)
+
+      await registrarNoBID({
+        tipo_evento: 'escala_fixa',
+        descricao: `Escalação do ${nomeTime} fixada com 11 titulares.`,
+        id_time1: id_time
+      })
+
+      toast.success('✅ Escalação salva e fixada!')
+    } catch (e: any) {
+      console.error(e)
+      toast.error('❌ Falha ao salvar a escalação.')
+    } finally {
+      setSalvandoEscalacao(false)
+    }
+  }
+
+  // Desbloquear (opcional). Deixe o botão comentado no header se não quiser expor.
+  const desbloquearEscalacao = async () => {
+    const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+    if (!id_time) return
+    const ok = confirm('Desbloquear a escalação para editar?')
+    if (!ok) return
+    const { error } = await supabase.from('escalacoes').update({ fixada: false }).eq('id_time', id_time)
+    if (error) {
+      toast.error('Falha ao desbloquear.')
+    } else {
+      setEscalaFixada(false)
+      toast.success('Escalação desbloqueada.')
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto bg-gradient-to-b from-gray-950 to-gray-900 text-white min-h-screen">
       {/* Header / Resumo */}
@@ -458,6 +553,37 @@ export default function ElencoPage() {
             >
               🔄 Atualizar
             </button>
+
+            {/* Botão de salvar/ficar escalação */}
+            {!escalaFixada ? (
+              <button
+                type="button"
+                onClick={salvarEscalacao}
+                disabled={titulares.length !== 11 || salvandoEscalacao}
+                className={`px-4 py-2 rounded-lg font-semibold transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60
+                  ${titulares.length === 11 && !salvandoEscalacao ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-700 cursor-not-allowed'}`}
+                title="Salvar e fixar escalação"
+                aria-label="Salvar e fixar escalação"
+              >
+                {salvandoEscalacao ? 'Salvando...' : `Salvar Escalação (${titulares.length}/11)`}
+              </button>
+            ) : (
+              <span className="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm">🔒 Escalação fixada</span>
+            )}
+
+            {/* Se quiser expor o desbloqueio, descomente abaixo */}
+            {/*
+            {escalaFixada && (
+              <button
+                type="button"
+                onClick={desbloquearEscalacao}
+                className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-sm"
+              >
+                🔓 Desbloquear
+              </button>
+            )}
+            */}
+
             <div className="hidden sm:block h-8 w-px bg-gray-800" />
             <div className="hidden md:inline-flex rounded-lg border border-gray-700 overflow-hidden">
               <button
@@ -479,6 +605,33 @@ export default function ElencoPage() {
                 📋 Tabela
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Barra da Escalação (chips) */}
+        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-300">⭐ Titulares selecionados</span>
+            <span className="text-sm text-gray-400">{titulares.length}/11</span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {titulares.length === 0 ? (
+              <span className="text-xs text-gray-500">Escolha 11 jogadores clicando na ⭐ dos cartões (ou coluna da tabela).</span>
+            ) : (
+              titulares.map((tid) => {
+                const j = elenco.find(x => x.id === tid)
+                if (!j) return null
+                return (
+                  <span
+                    key={tid}
+                    className="text-xs px-2.5 py-1 rounded-full bg-emerald-600/20 border border-emerald-600/40 whitespace-nowrap"
+                    title={j.nome}
+                  >
+                    ⭐ {j.nome}
+                  </span>
+                )
+              })
+            )}
           </div>
         </div>
 
@@ -550,7 +703,7 @@ export default function ElencoPage() {
           {filtroPosicao && <ActiveFilterChip label={`Pos: ${filtroPosicao}`} onClear={() => setFiltroPosicao(null)} />}
         </div>
 
-        {/* Chips dinâmicos (colapsáveis no mobile/visíveis no desktop) */}
+        {/* Chips dinâmicos */}
         <div className="mt-3">
           <details className="lg:open">
             <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
@@ -724,13 +877,14 @@ export default function ElencoPage() {
       ) : viewMode === 'grid' ? (
         <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
           {elencoFiltrado.map(jogador => {
-            const selecionado = selecionados.includes(jogador.id)
+            const selecionado =Selecionados.includes?.(jogador.id) ? selecionados.includes(jogador.id) : selecionados.includes(jogador.id) // defesa caso copy/paste
             const status: string[] = []
             if (jogador.protegido) status.push('🛡️ Protegido')
             if (jogador.lesionado) status.push('⚠️ Lesionado')
             if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
             const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
+            const ehTitular = jogadorEhTitular(jogador.id)
 
             return (
               <div
@@ -739,7 +893,7 @@ export default function ElencoPage() {
                   ${selecionado ? 'border-emerald-500 ring-1 ring-emerald-400/30' : 'border-white/10 hover:border-white/20'}
                   shadow-lg hover:shadow-emerald-900/10 hover:-translate-y-0.5`}
               >
-                {/* Checkbox seleção */}
+                {/* Checkbox seleção (ações em massa) */}
                 <label className="absolute top-3 left-3 inline-flex items-center gap-2 text-xs">
                   <input
                     type="checkbox"
@@ -750,16 +904,21 @@ export default function ElencoPage() {
                   />
                 </label>
 
-                {/* Insígnias */}
-                <div className="absolute top-3 right-3 flex gap-1">
-                  {status.map((s, i) => (
-                    <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10">
-                      {s}
-                    </span>
-                  ))}
-                </div>
+                {/* Estrela de titularidade */}
+                <button
+                  type="button"
+                  onClick={() => toggleTitular(jogador.id)}
+                  disabled={escalaFixada}
+                  className={`absolute top-3 right-3 rounded-full px-2 py-1 text-sm border
+                    ${ehTitular ? 'border-amber-400/60 bg-amber-400/20' : 'border-white/10 bg-gray-800/70'}
+                    ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700/70'}`}
+                  title={ehTitular ? 'Titular (clique para remover)' : 'Marcar como titular'}
+                  aria-label={ehTitular ? 'Remover titular' : 'Marcar como titular'}
+                >
+                  {ehTitular ? '⭐' : '☆'}
+                </button>
 
-                <div onClick={() => toggleSelecionado(jogador.id)} className="cursor-pointer select-none">
+                <div className="cursor-default select-none">
                   <ImagemComFallback
                     src={imgSrc}
                     alt={jogador.nome}
@@ -793,6 +952,17 @@ export default function ElencoPage() {
                       {jogador.posicao}
                     </span>
                   </div>
+
+                  {/* Status chips (em fluxo, para não colidir com a ⭐) */}
+                  {status.length > 0 && (
+                    <div className="mb-2 flex flex-wrap justify-center gap-1">
+                      {status.map((s, i) => (
+                        <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-2 text-center text-xs sm:text-sm">
                     <p className="text-gray-300">OVR: <b>{jogador.overall ?? 0}</b></p>
@@ -831,6 +1001,7 @@ export default function ElencoPage() {
                     aria-label="Selecionar todos visíveis"
                   />
                 </th>
+                <th className="px-3 py-3 w-12">⭐</th>
                 <th className="px-3 py-3">Jogador</th>
                 <th className="px-3 py-3">País</th>
                 <th className="px-3 py-3">Posição</th>
@@ -847,6 +1018,7 @@ export default function ElencoPage() {
               {elencoFiltrado.map((jogador) => {
                 const selecionado = selecionados.includes(jogador.id)
                 const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
+                const ehTitular = jogadorEhTitular(jogador.id)
                 return (
                   <tr key={jogador.id} className={`text-sm hover:bg-gray-900/40 ${selecionado ? 'bg-gray-900/60' : 'odd:bg-gray-950/30'}`}>
                     <td className="px-3 py-3">
@@ -857,6 +1029,20 @@ export default function ElencoPage() {
                         className="h-5 w-5 accent-emerald-500"
                         aria-label={`Selecionar ${jogador.nome}`}
                       />
+                    </td>
+                    <td className="px-3 py-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleTitular(jogador.id)}
+                        disabled={escalaFixada}
+                        className={`rounded-full px-2 py-1 text-sm border
+                          ${ehTitular ? 'border-amber-400/60 bg-amber-400/20' : 'border-white/10 bg-gray-800/70'}
+                          ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700/70'}`}
+                        aria-label={ehTitular ? 'Remover titular' : 'Marcar como titular'}
+                        title={ehTitular ? 'Titular (clique para remover)' : 'Marcar como titular'}
+                      >
+                        {ehTitular ? '⭐' : '☆'}
+                      </button>
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-3">
