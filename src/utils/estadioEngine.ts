@@ -166,6 +166,16 @@ export default function EstadioPage() {
 
   const result = useMemo(() => simulate(capacity, prices, ctx), [capacity, prices, ctx])
 
+  // Quebra de receita (ingressos x sócios) calculada da simulação por setor
+  const revenueTickets = useMemo(
+    () => result.perSector.reduce((acc, r) => acc + r.revenuePaid, 0),
+    [result]
+  )
+  const revenueSocios = useMemo(
+    () => result.perSector.reduce((acc, r) => acc + r.revenueSocios, 0),
+    [result]
+  )
+
   // Projeção por nível (1..10) – para a maquete
   const baseCapL1 = useMemo(() => {
     const est = Math.round(capacity / Math.pow(GROWTH_PER_LEVEL, level - 1))
@@ -333,13 +343,13 @@ export default function EstadioPage() {
               <div>
                 💰 Renda bruta: <b>{brl(result.totalRevenue)}</b>
                 <div className="text-[11px] text-zinc-400 mt-0.5">
-                  Ingressos {brl(result.revenueTickets)} • Sócios {brl(result.revenueSocios)}
+                  Ingressos {brl(revenueTickets)} • Sócios {brl(revenueSocios)}
                 </div>
               </div>
               <div>
                 📉 Custos: <b>{brl(result.totalCost)}</b>
                 <div className="text-[11px] text-zinc-400 mt-0.5">
-                  Fixos {brl(result.fixedCost)} • Var (pessoa) {brl(result.variableCostSpectator)} • Operacional {brl(result.operationalOverhead)}
+                  Fixos {brl(result.fixedCost)} • Operacional {brl(result.operationalCost)} • Var (pessoa) {brl(result.variableCost)}
                 </div>
               </div>
             </div>
@@ -352,12 +362,12 @@ export default function EstadioPage() {
               <MoneyCard
                 title="Renda bruta"
                 value={brl(result.totalRevenue)}
-                subtitle={`Ingressos ${brl(result.revenueTickets)} • Sócios ${brl(result.revenueSocios)}`}
+                subtitle={`Ingressos ${brl(revenueTickets)} • Sócios ${brl(revenueSocios)}`}
               />
               <MoneyCard
                 title="Custos totais"
                 value={brl(result.totalCost)}
-                subtitle={`Fixos ${brl(result.fixedCost)} • Var (pessoa) ${brl(result.variableCostSpectator)} • Operacional ${brl(result.operationalOverhead)}`}
+                subtitle={`Fixos ${brl(result.fixedCost)} • Operacional ${brl(result.operationalCost)} • Var (pessoa) ${brl(result.variableCost)}`}
               />
               <MoneyCard title="Renda líquida" value={brl(result.profit)} subtitle="Bruta − Custos" />
             </div>
@@ -464,9 +474,9 @@ export default function EstadioPage() {
             <div className="mt-3 space-y-2 text-sm">
               <KV k="Público total" v={`${result.totalAudience.toLocaleString()} / ${result.totalCapacity.toLocaleString()} (${Math.round(result.occupancy * 100)}%)`} />
               <KV k="Renda bruta" v={brl(result.totalRevenue)} />
-              <KV k="Custos (fixos/var)" v={`${brl(result.fixedCost)} / ${brl(result.variableCost)}`} />
+              <KV k="Custos (fixos/op/var)" v={`${brl(result.fixedCost)} / ${brl(result.operationalCost)} / ${brl(result.variableCost)}`} />
               <div className="text-[11px] text-zinc-400">
-                Var detalhado: pessoa {brl(result.variableCostSpectator)} • operacional {brl(result.operationalOverhead)}
+                Ingressos {brl(revenueTickets)} • Sócios {brl(revenueSocios)}
               </div>
               <KV k="Renda líquida" v={brl(result.profit)} />
             </div>
@@ -535,7 +545,7 @@ function StadiumMiniature({
   function tier(y: number, scaleX = 1) {
     const baseW = (W - pad * 2) * scaleX
     const x1 = (W - baseW) / 2
-    const y1 = y
+       const y1 = y
     const x2 = W - x1
     const y2 = y + standH
     return `M ${x1} ${y2} L ${x1 + 8} ${y1} L ${x2 - 8} ${y1} L ${x2} ${y2} Z`
