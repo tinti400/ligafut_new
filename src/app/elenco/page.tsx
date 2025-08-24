@@ -877,7 +877,7 @@ export default function ElencoPage() {
       ) : viewMode === 'grid' ? (
         <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
           {elencoFiltrado.map(jogador => {
-            const selecionado =Selecionados.includes?.(jogador.id) ? selecionados.includes(jogador.id) : selecionados.includes(jogador.id) // defesa caso copy/paste
+            const selecionado = selecionados.includes(jogador.id)
             const status: string[] = []
             if (jogador.protegido) status.push('🛡️ Protegido')
             if (jogador.lesionado) status.push('⚠️ Lesionado')
