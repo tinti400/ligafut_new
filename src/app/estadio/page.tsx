@@ -424,7 +424,15 @@ export default function EstadioPage() {
               Gire com o mouse/gestos. Evolução visual do “CT” → “Mega Arena” conforme o nível.
             </p>
 
-            <StadiumMini3D level={previewLevel} night={previewNight} primaryColor="#22c55e" />
+            {/* >>> PROPS CORRETAS PARA O COMPONENTE 3D <<< */}
+            <StadiumMini3D
+              level={previewLevel}
+              night={previewNight}
+              roofProgress={roofProgressForLevel(previewLevel)}
+              tierCount={tiersForLevel(previewLevel)}
+              lightsCount={lightsForLevel(previewLevel)}
+              screens={screensForLevel(previewLevel)}
+            />
 
             {/* seletor de nível */}
             <div className="mt-3">
@@ -648,4 +656,29 @@ function labelSector(s: Sector) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
+}
+
+/* ====== Features visuais por nível (para o componente 3D) ====== */
+function tiersForLevel(lvl: number) {
+  if (lvl >= 9) return 3
+  if (lvl >= 5) return 2
+  return 1
+}
+function roofProgressForLevel(lvl: number) {
+  if (lvl >= 9) return 1
+  if (lvl >= 7) return 0.75
+  if (lvl >= 5) return 0.5
+  if (lvl >= 3) return 0.25
+  return 0.05
+}
+function lightsForLevel(lvl: number) {
+  if (lvl >= 9) return 6
+  if (lvl >= 6) return 4
+  if (lvl >= 3) return 2
+  return 0
+}
+function screensForLevel(lvl: number) {
+  if (lvl >= 8) return 2
+  if (lvl >= 5) return 1
+  return 0
 }
