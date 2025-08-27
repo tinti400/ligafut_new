@@ -11,6 +11,7 @@ const supabase = createClient(
 )
 
 const MAX_ATIVOS = 9
+const INCREMENTO_MINIMO = 20_000_000 // lance manual precisa ser pelo menos +20mi
 
 type Leilao = {
   id: string
@@ -48,6 +49,9 @@ export default function LeilaoSistemaPage() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const intervaloRef = useRef<NodeJS.Timeout | null>(null)
+
+  // valores propostos no input por leilão
+  const [propostas, setPropostas] = useState<Record<string, string>>({})
 
   // -------- utils ----------
   const isUuid = (s: string) =>
@@ -168,12 +172,23 @@ export default function LeilaoSistemaPage() {
         imagem_url: pickImagemUrl(l) || null,
       }))
 
+      // beep se perder a liderança
       arr.forEach((leilao: any) => {
         if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
           audioRef.current?.play().catch(() => {})
         }
       })
+
       setLeiloes(arr as Leilao[])
+
+      // inicia o input com (valor_atual + 20mi) quando ainda não há valor digitado
+      setPropostas((prev) => {
+        const next = { ...prev }
+        for (const l of arr as Leilao[]) {
+          if (!next[l.id]) next[l.id] = String((l.valor_atual ?? 0) + INCREMENTO_MINIMO)
+        }
+        return next
+      })
     }
   }
 
@@ -233,6 +248,82 @@ export default function LeilaoSistemaPage() {
       return 'Identificação do time inválida. Faça login novamente.'
     return null
   }, [idTime, nomeTime])
+
+  // ===== Lance manual (valor livre, mínimo +20mi) =====
+  async function darLanceManual(
+    leilaoId: string,
+    valorAtual: number,
+    valorProposto: number,
+    tempoRestante: number
+  ) {
+    setErroTela(null)
+
+    await garantirIdTimeValido()
+    if (travadoPorIdentidade) {
+      setErroTela(travadoPorIdentidade)
+      return
+    }
+    if (cooldownGlobal || cooldownPorLeilao[leilaoId]) return
+
+    const minimo = Number(valorAtual) + INCREMENTO_MINIMO
+    const novoValor = Math.floor(Number(valorProposto) || 0)
+
+    if (!isFinite(novoValor) || novoValor < minimo) {
+      setErroTela(`O lance mínimo é ${brl(minimo)}.`)
+      return
+    }
+    if (saldo !== null && novoValor > saldo) {
+      setErroTela('Saldo insuficiente para este lance.')
+      return
+    }
+
+    setCooldownGlobal(true)
+    setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: true }))
+    setTremores((prev) => ({ ...prev, [leilaoId]: true }))
+
+    try {
+      const { data: atual, error: e1 } = await supabase
+        .from('leiloes_sistema')
+        .select('status, valor_atual, fim')
+        .eq('id', leilaoId)
+        .single()
+      if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
+      if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
+      const fimMs = new Date(atual.fim).getTime()
+      if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
+
+      const incremento = novoValor - Number(valorAtual)
+      if (incremento < INCREMENTO_MINIMO) {
+        throw new Error(`O lance deve ser pelo menos ${brl(INCREMENTO_MINIMO)} acima.`)
+      }
+
+      const { error } = await supabase.rpc('dar_lance_no_leilao', {
+        p_leilao_id: leilaoId,
+        p_valor_novo: novoValor,
+        p_id_time_vencedor: idTime,
+        p_nome_time_vencedor: nomeTime,
+        p_estender: tempoRestante < 15
+      })
+      if (error) {
+        console.error('RPC error:', error)
+        throw new Error(error.message || 'Falha ao registrar lance.')
+      }
+
+      await buscarLeiloesAtivos()
+      await buscarSaldo()
+
+      // já sugere próximo mínimo no input
+      setPropostas((prev) => ({ ...prev, [leilaoId]: String(novoValor + INCREMENTO_MINIMO) }))
+    } catch (err: any) {
+      setErroTela(err?.message || 'Erro ao dar lance.')
+    } finally {
+      setTimeout(() => setCooldownGlobal(false), 300)
+      setTimeout(() => {
+        setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
+        setTremores((prev) => ({ ...prev, [leilaoId]: false }))
+      }, 150)
+    }
+  }
 
   async function darLance(
     leilaoId: string,
@@ -395,6 +486,13 @@ export default function LeilaoSistemaPage() {
 
               const increments = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000]
 
+              // validação do input manual
+              const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
+              const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
+              const propostaInvalida = !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido
+              const saldoInsuf =
+                saldo !== null && isFinite(valorPropostoNum) && valorPropostoNum > Number(saldo)
+
               return (
                 <div key={leilao.id} className="relative">
                   <div className={classNames('rounded-2xl p-[1px] bg-gradient-to-br', tierGrad(leilao.valor_atual))}>
@@ -475,9 +573,86 @@ export default function LeilaoSistemaPage() {
                         </div>
                       </div>
 
+                      {/* ==== LANCE MANUAL (acrescentado) ==== */}
+                      <div className="mt-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            className={classNames(
+                              'w-full rounded-xl border bg-zinc-950/60 px-3 py-2 text-sm tabular-nums outline-none',
+                              propostaInvalida
+                                ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30'
+                                : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
+                            )}
+                            value={propostas[leilao.id] ?? String(minimoPermitido)}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/[^\d]/g, '')
+                              setPropostas((prev) => ({ ...prev, [leilao.id]: raw }))
+                            }}
+                            placeholder={String(minimoPermitido)}
+                            disabled={disabledPorTempo || disabledPorIdentidade}
+                          />
+                          <button
+                            onClick={() =>
+                              darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNum, tempoRestante)
+                            }
+                            disabled={
+                              disabledPorTempo ||
+                              disabledPorIdentidade ||
+                              disabledPorCooldown ||
+                              propostaInvalida ||
+                              saldoInsuf
+                            }
+                            className={classNames(
+                              'shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition',
+                              disabledPorTempo ||
+                                disabledPorIdentidade ||
+                                disabledPorCooldown ||
+                                propostaInvalida ||
+                                saldoInsuf
+                                ? 'cursor-not-allowed border border-zinc-800 bg-zinc-900/60 text-zinc-500'
+                                : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
+                            )}
+                            title={
+                              disabledPorTempo
+                                ? '⏱️ Leilão encerrado'
+                                : disabledPorIdentidade
+                                ? '🔐 Faça login novamente (time não identificado)'
+                                : propostaInvalida
+                                ? `O lance deve ser pelo menos ${brl(minimoPermitido)}`
+                                : saldoInsuf
+                                ? '💸 Saldo insuficiente'
+                                : disabledPorCooldown
+                                ? '⏳ Aguarde um instante...'
+                                : ''
+                            }
+                          >
+                            Dar lance
+                          </button>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400">
+                          <span>
+                            Mínimo permitido:{' '}
+                            <b className="tabular-nums text-zinc-200">{brl(minimoPermitido)}</b>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido) }))
+                            }
+                            className="rounded-lg border border-emerald-900/40 bg-emerald-950/40 px-2 py-1 font-semibold text-emerald-200 hover:bg-emerald-900/40"
+                          >
+                            +20mi (mínimo)
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* ==== Botões de incremento (mantidos) ==== */}
                       <div className="mt-4">
                         <div className="grid grid-cols-3 gap-2">
-                          {[4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000].map((inc) => {
+                          {increments.map((inc) => {
                             const disabled =
                               tempoRestante === 0 ||
                               !!travadoPorIdentidade ||
