@@ -11,7 +11,6 @@ const supabase = createClient(
 )
 
 const MAX_ATIVOS = 9
-const INCREMENTO_MINIMO = 20_000_000 // +20 milhões
 
 type Leilao = {
   id: string
@@ -46,9 +45,6 @@ export default function LeilaoSistemaPage() {
   const [cooldownPorLeilao, setCooldownPorLeilao] = useState<Record<string, boolean>>({})
   const [tremores, setTremores] = useState<Record<string, boolean>>({})
   const [erroTela, setErroTela] = useState<string | null>(null)
-
-  // valores propostos por leilão (campo de input)
-  const [propostas, setPropostas] = useState<Record<string, string>>({})
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const intervaloRef = useRef<NodeJS.Timeout | null>(null)
@@ -172,23 +168,12 @@ export default function LeilaoSistemaPage() {
         imagem_url: pickImagemUrl(l) || null,
       }))
 
-      // beep quando perder a liderança
       arr.forEach((leilao: any) => {
         if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
           audioRef.current?.play().catch(() => {})
         }
       })
-
       setLeiloes(arr as Leilao[])
-
-      // inicializa o valor proposto mínimo por leilão (valor_atual + 20mi) se ainda não houver
-      setPropostas((prev) => {
-        const next = { ...prev }
-        for (const l of arr as Leilao[]) {
-          if (!next[l.id]) next[l.id] = String((l.valor_atual ?? 0) + INCREMENTO_MINIMO)
-        }
-        return next
-      })
     }
   }
 
@@ -249,29 +234,23 @@ export default function LeilaoSistemaPage() {
     return null
   }, [idTime, nomeTime])
 
-  // ======= LANCE (aceita valor manual; exige +20mi) =======
-  async function darLanceManual(
+  async function darLance(
     leilaoId: string,
     valorAtual: number,
-    valorProposto: number,
+    incremento: number,
     tempoRestante: number
   ) {
     setErroTela(null)
-    await garantirIdTimeValido()
 
+    await garantirIdTimeValido()
     if (travadoPorIdentidade) {
       setErroTela(travadoPorIdentidade)
       return
     }
     if (cooldownGlobal || cooldownPorLeilao[leilaoId]) return
 
-    const minimo = Number(valorAtual) + INCREMENTO_MINIMO
-    const novoValor = Math.floor(Number(valorProposto) || 0)
+    const novoValor = Number(valorAtual) + Number(incremento)
 
-    if (!isFinite(novoValor) || novoValor < minimo) {
-      setErroTela(`O lance mínimo é ${brl(minimo)}.`)
-      return
-    }
     if (saldo !== null && novoValor > saldo) {
       setErroTela('Saldo insuficiente para este lance.')
       return
@@ -292,11 +271,6 @@ export default function LeilaoSistemaPage() {
       const fimMs = new Date(atual.fim).getTime()
       if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
 
-      const incremento = novoValor - Number(valorAtual)
-      if (incremento < INCREMENTO_MINIMO) {
-        throw new Error(`O lance deve ser pelo menos ${brl(INCREMENTO_MINIMO)} acima.`)
-      }
-
       const { error } = await supabase.rpc('dar_lance_no_leilao', {
         p_leilao_id: leilaoId,
         p_valor_novo: novoValor,
@@ -311,12 +285,6 @@ export default function LeilaoSistemaPage() {
 
       await buscarLeiloesAtivos()
       await buscarSaldo()
-
-      // após sucesso, já sugere o próximo mínimo no input
-      setPropostas((prev) => ({
-        ...prev,
-        [leilaoId]: String(novoValor + INCREMENTO_MINIMO),
-      }))
     } catch (err: any) {
       setErroTela(err?.message || 'Erro ao dar lance.')
     } finally {
@@ -425,18 +393,7 @@ export default function LeilaoSistemaPage() {
               const disabledPorIdentidade = !!travadoPorIdentidade
               const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
 
-              const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
-              const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
-              const propostaInvalida = !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido
-              const saldoInsuf =
-                saldo !== null && isFinite(valorPropostoNum) && valorPropostoNum > Number(saldo)
-
-              const botaoDesabilitado =
-                disabledPorTempo ||
-                disabledPorIdentidade ||
-                disabledPorCooldown ||
-                propostaInvalida ||
-                saldoInsuf
+              const increments = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000]
 
               return (
                 <div key={leilao.id} className="relative">
@@ -518,74 +475,45 @@ export default function LeilaoSistemaPage() {
                         </div>
                       </div>
 
-                      {/* ======= LANCE MANUAL ======= */}
-                      <div className="mt-4 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <input
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            className={classNames(
-                              'w-full rounded-xl border bg-zinc-950/60 px-3 py-2 text-sm tabular-nums outline-none',
-                              propostaInvalida
-                                ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30'
-                                : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
-                            )}
-                            value={propostas[leilao.id] ?? String(minimoPermitido)}
-                            onChange={(e) => {
-                              const raw = e.target.value.replace(/[^\d]/g, '')
-                              setPropostas((prev) => ({ ...prev, [leilao.id]: raw }))
-                            }}
-                            placeholder={String(minimoPermitido)}
-                            disabled={disabledPorTempo || disabledPorIdentidade}
-                          />
-                          <button
-                            onClick={() =>
-                              darLanceManual(
-                                leilao.id,
-                                leilao.valor_atual,
-                                valorPropostoNum,
-                                tempoRestante
-                              )
-                            }
-                            disabled={botaoDesabilitado}
-                            className={classNames(
-                              'shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition',
-                              botaoDesabilitado
-                                ? 'cursor-not-allowed border border-zinc-800 bg-zinc-900/60 text-zinc-500'
-                                : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
-                            )}
-                            title={
-                              disabledPorTempo
-                                ? '⏱️ Leilão encerrado'
-                                : disabledPorIdentidade
-                                ? '🔐 Faça login novamente (time não identificado)'
-                                : propostaInvalida
-                                ? `O lance deve ser pelo menos ${brl(minimoPermitido)}`
-                                : saldoInsuf
-                                ? '💸 Saldo insuficiente'
-                                : disabledPorCooldown
-                                ? '⏳ Aguarde um instante...'
-                                : ''
-                            }
-                          >
-                            Dar lance
-                          </button>
-                        </div>
+                      <div className="mt-4">
+                        <div className="grid grid-cols-3 gap-2">
+                          {[4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000].map((inc) => {
+                            const disabled =
+                              tempoRestante === 0 ||
+                              !!travadoPorIdentidade ||
+                              cooldownGlobal ||
+                              !!cooldownPorLeilao[leilao.id] ||
+                              (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
 
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400">
-                          <span>Mínimo permitido: <b className="tabular-nums text-zinc-200">{brl(minimoPermitido)}</b></span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPropostas((prev) => ({
-                                ...prev,
-                                [leilao.id]: String(minimoPermitido),
-                              }))
-                            }
-                            className="rounded-lg border border-emerald-900/40 bg-emerald-950/40 px-2 py-1 font-semibold text-emerald-200 hover:bg-emerald-900/40"
-                          >
-                            +20mi (mínimo)
-                          </button>
+                            return (
+                              <button
+                                key={inc}
+                                onClick={() => darLance(leilao.id, leilao.valor_atual, inc, tempoRestante)}
+                                disabled={disabled}
+                                title={
+                                  tempoRestante === 0
+                                    ? '⏱️ Leilão encerrado'
+                                    : travadoPorIdentidade
+                                    ? '🔐 Faça login novamente (time não identificado)'
+                                    : saldo !== null && Number(leilao.valor_atual) + inc > saldo
+                                    ? '💸 Saldo insuficiente'
+                                    : cooldownGlobal || !!cooldownPorLeilao[leilao.id]
+                                    ? '⏳ Aguarde um instante...'
+                                    : ''
+                                }
+                                className={classNames(
+                                  'rounded-xl px-3 py-2 text-xs font-bold tabular-nums transition',
+                                  'border bg-zinc-950/60 hover:bg-zinc-900',
+                                  'focus:outline-none focus:ring-2 focus:ring-emerald-400/30',
+                                  disabled
+                                    ? 'border-zinc-800 text-zinc-500 opacity-60'
+                                    : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
+                                )}
+                              >
+                                + {(inc / 1_000_000).toLocaleString()} mi
+                              </button>
+                            )
+                          })}
                         </div>
 
                         {leilao.link_sofifa && (
@@ -593,7 +521,7 @@ export default function LeilaoSistemaPage() {
                             href={leilao.link_sofifa}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-block pt-1 text-xs text-cyan-300 underline hover:text-cyan-200"
+                            className="mt-3 inline-block text-xs text-cyan-300 underline hover:text-cyan-200"
                           >
                             🔗 Ver no Sofifa
                           </a>
