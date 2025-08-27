@@ -84,13 +84,8 @@ export default function LeilaoSistemaPage() {
 
   const pickImagemUrl = (row: any) => {
     const keys = [
-      'imagem_url',
-      'Imagem_url',
-      'Imagem URL',
-      'imagem URL',
-      'imagemURL',
-      'url_imagem',
-      'URL_Imagem',
+      'imagem_url', 'Imagem_url', 'Imagem URL', 'imagem URL', 'imagemURL',
+      'url_imagem', 'URL_Imagem',
     ]
     for (const k of keys) {
       if (row?.[k]) {
@@ -100,7 +95,7 @@ export default function LeilaoSistemaPage() {
     }
     for (const k in row || {}) {
       if (k && k.replace(/\s+/g, '').toLowerCase() === 'imagem_url') {
-        const fixed = normalizeUrl(row[k])
+        const fixed = normalizeUrl((row as any)[k])
         if (fixed) return fixed
       }
     }
@@ -167,8 +162,8 @@ export default function LeilaoSistemaPage() {
     if (!error && data) {
       const map: Record<string, string> = {}
       for (const t of data) {
-        const url = normalizeUrl(t.logo_url)
-        if (t.nome && url) map[t.nome] = url
+        const url = normalizeUrl((t as any).logo_url)
+        if ((t as any).nome && url) map[(t as any).nome] = url
       }
       setLogos(map)
     }
@@ -183,7 +178,7 @@ export default function LeilaoSistemaPage() {
       .limit(MAX_ATIVOS)
 
     if (!error && data) {
-      const arr = data.map((l: any) => ({
+      const arr = (data as any[]).map((l) => ({
         ...l,
         imagem_url: pickImagemUrl(l) || null,
       }))
@@ -270,12 +265,8 @@ export default function LeilaoSistemaPage() {
   const acionarAnimacao = (leilaoId: string) => {
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
     setBurst((prev) => ({ ...prev, [leilaoId]: true }))
-    setTimeout(() => {
-      setBurst((prev) => ({ ...prev, [leilaoId]: false }))
-    }, 700)
-    setTimeout(() => {
-      setTremores((prev) => ({ ...prev, [leilaoId]: false }))
-    }, 150)
+    setTimeout(() => setBurst((prev) => ({ ...prev, [leilaoId]: false })), 700)
+    setTimeout(() => setTremores((prev) => ({ ...prev, [leilaoId]: false })), 150)
   }
 
   // ===== Lance manual (valor livre, mínimo +20mi) =====
@@ -283,27 +274,22 @@ export default function LeilaoSistemaPage() {
     leilaoId: string,
     valorAtual: number,
     valorProposto: number,
-    tempoRestante: number
+    tempoRestanteUI: number
   ) {
     setErroTela(null)
 
     await garantirIdTimeValido()
-    if (travadoPorIdentidade) {
-      setErroTela(travadoPorIdentidade)
-      return
-    }
+    if (travadoPorIdentidade) { setErroTela(travadoPorIdentidade); return }
     if (cooldownGlobal || cooldownPorLeilao[leilaoId]) return
 
     const minimo = Number(valorAtual) + INCREMENTO_MINIMO
     const novoValor = Math.floor(Number(valorProposto) || 0)
 
     if (!isFinite(novoValor) || novoValor < minimo) {
-      setErroTela(`O lance mínimo é ${brl(minimo)}.`)
-      return
+      setErroTela(`O lance mínimo é ${brl(minimo)}.`); return
     }
     if (saldo !== null && novoValor > saldo) {
-      setErroTela('Saldo insuficiente para este lance.')
-      return
+      setErroTela('Saldo insuficiente para este lance.'); return
     }
 
     setCooldownGlobal(true)
@@ -311,6 +297,7 @@ export default function LeilaoSistemaPage() {
     acionarAnimacao(leilaoId)
 
     try {
+      // 🔒 valida SOMENTE pelo status do servidor (sem usar relógio do cliente)
       const { data: atual, error: e1 } = await supabase
         .from('leiloes_sistema')
         .select('status, valor_atual, fim')
@@ -318,8 +305,6 @@ export default function LeilaoSistemaPage() {
         .single()
       if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
       if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
-      const fimMs = new Date(atual.fim).getTime()
-      if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
 
       const incremento = novoValor - Number(valorAtual)
       if (incremento < INCREMENTO_MINIMO) {
@@ -331,7 +316,7 @@ export default function LeilaoSistemaPage() {
         p_valor_novo: novoValor,
         p_id_time_vencedor: idTime,
         p_nome_time_vencedor: nomeTime,
-        p_estender: tempoRestante < 15
+        // p_estender: o servidor deve decidir com base em now() vs fim (evita skew do cliente)
       })
       if (error) {
         console.error('RPC error:', error)
@@ -345,9 +330,7 @@ export default function LeilaoSistemaPage() {
       setErroTela(err?.message || 'Erro ao dar lance.')
     } finally {
       setTimeout(() => setCooldownGlobal(false), 300)
-      setTimeout(() => {
-        setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
-      }, 150)
+      setTimeout(() => setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false })), 150)
     }
   }
 
@@ -355,15 +338,12 @@ export default function LeilaoSistemaPage() {
     leilaoId: string,
     valorAtual: number,
     incremento: number,
-    tempoRestante: number
+    tempoRestanteUI: number
   ) {
     setErroTela(null)
 
     await garantirIdTimeValido()
-    if (travadoPorIdentidade) {
-      setErroTela(travadoPorIdentidade)
-      return
-    }
+    if (travadoPorIdentidade) { setErroTela(travadoPorIdentidade); return }
     if (cooldownGlobal || cooldownPorLeilao[leilaoId]) return
 
     const novoValor = Number(valorAtual) + Number(incremento)
@@ -378,6 +358,7 @@ export default function LeilaoSistemaPage() {
     acionarAnimacao(leilaoId)
 
     try {
+      // 🔒 valida SOMENTE pelo status do servidor (sem usar relógio do cliente)
       const { data: atual, error: e1 } = await supabase
         .from('leiloes_sistema')
         .select('status, valor_atual, fim')
@@ -385,15 +366,13 @@ export default function LeilaoSistemaPage() {
         .single()
       if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
       if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
-      const fimMs = new Date(atual.fim).getTime()
-      if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
 
       const { error } = await supabase.rpc('dar_lance_no_leilao', {
         p_leilao_id: leilaoId,
         p_valor_novo: novoValor,
         p_id_time_vencedor: idTime,
         p_nome_time_vencedor: nomeTime,
-        p_estender: tempoRestante < 15
+        // p_estender calculado no servidor
       })
       if (error) {
         console.error('RPC error:', error)
@@ -406,23 +385,7 @@ export default function LeilaoSistemaPage() {
       setErroTela(err?.message || 'Erro ao dar lance.')
     } finally {
       setTimeout(() => setCooldownGlobal(false), 300)
-      setTimeout(() => {
-        setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
-      }, 150)
-    }
-  }
-
-  const finalizarLeilaoAgora = async (leilaoId: string) => {
-    if (!confirm('Deseja finalizar esse leilão agora?')) return
-    const { error } = await supabase
-      .from('leiloes_sistema')
-      .update({ status: 'leiloado' })
-      .eq('id', leilaoId)
-
-    if (error) alert('Erro ao finalizar leilão: ' + error.message)
-    else {
-      alert('Leilão finalizado!')
-      await buscarLeiloesAtivos()
+      setTimeout(() => setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false })), 150)
     }
   }
 
@@ -499,13 +462,16 @@ export default function LeilaoSistemaPage() {
               const agora = Date.now()
 
               let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
-              if (!isFinite(tempoRestante) || tempoRestante < 0) tempoRestante = 0
+              if (!isFinite(tempoRestante)) tempoRestante = 0
 
               const totalMs = Math.max(0, tempoFinal - tempoInicio)
               const remMs = Math.max(0, tempoFinal - agora)
               const pctRestante = totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
 
-              const disabledPorTempo = tempoRestante === 0
+              // 🔒 não encerramos por relógio do cliente
+              const encerradoPeloServidor = leilao.status !== 'ativo'
+              const chegouZeroNaUI = (tempoFinal - agora) <= 0
+
               const disabledPorIdentidade = !!travadoPorIdentidade
               const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
 
@@ -513,9 +479,9 @@ export default function LeilaoSistemaPage() {
 
               const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
               const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
-              const propostaInvalida = !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido
-              const saldoInsuf =
-                saldo !== null && isFinite(valorPropostoNum) && valorPropostoNum > Number(saldo)
+
+              const podeDarLance =
+                !encerradoPeloServidor && !disabledPorIdentidade && !disabledPorCooldown
 
               // logo do vencedor atual (se houver)
               const vencedor = leilao.nome_time_vencedor || ''
@@ -554,14 +520,14 @@ export default function LeilaoSistemaPage() {
                         <span
                           className={classNames(
                             'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px]',
-                            disabledPorTempo
+                            encerradoPeloServidor
                               ? 'border-red-900/60 bg-red-950/40 text-red-200'
                               : 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
                           )}
                         >
-                          {disabledPorTempo ? 'Encerrado' : 'Termina em'}
-                          {!disabledPorTempo && (
-                            <b className="tabular-nums">{formatarTempo(tempoRestante)}</b>
+                          {encerradoPeloServidor ? 'Encerrado' : (chegouZeroNaUI ? 'Aguardando servidor…' : 'Termina em')}
+                          {!encerradoPeloServidor && (
+                            <b className="tabular-nums">{formatarTempo(Math.max(0, tempoRestante))}</b>
                           )}
                         </span>
                       </div>
@@ -603,23 +569,23 @@ export default function LeilaoSistemaPage() {
                                 🌍 {leilao.nacionalidade}
                               </span>
                             )}
-                            {vencedor && (
+                            {leilao.nome_time_vencedor && (
                               <span className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
                                 👑
                                 {logoVencedor ? (
                                   <img
                                     src={logoVencedor}
-                                    alt={vencedor}
+                                    alt={leilao.nome_time_vencedor}
                                     className="h-4 w-4 rounded-full object-cover"
                                     referrerPolicy="no-referrer"
                                     onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
                                   />
                                 ) : (
                                   <span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 text-[9px] text-zinc-200">
-                                    {vencedor.slice(0, 2).toUpperCase()}
+                                    {leilao.nome_time_vencedor.slice(0, 2).toUpperCase()}
                                   </span>
                                 )}
-                                <span>{vencedor}</span>
+                                <span>{leilao.nome_time_vencedor}</span>
                               </span>
                             )}
                           </div>
@@ -644,25 +610,19 @@ export default function LeilaoSistemaPage() {
                               setPropostas((prev) => ({ ...prev, [leilao.id]: raw }))
                             }}
                             placeholder={String(minimoPermitido)}
-                            disabled={disabledPorTempo || disabledPorIdentidade}
+                            disabled={!podeDarLance}
                           />
                           <button
-                            onClick={() =>
-                              darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNum, tempoRestante)
-                            }
+                            onClick={() => darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNum, tempoRestante)}
                             disabled={
-                              disabledPorTempo ||
-                              disabledPorIdentidade ||
-                              disabledPorCooldown ||
+                              !podeDarLance ||
                               !isFinite(valorPropostoNum) ||
                               valorPropostoNum < minimoPermitido ||
                               (saldo !== null && valorPropostoNum > Number(saldo))
                             }
                             className={classNames(
                               'shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition',
-                              disabledPorTempo ||
-                                disabledPorIdentidade ||
-                                disabledPorCooldown ||
+                              !podeDarLance ||
                                 !isFinite(valorPropostoNum) ||
                                 valorPropostoNum < minimoPermitido ||
                                 (saldo !== null && valorPropostoNum > Number(saldo))
@@ -670,16 +630,12 @@ export default function LeilaoSistemaPage() {
                                 : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
                             )}
                             title={
-                              disabledPorTempo
-                                ? '⏱️ Leilão encerrado'
-                                : disabledPorIdentidade
-                                ? '🔐 Faça login novamente (time não identificado)'
+                              !podeDarLance
+                                ? 'Aguardando servidor ou restrição momentânea'
                                 : !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido
                                 ? `O lance deve ser pelo menos ${brl(minimoPermitido)}`
                                 : saldo !== null && valorPropostoNum > Number(saldo)
                                 ? '💸 Saldo insuficiente'
-                                : disabledPorCooldown
-                                ? '⏳ Aguarde um instante...'
                                 : ''
                             }
                           >
@@ -709,10 +665,7 @@ export default function LeilaoSistemaPage() {
                         <div className="grid grid-cols-3 gap-2">
                           {increments.map((inc) => {
                             const disabled =
-                              tempoRestante === 0 ||
-                              !!travadoPorIdentidade ||
-                              cooldownGlobal ||
-                              !!cooldownPorLeilao[leilao.id] ||
+                              !podeDarLance ||
                               (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
 
                             return (
@@ -721,14 +674,10 @@ export default function LeilaoSistemaPage() {
                                 onClick={() => darLance(leilao.id, leilao.valor_atual, inc, tempoRestante)}
                                 disabled={disabled}
                                 title={
-                                  tempoRestante === 0
-                                    ? '⏱️ Leilão encerrado'
-                                    : travadoPorIdentidade
-                                    ? '🔐 Faça login novamente (time não identificado)'
+                                  !podeDarLance
+                                    ? 'Aguardando servidor ou restrição momentânea'
                                     : saldo !== null && Number(leilao.valor_atual) + inc > saldo
                                     ? '💸 Saldo insuficiente'
-                                    : cooldownGlobal || !!cooldownPorLeilao[leilao.id]
-                                    ? '⏳ Aguarde um instante...'
                                     : ''
                                 }
                                 className={classNames(
@@ -758,22 +707,9 @@ export default function LeilaoSistemaPage() {
                         )}
                       </div>
 
-                      {tempoRestante === 0 && (
-                        <button
-                          onClick={() => finalizarLeilaoAgora(leilao.id)}
-                          className="mt-4 w-full rounded-xl bg-red-600/90 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400/30"
-                        >
-                          Finalizar Leilão
-                        </button>
-                      )}
+                      {/* ❌ NADA de botão “Finalizar Leilão” baseado no relógio do cliente */}
                     </article>
                   </div>
-
-                  {tempoRestante === 0 && (
-                    <div className="pointer-events-none absolute -right-2 -top-2 rotate-3 rounded-lg border border-red-900/50 bg-red-950/70 px-2 py-1 text-[10px] font-semibold text-red-200 shadow">
-                      ENCERRADO
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -793,4 +729,3 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
-
