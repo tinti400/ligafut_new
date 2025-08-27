@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
+import classNames from 'classnames'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,8 +45,10 @@ export default function LeiloesFinalizadosPage() {
   const [filtroPosicao, setFiltroPosicao] = useState('')
   const [filtroTime, setFiltroTime] = useState('')
 
-  // email manual (quando não foi possível detectar)
   const [emailManual, setEmailManual] = useState('')
+
+  // bloqueio de duplo clique por leilão
+  const [processando, setProcessando] = useState<Record<string, boolean>>({})
 
   const normaliza = (s?: string | null) => (s || '').trim().toLowerCase()
 
@@ -60,15 +63,10 @@ export default function LeiloesFinalizadosPage() {
       setCarregando(true)
       setMotivoBloqueio(null)
 
-      // 1) Supabase Auth
       const { data: authData } = await supabase.auth.getUser()
       const emailAuth = authData?.user?.email || null
-
-      // 2) LocalStorage (várias chaves)
       const emailLS = localStorage.getItem('email')
       const emailLS2 = localStorage.getItem('Email')
-
-      // 3) Objeto user/usuario salvo
       let emailObj = ''
       try {
         const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
@@ -77,11 +75,14 @@ export default function LeiloesFinalizadosPage() {
           emailObj = obj?.email || obj?.Email || obj?.e_mail || ''
         }
       } catch {}
-
-      // 4) Query param ?email=
       const emailURL = new URLSearchParams(window.location.search).get('email')
 
-      const emailUsuario = normaliza(emailAuth) || normaliza(emailLS) || normaliza(emailLS2) || normaliza(emailObj) || normaliza(emailURL)
+      const emailUsuario =
+        normaliza(emailAuth) ||
+        normaliza(emailLS) ||
+        normaliza(emailLS2) ||
+        normaliza(emailObj) ||
+        normaliza(emailURL)
 
       if (!emailUsuario) {
         setIsAdmin(false)
@@ -90,14 +91,12 @@ export default function LeiloesFinalizadosPage() {
         return
       }
 
-      // cache
       localStorage.setItem('email', emailUsuario)
 
-      // 5) consulta admins (case-insensitive, sem erro quando não encontra)
       const { data, error, status } = await supabase
         .from('admins')
         .select('email')
-        .ilike('email', emailUsuario) // match exato ignorando caixa
+        .ilike('email', emailUsuario)
         .maybeSingle()
 
       if (error) {
@@ -108,9 +107,7 @@ export default function LeiloesFinalizadosPage() {
       }
 
       setIsAdmin(!!data)
-      if (!data) {
-        setMotivoBloqueio(`E-mail "${emailUsuario}" não consta na tabela admins.`)
-      }
+      if (!data) setMotivoBloqueio(`E-mail "${emailUsuario}" não consta na tabela admins.`)
     } catch (e: any) {
       console.error('Falha geral na verificação de admin:', e)
       setIsAdmin(false)
@@ -145,64 +142,144 @@ export default function LeiloesFinalizadosPage() {
     }
   }
 
+  // ---- helper: checar se já existe no elenco (usa sofifa quando possível) ----
+  const existeNoElenco = async ({
+    id_time,
+    link_sofifa,
+    nome,
+  }: {
+    id_time: string
+    link_sofifa?: string | null
+    nome: string
+  }) => {
+    if (link_sofifa) {
+      const { data, error } = await supabase
+        .from('elenco')
+        .select('id')
+        .eq('id_time', id_time)
+        .eq('link_sofifa', link_sofifa)
+        .maybeSingle()
+      if (!error && data) return true
+    }
+    // fallback por nome (menos robusto)
+    const { data: data2, error: error2 } = await supabase
+      .from('elenco')
+      .select('id')
+      .eq('id_time', id_time)
+      .ilike('nome', nome)
+      .maybeSingle()
+    return !error2 && !!data2
+  }
+
   const enviarParaElenco = async (leilao: any) => {
     if (!leilao.id_time_vencedor) {
       alert('❌ Este leilão não possui time vencedor.')
       return
     }
 
-    const salario = Math.round(leilao.valor_atual * 0.007)
+    if (processando[leilao.id]) return
+    setProcessando((p) => ({ ...p, [leilao.id]: true }))
 
-    const { error: erroInsert } = await supabase.from('elenco').insert({
-      id_time: leilao.id_time_vencedor,
-      nome: leilao.nome,
-      posicao: leilao.posicao,
-      overall: leilao.overall,
-      valor: leilao.valor_atual,
-      salario,
-      imagem_url: leilao.imagem_url || '',
-      link_sofifa: leilao.link_sofifa || '',
-      nacionalidade: leilao.nacionalidade || '',
-      jogos: 0,
-    })
-    if (erroInsert) {
-      console.error('❌ Erro ao enviar para elenco:', erroInsert)
-      alert(`❌ Erro ao enviar para elenco:\n${erroInsert.message}`)
-      return
+    try {
+      // 0) proteção: já existe?
+      const jaExiste = await existeNoElenco({
+        id_time: leilao.id_time_vencedor,
+        link_sofifa: leilao.link_sofifa,
+        nome: leilao.nome,
+      })
+      if (jaExiste) {
+        // se já existe, apenas marca como concluído e sai
+        await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+        setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+        alert('⚠️ Jogador já estava no elenco. Leilão marcado como concluído.')
+        return
+      }
+
+      const salario = Math.round(Number(leilao.valor_atual || 0) * 0.007)
+
+      // 1) Upsert em elenco (requer índice único conforme recomendação)
+      // prioridade: id_time + link_sofifa; fallback: id_time + nome
+      const onConflict = leilao.link_sofifa ? 'id_time,link_sofifa' : 'id_time,nome'
+      const { error: erroUpsert } = await supabase
+        .from('elenco')
+        .upsert(
+          [
+            {
+              id_time: leilao.id_time_vencedor,
+              nome: leilao.nome,
+              posicao: leilao.posicao,
+              overall: leilao.overall,
+              valor: leilao.valor_atual,
+              salario,
+              imagem_url: leilao.imagem_url || '',
+              link_sofifa: leilao.link_sofifa || null,
+              nacionalidade: leilao.nacionalidade || '',
+              jogos: 0,
+            },
+          ],
+          { onConflict, ignoreDuplicates: false }
+        )
+      if (erroUpsert) {
+        // se não houver índice, o upsert pode falhar—faz insert simples como fallback
+        console.warn('upsert falhou, tentando insert simples…', erroUpsert.message)
+        const { error: erroInsert } = await supabase.from('elenco').insert({
+          id_time: leilao.id_time_vencedor,
+          nome: leilao.nome,
+          posicao: leilao.posicao,
+          overall: leilao.overall,
+          valor: leilao.valor_atual,
+          salario,
+          imagem_url: leilao.imagem_url || '',
+          link_sofifa: leilao.link_sofifa || null,
+          nacionalidade: leilao.nacionalidade || '',
+          jogos: 0,
+        })
+        if (erroInsert) {
+          console.error('❌ Erro ao enviar para elenco:', erroInsert)
+          alert(`❌ Erro ao enviar para elenco:\n${erroInsert.message}`)
+          return
+        }
+      }
+
+      // 2) Debita saldo (ideal: RPC que faz o débito com check >= 0)
+      const { data: timeData, error: errorBusca } = await supabase
+        .from('times')
+        .select('saldo')
+        .eq('id', leilao.id_time_vencedor)
+        .single()
+      if (errorBusca || !timeData) {
+        console.error('❌ Erro ao buscar saldo:', errorBusca)
+        alert('Erro ao buscar saldo do time.')
+        return
+      }
+      const novoSaldo = Number(timeData.saldo || 0) - Number(leilao.valor_atual || 0)
+      await supabase.from('times').update({ saldo: novoSaldo }).eq('id', leilao.id_time_vencedor)
+
+      // 3) Movimentação + BID
+      await registrarMovimentacao({
+        id_time: leilao.id_time_vencedor,
+        tipo: 'saida',
+        valor: leilao.valor_atual,
+        descricao: `Compra de ${leilao.nome} via leilão`,
+      })
+
+      await registrarNoBID({
+        tipo_evento: 'compra',
+        descricao: `Time comprou o jogador ${leilao.nome} no leilão por R$${Number(
+          leilao.valor_atual || 0
+        ).toLocaleString('pt-BR')}`,
+        id_time1: leilao.id_time_vencedor,
+        valor: leilao.valor_atual,
+      })
+
+      // 4) Marca leilão como concluído e remove da UI
+      await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+      setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+
+      alert('✅ Jogador enviado ao elenco e saldo debitado!')
+    } finally {
+      setProcessando((p) => ({ ...p, [leilao.id]: false }))
     }
-
-    const { data: timeData, error: errorBusca } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', leilao.id_time_vencedor)
-      .single()
-    if (errorBusca || !timeData) {
-      console.error('❌ Erro ao buscar saldo:', errorBusca)
-      alert('Erro ao buscar saldo do time.')
-      return
-    }
-
-    const novoSaldo = timeData.saldo - leilao.valor_atual
-    await supabase.from('times').update({ saldo: novoSaldo }).eq('id', leilao.id_time_vencedor)
-
-    await registrarMovimentacao({
-      id_time: leilao.id_time_vencedor,
-      tipo: 'saida',
-      valor: leilao.valor_atual,
-      descricao: `Compra de ${leilao.nome} via leilão`,
-    })
-
-    await registrarNoBID({
-      tipo_evento: 'compra',
-      descricao: `Time comprou o jogador ${leilao.nome} no leilão por R$${leilao.valor_atual.toLocaleString()}`,
-      id_time1: leilao.id_time_vencedor,
-      valor: leilao.valor_atual,
-    })
-
-    await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
-
-    alert('✅ Jogador enviado ao elenco e saldo debitado!')
-    location.reload()
   }
 
   const excluirLeilao = async (leilao: any) => {
@@ -224,21 +301,27 @@ export default function LeiloesFinalizadosPage() {
 
   // ---------------- UI ----------------
   if (isAdmin === null || carregando) {
-    return <p className="text-center mt-10 text-white">Verificando permissão...</p>
+    return (
+      <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
+        <div className="animate-pulse text-gray-300">Verificando permissão…</div>
+      </main>
+    )
   }
 
   if (isAdmin === false) {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center gap-4 text-center px-4">
-        <div className="text-red-500 text-xl font-semibold">
+      <main className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-4 text-center px-4">
+        <div className="text-red-400 text-xl font-semibold">
           🚫 Você não tem permissão para acessar esta página.
         </div>
-        {motivoBloqueio && <div className="text-sm text-red-300 max-w-xl">Detalhe: {motivoBloqueio}</div>}
-        <div className="bg-gray-800 rounded-xl p-4 text-white w-full max-w-md">
+        {motivoBloqueio && (
+          <div className="text-sm text-red-300 max-w-xl">Detalhe: {motivoBloqueio}</div>
+        )}
+        <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-5 text-white w-full max-w-md shadow-lg">
           <div className="text-sm mb-2">Informe seu e-mail para validar com a lista de admins:</div>
           <div className="flex gap-2">
             <input
-              className="flex-1 p-2 rounded text-black"
+              className="flex-1 p-2 rounded bg-white/90 text-black outline-none"
               placeholder="seuemail@dominio.com"
               value={emailManual}
               onChange={(e) => setEmailManual(e.target.value)}
@@ -250,7 +333,7 @@ export default function LeiloesFinalizadosPage() {
                 localStorage.setItem('email', e)
                 await verificarAdmin()
               }}
-              className="px-3 py-2 rounded bg-green-600 hover:bg-green-700 text-white"
+              className="px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white transition"
             >
               Validar
             </button>
@@ -261,97 +344,175 @@ export default function LeiloesFinalizadosPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-6xl mx-auto bg-gray-800 shadow-xl rounded-xl p-6">
-        <h1 className="text-3xl font-bold text-center mb-6 text-green-400">📜 Leilões Finalizados</h1>
+    <main className="min-h-screen bg-gray-950 text-white p-6">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-emerald-400">📜 Leilões Finalizados</h1>
+            <p className="text-gray-400 text-sm">
+              Itens com status <span className="font-semibold text-gray-200">leiloado</span> aguardando envio ao elenco.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-gray-300">
+            <span className="px-2 py-1 rounded-lg border border-gray-800 bg-gray-900">
+              Total: <b>{leiloes.length}</b>
+            </span>
+            <span className="px-2 py-1 rounded-lg border border-gray-800 bg-gray-900">
+              Filtrados: <b>{leiloesFiltrados.length}</b>
+            </span>
+          </div>
+        </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <select
-            className="p-2 border rounded text-black"
-            value={filtroPosicao}
-            onChange={(e) => setFiltroPosicao(e.target.value)}
-          >
-            <option value="">📌 Todas as Posições</option>
-            {POSICOES.map((pos) => (
-              <option key={pos} value={pos}>
-                {pos}
-              </option>
-            ))}
-          </select>
+        {/* Filtros */}
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="flex flex-wrap gap-1">
+            {POSICOES.map((pos) => {
+              const active = filtroPosicao === pos
+              return (
+                <button
+                  key={pos}
+                  onClick={() => setFiltroPosicao(active ? '' : pos)}
+                  className={classNames(
+                    'px-3 py-1 rounded-lg text-sm border transition',
+                    active
+                      ? 'border-emerald-700 bg-emerald-900/50 text-emerald-200'
+                      : 'border-gray-800 bg-gray-900 text-gray-300 hover:bg-gray-800'
+                  )}
+                >
+                  {pos}
+                </button>
+              )
+            })}
+          </div>
+
           <input
             type="text"
             placeholder="🔍 Buscar por Time Vencedor"
             value={filtroTime}
             onChange={(e) => setFiltroTime(e.target.value)}
-            className="p-2 border rounded text-black"
+            className="p-2 rounded-lg bg-gray-900 text-white border border-gray-800 outline-none focus:ring-2 focus:ring-emerald-600"
           />
+
           <button
             onClick={() => {
               setFiltroPosicao('')
               setFiltroTime('')
             }}
-            className="bg-gray-300 hover:bg-gray-400 text-black py-2 px-4 rounded"
+            className="px-4 py-2 rounded-lg border border-gray-800 bg-gray-900 hover:bg-gray-800 transition"
           >
             ❌ Limpar Filtros
           </button>
         </div>
 
+        {/* Lista */}
         {leiloesFiltrados.length === 0 ? (
-          <p className="text-center text-gray-400 italic">Nenhum leilão encontrado com os filtros.</p>
+          <div className="text-center text-gray-400 italic border border-dashed border-gray-800 rounded-2xl p-10">
+            Nenhum leilão encontrado com os filtros.
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {leiloesFiltrados.map((leilao) => (
-              <div key={leilao.id} className="border rounded p-4 shadow bg-gray-700 hover:bg-gray-600 transition">
-                {leilao.imagem_url && (
-                  <img
-                    src={leilao.imagem_url}
-                    alt={leilao.nome}
-                    className="w-full h-48 object-cover rounded mb-2 border"
-                  />
-                )}
-                <p className="font-bold text-lg">
-                  {leilao.nome} ({leilao.posicao})
-                </p>
-                <p className="text-gray-300">⭐ Overall: {leilao.overall}</p>
-                <p className="text-gray-300">🌍 {leilao.nacionalidade}</p>
-                <p className="text-yellow-400">💰 R$ {Number(leilao.valor_atual).toLocaleString()}</p>
-                <p className="text-gray-300">🏆 {leilao.nome_time_vencedor || '— Sem Vencedor'}</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  🕒 {new Date(leilao.fim).toLocaleString('pt-BR')}
-                </p>
-
-                {leilao.link_sofifa && (
-                  <a
-                    href={leilao.link_sofifa}
-                    target="_blank"
-                    className="text-blue-400 text-sm mt-2 inline-block hover:underline"
-                  >
-                    🔗 Ver no Sofifa
-                  </a>
-                )}
-
-                <div className="mt-3 grid grid-cols-1 gap-2">
-                  {leilao.id_time_vencedor && (
-                    <button
-                      onClick={() => enviarParaElenco(leilao)}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded"
-                    >
-                      ➕ Enviar para Elenco
-                    </button>
+            {leiloesFiltrados.map((leilao) => {
+              const valorBRL = Number(leilao.valor_atual || 0).toLocaleString('pt-BR', {
+                style: 'currency',
+                currency: 'BRL',
+                maximumFractionDigits: 0,
+              })
+              const processing = !!processando[leilao.id]
+              return (
+                <article
+                  key={leilao.id}
+                  className="rounded-2xl overflow-hidden border border-gray-800 bg-gradient-to-b from-gray-900 to-gray-950 shadow hover:shadow-emerald-900/20 transition"
+                >
+                  {leilao.imagem_url && (
+                    <div className="relative">
+                      <img
+                        src={leilao.imagem_url}
+                        alt={leilao.nome}
+                        className="w-full h-48 object-cover"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                      />
+                      <div className="absolute top-2 right-2 rounded-lg bg-black/50 px-2 py-1 text-xs">
+                        🕒 {new Date(leilao.fim).toLocaleString('pt-BR')}
+                      </div>
+                    </div>
                   )}
-                  <button
-                    onClick={() => excluirLeilao(leilao)}
-                    className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded"
-                  >
-                    🗑️ Excluir Leilão
-                  </button>
-                </div>
-              </div>
-            ))}
+
+                  <div className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-lg font-semibold leading-5 line-clamp-2">
+                        {leilao.nome}
+                      </h3>
+                      <span className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-xs">
+                        {valorBRL}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-300">
+                      <span className="rounded-md border border-gray-800 bg-gray-900 px-2 py-0.5">
+                        {leilao.posicao}
+                      </span>
+                      <span className="rounded-md border border-gray-800 bg-gray-900 px-2 py-0.5">
+                        ⭐ OVR {leilao.overall}
+                      </span>
+                      {leilao.nacionalidade && (
+                        <span className="rounded-md border border-gray-800 bg-gray-900 px-2 py-0.5">
+                          🌍 {leilao.nacionalidade}
+                        </span>
+                      )}
+                      <span className="rounded-md border border-gray-800 bg-gray-900 px-2 py-0.5">
+                        🏆 {leilao.nome_time_vencedor || '— Sem Vencedor'}
+                      </span>
+                    </div>
+
+                    {leilao.link_sofifa && (
+                      <a
+                        href={leilao.link_sofifa}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block text-emerald-300 text-xs underline hover:text-emerald-200"
+                      >
+                        🔗 Ver no Sofifa
+                      </a>
+                    )}
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {leilao.id_time_vencedor && (
+                        <button
+                          onClick={() => enviarParaElenco(leilao)}
+                          disabled={processing}
+                          className={classNames(
+                            'w-full rounded-lg py-2 font-semibold transition',
+                            processing
+                              ? 'bg-emerald-700/50 text-white cursor-not-allowed'
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          )}
+                        >
+                          {processing ? 'Processando…' : '➕ Enviar para Elenco'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => excluirLeilao(leilao)}
+                        disabled={processing}
+                        className={classNames(
+                          'w-full rounded-lg py-2 font-semibold transition',
+                          processing
+                            ? 'bg-red-700/50 text-white cursor-not-allowed'
+                            : 'bg-red-600 hover:bg-red-500 text-white'
+                        )}
+                      >
+                        🗑️ Excluir Leilão
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </div>
     </main>
   )
 }
-
