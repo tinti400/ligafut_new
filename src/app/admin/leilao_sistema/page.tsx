@@ -11,7 +11,7 @@ const supabase = createClient(
 )
 
 const MAX_ATIVOS = 9
-const INCREMENTO_MINIMO = 20_000_000 // lance manual precisa ser pelo menos +20mi
+const INCREMENTO_MINIMO = 20_000_000 // mínimo +20mi para lance manual
 
 type Leilao = {
   id: string
@@ -45,13 +45,17 @@ export default function LeilaoSistemaPage() {
   const [cooldownGlobal, setCooldownGlobal] = useState(false)
   const [cooldownPorLeilao, setCooldownPorLeilao] = useState<Record<string, boolean>>({})
   const [tremores, setTremores] = useState<Record<string, boolean>>({})
+  const [burst, setBurst] = useState<Record<string, boolean>>({}) // animação extra
   const [erroTela, setErroTela] = useState<string | null>(null)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const intervaloRef = useRef<NodeJS.Timeout | null>(null)
 
-  // valores propostos no input por leilão
+  // input manual por leilão
   const [propostas, setPropostas] = useState<Record<string, string>>({})
+
+  // logos de times (nome -> url)
+  const [logos, setLogos] = useState<Record<string, string>>({})
 
   // -------- utils ----------
   const isUuid = (s: string) =>
@@ -158,6 +162,18 @@ export default function LeilaoSistemaPage() {
     else setSaldo(null)
   }
 
+  const carregarLogosTimes = async () => {
+    const { data, error } = await supabase.from('times').select('nome, logo_url')
+    if (!error && data) {
+      const map: Record<string, string> = {}
+      for (const t of data) {
+        const url = normalizeUrl(t.logo_url)
+        if (t.nome && url) map[t.nome] = url
+      }
+      setLogos(map)
+    }
+  }
+
   const buscarLeiloesAtivos = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
@@ -172,7 +188,7 @@ export default function LeilaoSistemaPage() {
         imagem_url: pickImagemUrl(l) || null,
       }))
 
-      // beep se perder a liderança
+      // beep ao perder liderança
       arr.forEach((leilao: any) => {
         if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
           audioRef.current?.play().catch(() => {})
@@ -181,7 +197,7 @@ export default function LeilaoSistemaPage() {
 
       setLeiloes(arr as Leilao[])
 
-      // inicia o input com (valor_atual + 20mi) quando ainda não há valor digitado
+      // inicializa input manual com (valor_atual + 20mi)
       setPropostas((prev) => {
         const next = { ...prev }
         for (const l of arr as Leilao[]) {
@@ -194,6 +210,7 @@ export default function LeilaoSistemaPage() {
 
   useEffect(() => {
     carregarIdentidadeLocal()
+    carregarLogosTimes()
   }, [])
 
   useEffect(() => {
@@ -249,6 +266,18 @@ export default function LeilaoSistemaPage() {
     return null
   }, [idTime, nomeTime])
 
+  // ===== helpers de animação =====
+  const acionarAnimacao = (leilaoId: string) => {
+    setTremores((prev) => ({ ...prev, [leilaoId]: true }))
+    setBurst((prev) => ({ ...prev, [leilaoId]: true }))
+    setTimeout(() => {
+      setBurst((prev) => ({ ...prev, [leilaoId]: false }))
+    }, 700)
+    setTimeout(() => {
+      setTremores((prev) => ({ ...prev, [leilaoId]: false }))
+    }, 150)
+  }
+
   // ===== Lance manual (valor livre, mínimo +20mi) =====
   async function darLanceManual(
     leilaoId: string,
@@ -279,7 +308,7 @@ export default function LeilaoSistemaPage() {
 
     setCooldownGlobal(true)
     setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: true }))
-    setTremores((prev) => ({ ...prev, [leilaoId]: true }))
+    acionarAnimacao(leilaoId)
 
     try {
       const { data: atual, error: e1 } = await supabase
@@ -311,8 +340,6 @@ export default function LeilaoSistemaPage() {
 
       await buscarLeiloesAtivos()
       await buscarSaldo()
-
-      // já sugere próximo mínimo no input
       setPropostas((prev) => ({ ...prev, [leilaoId]: String(novoValor + INCREMENTO_MINIMO) }))
     } catch (err: any) {
       setErroTela(err?.message || 'Erro ao dar lance.')
@@ -320,7 +347,6 @@ export default function LeilaoSistemaPage() {
       setTimeout(() => setCooldownGlobal(false), 300)
       setTimeout(() => {
         setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
-        setTremores((prev) => ({ ...prev, [leilaoId]: false }))
       }, 150)
     }
   }
@@ -349,7 +375,7 @@ export default function LeilaoSistemaPage() {
 
     setCooldownGlobal(true)
     setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: true }))
-    setTremores((prev) => ({ ...prev, [leilaoId]: true }))
+    acionarAnimacao(leilaoId)
 
     try {
       const { data: atual, error: e1 } = await supabase
@@ -382,7 +408,6 @@ export default function LeilaoSistemaPage() {
       setTimeout(() => setCooldownGlobal(false), 300)
       setTimeout(() => {
         setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false }))
-        setTremores((prev) => ({ ...prev, [leilaoId]: false }))
       }, 150)
     }
   }
@@ -486,23 +511,37 @@ export default function LeilaoSistemaPage() {
 
               const increments = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000]
 
-              // validação do input manual
               const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
               const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
               const propostaInvalida = !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido
               const saldoInsuf =
                 saldo !== null && isFinite(valorPropostoNum) && valorPropostoNum > Number(saldo)
 
+              // logo do vencedor atual (se houver)
+              const vencedor = leilao.nome_time_vencedor || ''
+              const logoVencedor = vencedor ? logos[vencedor] : undefined
+
               return (
                 <div key={leilao.id} className="relative">
+                  {/* efeito de borda */}
                   <div className={classNames('rounded-2xl p-[1px] bg-gradient-to-br', tierGrad(leilao.valor_atual))}>
                     <article
                       className={classNames(
-                        'rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
+                        'relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
                         'hover:border-emerald-600/30 hover:bg-zinc-900/70',
                         tremores[leilao.id] ? 'animate-[pulse_0.3s_ease_1] ring-1 ring-emerald-500/30' : ''
                       )}
                     >
+                      {/* burst de emojis */}
+                      {burst[leilao.id] && (
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                          <div className="animate-[fadeout_0.7s_ease_forwards] text-2xl select-none">
+                            💥✨🔥
+                          </div>
+                        </div>
+                      )}
+
+                      {/* barra de tempo */}
                       <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
                         <div
                           className="h-full bg-emerald-500 transition-[width] duration-1000"
@@ -564,16 +603,30 @@ export default function LeilaoSistemaPage() {
                                 🌍 {leilao.nacionalidade}
                               </span>
                             )}
-                            {leilao.nome_time_vencedor && (
-                              <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
-                                👑 {leilao.nome_time_vencedor}
+                            {vencedor && (
+                              <span className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                                👑
+                                {logoVencedor ? (
+                                  <img
+                                    src={logoVencedor}
+                                    alt={vencedor}
+                                    className="h-4 w-4 rounded-full object-cover"
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                                  />
+                                ) : (
+                                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 text-[9px] text-zinc-200">
+                                    {vencedor.slice(0, 2).toUpperCase()}
+                                  </span>
+                                )}
+                                <span>{vencedor}</span>
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {/* ==== LANCE MANUAL (acrescentado) ==== */}
+                      {/* ==== LANCE MANUAL ==== */}
                       <div className="mt-4 space-y-2">
                         <div className="flex items-center gap-2">
                           <input
@@ -581,7 +634,7 @@ export default function LeilaoSistemaPage() {
                             pattern="[0-9]*"
                             className={classNames(
                               'w-full rounded-xl border bg-zinc-950/60 px-3 py-2 text-sm tabular-nums outline-none',
-                              propostaInvalida
+                              (!isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido)
                                 ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30'
                                 : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
                             )}
@@ -601,16 +654,18 @@ export default function LeilaoSistemaPage() {
                               disabledPorTempo ||
                               disabledPorIdentidade ||
                               disabledPorCooldown ||
-                              propostaInvalida ||
-                              saldoInsuf
+                              !isFinite(valorPropostoNum) ||
+                              valorPropostoNum < minimoPermitido ||
+                              (saldo !== null && valorPropostoNum > Number(saldo))
                             }
                             className={classNames(
                               'shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition',
                               disabledPorTempo ||
                                 disabledPorIdentidade ||
                                 disabledPorCooldown ||
-                                propostaInvalida ||
-                                saldoInsuf
+                                !isFinite(valorPropostoNum) ||
+                                valorPropostoNum < minimoPermitido ||
+                                (saldo !== null && valorPropostoNum > Number(saldo))
                                 ? 'cursor-not-allowed border border-zinc-800 bg-zinc-900/60 text-zinc-500'
                                 : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
                             )}
@@ -619,9 +674,9 @@ export default function LeilaoSistemaPage() {
                                 ? '⏱️ Leilão encerrado'
                                 : disabledPorIdentidade
                                 ? '🔐 Faça login novamente (time não identificado)'
-                                : propostaInvalida
+                                : !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido
                                 ? `O lance deve ser pelo menos ${brl(minimoPermitido)}`
-                                : saldoInsuf
+                                : saldo !== null && valorPropostoNum > Number(saldo)
                                 ? '💸 Saldo insuficiente'
                                 : disabledPorCooldown
                                 ? '⏳ Aguarde um instante...'
@@ -726,7 +781,16 @@ export default function LeilaoSistemaPage() {
         )}
       </section>
 
+      {/* keyframes util para o fadeout do burst (compatível com Tailwind Arbitrary) */}
+      <style jsx>{`
+        @keyframes fadeout {
+          0% { opacity: 1; transform: scale(1) translateY(0); }
+          100% { opacity: 0; transform: scale(1.3) translateY(-10px); }
+        }
+      `}</style>
+
       <div className="h-6 md:h-8" />
     </main>
   )
 }
+
