@@ -62,15 +62,14 @@ const formatBRL = (n: number | null | undefined) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(Number(n || 0))
 
 // Data URI 1x1 transparente
-const FALLBACK_SRC =
-  'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
+const FALLBACK_SRC = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 
 /** ===== Componentes UI ===== */
-function StatCard({ icon, label, value }: { icon: string; label: string; value: string }) {
+function StatPill({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
-      <div className="text-sm text-gray-400">{icon} {label}</div>
-      <div className="mt-1 text-2xl font-extrabold tracking-tight">{value}</div>
+    <div className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm">
+      <span className="text-gray-400">{icon} {label}</span>
+      <span className="ml-2 font-bold">{value}</span>
     </div>
   )
 }
@@ -172,9 +171,7 @@ export default function ElencoPage() {
   const toggleTitular = (id: string) => {
     if (escalaFixada) return
     setTitulares(prev => {
-      if (prev.includes(id)) {
-        return prev.filter(x => x !== id)
-      }
+      if (prev.includes(id)) return prev.filter(x => x !== id)
       if (prev.length >= 11) {
         toast('Limite de 11 titulares atingido.')
         return prev
@@ -182,7 +179,6 @@ export default function ElencoPage() {
       return [...prev, id]
     })
   }
-
   const jogadorEhTitular = (id: string) => titulares.includes(id)
 
   /** ===== Fetch ===== */
@@ -193,12 +189,8 @@ export default function ElencoPage() {
       const id_time =
         typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
       if (!id_time) {
-        setElenco([])
-        setSaldo(0)
-        setNomeTime('')
-        setSelecionados([])
-        setTitulares([])
-        setEscalaFixada(false)
+        setElenco([]); setSaldo(0); setNomeTime('')
+        setSelecionados([]); setTitulares([]); setEscalaFixada(false)
         return
       }
 
@@ -206,32 +198,27 @@ export default function ElencoPage() {
         supabase.from('elenco').select('*').eq('id_time', id_time),
         supabase.from('times').select('nome, saldo').eq('id', id_time).single()
       ])
-
       if (e1) throw e1
       if (e2) throw e2
 
-      // --- Garantia DB: sincroniza salários = 1% do valor ---
+      // sincroniza salários (1% do valor)
       const needsUpdate = (elencoData || []).filter(j => {
         const esperado = calcularSalario(j.valor)
         return Number(j.salario || 0) !== esperado
       })
-
       if (needsUpdate.length > 0) {
         await Promise.all(
           needsUpdate.map(j =>
-            supabase.from('elenco')
-              .update({ salario: calcularSalario(j.valor) })
-              .eq('id', j.id)
+            supabase.from('elenco').update({ salario: calcularSalario(j.valor) }).eq('id', j.id)
           )
         )
       }
 
       const elencoComRegra = (elencoData || []).map(j => ({
-        ...j,
-        salario: calcularSalario(j.valor)
+        ...j, salario: calcularSalario(j.valor)
       })) as Jogador[]
 
-      // Buscar escalação já salva (se existir)
+      // escalação salva
       let titularesSalvos: string[] = []
       let fixada = false
       try {
@@ -240,25 +227,19 @@ export default function ElencoPage() {
           .select('titulares, fixada')
           .eq('id_time', id_time)
           .single()
-
         if (!e3 && esc) {
           titularesSalvos = Array.isArray(esc.titulares) ? esc.titulares : []
           fixada = !!esc.fixada
         }
-      } catch (e: any) {
-        // se não existir linha, ignora
-      }
+      } catch {}
 
-      // Filtra titulares para garantir que ainda existem no elenco
       const idsElenco = new Set(elencoComRegra.map(j => j.id))
       const titularesValidos = titularesSalvos.filter((tid: string) => idsElenco.has(tid)).slice(0, 11)
 
       setElenco(elencoComRegra)
       setSaldo(Number(timeData?.saldo || 0))
       setNomeTime(timeData?.nome || '')
-      setSelecionados([])
-      setTitulares(titularesValidos)
-      setEscalaFixada(fixada)
+      setSelecionados([]); setTitulares(titularesValidos); setEscalaFixada(fixada)
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar elenco.')
@@ -266,11 +247,7 @@ export default function ElencoPage() {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    fetchElenco()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  useEffect(() => { fetchElenco() }, [])
 
   /** ===== Ações em massa ===== */
   const toggleSelecionado = (id: string) => {
@@ -278,44 +255,30 @@ export default function ElencoPage() {
       prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
     )
   }
-  const selecionarTodosFiltrados = () => {
-    const ids = elencoFiltrado.map(j => j.id)
-    setSelecionados(ids)
-  }
+  const selecionarTodosFiltrados = () => setSelecionados(elencoFiltrado.map(j => j.id))
   const limparSelecao = () => setSelecionados([])
 
-  /** ===== Ação: vender selecionados (parcial) ===== */
+  /** ===== Vender selecionados ===== */
   const venderSelecionados = async () => {
     const jogadores = elenco.filter(j => selecionados.includes(j.id))
     if (jogadores.length === 0) return
-
     const id_time_local = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
 
     for (const jogador of jogadores) {
       try {
-        if ((jogador.jogos || 0) < 3) {
-          toast('🚫 Jogador precisa de pelo menos 3 jogos.')
-          continue
-        }
-
-        const percentualStr = prompt(
-          `Quantos % de ${jogador.nome} deseja vender?`,
-          String(jogador.percentual ?? 100)
-        )
+        if ((jogador.jogos || 0) < 3) { toast('🚫 Jogador precisa de pelo menos 3 jogos.'); continue }
+        const percentualStr = prompt(`Quantos % de ${jogador.nome} deseja vender?`, String(jogador.percentual ?? 100))
         if (percentualStr === null) continue
-
         const percentualNum = Number(percentualStr)
         const percentualAtual = Number(jogador.percentual ?? 100)
-
         if (!Number.isFinite(percentualNum) || percentualNum <= 0 || percentualNum > percentualAtual) {
-          toast.error('❌ Percentual inválido.')
-          continue
+          toast.error('❌ Percentual inválido.'); continue
         }
 
         const baseValor = Number(jogador.valor || 0)
         const valorVenda = Math.round((baseValor * percentualNum / 100) * 0.7)
 
-        // 1) Inserir no mercado
+        // 1) Mercado
         {
           const { error } = await supabase.from('mercado_transferencias').insert({
             jogador_id: jogador.id,
@@ -331,45 +294,27 @@ export default function ElencoPage() {
             percentual: percentualNum,
             created_at: new Date().toISOString()
           })
-          if (error) {
-            console.error('Erro ao inserir no mercado:', error)
-            toast.error(`❌ Falha ao anunciar ${jogador.nome} no mercado.`)
-            continue
-          }
+          if (error) { console.error('Erro ao inserir no mercado:', error); toast.error(`❌ Falha ao anunciar ${jogador.nome}.`); continue }
         }
 
-        // 2) Atualizar percentual no elenco (ou remover)
+        // 2) Atualizar percentual
         const novoPercentual = (jogador.percentual ?? 100) - percentualNum
         if (novoPercentual <= 0) {
           const { error } = await supabase.from('elenco').delete().eq('id', jogador.id)
-          if (error) {
-            console.error('Erro ao remover do elenco:', error)
-            toast('⚠️ Falha ao remover do elenco.')
-          }
+          if (error) { console.error('Erro ao remover do elenco:', error); toast('⚠️ Falha ao remover do elenco.') }
         } else {
           const { error } = await supabase.from('elenco').update({ percentual: novoPercentual }).eq('id', jogador.id)
-          if (error) {
-            console.error(`Erro ao atualizar percentual de ${jogador.nome}.`, error)
-            toast('⚠️ Falha ao atualizar percentual.')
-          }
+          if (error) { console.error(`Erro ao atualizar percentual de ${jogador.nome}.`, error); toast('⚠️ Falha ao atualizar percentual.') }
         }
 
-        // 3) Crédito atômico (RPC) + saldo novo
+        // 3) Crédito (RPC)
         {
           const { data: dataRPC, error } = await supabase.rpc('increment_saldo_return', {
-            p_time_id: jogador.id_time,
-            p_delta: valorVenda
+            p_time_id: jogador.id_time, p_delta: valorVenda
           })
-          if (error) {
-            console.error('Erro ao incrementar saldo via RPC:', error)
-            toast.error(`❌ Falha ao creditar ${formatBRL(valorVenda)}.`)
-            continue
-          }
-
+          if (error) { console.error('Erro RPC:', error); toast.error(`❌ Falha ao creditar ${formatBRL(valorVenda)}.`); continue }
           const novoSaldo = Number(dataRPC)
-          if (id_time_local && id_time_local === jogador.id_time) {
-            setSaldo(novoSaldo)
-          }
+          if (id_time_local && id_time_local === jogador.id_time) setSaldo(novoSaldo)
 
           await registrarNoBID({
             tipo_evento: 'venda_mercado',
@@ -385,7 +330,6 @@ export default function ElencoPage() {
         toast.error('❌ Ocorreu um erro ao processar a venda.')
       }
     }
-
     await fetchElenco()
   }
 
@@ -413,7 +357,6 @@ export default function ElencoPage() {
       (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
       (!soVendiveis || Number(j.jogos || 0) >= 3)
     )
-
     arr.sort((a, b) => {
       if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
       if (ordenacao === 'overall') return Number(b.overall || 0) - Number(a.overall || 0)
@@ -423,30 +366,28 @@ export default function ElencoPage() {
       if (ordenacao === 'posicao') return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
       return 0
     })
-
     return arr
   }, [elenco, filtroNacionalidade, filtroPosicao, nomeDebounced, filtroOverall, soVendiveis, ordenacao])
 
   /** ===== Skeleton ===== */
   const SkeletonCard = () => (
-    <div className="animate-pulse bg-gray-800/70 p-4 rounded-xl border-2 border-gray-700">
-      <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-gray-700 mx-auto mb-3" />
-      <div className="h-4 bg-gray-700 rounded w-3/4 mx-auto mb-2" />
-      <div className="h-3 bg-gray-700 rounded w-1/2 mx-auto mb-4" />
-      <div className="h-6 bg-gray-700 rounded w-full mb-2" />
-      <div className="h-6 bg-gray-700 rounded w-5/6 mb-2" />
-      <div className="h-6 bg-gray-700 rounded w-4/6" />
+    <div className="animate-pulse bg-white/[0.04] p-4 rounded-2xl border border-white/10">
+      <div className="h-20 w-20 rounded-full bg-white/10 mx-auto mb-3" />
+      <div className="h-4 bg-white/10 rounded w-3/4 mx-auto mb-2" />
+      <div className="h-3 bg-white/10 rounded w-1/2 mx-auto mb-4" />
+      <div className="h-6 bg-white/10 rounded w-full mb-2" />
+      <div className="h-6 bg-white/10 rounded w-5/6 mb-2" />
     </div>
   )
 
   if (loading) {
     return (
-      <div className="p-4 sm:p-6 max-w-7xl mx-auto min-h-screen bg-gradient-to-b from-gray-950 to-gray-900 text-white">
-        <div className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur border-b border-gray-800">
-          <h1 className="text-xl sm:text-2xl font-bold">👥 Elenco</h1>
+      <div className="p-4 max-w-7xl mx-auto min-h-screen bg-gradient-to-b from-gray-950 to-gray-900 text-white">
+        <header className="sticky top-0 z-40 -mx-4 px-4 py-3 bg-gray-950/85 backdrop-blur border-b border-white/10">
+          <h1 className="text-xl font-bold">👥 Elenco</h1>
           <p className="text-sm text-gray-400">Carregando dados...</p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 mt-6">
+        </header>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mt-5">
           {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       </div>
@@ -465,96 +406,135 @@ export default function ElencoPage() {
   /** ===== Salvar / Fixar Escalação ===== */
   const salvarEscalacao = async () => {
     if (escalaFixada) return
-    if (titulares.length !== 11) {
-      toast('Selecione exatamente 11 titulares.')
-      return
-    }
+    if (titulares.length !== 11) { toast('Selecione exatamente 11 titulares.'); return }
     const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
-    if (!id_time) {
-      toast.error('Time não identificado.')
-      return
-    }
+    if (!id_time) { toast.error('Time não identificado.'); return }
     setSalvandoEscalacao(true)
     try {
       const { error } = await supabase
         .from('escalacoes')
-        .upsert(
-          {
-            id_time,
-            titulares,
-            fixada: true,
-            fixada_em: new Date().toISOString()
-          },
-          { onConflict: 'id_time' }
-        )
-
+        .upsert({ id_time, titulares, fixada: true, fixada_em: new Date().toISOString() }, { onConflict: 'id_time' })
       if (error) throw error
-
       setEscalaFixada(true)
-
       await registrarNoBID({
         tipo_evento: 'escala_fixa',
         descricao: `Escalação do ${nomeTime} fixada com 11 titulares.`,
         id_time1: id_time
       })
-
       toast.success('✅ Escalação salva e fixada!')
     } catch (e: any) {
-      console.error(e)
-      toast.error('❌ Falha ao salvar a escalação.')
-    } finally {
-      setSalvandoEscalacao(false)
-    }
+      console.error(e); toast.error('❌ Falha ao salvar a escalação.')
+    } finally { setSalvandoEscalacao(false) }
   }
 
-  // Desbloquear (opcional). Deixe o botão comentado no header se não quiser expor.
   const desbloquearEscalacao = async () => {
     const id_time = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
     if (!id_time) return
     const ok = confirm('Desbloquear a escalação para editar?')
     if (!ok) return
     const { error } = await supabase.from('escalacoes').update({ fixada: false }).eq('id_time', id_time)
-    if (error) {
-      toast.error('Falha ao desbloquear.')
-    } else {
-      setEscalaFixada(false)
-      toast.success('Escalação desbloqueada.')
-    }
+    if (error) toast.error('Falha ao desbloquear.')
+    else { setEscalaFixada(false); toast.success('Escalação desbloqueada.') }
   }
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto bg-gradient-to-b from-gray-950 to-gray-900 text-white min-h-screen">
-      {/* Header / Resumo */}
-      <div className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-white/10">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight">
+      {/* Header */}
+      <header className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-white/10">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight truncate">
               👥 Elenco do <span className="text-green-400">{nomeTime || '—'}</span>
-              <span className="text-xs sm:text-sm text-gray-400 ml-2">({elenco.length} atletas)</span>
+              <span className="text-xs sm:text-sm text-gray-400 ml-2">({elenco.length})</span>
             </h1>
+          </div>
+          <div className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-sm">
+            💳 <b className="ml-1">{formatBRL(saldo)}</b>
+          </div>
+        </div>
 
-            {/* Stats compactos */}
-            <div className="mt-3 grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
-              <StatCard icon="💰" label="Caixa" value={formatBRL(saldo)} />
-              <StatCard icon="📦" label="Valor elenco" value={formatBRL(valorTotal)} />
-              <StatCard icon="💸" label="Salários" value={formatBRL(salarioTotal)} />
-              <StatCard icon="⭐" label="Média OVR" value={mediaOverall.toFixed(1)} />
-            </div>
+        {/* Mobile quick bar */}
+        <div className="mt-3 flex gap-2 sm:hidden">
+          <input
+            type="text"
+            placeholder="Buscar jogador..."
+            value={filtroNome}
+            onChange={(e) => setFiltroNome(e.target.value)}
+            className="flex-1 px-3 py-2 rounded-xl text-black"
+            aria-label="Buscar por nome"
+          />
+          <button
+            type="button"
+            onClick={() => setShowFiltersMobile(true)}
+            className="px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm"
+          >
+            🧰 Filtros
+          </button>
+          <button
+            type="button"
+            onClick={fetchElenco}
+            className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
+            aria-label="Atualizar elenco"
+            title="Atualizar"
+          >
+            🔄
+          </button>
+        </div>
+
+        {/* Stat chips – horizontal scroll (mobile) / grid (desktop) */}
+        <div className="mt-3 overflow-x-auto pb-1 sm:overflow-visible">
+          <div className="flex gap-2 sm:grid sm:grid-cols-4">
+            <StatPill icon="📦" label="Valor elenco" value={formatBRL(valorTotal)} />
+            <StatPill icon="💸" label="Salários" value={formatBRL(salarioTotal)} />
+            <StatPill icon="⭐" label="Média OVR" value={mediaOverall.toFixed(1)} />
+            <StatPill icon="🔒" label="Escalação" value={escalaFixada ? 'Fixada' : `${titulares.length}/11`} />
+          </div>
+        </div>
+
+        {/* Toolbar desktop */}
+        <div className="mt-4 hidden lg:flex lg:items-end gap-3">
+          <div className="flex flex-1 flex-wrap gap-2">
+            <input
+              type="text"
+              placeholder="Buscar por nome"
+              value={filtroNome}
+              onChange={(e) => setFiltroNome(e.target.value)}
+              className="px-3 py-2 rounded-lg text-black w-64"
+              aria-label="Buscar por nome"
+            />
+              <input
+                type="number"
+                placeholder="OVR mínimo"
+                value={filtroOverall}
+                onChange={(e) => setFiltroOverall(Number(e.target.value))}
+                className="px-3 py-2 rounded-lg text-black w-44"
+                aria-label="OVR mínimo"
+              />
+              <select
+                value={ordenacao}
+                onChange={(e) => setOrdenacao(e.target.value as Ordenacao)}
+                className="px-3 py-2 rounded-lg text-black w-48"
+                aria-label="Ordenação"
+              >
+                <option value="valor">💰 Valor</option>
+                <option value="overall">⭐ Overall</option>
+                <option value="salario">💸 Salário</option>
+                <option value="jogos">🏟️ Jogos</option>
+                <option value="nome">🔤 Nome</option>
+                <option value="posicao">🎯 Posição</option>
+              </select>
+              <label className="inline-flex items-center gap-2 text-sm bg-gray-800/60 border border-gray-700 px-3 py-2 rounded-lg cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={soVendiveis}
+                  onChange={(e) => setSoVendiveis(e.target.checked)}
+                  aria-label="Somente vendíveis (3+ jogos)"
+                />
+                <span>Somente vendíveis (≥ 3 jogos)</span>
+              </label>
           </div>
 
-          {/* Ações rápidas (desktop) */}
-          <div className="hidden sm:flex items-center gap-2 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={fetchElenco}
-              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60"
-              title="Atualizar elenco"
-              aria-label="Atualizar elenco"
-            >
-              🔄 Atualizar
-            </button>
-
-            {/* Botão de salvar/ficar escalação */}
+          <div className="flex items-center gap-2">
             {!escalaFixada ? (
               <button
                 type="button"
@@ -570,131 +550,17 @@ export default function ElencoPage() {
             ) : (
               <span className="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm">🔒 Escalação fixada</span>
             )}
-
-            {/* Se quiser expor o desbloqueio, descomente abaixo */}
-            {/*
-            {escalaFixada && (
-              <button
-                type="button"
-                onClick={desbloquearEscalacao}
-                className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-sm"
-              >
-                🔓 Desbloquear
-              </button>
-            )}
-            */}
-
-            <div className="hidden sm:block h-8 w-px bg-gray-800" />
-            <div className="hidden md:inline-flex rounded-lg border border-gray-700 overflow-hidden">
-              <button
-                type="button"
-                className={`px-3 py-2 text-sm ${viewMode === 'grid' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60`}
-                onClick={() => setViewMode('grid')}
-                title="Visualização em cartões"
-                aria-label="Visualização em cartões"
-              >
-                🗂️ Cards
-              </button>
-              <button
-                type="button"
-                className={`px-3 py-2 text-sm ${viewMode === 'table' ? 'bg-gray-800' : 'bg-transparent'} hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60`}
-                onClick={() => setViewMode('table')}
-                title="Visualização em tabela"
-                aria-label="Visualização em tabela"
-              >
-                📋 Tabela
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Barra da Escalação (chips) */}
-        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-300">⭐ Titulares selecionados</span>
-            <span className="text-sm text-gray-400">{titulares.length}/11</span>
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {titulares.length === 0 ? (
-              <span className="text-xs text-gray-500">Escolha 11 jogadores clicando na ⭐ dos cartões (ou coluna da tabela).</span>
-            ) : (
-              titulares.map((tid) => {
-                const j = elenco.find(x => x.id === tid)
-                if (!j) return null
-                return (
-                  <span
-                    key={tid}
-                    className="text-xs px-2.5 py-1 rounded-full bg-emerald-600/20 border border-emerald-600/40 whitespace-nowrap"
-                    title={j.nome}
-                  >
-                    ⭐ {j.nome}
-                  </span>
-                )
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Toolbar de filtros (desktop) */}
-        <div className="mt-4 hidden lg:flex lg:items-end gap-3">
-          <div className="flex flex-1 flex-wrap gap-2">
-            <input
-              type="text"
-              placeholder="Buscar por nome"
-              value={filtroNome}
-              onChange={(e) => setFiltroNome(e.target.value)}
-              className="px-3 py-2 rounded-lg text-black w-64"
-              aria-label="Buscar por nome"
-            />
-            <input
-              type="number"
-              placeholder="OVR mínimo"
-              value={filtroOverall}
-              onChange={(e) => setFiltroOverall(Number(e.target.value))}
-              className="px-3 py-2 rounded-lg text-black w-44"
-              aria-label="OVR mínimo"
-            />
-            <select
-              value={ordenacao}
-              onChange={(e) => setOrdenacao(e.target.value as Ordenacao)}
-              className="px-3 py-2 rounded-lg text-black w-48"
-              aria-label="Ordenação"
+            <button
+              type="button"
+              onClick={fetchElenco}
+              className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium"
             >
-              <option value="valor">💰 Valor</option>
-              <option value="overall">⭐ Overall</option>
-              <option value="salario">💸 Salário</option>
-              <option value="jogos">🏟️ Jogos</option>
-              <option value="nome">🔤 Nome</option>
-              <option value="posicao">🎯 Posição</option>
-            </select>
-            <label className="inline-flex items-center gap-2 text-sm bg-gray-800/60 border border-gray-700 px-3 py-2 rounded-lg cursor-pointer">
-              <input
-                type="checkbox"
-                checked={soVendiveis}
-                onChange={(e) => setSoVendiveis(e.target.checked)}
-                aria-label="Somente vendíveis (3+ jogos)"
-              />
-              <span>Somente vendíveis (≥ 3 jogos)</span>
-            </label>
-          </div>
-          <div className="flex items-center gap-2">
-            {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false)
-                  setFiltroNacionalidade(null); setFiltroPosicao(null)
-                }}
-                className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
-                aria-label="Limpar filtros"
-              >
-                Limpar filtros
-              </button>
-            )}
+              🔄 Atualizar
+            </button>
           </div>
         </div>
 
-        {/* Filtros ativos (chips removíveis) */}
+        {/* Filtros ativos (chips) */}
         <div className="mt-3 flex flex-wrap gap-2">
           {filtroNome && <ActiveFilterChip label={`Nome: "${filtroNome}"`} onClear={() => setFiltroNome('')} />}
           {filtroOverall > 0 && <ActiveFilterChip label={`OVR ≥ ${filtroOverall}`} onClear={() => setFiltroOverall(0)} />}
@@ -702,64 +568,13 @@ export default function ElencoPage() {
           {filtroNacionalidade && <ActiveFilterChip label={`Nac: ${filtroNacionalidade}`} onClear={() => setFiltroNacionalidade(null)} />}
           {filtroPosicao && <ActiveFilterChip label={`Pos: ${filtroPosicao}`} onClear={() => setFiltroPosicao(null)} />}
         </div>
-
-        {/* Chips dinâmicos */}
-        <div className="mt-3">
-          <details className="lg:open">
-            <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
-              🌎 Nacionalidades {Object.keys(contPorNac).length ? `(${Object.keys(contPorNac).length})` : ''}
-            </summary>
-            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-              {Object.entries(contPorNac).map(([nac, count]) => (
-                <button
-                  key={nac}
-                  type="button"
-                  onClick={() => setFiltroNacionalidade(nac)}
-                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60
-                    ${filtroNacionalidade === nac ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
-                  title={nac}
-                  aria-label={`Filtrar por ${nac}`}
-                >
-                  {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" alt={nac} loading="lazy" decoding="async" />}
-                  {nac} ({count})
-                </button>
-              ))}
-            </div>
-          </details>
-
-          <details className="mt-2 lg:open">
-            <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
-              🎯 Posições {Object.keys(contPorPos).length ? `(${Object.keys(contPorPos).length})` : ''}
-            </summary>
-            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-              {Object.entries(contPorPos).map(([pos, count]) => (
-                <button
-                  key={pos}
-                  type="button"
-                  onClick={() => setFiltroPosicao(pos)}
-                  className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60
-                    ${filtroPosicao === pos ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
-                  aria-label={`Filtrar por ${pos}`}
-                >
-                  {pos} ({count})
-                </button>
-              ))}
-            </div>
-          </details>
-        </div>
-
-        {erro && <p className="mt-2 text-red-400 text-sm">{erro}</p>}
-      </div>
+      </header>
 
       {/* Sheet de filtros (MOBILE) */}
       {showFiltersMobile && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm">
-          <div
-            className="absolute inset-0"
-            onClick={() => setShowFiltersMobile(false)}
-            aria-hidden
-          />
-          <div className="absolute bottom-0 left-0 right-0 rounded-t-2xl bg-gray-900 border-t border-gray-800 p-4">
+          <div className="absolute inset-0" onClick={() => setShowFiltersMobile(false)} aria-hidden />
+          <div className="absolute bottom-0 left-0 right-0 rounded-t-2xl bg-gray-900 border-t border-gray-800 p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
             <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-700 mb-3" />
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-lg font-semibold">Filtros</h3>
@@ -813,10 +628,7 @@ export default function ElencoPage() {
               {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false)
-                    setFiltroNacionalidade(null); setFiltroPosicao(null)
-                  }}
+                  onClick={() => { setFiltroNome(''); setFiltroOverall(0); setSoVendiveis(false); setFiltroNacionalidade(null); setFiltroPosicao(null) }}
                   className="w-full px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm"
                 >
                   Limpar todos filtros
@@ -835,32 +647,71 @@ export default function ElencoPage() {
         </div>
       )}
 
+      {/* Chips dinâmicos (colapsados em detalhes, rolagem horizontal) */}
+      <section className="mt-4">
+        <details className="open:mt-0 sm:open mt-0">
+          <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">🌎 Nacionalidades</summary>
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {Object.entries(contPorNac).map(([nac, count]) => (
+              <button
+                key={nac}
+                type="button"
+                onClick={() => setFiltroNacionalidade(nac)}
+                className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                  ${filtroNacionalidade === nac ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
+                title={nac}
+              >
+                {getFlagUrl(nac) && <img src={getFlagUrl(nac)} className="inline-block w-5 h-3 mr-1" alt={nac} loading="lazy" decoding="async" />}
+                {nac} ({count})
+              </button>
+            ))}
+          </div>
+        </details>
+
+        <details className="mt-2 open:mt-2">
+          <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">🎯 Posições</summary>
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {Object.entries(contPorPos).map(([pos, count]) => (
+              <button
+                key={pos}
+                type="button"
+                onClick={() => setFiltroPosicao(pos)}
+                className={`px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border
+                  ${filtroPosicao === pos ? 'bg-green-700/60 border-green-600 text-green-100' : 'bg-gray-800/60 border-gray-700 text-gray-200'} hover:bg-gray-800`}
+              >
+                {pos} ({count})
+              </button>
+            ))}
+          </div>
+        </details>
+
+        {erro && <p className="mt-2 text-red-400 text-sm">{erro}</p>}
+      </section>
+
       {/* Ações em massa (barra fixa) */}
       {selecionados.length > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 backdrop-blur border border-gray-700 rounded-2xl shadow-2xl px-3 sm:px-4 py-3 w-[92%] sm:w-auto">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 backdrop-blur border border-gray-700 rounded-2xl shadow-2xl px-3 sm:px-4 py-3 w-[92%] sm:w-auto pb-[env(safe-area-inset-bottom)]">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <span className="text-sm text-gray-300">
-              {selecionados.length} jogador(es) selecionado(s)
-            </span>
+            <span className="text-sm text-gray-300">{selecionados.length} jogador(es) selecionado(s)</span>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={venderSelecionados}
-                className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold"
               >
                 💸 Vender
               </button>
               <button
                 type="button"
                 onClick={selecionarTodosFiltrados}
-                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
               >
                 Selecionar todos
               </button>
               <button
                 type="button"
                 onClick={limparSelecao}
-                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-sm"
               >
                 Limpar
               </button>
@@ -871,11 +722,9 @@ export default function ElencoPage() {
 
       {/* Lista */}
       {elencoFiltrado.length === 0 ? (
-        <div className="mt-8 text-center text-gray-300">
-          Nenhum jogador encontrado com os filtros aplicados.
-        </div>
+        <div className="mt-8 text-center text-gray-300">Nenhum jogador encontrado com os filtros aplicados.</div>
       ) : viewMode === 'grid' ? (
-        <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
+        <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
           {elencoFiltrado.map(jogador => {
             const selecionado = selecionados.includes(jogador.id)
             const status: string[] = []
@@ -889,12 +738,12 @@ export default function ElencoPage() {
             return (
               <div
                 key={jogador.id}
-                className={`relative bg-white/[0.04] p-3 sm:p-4 rounded-2xl border-2 transition
+                className={`relative bg-white/[0.04] p-3 rounded-2xl border transition
                   ${selecionado ? 'border-emerald-500 ring-1 ring-emerald-400/30' : 'border-white/10 hover:border-white/20'}
-                  shadow-lg hover:shadow-emerald-900/10 hover:-translate-y-0.5`}
+                  shadow-lg`}
               >
-                {/* Checkbox seleção (ações em massa) */}
-                <label className="absolute top-3 left-3 inline-flex items-center gap-2 text-xs">
+                {/* checkbox */}
+                <label className="absolute top-2 left-2 inline-flex items-center">
                   <input
                     type="checkbox"
                     checked={selecionado}
@@ -904,15 +753,15 @@ export default function ElencoPage() {
                   />
                 </label>
 
-                {/* Estrela de titularidade */}
+                {/* estrela */}
                 <button
                   type="button"
                   onClick={() => toggleTitular(jogador.id)}
                   disabled={escalaFixada}
-                  className={`absolute top-3 right-3 rounded-full px-2 py-1 text-sm border
+                  className={`absolute top-2 right-2 rounded-full px-2 py-1 text-base border
                     ${ehTitular ? 'border-amber-400/60 bg-amber-400/20' : 'border-white/10 bg-gray-800/70'}
                     ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700/70'}`}
-                  title={ehTitular ? 'Titular (clique para remover)' : 'Marcar como titular'}
+                  title={ehTitular ? 'Titular (remover)' : 'Marcar como titular'}
                   aria-label={ehTitular ? 'Remover titular' : 'Marcar como titular'}
                 >
                   {ehTitular ? '⭐' : '☆'}
@@ -924,14 +773,14 @@ export default function ElencoPage() {
                     alt={jogador.nome}
                     width={96}
                     height={96}
-                    className={`rounded-full mb-2 sm:mb-3 mx-auto ring-2 ${ringByOVR(jogador.overall)} h-24 w-24 object-cover`}
+                    className={`rounded-full mb-2 mx-auto ring-2 ${ringByOVR(jogador.overall)} h-20 w-20 sm:h-24 sm:w-24 object-cover`}
                   />
 
-                  <h2 className="text-base sm:text-lg font-extrabold text-center leading-tight line-clamp-1" title={jogador.nome}>
+                  <h2 className="text-sm sm:text-base font-extrabold text-center leading-tight line-clamp-1" title={jogador.nome}>
                     {jogador.nome}
                   </h2>
 
-                  <div className="flex justify-center items-center gap-2 text-xs sm:text-sm text-gray-300 mb-1">
+                  <div className="flex justify-center items-center gap-2 text-xs text-gray-300 mt-0.5">
                     {getFlagUrl(jogador.nacionalidade) && (
                       <img
                         src={getFlagUrl(jogador.nacionalidade)}
@@ -944,18 +793,17 @@ export default function ElencoPage() {
                     <span className="line-clamp-1">{jogador.nacionalidade || 'Outro'}</span>
                   </div>
 
-                  <div className="flex justify-center">
-                    <span
-                      className={`inline-block ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'}
-                      text-[11px] sm:text-xs text-white px-3 py-1 rounded-full mb-2`}
-                    >
+                  <div className="mt-2 flex justify-center items-center gap-2">
+                    <span className={`inline-block ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'} text-[11px] text-white px-3 py-1 rounded-full`}>
                       {jogador.posicao}
+                    </span>
+                    <span className="text-[11px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10">
+                      OVR <b>{jogador.overall ?? 0}</b>
                     </span>
                   </div>
 
-                  {/* Status chips (em fluxo, para não colidir com a ⭐) */}
                   {status.length > 0 && (
-                    <div className="mb-2 flex flex-wrap justify-center gap-1">
+                    <div className="mt-2 flex flex-wrap justify-center gap-1">
                       {status.map((s, i) => (
                         <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10">
                           {s}
@@ -964,12 +812,11 @@ export default function ElencoPage() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2 text-center text-xs sm:text-sm">
-                    <p className="text-gray-300">OVR: <b>{jogador.overall ?? 0}</b></p>
-                    <p className="text-gray-300">Jogos: <b>{jogador.jogos ?? 0}</b></p>
-                    <p className="col-span-2 text-emerald-400 font-semibold">💰 {formatBRL(jogador.valor)}</p>
-                    <p className="col-span-2 text-gray-400">Salário: {formatBRL(calcularSalario(jogador.valor))}</p>
-                    <p className="col-span-2 text-gray-400">Percentual: {jogador.percentual ?? 100}%</p>
+                  <div className="mt-2 text-center">
+                    <p className="text-emerald-400 font-semibold text-sm">💰 {formatBRL(jogador.valor)}</p>
+                    <p className="text-[11px] text-gray-400">
+                      Salário: {formatBRL(calcularSalario(jogador.valor))} • Jogos: {jogador.jogos ?? 0} • {jogador.percentual ?? 100}%
+                    </p>
                   </div>
 
                   {jogador.link_sofifa && (
@@ -988,9 +835,10 @@ export default function ElencoPage() {
           })}
         </div>
       ) : (
-        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
+        // Tabela (principalmente desktop)
+        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10 hidden md:block">
           <table className="min-w-full divide-y divide-white/10">
-            <thead className="bg-gray-900/80 sticky top-[calc(56px+0.75rem)] sm:top-[calc(56px+0.75rem)] z-10 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
+            <thead className="bg-gray-900/80 sticky top-[56px] z-10 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
               <tr className="text-left text-sm text-gray-300">
                 <th className="px-3 py-3 w-12">
                   <input
@@ -1068,7 +916,7 @@ export default function ElencoPage() {
                     <td className="px-3 py-3">{jogador.percentual ?? 100}%</td>
                     <td className="px-3 py-3">
                       {jogador.link_sofifa ? (
-                        <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 rounded">
+                        <a href={jogador.link_sofifa} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">
                           SoFIFA
                         </a>
                       ) : <span className="text-gray-500">—</span>}
