@@ -1,4 +1,4 @@
-
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -10,7 +10,7 @@ import {
   FiMinus, FiPlus, FiChevronDown, FiChevronUp
 } from 'react-icons/fi'
 
-// 🔽 Motor de Estádio (conforme seu util existente)
+// 🔽 Motor de Estádio (comente se não existir no seu projeto)
 import {
   simulate,
   referencePrices,
@@ -45,7 +45,7 @@ type Jogo = {
   receita_visitante?: number | null
   salarios_mandante?: number | null
   salarios_visitante?: number | null
-  premiacao_mandante?: number | null
+  premiacao_mandante?: number | null // total = participação + desempenho
   premiacao_visitante?: number | null
 }
 
@@ -60,40 +60,18 @@ type TimeFull = {
   associacao?: string | null
 }
 
-/* ================= REGRAS FINANCEIRAS (COPA) ================= */
-/** Bônus da Copa = +50% sobre a base */
-const BONUS_MULTIPLIER = 1.5
+/* ================= REGRAS FINANCEIRAS (COPA — PADRÃO) ================= */
+// Participação fixa por jogo (cada time)
+const COPA_PARTICIPACAO_POR_JOGO = 10_000_000
 
-function calcularPremiacaoPorDivisao(params: {
-  divisao: number
-  gols_pro: number
-  gols_contra: number
-  historico: { resultado: 'vitoria' | 'empate' | 'derrota' }[]
-}): number {
-  const { divisao, gols_pro, gols_contra, historico } = params
-  const regras = {
-    1: { vitoria: 13_000_000, empate: 8_000_000, derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
-    2: { vitoria: 8_500_000,  empate: 4_000_000, derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
-    3: { vitoria: 5_000_000,  empate: 2_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
-  } as const
-  const regra = regras[divisao as 1 | 2 | 3]
-  if (!regra) return 0
+// Bônus por resultado (fixos, sem divisão)
+const COPA_VITORIA = 18_000_000
+const COPA_EMPATE  = 9_000_000
+const COPA_DERROTA = 5_000_000
 
-  const resultadoAtual: 'vitoria' | 'empate' | 'derrota' =
-    gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
-
-  let premiacao =
-    (resultadoAtual === 'vitoria' ? regra.vitoria :
-      resultadoAtual === 'empate' ? regra.empate : regra.derrota) +
-    (gols_pro * regra.gol) -
-    (gols_contra * regra.gol_sofrido)
-
-  const ult5 = [...historico, { resultado: resultadoAtual }].slice(-5)
-  const venceuTodas = ult5.length === 5 && ult5.every(j => j.resultado === 'vitoria')
-  if (venceuTodas) premiacao += 5_000_000
-
-  return Math.round(premiacao * BONUS_MULTIPLIER)
-}
+// Gol marcado / sofrido
+const COPA_GOL_MARCADO = 880_000
+const COPA_GOL_SOFRIDO = 160_000
 
 /* ================= SWISS CONFIG ================= */
 const ROUNDS = 8
@@ -377,49 +355,38 @@ export default function FaseLigaAdminPage() {
     return totalSalarios
   }
 
-  /* ===================== Premiação (COPA) ===================== */
+  /* ===================== Premiação (COPA — PADRÃO) ===================== */
+  // Premiação por desempenho da COPA — independente de divisão
   async function premiarPorJogoCopa(timeId: string, gols_pro: number, gols_contra: number): Promise<number> {
-    if (gols_pro === undefined || gols_contra === undefined) return 0
+    if (gols_pro == null || gols_contra == null) return 0
 
-    const { data: timeData, error: eTime } = await supabase
-      .from('times').select('divisao').eq('id', timeId).single()
-    if (eTime || !timeData) return 0
+    const base =
+      gols_pro > gols_contra ? COPA_VITORIA :
+      gols_pro < gols_contra ? COPA_DERROTA :
+      COPA_EMPATE
 
-    const { data: partidas } = await supabase
-      .from('copa_fase_liga')
-      .select('time1,time2,gols_time1,gols_time2')
-      .or(`time1.eq.${timeId},time2.eq.${timeId}`)
-      .not('gols_time1', 'is', null)
-      .not('gols_time2', 'is', null)
+    const valor = Math.round(
+      base + (gols_pro * COPA_GOL_MARCADO) - (gols_contra * COPA_GOL_SOFRIDO)
+    )
 
-    const historico: { resultado: 'vitoria' | 'empate' | 'derrota' }[] = []
-    partidas?.forEach((j: any) => {
-      const isMandante = j.time1 === timeId
-      const gp = isMandante ? j.gols_time1 : j.gols_time2
-      const gc = isMandante ? j.gols_time2 : j.gols_time1
-      let r: 'vitoria' | 'empate' | 'derrota' = 'empate'
-      if (gp > gc) r = 'vitoria'
-      if (gp < gc) r = 'derrota'
-      historico.push({ resultado: r })
-    })
-
-    const valor = calcularPremiacaoPorDivisao({
-      divisao: timeData.divisao,
-      gols_pro,
-      gols_contra,
-      historico
-    })
-    if (valor <= 0) return 0
-
+    // Credita no caixa e registra
     await supabase.rpc('atualizar_saldo', { id_time: timeId, valor })
+    const agora = new Date().toISOString()
+
     await supabase.from('movimentacoes').insert({
       id_time: timeId, tipo: 'premiacao', valor,
-      descricao: 'Premiação por desempenho (COPA)', data: new Date().toISOString(),
+      descricao: 'Premiação por desempenho (COPA padrão)',
+      data: agora,
     })
+
     await supabase.from('bid').insert({
-      tipo_evento: 'bonus', descricao: 'Bônus por desempenho (COPA)',
-      id_time1: timeId, valor, data_evento: new Date().toISOString(),
+      tipo_evento: 'bonus',
+      descricao: 'Bônus por desempenho (COPA padrão)',
+      id_time1: timeId,
+      valor,
+      data_evento: agora,
     })
+
     return valor
   }
 
@@ -545,13 +512,30 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: receitaMandante })
     await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: receitaVisitante })
 
-    // salários
+    // ✅ Participação fixa da COPA (10 mi para cada time)
+    await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: COPA_PARTICIPACAO_POR_JOGO })
+    await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: COPA_PARTICIPACAO_POR_JOGO })
+
+    await supabase.from('movimentacoes').insert([
+      { id_time: mandanteId, tipo: 'participacao_copa', valor: COPA_PARTICIPACAO_POR_JOGO, descricao: 'Participação fixa por jogo (COPA)', data: new Date().toISOString() },
+      { id_time: visitanteId, tipo: 'participacao_copa', valor: COPA_PARTICIPACAO_POR_JOGO, descricao: 'Participação fixa por jogo (COPA)', data: new Date().toISOString() },
+    ])
+    await supabase.from('bid').insert([
+      { tipo_evento: 'bonus_participacao_copa', descricao: 'Participação fixa por jogo (COPA)', id_time1: mandanteId, valor: COPA_PARTICIPACAO_POR_JOGO, data_evento: new Date().toISOString() },
+      { tipo_evento: 'bonus_participacao_copa', descricao: 'Participação fixa por jogo (COPA)', id_time1: visitanteId, valor: COPA_PARTICIPACAO_POR_JOGO, data_evento: new Date().toISOString() },
+    ])
+
+    // bônus por desempenho (fixo, sem divisão)
+    const premiacaoMandanteDesempenho = await premiarPorJogoCopa(mandanteId, jogo.gols_time1, jogo.gols_time2)
+    const premiacaoVisitanteDesempenho = await premiarPorJogoCopa(visitanteId, jogo.gols_time2, jogo.gols_time1)
+
+    // salários (descontos após a partida)
     const salariosMandante = await descontarSalariosComRegistro(mandanteId)
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-    // premiação COPA (+50%)
-    const premiacaoMandante = await premiarPorJogoCopa(mandanteId, jogo.gols_time1, jogo.gols_time2)
-    const premiacaoVisitante = await premiarPorJogoCopa(visitanteId, jogo.gols_time2, jogo.gols_time1)
+    // totais de bônus = participação + desempenho
+    const totalPremMandante = premiacaoMandanteDesempenho + COPA_PARTICIPACAO_POR_JOGO
+    const totalPremVisitante = premiacaoVisitanteDesempenho + COPA_PARTICIPACAO_POR_JOGO
 
     // BID receita total (renda + bônus)
     await supabase.from('bid').insert([
@@ -559,14 +543,14 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         tipo_evento: 'receita_partida',
         descricao: 'Receita da partida (renda + bônus) — COPA',
         id_time1: mandanteId,
-        valor: receitaMandante + premiacaoMandante,
+        valor: receitaMandante + totalPremMandante,
         data_evento: new Date().toISOString(),
       },
       {
         tipo_evento: 'receita_partida',
         descricao: 'Receita da partida (renda + bônus) — COPA',
         id_time1: visitanteId,
-        valor: receitaVisitante + premiacaoVisitante,
+        valor: receitaVisitante + totalPremVisitante,
         data_evento: new Date().toISOString(),
       },
     ])
@@ -588,8 +572,8 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       receita_visitante: receitaVisitante,
       salarios_mandante: salariosMandante,
       salarios_visitante: salariosVisitante,
-      premiacao_mandante: premiacaoMandante,
-      premiacao_visitante: premiacaoVisitante,
+      premiacao_mandante: totalPremMandante,     // total = participação + desempenho
+      premiacao_visitante: totalPremVisitante,
     } : {}
 
     const { error: erroPlacar } = await supabase
@@ -605,8 +589,8 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     toast.success(
       `✅ Placar salvo e finanças pagas (COPA)!
 🎟️ Público: ${publico.toLocaleString()}  |  💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${n1}: R$ ${Math.round(receitaMandante).toLocaleString()} + bônus
-💵 ${n2}: R$ ${Math.round(receitaVisitante).toLocaleString()} + bônus`,
+💵 ${n1}: ${Math.round(receitaMandante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString('pt-BR')} (participação) + bônus
+💵 ${n2}: ${Math.round(receitaVisitante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString('pt-BR')} (participação) + bônus`,
       { duration: 9000 }
     )
 
@@ -643,7 +627,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       const receitaVisitante = jogo.receita_visitante ?? (jogo.renda ? Math.round(jogo.renda * 0.05) : 0)
       const salariosMandante = jogo.salarios_mandante ?? await somarSalarios(mandanteId)
       const salariosVisitante = jogo.salarios_visitante ?? await somarSalarios(visitanteId)
-      const premiacaoMandante = jogo.premiacao_mandante ?? 0
+      const premiacaoMandante = jogo.premiacao_mandante ?? 0 // inclui participação + desempenho
       const premiacaoVisitante = jogo.premiacao_visitante ?? 0
 
       await Promise.all([
@@ -660,8 +644,8 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida (COPA)', data: now })
       if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (COPA)', data: now })
       if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
-      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de bônus por desempenho (COPA)', data: now })
-      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de bônus por desempenho (COPA)', data: now })
+      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_total', valor: premiacaoMandante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
+      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_total', valor: premiacaoVisitante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
       const bids: any[] = []
@@ -669,8 +653,8 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
       if (salariosMandante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
       if (salariosVisitante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
-      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (COPA)', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
-      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (COPA)', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
+      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus (participação + desempenho) — COPA', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
+      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus (participação + desempenho) — COPA', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
       if (bids.length) await supabase.from('bid').insert(bids)
 
       await ajustarJogosElenco(mandanteId, -1)
@@ -970,4 +954,4 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     </div>
   )
 }
-
+```
