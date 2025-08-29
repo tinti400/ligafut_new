@@ -1,4 +1,4 @@
-```tsx
+
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -970,4 +970,4 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     </div>
   )
 }
-```
+
