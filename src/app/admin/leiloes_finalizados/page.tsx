@@ -5,20 +5,17 @@ import { createClient } from '@supabase/supabase-js'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import classNames from 'classnames'
 
-/** ===== Supabase ===== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-/** ===== Constantes ===== */
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
 // salário padrão (1% do valor)
 const calcularSalario = (valor: number | null | undefined) =>
   Math.round(Number(valor || 0) * 0.01)
 
-/** ===== Helpers do BID ===== */
 async function registrarNoBID({
   tipo_evento,
   descricao,
@@ -43,63 +40,8 @@ async function registrarNoBID({
   if (error) console.error('Erro ao registrar no BID:', error.message)
 }
 
-/** ===== Helpers: Time do Sistema & Jogador no elenco ===== */
-const NOMES_TIME_SISTEMA = ['Agentes Livres', 'Sistema', 'Sem Clube', 'Mercado']
+type TimeRow = { id: string; nome: string }
 
-// tenta usar o ID via .env; se não tiver, procura por nome
-async function getTimeSistemaId(): Promise<string> {
-  const envId = process.env.NEXT_PUBLIC_TIME_SISTEMA_ID?.trim()
-  if (envId) return envId
-
-  const { data, error } = await supabase
-    .from('times')
-    .select('id, nome')
-    .in('nome', NOMES_TIME_SISTEMA)
-    .limit(1)
-
-  if (error || !data?.length) {
-    throw new Error(
-      'Configure um time do sistema (ex.: "Agentes Livres") na tabela "times" ou defina NEXT_PUBLIC_TIME_SISTEMA_ID no .env.'
-    )
-  }
-  return data[0].id
-}
-
-// garante/insere o jogador no elenco do time do sistema e retorna o id (para usar como jogador_id no mercado)
-async function criarOuPegarJogadorIdParaMercado(timeSistemaId: string, leilao: any): Promise<string> {
-  // prioridade: match por link_sofifa; fallback por nome
-  let query = supabase.from('elenco').select('id').eq('id_time', timeSistemaId).limit(1)
-  query = leilao.link_sofifa ? query.eq('link_sofifa', leilao.link_sofifa) : query.ilike('nome', leilao.nome)
-
-  const { data: existente, error: e1 } = await query.maybeSingle()
-  if (!e1 && existente?.id) return existente.id
-
-  const valor = Number(leilao.valor_atual || 0)
-  const insert = {
-    id_time: timeSistemaId,
-    nome: leilao.nome,
-    posicao: leilao.posicao,
-    overall: leilao.overall,
-    valor,
-    salario: calcularSalario(valor),
-    imagem_url: leilao.imagem_url || '',
-    link_sofifa: leilao.link_sofifa || null,
-    nacionalidade: leilao.nacionalidade || null,
-    jogos: 0,
-    percentual: 100,
-  }
-  const onConflict = leilao.link_sofifa ? 'id_time,link_sofifa' : 'id_time,nome'
-  const { data: novo, error: e2 } = await supabase
-    .from('elenco')
-    .upsert(insert, { onConflict })
-    .select('id')
-    .single()
-
-  if (e2) throw e2
-  return novo!.id
-}
-
-/** ===== Página ===== */
 export default function LeiloesFinalizadosPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [motivoBloqueio, setMotivoBloqueio] = useState<string | null>(null)
@@ -108,14 +50,19 @@ export default function LeiloesFinalizadosPage() {
   const [carregando, setCarregando] = useState(true)
   const [filtroPosicao, setFiltroPosicao] = useState('')
   const [filtroTime, setFiltroTime] = useState('')
+
   const [emailManual, setEmailManual] = useState('')
 
   // bloqueio de duplo clique por leilão
   const [processando, setProcessando] = useState<Record<string, boolean>>({})
 
+  // ====== NOVO: times e seleção de destino por leilão ======
+  const [times, setTimes] = useState<TimeRow[]>([])
+  const [destinos, setDestinos] = useState<Record<string, string>>({}) // leilaoId -> timeId
+
   const normaliza = (s?: string | null) => (s || '').trim().toLowerCase()
 
-  /** ===== Verificação de admin ===== */
+  // ---------------- Verificação de admin ----------------
   useEffect(() => {
     verificarAdmin()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,10 +127,18 @@ export default function LeiloesFinalizadosPage() {
     }
   }
 
-  /** ===== Dados ===== */
+  // ---------------- Dados ----------------
   useEffect(() => {
-    if (isAdmin) buscarLeiloesFinalizados()
+    if (isAdmin) {
+      buscarLeiloesFinalizados()
+      carregarTimes()
+    }
   }, [isAdmin])
+
+  const carregarTimes = async () => {
+    const { data, error } = await supabase.from('times').select('id, nome').order('nome', { ascending: true })
+    if (!error && data) setTimes(data as TimeRow[])
+  }
 
   const buscarLeiloesFinalizados = async () => {
     try {
@@ -199,6 +154,13 @@ export default function LeiloesFinalizadosPage() {
         setLeiloes([])
       } else {
         setLeiloes(data || [])
+
+        // Pré-seleciona o time vencedor (se existir) como destino default
+        const map: Record<string, string> = {}
+        ;(data || []).forEach((l: any) => {
+          if (l.id && l.id_time_vencedor) map[l.id] = l.id_time_vencedor
+        })
+        setDestinos((prev) => ({ ...map, ...prev }))
       }
     } finally {
       setCarregando(false)
@@ -224,7 +186,6 @@ export default function LeiloesFinalizadosPage() {
         .maybeSingle()
       if (!error && data) return true
     }
-    // fallback por nome (menos robusto)
     const { data: data2, error: error2 } = await supabase
       .from('elenco')
       .select('id')
@@ -234,157 +195,138 @@ export default function LeiloesFinalizadosPage() {
     return !error2 && !!data2
   }
 
-  /** ===== Ações ===== */
-  const enviarParaElenco = async (leilao: any) => {
-    if (!leilao.id_time_vencedor) {
-      alert('❌ Este leilão não possui time vencedor.')
+  const getDestino = (leilao: any) => destinos[leilao.id] || leilao.id_time_vencedor || ''
+
+  // ====== Enviar para um time (com débito + BID), independente de ter vencedor ======
+  const enviarParaTime = async (leilao: any) => {
+    const destinoId = getDestino(leilao)
+    if (!destinoId) {
+      alert('Selecione um time destino no dropdown antes de enviar.')
       return
     }
-
     if (processando[leilao.id]) return
     setProcessando((p) => ({ ...p, [leilao.id]: true }))
 
     try {
-      // 0) proteção: já existe?
+      // 0) proteção: já existe no elenco do destino?
       const jaExiste = await existeNoElenco({
-        id_time: leilao.id_time_vencedor,
+        id_time: destinoId,
         link_sofifa: leilao.link_sofifa,
         nome: leilao.nome,
       })
       if (jaExiste) {
         await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
         setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
-        alert('⚠️ Jogador já estava no elenco. Leilão marcado como concluído.')
+        alert('⚠️ Jogador já estava no elenco do time destino. Leilão marcado como concluído.')
         return
       }
 
-      const salario = Math.round(Number(leilao.valor_atual || 0) * 0.007)
+      const valor = Number(leilao.valor_atual || 0)
+      const salario = Math.round(valor * 0.007)
 
-      // 1) Upsert em elenco
-      const onConflict = leilao.link_sofifa ? 'id_time,link_sofifa' : 'id_time,nome'
-      const { error: erroUpsert } = await supabase
-        .from('elenco')
-        .upsert(
-          [
-            {
-              id_time: leilao.id_time_vencedor,
-              nome: leilao.nome,
-              posicao: leilao.posicao,
-              overall: leilao.overall,
-              valor: leilao.valor_atual,
-              salario,
-              imagem_url: leilao.imagem_url || '',
-              link_sofifa: leilao.link_sofifa || null,
-              nacionalidade: leilao.nacionalidade || '',
-              jogos: 0,
-            },
-          ],
-          { onConflict, ignoreDuplicates: false }
-        )
-      if (erroUpsert) {
-        console.warn('upsert falhou, tentando insert simples…', erroUpsert.message)
-        const { error: erroInsert } = await supabase.from('elenco').insert({
-          id_time: leilao.id_time_vencedor,
-          nome: leilao.nome,
-          posicao: leilao.posicao,
-          overall: leilao.overall,
-          valor: leilao.valor_atual,
-          salario,
-          imagem_url: leilao.imagem_url || '',
-          link_sofifa: leilao.link_sofifa || null,
-          nacionalidade: leilao.nacionalidade || '',
-          jogos: 0,
-        })
-        if (erroInsert) {
-          console.error('❌ Erro ao enviar para elenco:', erroInsert)
-          alert(`❌ Erro ao enviar para elenco:\n${erroInsert.message}`)
-          return
-        }
+      // 1) Insere no elenco do destino
+      const { error: erroInsert } = await supabase.from('elenco').insert({
+        id_time: destinoId,
+        nome: leilao.nome,
+        posicao: leilao.posicao,
+        overall: leilao.overall,
+        valor,
+        salario,
+        imagem_url: leilao.imagem_url || '',
+        link_sofifa: leilao.link_sofifa || null,
+        nacionalidade: leilao.nacionalidade || '',
+        jogos: 0,
+      })
+      if (erroInsert) {
+        console.error('❌ Erro ao enviar para elenco:', erroInsert)
+        alert(`❌ Erro ao enviar para elenco:\n${erroInsert.message}`)
+        return
       }
 
-      // 2) Debita saldo
+      // 2) Debita saldo do time destino
       const { data: timeData, error: errorBusca } = await supabase
         .from('times')
         .select('saldo')
-        .eq('id', leilao.id_time_vencedor)
+        .eq('id', destinoId)
         .single()
       if (errorBusca || !timeData) {
         console.error('❌ Erro ao buscar saldo:', errorBusca)
-        alert('Erro ao buscar saldo do time.')
+        alert('Erro ao buscar saldo do time destino.')
         return
       }
-      const novoSaldo = Number(timeData.saldo || 0) - Number(leilao.valor_atual || 0)
-      await supabase.from('times').update({ saldo: novoSaldo }).eq('id', leilao.id_time_vencedor)
+      const novoSaldo = Number(timeData.saldo || 0) - valor
+      await supabase.from('times').update({ saldo: novoSaldo }).eq('id', destinoId)
 
       // 3) Movimentação + BID
       await registrarMovimentacao({
-        id_time: leilao.id_time_vencedor,
+        id_time: destinoId,
         tipo: 'saida',
-        valor: leilao.valor_atual,
-        descricao: `Compra de ${leilao.nome} via leilão`,
+        valor,
+        descricao: `Compra de ${leilao.nome} via leilão (admin)`,
       })
 
       await registrarNoBID({
         tipo_evento: 'compra',
-        descricao: `Time comprou o jogador ${leilao.nome} no leilão por R$${Number(
-          leilao.valor_atual || 0
-        ).toLocaleString('pt-BR')}`,
-        id_time1: leilao.id_time_vencedor,
-        valor: leilao.valor_atual,
+        descricao: `Time comprou o jogador ${leilao.nome} no leilão por R$${valor.toLocaleString('pt-BR')}`,
+        id_time1: destinoId,
+        valor,
       })
 
       // 4) Concluir leilão
       await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
       setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
 
-      alert('✅ Jogador enviado ao elenco e saldo debitado!')
+      alert('✅ Jogador enviado ao time selecionado e saldo debitado!')
     } finally {
       setProcessando((p) => ({ ...p, [leilao.id]: false }))
     }
   }
 
-  // === NOVO: enviar jogador sem lance direto ao mercado (gera jogador_id) ===
+  // === Enviar jogador (sem vencedor) direto ao mercado ===
   const enviarParaMercado = async (leilao: any) => {
     if (leilao.id_time_vencedor) {
-      alert('Este leilão tem vencedor. Use "Enviar para Elenco".')
+      alert('Este leilão tem vencedor. Use "Enviar p/ Time".')
       return
     }
     if (processando[leilao.id]) return
     setProcessando((p) => ({ ...p, [leilao.id]: true }))
 
     try {
-      const timeSistemaId = await getTimeSistemaId()
-      const jogadorId = await criarOuPegarJogadorIdParaMercado(timeSistemaId, leilao)
-
-      // evita anúncio duplicado do MESMO jogador
-      const { data: jaAnunciado } = await supabase
-        .from('mercado_transferencias')
-        .select('id')
-        .eq('jogador_id', jogadorId)
-        .eq('status', 'disponivel')
-        .maybeSingle()
-      if (jaAnunciado) {
-        await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
-        setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
-        alert('⚠️ Já existe anúncio disponível desse jogador. Leilão marcado como concluído.')
-        return
+      // Evitar duplicidade: se já existir anúncio do mesmo SoFIFA disponível
+      if (leilao.link_sofifa) {
+        const { data: jaAnunciado } = await supabase
+          .from('mercado_transferencias')
+          .select('id')
+          .eq('link_sofifa', leilao.link_sofifa)
+          .eq('status', 'disponivel')
+          .maybeSingle()
+        if (jaAnunciado) {
+          await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+          setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+          alert('⚠️ Já havia um anúncio disponível deste jogador. Leilão marcado como concluído.')
+          return
+        }
       }
 
       const valor = Number(leilao.valor_atual || 0)
+      const salario = calcularSalario(valor)
+
+      // ATENÇÃO: se sua tabela mercado_transferencias exige jogador_id NOT NULL,
+      // mude a coluna para permitir NULL ou crie um "time do sistema" e um registro em elenco.
       const { error: errIns } = await supabase.from('mercado_transferencias').insert({
-        jogador_id: jogadorId,               // 👈 agora NÃO é null
+        jogador_id: null, // deixe null se a coluna permitir; senão, crie previamente no elenco de um time "Sistema"
         nome: leilao.nome,
         posicao: leilao.posicao,
         overall: leilao.overall,
         valor,
         imagem_url: leilao.imagem_url || '',
-        salario: calcularSalario(valor),
+        salario,
         link_sofifa: leilao.link_sofifa || null,
-        id_time_origem: timeSistemaId,       // origem = time do sistema
+        id_time_origem: null,
         status: 'disponivel',
         percentual: 100,
-        nacionalidade: leilao.nacionalidade || null,
         created_at: new Date().toISOString(),
+        nacionalidade: leilao.nacionalidade || null
       })
       if (errIns) {
         console.error('❌ Falha ao anunciar no mercado:', errIns)
@@ -394,6 +336,7 @@ export default function LeiloesFinalizadosPage() {
 
       await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
       setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+
       alert('✅ Anunciado no mercado de transferências!')
     } finally {
       setProcessando((p) => ({ ...p, [leilao.id]: false }))
@@ -407,7 +350,6 @@ export default function LeiloesFinalizadosPage() {
     alert('✅ Leilão excluído com sucesso!')
   }
 
-  /** ===== Derivados ===== */
   const leiloesFiltrados = useMemo(() => {
     return leiloes.filter((leilao) => {
       const matchPosicao = filtroPosicao ? leilao.posicao === filtroPosicao : true
@@ -418,7 +360,7 @@ export default function LeiloesFinalizadosPage() {
     })
   }, [leiloes, filtroPosicao, filtroTime])
 
-  /** ===== UI ===== */
+  // ---------------- UI ----------------
   if (isAdmin === null || carregando) {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
@@ -470,7 +412,7 @@ export default function LeiloesFinalizadosPage() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-emerald-400">📜 Leilões Finalizados</h1>
             <p className="text-gray-400 text-sm">
-              Itens com status <span className="font-semibold text-gray-200">leiloado</span> aguardando envio ao elenco ou anúncio no mercado.
+              Itens com status <span className="font-semibold text-gray-200">leiloado</span> aguardando envio ao elenco, escolha do time destino ou anúncio no mercado.
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-300">
@@ -539,6 +481,7 @@ export default function LeiloesFinalizadosPage() {
               })
               const processing = !!processando[leilao.id]
               const temVencedor = !!leilao.id_time_vencedor
+              const destinoId = getDestino(leilao)
 
               return (
                 <article
@@ -599,21 +542,50 @@ export default function LeiloesFinalizadosPage() {
                       </a>
                     )}
 
+                    {/* ====== NOVO: seletor de time destino ====== */}
+                    <div className="mt-2">
+                      <label className="block text-xs text-gray-400 mb-1">
+                        🎯 Time destino
+                      </label>
+                      <select
+                        value={destinoId}
+                        onChange={(e) =>
+                          setDestinos((prev) => ({ ...prev, [leilao.id]: e.target.value }))
+                        }
+                        className="w-full rounded-lg bg-gray-900 border border-gray-800 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+                      >
+                        <option value="">{temVencedor ? '— (usar vencedor) —' : '— selecione —'}</option>
+                        {times.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.nome}
+                          </option>
+                        ))}
+                      </select>
+                      {temVencedor && !destinoId && (
+                        <div className="mt-1 text-[11px] text-gray-500">
+                          Sem escolher, o envio vai para o vencedor.
+                        </div>
+                      )}
+                    </div>
+
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      {temVencedor ? (
-                        <button
-                          onClick={() => enviarParaElenco(leilao)}
-                          disabled={processing}
-                          className={classNames(
-                            'w-full rounded-lg py-2 font-semibold transition',
-                            processing
-                              ? 'bg-emerald-700/50 text-white cursor-not-allowed'
-                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                          )}
-                        >
-                          {processing ? 'Processando…' : '➕ Enviar para Elenco'}
-                        </button>
-                      ) : (
+                      {/* Enviar p/ Time: funciona tanto com ou sem vencedor (usa o destino escolhido ou o vencedor) */}
+                      <button
+                        onClick={() => enviarParaTime(leilao)}
+                        disabled={processing}
+                        className={classNames(
+                          'w-full rounded-lg py-2 font-semibold transition',
+                          processing
+                            ? 'bg-emerald-700/50 text-white cursor-not-allowed'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                        )}
+                        title="Insere no elenco do time destino e debita o valor"
+                      >
+                        {processing ? 'Processando…' : '➕ Enviar p/ Time'}
+                      </button>
+
+                      {/* Mercado só aparece se não houve vencedor */}
+                      {!temVencedor && (
                         <button
                           onClick={() => enviarParaMercado(leilao)}
                           disabled={processing}
@@ -623,9 +595,15 @@ export default function LeiloesFinalizadosPage() {
                               ? 'bg-sky-700/50 text-white cursor-not-allowed'
                               : 'bg-sky-600 hover:bg-sky-500 text-white'
                           )}
+                          title="Anuncia no mercado como disponível (100%)"
                         >
-                          {processing ? 'Processando…' : '📣 Enviar ao Mercado'}
+                          {processing ? 'Processando…' : '📣 Mercado'}
                         </button>
+                      )}
+
+                      {/* manter botão excluir ocupando a 2ª coluna quando tem vencedor */}
+                      {temVencedor && (
+                        <span className="hidden sm:block" />
                       )}
 
                       <button
