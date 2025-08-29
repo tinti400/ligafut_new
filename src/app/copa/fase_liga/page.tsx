@@ -1,3 +1,4 @@
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -9,7 +10,7 @@ import {
   FiMinus, FiPlus, FiChevronDown, FiChevronUp
 } from 'react-icons/fi'
 
-// 🔽 Motor de Estádio (mesma base do arquivo anexo)
+// 🔽 Motor de Estádio (conforme seu util existente)
 import {
   simulate,
   referencePrices,
@@ -37,7 +38,7 @@ type Jogo = {
   bonus_pago?: boolean | null
   temporada?: string | null
 
-  // 🔽 extras (opcionais; só atualizamos se as colunas existirem)
+  // extras financeiros (opcionais)
   renda?: number | null
   publico?: number | null
   receita_mandante?: number | null
@@ -47,6 +48,7 @@ type Jogo = {
   premiacao_mandante?: number | null
   premiacao_visitante?: number | null
 }
+
 type TimeMini = { nome: string; logo_url: string }
 type TimeFull = {
   id: string
@@ -59,34 +61,33 @@ type TimeFull = {
 }
 
 /* ================= REGRAS FINANCEIRAS (COPA) ================= */
-/** Lógica espelhada do arquivo anexo (com bônus +50%) */
-const BONUS_MULTIPLIER = 1.5 // +50% em todos os bônus por partida
+/** Bônus da Copa = +50% sobre a base */
+const BONUS_MULTIPLIER = 1.5
 
 function calcularPremiacaoPorDivisao(params: {
   divisao: number
   gols_pro: number
   gols_contra: number
-  historico: { resultado: 'vitoria'|'empate'|'derrota' }[]
+  historico: { resultado: 'vitoria' | 'empate' | 'derrota' }[]
 }): number {
   const { divisao, gols_pro, gols_contra, historico } = params
   const regras = {
-    1: { vitoria: 13_000_000, empate: 8_000_000,  derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
-    2: { vitoria: 8_500_000,  empate: 4_000_000,  derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
-    3: { vitoria: 5_000_000,  empate: 2_500_000,  derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
+    1: { vitoria: 13_000_000, empate: 8_000_000, derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
+    2: { vitoria: 8_500_000,  empate: 4_000_000, derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
+    3: { vitoria: 5_000_000,  empate: 2_500_000, derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
   } as const
-  const regra = regras[divisao as 1|2|3]
+  const regra = regras[divisao as 1 | 2 | 3]
   if (!regra) return 0
 
-  const resultadoAtual: 'vitoria'|'empate'|'derrota' =
+  const resultadoAtual: 'vitoria' | 'empate' | 'derrota' =
     gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
 
   let premiacao =
     (resultadoAtual === 'vitoria' ? regra.vitoria :
-     resultadoAtual === 'empate'  ? regra.empate  : regra.derrota) +
+      resultadoAtual === 'empate' ? regra.empate : regra.derrota) +
     (gols_pro * regra.gol) -
     (gols_contra * regra.gol_sofrido)
 
-  // bônus por 5 vitórias seguidas
   const ult5 = [...historico, { resultado: resultadoAtual }].slice(-5)
   const venceuTodas = ult5.length === 5 && ult5.every(j => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
@@ -99,7 +100,7 @@ const ROUNDS = 8
 const CASA_MAX = 4
 const FORA_MAX = 4
 
-/* ================= HELPERS ================= */
+/* ================= HELPERS (fora do componente) ================= */
 const clampInt = (n: number) => (Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n))
 const keyPair = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
 
@@ -134,7 +135,7 @@ function atribuirPotes(times: TimeFull[]): Record<string, number> {
   return out
 }
 
-/* ===== Swiss generator (8 rodadas, sem BYE) ===== */
+/* ===== Gerador Swiss (8 rodadas, sem BYE) ===== */
 type CalendarioItem = { rodada: number; casa: string; fora: string }
 function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true): CalendarioItem[] {
   const ids = participantes.map(t => t.id)
@@ -147,22 +148,22 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
   const awayCnt: Record<string, number> = {}
   const playedPairs = new Set<string>()
   const jogosRestantes: Record<string, number> = {}
-  ids.forEach(id => { needPot[id] = {1:2,2:2,3:2,4:2}; homeCnt[id]=0; awayCnt[id]=0; jogosRestantes[id]=ROUNDS })
+  ids.forEach(id => { needPot[id] = { 1: 2, 2: 2, 3: 2, 4: 2 }; homeCnt[id] = 0; awayCnt[id] = 0; jogosRestantes[id] = ROUNDS })
 
   const calendario: CalendarioItem[] = []
   for (let rodada = 1; rodada <= ROUNDS; rodada++) {
     const livres = new Set(ids)
     const scoreTeam = (id: string) => {
-      const np = needPot[id]; const needScore = np[1]+np[2]+np[3]+np[4]
-      const mandoScore = (CASA_MAX-homeCnt[id])+(FORA_MAX-awayCnt[id])
-      return jogosRestantes[id]*10 + needScore*2 + mandoScore
+      const np = needPot[id]; const needScore = np[1] + np[2] + np[3] + np[4]
+      const mandoScore = (CASA_MAX - homeCnt[id]) + (FORA_MAX - awayCnt[id])
+      return jogosRestantes[id] * 10 + needScore * 2 + mandoScore
     }
 
     while (livres.size >= 2) {
-      const arr = Array.from(livres).sort((a,b)=>scoreTeam(b)-scoreTeam(a))
+      const arr = Array.from(livres).sort((a, b) => scoreTeam(b) - scoreTeam(a))
       const a = arr[0]
 
-      let cand = arr.slice(1).filter(b => !playedPairs.has(keyPair(a,b)))
+      let cand = arr.slice(1).filter(b => !playedPairs.has(keyPair(a, b)))
 
       const potA = potes[a] ?? 4
       let L = cand.filter(b =>
@@ -185,36 +186,36 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
 
       if (!L.length) L = cand
 
-      L.sort((b1,b2)=>{
-        const sAH = CASA_MAX-homeCnt[a], sAA = FORA_MAX-awayCnt[a]
-        const s1H = CASA_MAX-homeCnt[b1], s1A = FORA_MAX-awayCnt[b1]
-        const s2H = CASA_MAX-homeCnt[b2], s2A = FORA_MAX-awayCnt[b2]
-        const mando1 = (sAH>0&&s1A>0)||(sAA>0&&s1H>0)?1:0
-        const mando2 = (sAH>0&&s2A>0)||(sAA>0&&s2H>0)?1:0
+      L.sort((b1, b2) => {
+        const sAH = CASA_MAX - homeCnt[a], sAA = FORA_MAX - awayCnt[a]
+        const s1H = CASA_MAX - homeCnt[b1], s1A = FORA_MAX - awayCnt[b1]
+        const s2H = CASA_MAX - homeCnt[b2], s2A = FORA_MAX - awayCnt[b2]
+        const mando1 = (sAH > 0 && s1A > 0) || (sAA > 0 && s1H > 0) ? 1 : 0
+        const mando2 = (sAH > 0 && s2A > 0) || (sAA > 0 && s2H > 0) ? 1 : 0
         const need1 = (needPot[a][potes[b1] ?? 4] ?? 0) + (needPot[b1][potA] ?? 0)
         const need2 = (needPot[a][potes[b2] ?? 4] ?? 0) + (needPot[b2][potA] ?? 0)
-        return (mando2-mando1)||(need2-need1)
+        return (mando2 - mando1) || (need2 - need1)
       })
 
       const b = L[0]; if (!b) { livres.delete(a); continue }
 
-      let casa=a, fora=b
-      if (homeCnt[a]>=CASA_MAX && awayCnt[a]<FORA_MAX) { casa=b; fora=a }
-      else if (homeCnt[b]>=CASA_MAX && awayCnt[b]<FORA_MAX) { casa=a; fora=b }
+      let casa = a, fora = b
+      if (homeCnt[a] >= CASA_MAX && awayCnt[a] < FORA_MAX) { casa = b; fora = a }
+      else if (homeCnt[b] >= CASA_MAX && awayCnt[b] < FORA_MAX) { casa = a; fora = b }
       else {
-        const sAH = CASA_MAX-homeCnt[a], sAA = FORA_MAX-awayCnt[a]
-        const sBH = CASA_MAX-homeCnt[b], sBA = FORA_MAX-awayCnt[b]
-        if (sBH>sAH && sAA>0) { casa=b; fora=a }
+        const sAH = CASA_MAX - homeCnt[a], sAA = FORA_MAX - awayCnt[a]
+        const sBH = CASA_MAX - homeCnt[b], sBA = FORA_MAX - awayCnt[b]
+        if (sBH > sAH && sAA > 0) { casa = b; fora = a }
       }
 
       calendario.push({ rodada, casa, fora })
-      playedPairs.add(keyPair(a,b))
+      playedPairs.add(keyPair(a, b))
       livres.delete(a); livres.delete(b)
       homeCnt[casa]++; awayCnt[fora]++; jogosRestantes[a]--; jogosRestantes[b]--
 
-      const pa = potes[a]??4, pb = potes[b]??4
-      needPot[a][pb]=Math.max(0,needPot[a][pb]-1)
-      needPot[b][pa]=Math.max(0,needPot[b][pa]-1)
+      const pa = potes[a] ?? 4, pb = potes[b] ?? 4
+      needPot[a][pb] = Math.max(0, needPot[a][pb] - 1)
+      needPot[b][pa] = Math.max(0, needPot[b][pa] - 1)
     }
   }
   return calendario
@@ -234,7 +235,7 @@ export default function FaseLigaAdminPage() {
   const [gerando, setGerando] = useState(false)
   const [temColunaTemporada, setTemColunaTemporada] = useState<boolean>(true)
 
-  // novas flags para campos extras
+  // flags de schema financeiro extra
   const [temExtrasFinanceiros, setTemExtrasFinanceiros] = useState<boolean>(true)
 
   // UI
@@ -242,7 +243,7 @@ export default function FaseLigaAdminPage() {
   const topRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    ;(async () => {
+    ; (async () => {
       await detectarColunaTemporada()
       await detectarColunasExtras()
       await Promise.all([carregarTimesBase(), buscarJogos()])
@@ -281,7 +282,7 @@ export default function FaseLigaAdminPage() {
     if (error) { toast.error('Erro ao buscar jogos'); return }
     setJogos((data || []) as Jogo[])
     const rds = new Set((data || []).map((j: any) => j.rodada))
-    const obj: Record<number, boolean> = {}; Array.from(rds).slice(0,2).forEach((r:number)=>obj[r]=true)
+    const obj: Record<number, boolean> = {}; Array.from(rds).slice(0, 2).forEach((r: number) => obj[r] = true)
     setRodadasAbertas(obj)
   }
 
@@ -290,11 +291,11 @@ export default function FaseLigaAdminPage() {
     if (error) { console.error(error); toast.error('Erro ao atualizar classificação!') }
   }
 
-  /* ===================== Estádio helpers (iguais ao anexo) ===================== */
-  const asImportance = (s: any): 'normal'|'decisao'|'final' => (s === 'final' ? 'final' : s === 'decisao' ? 'decisao' : 'normal')
-  const asWeather = (s: any): 'bom'|'chuva' => (s === 'chuva' ? 'chuva' : 'bom')
-  const asDayType = (s: any): 'semana'|'fim' => (s === 'fim' ? 'fim' : 'semana')
-  const asDayTime = (s: any): 'dia'|'noite' => (s === 'dia' ? 'dia' : 'noite')
+  /* ===================== Estádio helpers ===================== */
+  const asImportance = (s: any): 'normal' | 'decisao' | 'final' => (s === 'final' ? 'final' : s === 'decisao' ? 'decisao' : 'normal')
+  const asWeather = (s: any): 'bom' | 'chuva' => (s === 'chuva' ? 'chuva' : 'bom')
+  const asDayType = (s: any): 'semana' | 'fim' => (s === 'fim' ? 'fim' : 'semana')
+  const asDayTime = (s: any): 'dia' | 'noite' => (s === 'dia' ? 'dia' : 'noite')
 
   async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ publico: number; renda: number; erro?: string }> {
     const { data: est, error } = await supabase
@@ -344,6 +345,7 @@ export default function FaseLigaAdminPage() {
     if (!data) return 0
     return data.reduce((acc, j) => acc + (j.salario || 0), 0)
   }
+
   async function ajustarJogosElenco(timeId: string, delta: number) {
     const { data: jogadores } = await supabase.from('elenco').select('id, jogos').eq('id_time', timeId)
     if (!jogadores) return
@@ -355,6 +357,7 @@ export default function FaseLigaAdminPage() {
       )
     )
   }
+
   async function descontarSalariosComRegistro(timeId: string): Promise<number> {
     const { data: elenco } = await supabase.from('elenco').select('salario').eq('id_time', timeId)
     if (!elenco) return 0
@@ -382,20 +385,19 @@ export default function FaseLigaAdminPage() {
       .from('times').select('divisao').eq('id', timeId).single()
     if (eTime || !timeData) return 0
 
-    // monta histórico a partir da tabela da COPA
     const { data: partidas } = await supabase
       .from('copa_fase_liga')
       .select('time1,time2,gols_time1,gols_time2')
       .or(`time1.eq.${timeId},time2.eq.${timeId}`)
-      .not('gols_time1','is',null)
-      .not('gols_time2','is',null)
+      .not('gols_time1', 'is', null)
+      .not('gols_time2', 'is', null)
 
-    const historico: { resultado:'vitoria'|'empate'|'derrota' }[] = []
+    const historico: { resultado: 'vitoria' | 'empate' | 'derrota' }[] = []
     partidas?.forEach((j: any) => {
       const isMandante = j.time1 === timeId
       const gp = isMandante ? j.gols_time1 : j.gols_time2
       const gc = isMandante ? j.gols_time2 : j.gols_time1
-      let r: 'vitoria'|'empate'|'derrota' = 'empate'
+      let r: 'vitoria' | 'empate' | 'derrota' = 'empate'
       if (gp > gc) r = 'vitoria'
       if (gp < gc) r = 'derrota'
       historico.push({ resultado: r })
@@ -421,7 +423,93 @@ export default function FaseLigaAdminPage() {
     return valor
   }
 
-  /* ===================== Salvar (1º lançamento) com finanças ===================== */
+  /* ===================== GERAR SWISS (dentro do componente) ===================== */
+  const gerarSwiss = async () => {
+    if (!isAdmin) { toast.error('Apenas admin pode gerar a fase.'); return }
+    setGerando(true)
+    try {
+      const rows = await safeSelectTimes(false)
+      let participantes: TimeFull[] = rows.map((t: any) => ({
+        id: t.id,
+        nome: t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id),
+        logo_url: t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png',
+        pote: t.pote ?? t.pot ?? null,
+        overall: t.overall ?? t.rating ?? null,
+        valor: t.valor ?? t.value ?? null,
+        associacao: t.associacao ?? t.pais ?? t.country ?? null,
+      }))
+
+      // regra custom: excluir Palmeiras do sorteio
+      participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
+
+      // precisa ser par — remove o mais fraco se ímpar
+      if (participantes.length % 2 === 1) {
+        const ord = [...participantes].sort((a, b) => {
+          const oa = (a.overall ?? 0) - (b.overall ?? 0)
+          if (oa !== 0) return oa
+          return (a.valor ?? 0) - (b.valor ?? 0)
+        })
+        const removido = ord[0]
+        participantes = participantes.filter(t => t.id !== removido.id)
+        await supabase.from('bid').insert([{
+          tipo_evento: 'Sistema',
+          descricao: `Ajuste de paridade: ${removido.nome} removido.`,
+          valor: null
+        }])
+        toast('Participantes ímpares: removi 1 clube para manter paridade.', { icon: 'ℹ️' })
+      }
+
+      if (participantes.length < 2) { toast.error('Participantes insuficientes.'); return }
+
+      const calendario = gerarChampionsSwiss(participantes, evitarMesmoPais)
+      if (!calendario.length) { toast.error('Falha ao gerar calendário.'); return }
+
+      // limpa tabela da temporada (se existir coluna) ou tudo
+      if (temColunaTemporada) {
+        const { error: delErr } = await supabase
+          .from('copa_fase_liga')
+          .delete()
+          .eq('temporada', TEMPORADA)
+        if (delErr) { toast.error('Erro ao limpar jogos da temporada.'); return }
+      } else {
+        const { error: delErr } = await supabase
+          .from('copa_fase_liga')
+          .delete()
+          .neq('id', -1)
+        if (delErr) { toast.error('Erro ao limpar tabela de jogos.'); return }
+      }
+
+      // insere os jogos
+      const rowsInsert = calendario.map(j => ({
+        ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
+        rodada: j.rodada,
+        time1: j.casa,
+        time2: j.fora,
+        gols_time1: null,
+        gols_time2: null,
+        bonus_pago: false,
+      }))
+      const { error: insErr } = await supabase.from('copa_fase_liga').insert(rowsInsert)
+      if (insErr) { console.error(insErr); toast.error('Erro ao inserir confrontos.'); return }
+
+      await atualizarClassificacao()
+      await buscarJogos()
+
+      await supabase.from('bid').insert([{
+        tipo_evento: 'Sistema',
+        descricao: `Fase Liga (modelo suíço) gerada ${temColunaTemporada ? `para ${TEMPORADA}` : '(sem coluna de temporada)'}.
+Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
+        valor: null
+      }])
+
+      toast.success(`✅ Gerado com sucesso: ${rowsInsert.length} jogos em ${ROUNDS} rodadas!`)
+      topRef.current?.scrollIntoView({ behavior: 'smooth' })
+    } finally {
+      setGerando(false)
+    }
+  }
+
+  /* ===================== Salvar (primeiro lançamento) ===================== */
   async function salvarPlacar(jogo: Jogo) {
     if (!isAdmin) return
     setSalvandoId(jogo.id)
@@ -436,7 +524,6 @@ export default function FaseLigaAdminPage() {
       return
     }
 
-    // precisa de gols preenchidos
     if (jogo.gols_time1 == null || jogo.gols_time2 == null) {
       toast.error('Preencha os gols antes de salvar.')
       setSalvandoId(null)
@@ -446,7 +533,7 @@ export default function FaseLigaAdminPage() {
     const mandanteId = jogo.time1
     const visitanteId = jogo.time2
 
-    // público/renda pelo estádio do mandante
+    // público/renda pelo estádio
     const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
     if (pr.erro) toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
     const publico = pr.publico
@@ -458,7 +545,7 @@ export default function FaseLigaAdminPage() {
     await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: receitaMandante })
     await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: receitaVisitante })
 
-    // salários com registro
+    // salários
     const salariosMandante = await descontarSalariosComRegistro(mandanteId)
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
@@ -466,7 +553,7 @@ export default function FaseLigaAdminPage() {
     const premiacaoMandante = await premiarPorJogoCopa(mandanteId, jogo.gols_time1, jogo.gols_time2)
     const premiacaoVisitante = await premiarPorJogoCopa(visitanteId, jogo.gols_time2, jogo.gols_time1)
 
-    // BID de receita (renda + bônus)
+    // BID receita total (renda + bônus)
     await supabase.from('bid').insert([
       {
         tipo_evento: 'receita_partida',
@@ -484,11 +571,11 @@ export default function FaseLigaAdminPage() {
       },
     ])
 
-    // atualiza elenco (jogos +1)
+    // elenco: jogos +1
     await ajustarJogosElenco(mandanteId, +1)
     await ajustarJogosElenco(visitanteId, +1)
 
-    // atualiza placar + marca bonus_pago + (extras se existir)
+    // persistência no jogo
     const patchBase: any = {
       gols_time1: jogo.gols_time1,
       gols_time2: jogo.gols_time2,
@@ -511,7 +598,6 @@ export default function FaseLigaAdminPage() {
       .eq('id', jogo.id)
     if (erroPlacar) { toast.error('Erro ao salvar/registrar finanças'); setSalvandoId(null); return }
 
-    // atualiza classificação
     await atualizarClassificacao()
 
     const n1 = timesMap[mandanteId]?.nome ?? 'Mandante'
@@ -528,7 +614,7 @@ export default function FaseLigaAdminPage() {
     setSalvandoId(null)
   }
 
-  /* ===================== Ajuste de resultado (sem repetir finanças) ===================== */
+  /* ===================== Ajuste sem repetir finanças ===================== */
   async function salvarAjusteResultado(jogo: Jogo, gm: number, gv: number, silencioso = false) {
     if (!isAdmin) return
     const { error } = await supabase
@@ -542,7 +628,7 @@ export default function FaseLigaAdminPage() {
     if (!silencioso) toast.success('✏️ Resultado atualizado (sem repetir bônus).')
   }
 
-  /* ===================== Excluir placar (com estorno automático) ===================== */
+  /* ===================== Excluir + Estorno ===================== */
   async function excluirPlacar(jogo: Jogo) {
     if (!isAdmin) return
     if (!confirm('Excluir resultado deste jogo? Estorno financeiro será aplicado.')) return
@@ -553,7 +639,6 @@ export default function FaseLigaAdminPage() {
     const now = new Date().toISOString()
 
     if (jogo.bonus_pago) {
-      // valores para estorno (fallback se colunas não existirem)
       const receitaMandante = jogo.receita_mandante ?? (jogo.renda ? Math.round(jogo.renda * 0.95) : 0)
       const receitaVisitante = jogo.receita_visitante ?? (jogo.renda ? Math.round(jogo.renda * 0.05) : 0)
       const salariosMandante = jogo.salarios_mandante ?? await somarSalarios(mandanteId)
@@ -561,7 +646,6 @@ export default function FaseLigaAdminPage() {
       const premiacaoMandante = jogo.premiacao_mandante ?? 0
       const premiacaoVisitante = jogo.premiacao_visitante ?? 0
 
-      // 1) Reverter saldos
       await Promise.all([
         receitaMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante }) : Promise.resolve(),
         receitaVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante }) : Promise.resolve(),
@@ -571,7 +655,6 @@ export default function FaseLigaAdminPage() {
         premiacaoVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante }) : Promise.resolve(),
       ])
 
-      // 2) Registrar estornos em movimentacoes
       const movs: any[] = []
       if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida (COPA)', data: now })
       if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida (COPA)', data: now })
@@ -581,7 +664,6 @@ export default function FaseLigaAdminPage() {
       if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de bônus por desempenho (COPA)', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
-      // 3) Registrar estornos no BID
       const bids: any[] = []
       if (receitaMandante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
       if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
@@ -591,15 +673,11 @@ export default function FaseLigaAdminPage() {
       if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (COPA)', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
       if (bids.length) await supabase.from('bid').insert(bids)
 
-      // 4) Decrementa 1 jogo no elenco dos dois times
       await ajustarJogosElenco(mandanteId, -1)
       await ajustarJogosElenco(visitanteId, -1)
     }
 
-    // 5) Zera placar e limpa extras se houver
-    const patch: any = {
-      gols_time1: null, gols_time2: null, bonus_pago: false
-    }
+    const patch: any = { gols_time1: null, gols_time2: null, bonus_pago: false }
     if (temExtrasFinanceiros) {
       Object.assign(patch, {
         renda: null, publico: null,
@@ -621,35 +699,52 @@ export default function FaseLigaAdminPage() {
   }
 
   /* ===== UI DERIVED ===== */
-  const jogosFiltrados = useMemo(() =>
-    jogos.filter(j =>
-      filtroTime === 'Todos' ||
-      timesMap[j.time1]?.nome === filtroTime ||
-      timesMap[j.time2]?.nome === filtroTime
-    ), [jogos, filtroTime, timesMap]
+  const jogosFiltrados = useMemo(
+    () =>
+      jogos.filter(j =>
+        filtroTime === 'Todos' ||
+        timesMap[j.time1]?.nome === filtroTime ||
+        timesMap[j.time2]?.nome === filtroTime
+      ),
+    [jogos, filtroTime, timesMap]
   )
+
   const jogosPorRodada: Record<number, Jogo[]> = useMemo(() => {
     const map: Record<number, Jogo[]> = {}
-    jogosFiltrados.forEach(j => { if (!map[j.rodada]) map[j.rodada]=[]; map[j.rodada].push(j) })
+    jogosFiltrados.forEach(j => { if (!map[j.rodada]) map[j.rodada] = []; map[j.rodada].push(j) })
     return map
   }, [jogosFiltrados])
-  const listaRodadas = useMemo(()=>Object.keys(jogosPorRodada).map(Number).sort((a,b)=>a-b),[jogosPorRodada])
-  const nomesDosTimes = useMemo(()=>Object.values(timesMap).map(t=>t.nome).sort(),[timesMap])
+
+  const listaRodadas = useMemo(() => Object.keys(jogosPorRodada).map(Number).sort((a, b) => a - b), [jogosPorRodada])
+  const nomesDosTimes = useMemo(() => Object.values(timesMap).map(t => t.nome).sort(), [timesMap])
 
   /* ===== Small UI components ===== */
-  const ScoreInput = ({ value, onChange, disabled }:{
-    value: number | null; onChange: (v:number)=>void; disabled?: boolean
+  const ScoreInput = ({ value, onChange, disabled }: {
+    value: number | null; onChange: (v: number) => void; disabled?: boolean
   }) => (
     <div className="flex items-center gap-1 rounded-full bg-zinc-950/70 border border-zinc-700 px-1">
-      <button className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40" onClick={()=>onChange(clampInt((value ?? 0)-1))} disabled={disabled} aria-label="Diminuir">
+      <button
+        className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40"
+        onClick={() => onChange(clampInt((value ?? 0) - 1))}
+        disabled={disabled}
+        aria-label="Diminuir"
+      >
         <FiMinus />
       </button>
       <input
-        type="number" min={0}
+        type="number"
+        min={0}
         className="w-12 text-center bg-transparent outline-none font-bold"
-        value={value ?? ''} onChange={(e)=>onChange(clampInt(parseInt(e.target.value||'0',10)))} disabled={disabled}
+        value={value ?? ''}
+        onChange={(e) => onChange(clampInt(parseInt(e.target.value || '0', 10)))}
+        disabled={disabled}
       />
-      <button className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40" onClick={()=>onChange(clampInt((value ?? 0)+1))} disabled={disabled} aria-label="Aumentar">
+      <button
+        className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40"
+        onClick={() => onChange(clampInt((value ?? 0) + 1))}
+        disabled={disabled}
+        aria-label="Aumentar"
+      >
         <FiPlus />
       </button>
     </div>
@@ -659,7 +754,7 @@ export default function FaseLigaAdminPage() {
     const open = !!rodadasAbertas[r]
     return (
       <button
-        onClick={()=>setRodadasAbertas(s=>({ ...s, [r]: !open }))}
+        onClick={() => setRodadasAbertas(s => ({ ...s, [r]: !open }))}
         className="group flex w-full items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-3 hover:border-zinc-700"
       >
         <div className="flex items-center gap-3">
@@ -668,7 +763,7 @@ export default function FaseLigaAdminPage() {
           </span>
           <span className="text-lg font-bold text-green-400">{r}</span>
         </div>
-        <span className="text-zinc-400 group-hover:text-white">{open ? <FiChevronUp/> : <FiChevronDown/>}</span>
+        <span className="text-zinc-400 group-hover:text-white">{open ? <FiChevronUp /> : <FiChevronDown />}</span>
       </button>
     )
   }
@@ -692,11 +787,11 @@ export default function FaseLigaAdminPage() {
           {isAdmin && (
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs">
-                <input type="checkbox" checked={evitarMesmoPais} onChange={e=>setEvitarMesmoPais(e.target.checked)} />
+                <input type="checkbox" checked={evitarMesmoPais} onChange={e => setEvitarMesmoPais(e.target.checked)} />
                 <FiTarget /> Evitar mesmo país
               </label>
               <button
-                onClick={()=>setAbrirModalSwiss(true)}
+                onClick={() => setAbrirModalSwiss(true)}
                 disabled={gerando}
                 className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60"
                 title="Gera 8 rodadas no modelo suíço"
@@ -716,21 +811,21 @@ export default function FaseLigaAdminPage() {
             <label className="text-sm text-zinc-300">Filtrar por time:</label>
             <select
               value={filtroTime}
-              onChange={(e)=>setFiltroTime(e.target.value)}
+              onChange={(e) => setFiltroTime(e.target.value)}
               className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
             >
               <option value="Todos">Todos</option>
-              {nomesDosTimes.map(n=> <option key={n} value={n}>{n}</option>)}
+              {nomesDosTimes.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
 
           {listaRodadas.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-zinc-400">Ir para:</span>
-              {listaRodadas.map(r=>(
+              {listaRodadas.map(r => (
                 <button
                   key={r}
-                  onClick={()=>{
+                  onClick={() => {
                     const el = document.getElementById(`rodada-${r}`)
                     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                   }}
@@ -741,13 +836,13 @@ export default function FaseLigaAdminPage() {
               ))}
               <span className="ml-auto" />
               <button
-                onClick={()=>setRodadasAbertas(Object.fromEntries(listaRodadas.map(r=>[r,true])))}
+                onClick={() => setRodadasAbertas(Object.fromEntries(listaRodadas.map(r => [r, true])))}
                 className="text-xs text-zinc-300 underline underline-offset-2 hover:text-white"
               >
                 expandir tudo
               </button>
               <button
-                onClick={()=>setRodadasAbertas(Object.fromEntries(listaRodadas.map(r=>[r,false])))}
+                onClick={() => setRodadasAbertas(Object.fromEntries(listaRodadas.map(r => [r, false])))}
                 className="text-xs text-zinc-300 underline underline-offset-2 hover:text-white"
               >
                 recolher tudo
@@ -759,7 +854,7 @@ export default function FaseLigaAdminPage() {
         {/* Conteúdo */}
         {loading ? (
           <div className="grid gap-3">
-            {Array.from({length:6}).map((_,i)=>(
+            {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="h-20 animate-pulse rounded-xl bg-zinc-900/60 border border-zinc-800" />
             ))}
           </div>
@@ -768,12 +863,12 @@ export default function FaseLigaAdminPage() {
             Nenhum jogo para exibir. Clique em <span className="font-semibold text-white">Gerar Fase Champions (8 rodadas)</span>.
           </div>
         ) : (
-          listaRodadas.map((r)=>(
+          listaRodadas.map((r) => (
             <section id={`rodada-${r}`} key={r} className="mb-6">
               <RoundHeader r={r} />
               {rodadasAbertas[r] && (
                 <div className="mt-3 grid gap-3">
-                  {jogosPorRodada[r].map((jogo)=>(
+                  {jogosPorRodada[r].map((jogo) => (
                     <div key={jogo.id} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 shadow hover:border-zinc-700">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         {/* Time 1 */}
@@ -786,13 +881,13 @@ export default function FaseLigaAdminPage() {
                         <div className="flex items-center gap-2">
                           <ScoreInput
                             value={jogo.gols_time1}
-                            onChange={(v)=>setJogos(prev=>prev.map(j=>j.id===jogo.id?{...j,gols_time1:v}:j))}
+                            onChange={(v) => setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time1: v } : j))}
                             disabled={!isAdmin}
                           />
                           <span className="px-2 text-lg font-extrabold text-zinc-300">x</span>
                           <ScoreInput
                             value={jogo.gols_time2}
-                            onChange={(v)=>setJogos(prev=>prev.map(j=>j.id===jogo.id?{...j,gols_time2:v}:j))}
+                            onChange={(v) => setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, gols_time2: v } : j))}
                             disabled={!isAdmin}
                           />
                         </div>
@@ -807,7 +902,7 @@ export default function FaseLigaAdminPage() {
                         {isAdmin && (
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={()=>salvarPlacar(jogo)}
+                              onClick={() => salvarPlacar(jogo)}
                               disabled={salvandoId === jogo.id}
                               className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                               title="Salvar placar e processar finanças (COPA)"
@@ -816,7 +911,7 @@ export default function FaseLigaAdminPage() {
                               {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
                             </button>
                             <button
-                              onClick={()=>excluirPlacar(jogo)}
+                              onClick={() => excluirPlacar(jogo)}
                               disabled={salvandoId === jogo.id}
                               className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                               title="Zerar placar deste jogo (estorno)"
@@ -859,15 +954,12 @@ export default function FaseLigaAdminPage() {
               (4 casa / 4 fora, 2 adversários por pote). Palmeiras será excluído do sorteio.
             </p>
             <div className="flex items-center justify-end gap-3">
-              <button className="rounded-md border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800" onClick={()=>setAbrirModalSwiss(false)}>
+              <button className="rounded-md border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800" onClick={() => setAbrirModalSwiss(false)}>
                 Cancelar
               </button>
               <button
                 className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
-                onClick={async ()=>{
-                  setAbrirModalSwiss(false)
-                  await gerarSwiss() // mantém seu gerador atual
-                }}
+                onClick={async () => { setAbrirModalSwiss(false); await gerarSwiss() }}
               >
                 {gerando ? 'Gerando...' : 'Sim, gerar'}
               </button>
@@ -878,3 +970,4 @@ export default function FaseLigaAdminPage() {
     </div>
   )
 }
+```
