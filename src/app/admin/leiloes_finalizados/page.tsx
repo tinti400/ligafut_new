@@ -5,17 +5,20 @@ import { createClient } from '@supabase/supabase-js'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import classNames from 'classnames'
 
+/** ===== Supabase ===== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ===== Constantes ===== */
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
 // salário padrão (1% do valor)
 const calcularSalario = (valor: number | null | undefined) =>
   Math.round(Number(valor || 0) * 0.01)
 
+/** ===== Helpers do BID ===== */
 async function registrarNoBID({
   tipo_evento,
   descricao,
@@ -40,6 +43,63 @@ async function registrarNoBID({
   if (error) console.error('Erro ao registrar no BID:', error.message)
 }
 
+/** ===== Helpers: Time do Sistema & Jogador no elenco ===== */
+const NOMES_TIME_SISTEMA = ['Agentes Livres', 'Sistema', 'Sem Clube', 'Mercado']
+
+// tenta usar o ID via .env; se não tiver, procura por nome
+async function getTimeSistemaId(): Promise<string> {
+  const envId = process.env.NEXT_PUBLIC_TIME_SISTEMA_ID?.trim()
+  if (envId) return envId
+
+  const { data, error } = await supabase
+    .from('times')
+    .select('id, nome')
+    .in('nome', NOMES_TIME_SISTEMA)
+    .limit(1)
+
+  if (error || !data?.length) {
+    throw new Error(
+      'Configure um time do sistema (ex.: "Agentes Livres") na tabela "times" ou defina NEXT_PUBLIC_TIME_SISTEMA_ID no .env.'
+    )
+  }
+  return data[0].id
+}
+
+// garante/insere o jogador no elenco do time do sistema e retorna o id (para usar como jogador_id no mercado)
+async function criarOuPegarJogadorIdParaMercado(timeSistemaId: string, leilao: any): Promise<string> {
+  // prioridade: match por link_sofifa; fallback por nome
+  let query = supabase.from('elenco').select('id').eq('id_time', timeSistemaId).limit(1)
+  query = leilao.link_sofifa ? query.eq('link_sofifa', leilao.link_sofifa) : query.ilike('nome', leilao.nome)
+
+  const { data: existente, error: e1 } = await query.maybeSingle()
+  if (!e1 && existente?.id) return existente.id
+
+  const valor = Number(leilao.valor_atual || 0)
+  const insert = {
+    id_time: timeSistemaId,
+    nome: leilao.nome,
+    posicao: leilao.posicao,
+    overall: leilao.overall,
+    valor,
+    salario: calcularSalario(valor),
+    imagem_url: leilao.imagem_url || '',
+    link_sofifa: leilao.link_sofifa || null,
+    nacionalidade: leilao.nacionalidade || null,
+    jogos: 0,
+    percentual: 100,
+  }
+  const onConflict = leilao.link_sofifa ? 'id_time,link_sofifa' : 'id_time,nome'
+  const { data: novo, error: e2 } = await supabase
+    .from('elenco')
+    .upsert(insert, { onConflict })
+    .select('id')
+    .single()
+
+  if (e2) throw e2
+  return novo!.id
+}
+
+/** ===== Página ===== */
 export default function LeiloesFinalizadosPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [motivoBloqueio, setMotivoBloqueio] = useState<string | null>(null)
@@ -48,7 +108,6 @@ export default function LeiloesFinalizadosPage() {
   const [carregando, setCarregando] = useState(true)
   const [filtroPosicao, setFiltroPosicao] = useState('')
   const [filtroTime, setFiltroTime] = useState('')
-
   const [emailManual, setEmailManual] = useState('')
 
   // bloqueio de duplo clique por leilão
@@ -56,7 +115,7 @@ export default function LeiloesFinalizadosPage() {
 
   const normaliza = (s?: string | null) => (s || '').trim().toLowerCase()
 
-  // ---------------- Verificação de admin ----------------
+  /** ===== Verificação de admin ===== */
   useEffect(() => {
     verificarAdmin()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,7 +180,7 @@ export default function LeiloesFinalizadosPage() {
     }
   }
 
-  // ---------------- Dados ----------------
+  /** ===== Dados ===== */
   useEffect(() => {
     if (isAdmin) buscarLeiloesFinalizados()
   }, [isAdmin])
@@ -165,6 +224,7 @@ export default function LeiloesFinalizadosPage() {
         .maybeSingle()
       if (!error && data) return true
     }
+    // fallback por nome (menos robusto)
     const { data: data2, error: error2 } = await supabase
       .from('elenco')
       .select('id')
@@ -174,6 +234,7 @@ export default function LeiloesFinalizadosPage() {
     return !error2 && !!data2
   }
 
+  /** ===== Ações ===== */
   const enviarParaElenco = async (leilao: any) => {
     if (!leilao.id_time_vencedor) {
       alert('❌ Este leilão não possui time vencedor.')
@@ -282,7 +343,7 @@ export default function LeiloesFinalizadosPage() {
     }
   }
 
-  // === NOVO: enviar jogador sem lance direto ao mercado ===
+  // === NOVO: enviar jogador sem lance direto ao mercado (gera jogador_id) ===
   const enviarParaMercado = async (leilao: any) => {
     if (leilao.id_time_vencedor) {
       alert('Este leilão tem vencedor. Use "Enviar para Elenco".')
@@ -292,41 +353,38 @@ export default function LeiloesFinalizadosPage() {
     setProcessando((p) => ({ ...p, [leilao.id]: true }))
 
     try {
-      // Evitar duplicidade: se já existir anúncio do mesmo SoFIFA disponível
-      if (leilao.link_sofifa) {
-        const { data: jaAnunciado } = await supabase
-          .from('mercado_transferencias')
-          .select('id')
-          .eq('link_sofifa', leilao.link_sofifa)
-          .eq('status', 'disponivel')
-          .maybeSingle()
-        if (jaAnunciado) {
-          // concluir leilão e sair
-          await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
-          setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
-          alert('⚠️ Já havia um anúncio disponível deste jogador. Leilão marcado como concluído.')
-          return
-        }
+      const timeSistemaId = await getTimeSistemaId()
+      const jogadorId = await criarOuPegarJogadorIdParaMercado(timeSistemaId, leilao)
+
+      // evita anúncio duplicado do MESMO jogador
+      const { data: jaAnunciado } = await supabase
+        .from('mercado_transferencias')
+        .select('id')
+        .eq('jogador_id', jogadorId)
+        .eq('status', 'disponivel')
+        .maybeSingle()
+      if (jaAnunciado) {
+        await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+        setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+        alert('⚠️ Já existe anúncio disponível desse jogador. Leilão marcado como concluído.')
+        return
       }
 
       const valor = Number(leilao.valor_atual || 0)
-      const salario = calcularSalario(valor)
-
-      // Inserir no mercado como disponível (100%)
       const { error: errIns } = await supabase.from('mercado_transferencias').insert({
-        jogador_id: null, // não pertence a um time
+        jogador_id: jogadorId,               // 👈 agora NÃO é null
         nome: leilao.nome,
         posicao: leilao.posicao,
         overall: leilao.overall,
         valor,
         imagem_url: leilao.imagem_url || '',
-        salario,
+        salario: calcularSalario(valor),
         link_sofifa: leilao.link_sofifa || null,
-        id_time_origem: null, // sistema / sem origem
+        id_time_origem: timeSistemaId,       // origem = time do sistema
         status: 'disponivel',
         percentual: 100,
+        nacionalidade: leilao.nacionalidade || null,
         created_at: new Date().toISOString(),
-        nacionalidade: leilao.nacionalidade || null
       })
       if (errIns) {
         console.error('❌ Falha ao anunciar no mercado:', errIns)
@@ -334,10 +392,8 @@ export default function LeiloesFinalizadosPage() {
         return
       }
 
-      // Marcar leilão como concluído e remover da UI
       await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
       setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
-
       alert('✅ Anunciado no mercado de transferências!')
     } finally {
       setProcessando((p) => ({ ...p, [leilao.id]: false }))
@@ -351,6 +407,7 @@ export default function LeiloesFinalizadosPage() {
     alert('✅ Leilão excluído com sucesso!')
   }
 
+  /** ===== Derivados ===== */
   const leiloesFiltrados = useMemo(() => {
     return leiloes.filter((leilao) => {
       const matchPosicao = filtroPosicao ? leilao.posicao === filtroPosicao : true
@@ -361,7 +418,7 @@ export default function LeiloesFinalizadosPage() {
     })
   }, [leiloes, filtroPosicao, filtroTime])
 
-  // ---------------- UI ----------------
+  /** ===== UI ===== */
   if (isAdmin === null || carregando) {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
