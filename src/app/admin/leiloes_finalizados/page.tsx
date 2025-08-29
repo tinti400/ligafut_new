@@ -12,6 +12,10 @@ const supabase = createClient(
 
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
+// salário padrão (1% do valor)
+const calcularSalario = (valor: number | null | undefined) =>
+  Math.round(Number(valor || 0) * 0.01)
+
 async function registrarNoBID({
   tipo_evento,
   descricao,
@@ -161,7 +165,6 @@ export default function LeiloesFinalizadosPage() {
         .maybeSingle()
       if (!error && data) return true
     }
-    // fallback por nome (menos robusto)
     const { data: data2, error: error2 } = await supabase
       .from('elenco')
       .select('id')
@@ -188,7 +191,6 @@ export default function LeiloesFinalizadosPage() {
         nome: leilao.nome,
       })
       if (jaExiste) {
-        // se já existe, apenas marca como concluído e sai
         await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
         setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
         alert('⚠️ Jogador já estava no elenco. Leilão marcado como concluído.')
@@ -197,8 +199,7 @@ export default function LeiloesFinalizadosPage() {
 
       const salario = Math.round(Number(leilao.valor_atual || 0) * 0.007)
 
-      // 1) Upsert em elenco (requer índice único conforme recomendação)
-      // prioridade: id_time + link_sofifa; fallback: id_time + nome
+      // 1) Upsert em elenco
       const onConflict = leilao.link_sofifa ? 'id_time,link_sofifa' : 'id_time,nome'
       const { error: erroUpsert } = await supabase
         .from('elenco')
@@ -220,7 +221,6 @@ export default function LeiloesFinalizadosPage() {
           { onConflict, ignoreDuplicates: false }
         )
       if (erroUpsert) {
-        // se não houver índice, o upsert pode falhar—faz insert simples como fallback
         console.warn('upsert falhou, tentando insert simples…', erroUpsert.message)
         const { error: erroInsert } = await supabase.from('elenco').insert({
           id_time: leilao.id_time_vencedor,
@@ -241,7 +241,7 @@ export default function LeiloesFinalizadosPage() {
         }
       }
 
-      // 2) Debita saldo (ideal: RPC que faz o débito com check >= 0)
+      // 2) Debita saldo
       const { data: timeData, error: errorBusca } = await supabase
         .from('times')
         .select('saldo')
@@ -272,11 +272,73 @@ export default function LeiloesFinalizadosPage() {
         valor: leilao.valor_atual,
       })
 
-      // 4) Marca leilão como concluído e remove da UI
+      // 4) Concluir leilão
       await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
       setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
 
       alert('✅ Jogador enviado ao elenco e saldo debitado!')
+    } finally {
+      setProcessando((p) => ({ ...p, [leilao.id]: false }))
+    }
+  }
+
+  // === NOVO: enviar jogador sem lance direto ao mercado ===
+  const enviarParaMercado = async (leilao: any) => {
+    if (leilao.id_time_vencedor) {
+      alert('Este leilão tem vencedor. Use "Enviar para Elenco".')
+      return
+    }
+    if (processando[leilao.id]) return
+    setProcessando((p) => ({ ...p, [leilao.id]: true }))
+
+    try {
+      // Evitar duplicidade: se já existir anúncio do mesmo SoFIFA disponível
+      if (leilao.link_sofifa) {
+        const { data: jaAnunciado } = await supabase
+          .from('mercado_transferencias')
+          .select('id')
+          .eq('link_sofifa', leilao.link_sofifa)
+          .eq('status', 'disponivel')
+          .maybeSingle()
+        if (jaAnunciado) {
+          // concluir leilão e sair
+          await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+          setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+          alert('⚠️ Já havia um anúncio disponível deste jogador. Leilão marcado como concluído.')
+          return
+        }
+      }
+
+      const valor = Number(leilao.valor_atual || 0)
+      const salario = calcularSalario(valor)
+
+      // Inserir no mercado como disponível (100%)
+      const { error: errIns } = await supabase.from('mercado_transferencias').insert({
+        jogador_id: null, // não pertence a um time
+        nome: leilao.nome,
+        posicao: leilao.posicao,
+        overall: leilao.overall,
+        valor,
+        imagem_url: leilao.imagem_url || '',
+        salario,
+        link_sofifa: leilao.link_sofifa || null,
+        id_time_origem: null, // sistema / sem origem
+        status: 'disponivel',
+        percentual: 100,
+        created_at: new Date().toISOString(),
+        nacionalidade: leilao.nacionalidade || null
+      })
+      if (errIns) {
+        console.error('❌ Falha ao anunciar no mercado:', errIns)
+        alert(`❌ Erro ao anunciar no mercado:\n${errIns.message}`)
+        return
+      }
+
+      // Marcar leilão como concluído e remover da UI
+      await supabase.from('leiloes_sistema').update({ status: 'concluido' }).eq('id', leilao.id)
+      setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+
+      alert('✅ Anunciado no mercado de transferências!')
     } finally {
       setProcessando((p) => ({ ...p, [leilao.id]: false }))
     }
@@ -351,7 +413,7 @@ export default function LeiloesFinalizadosPage() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-emerald-400">📜 Leilões Finalizados</h1>
             <p className="text-gray-400 text-sm">
-              Itens com status <span className="font-semibold text-gray-200">leiloado</span> aguardando envio ao elenco.
+              Itens com status <span className="font-semibold text-gray-200">leiloado</span> aguardando envio ao elenco ou anúncio no mercado.
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-300">
@@ -419,6 +481,8 @@ export default function LeiloesFinalizadosPage() {
                 maximumFractionDigits: 0,
               })
               const processing = !!processando[leilao.id]
+              const temVencedor = !!leilao.id_time_vencedor
+
               return (
                 <article
                   key={leilao.id}
@@ -479,7 +543,7 @@ export default function LeiloesFinalizadosPage() {
                     )}
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      {leilao.id_time_vencedor && (
+                      {temVencedor ? (
                         <button
                           onClick={() => enviarParaElenco(leilao)}
                           disabled={processing}
@@ -492,7 +556,21 @@ export default function LeiloesFinalizadosPage() {
                         >
                           {processing ? 'Processando…' : '➕ Enviar para Elenco'}
                         </button>
+                      ) : (
+                        <button
+                          onClick={() => enviarParaMercado(leilao)}
+                          disabled={processing}
+                          className={classNames(
+                            'w-full rounded-lg py-2 font-semibold transition',
+                            processing
+                              ? 'bg-sky-700/50 text-white cursor-not-allowed'
+                              : 'bg-sky-600 hover:bg-sky-500 text-white'
+                          )}
+                        >
+                          {processing ? 'Processando…' : '📣 Enviar ao Mercado'}
+                        </button>
                       )}
+
                       <button
                         onClick={() => excluirLeilao(leilao)}
                         disabled={processing}
