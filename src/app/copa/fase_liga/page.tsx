@@ -9,6 +9,16 @@ import {
   FiMinus, FiPlus, FiChevronDown, FiChevronUp
 } from 'react-icons/fi'
 
+// 🔽 Motor de Estádio (mesma base do arquivo anexo)
+import {
+  simulate,
+  referencePrices,
+  type Sector,
+  type PriceMap,
+  type EstadioContext,
+  sectorProportion,
+} from '@/utils/estadioEngine'
+
 /* ================= SUPABASE & CONFIG ================= */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,6 +36,16 @@ type Jogo = {
   gols_time2: number | null
   bonus_pago?: boolean | null
   temporada?: string | null
+
+  // 🔽 extras (opcionais; só atualizamos se as colunas existirem)
+  renda?: number | null
+  publico?: number | null
+  receita_mandante?: number | null
+  receita_visitante?: number | null
+  salarios_mandante?: number | null
+  salarios_visitante?: number | null
+  premiacao_mandante?: number | null
+  premiacao_visitante?: number | null
 }
 type TimeMini = { nome: string; logo_url: string }
 type TimeFull = {
@@ -38,14 +58,41 @@ type TimeFull = {
   associacao?: string | null
 }
 
-/* ================= REGRAS FINANCEIRAS ================= */
-/** Estes valores também são passados ao RPC para manter tudo consistente */
-const TAXA_POR_JOGO = 10_000_000           // bônus de participação
-const BONUS_VITORIA = 15_000_000
-const BONUS_EMPATE = 7_500_000
-const BONUS_DERROTA = 5_000_000
-const PREMIO_GOL_MARCADO = 800_000
-const PENALIDADE_GOL_SOFRIDO = 160_000
+/* ================= REGRAS FINANCEIRAS (COPA) ================= */
+/** Lógica espelhada do arquivo anexo (com bônus +50%) */
+const BONUS_MULTIPLIER = 1.5 // +50% em todos os bônus por partida
+
+function calcularPremiacaoPorDivisao(params: {
+  divisao: number
+  gols_pro: number
+  gols_contra: number
+  historico: { resultado: 'vitoria'|'empate'|'derrota' }[]
+}): number {
+  const { divisao, gols_pro, gols_contra, historico } = params
+  const regras = {
+    1: { vitoria: 13_000_000, empate: 8_000_000,  derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
+    2: { vitoria: 8_500_000,  empate: 4_000_000,  derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
+    3: { vitoria: 5_000_000,  empate: 2_500_000,  derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
+  } as const
+  const regra = regras[divisao as 1|2|3]
+  if (!regra) return 0
+
+  const resultadoAtual: 'vitoria'|'empate'|'derrota' =
+    gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
+
+  let premiacao =
+    (resultadoAtual === 'vitoria' ? regra.vitoria :
+     resultadoAtual === 'empate'  ? regra.empate  : regra.derrota) +
+    (gols_pro * regra.gol) -
+    (gols_contra * regra.gol_sofrido)
+
+  // bônus por 5 vitórias seguidas
+  const ult5 = [...historico, { resultado: resultadoAtual }].slice(-5)
+  const venceuTodas = ult5.length === 5 && ult5.every(j => j.resultado === 'vitoria')
+  if (venceuTodas) premiacao += 5_000_000
+
+  return Math.round(premiacao * BONUS_MULTIPLIER)
+}
 
 /* ================= SWISS CONFIG ================= */
 const ROUNDS = 8
@@ -187,6 +234,9 @@ export default function FaseLigaAdminPage() {
   const [gerando, setGerando] = useState(false)
   const [temColunaTemporada, setTemColunaTemporada] = useState<boolean>(true)
 
+  // novas flags para campos extras
+  const [temExtrasFinanceiros, setTemExtrasFinanceiros] = useState<boolean>(true)
+
   // UI
   const [rodadasAbertas, setRodadasAbertas] = useState<Record<number, boolean>>({})
   const topRef = useRef<HTMLDivElement>(null)
@@ -194,6 +244,7 @@ export default function FaseLigaAdminPage() {
   useEffect(() => {
     ;(async () => {
       await detectarColunaTemporada()
+      await detectarColunasExtras()
       await Promise.all([carregarTimesBase(), buscarJogos()])
       setLoading(false)
     })()
@@ -202,6 +253,14 @@ export default function FaseLigaAdminPage() {
   async function detectarColunaTemporada() {
     const { error } = await supabase.from('copa_fase_liga').select('id,temporada').limit(1)
     setTemColunaTemporada(!error)
+  }
+
+  async function detectarColunasExtras() {
+    const { error } = await supabase
+      .from('copa_fase_liga')
+      .select('id,renda,publico,receita_mandante,receita_visitante,salarios_mandante,salarios_visitante,premiacao_mandante,premiacao_visitante')
+      .limit(1)
+    setTemExtrasFinanceiros(!error)
   }
 
   async function carregarTimesBase() {
@@ -231,121 +290,333 @@ export default function FaseLigaAdminPage() {
     if (error) { console.error(error); toast.error('Erro ao atualizar classificação!') }
   }
 
-  async function gerarSwiss() {
-    if (!isAdmin) { toast.error('Apenas admin pode gerar a fase.'); return }
-    setGerando(true)
-    try {
-      const rows = await safeSelectTimes(false)
-      let participantes: TimeFull[] = rows.map((t:any)=>({
-        id: t.id,
-        nome: t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id),
-        logo_url: t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png',
-        pote: t.pote ?? t.pot ?? null,
-        overall: t.overall ?? t.rating ?? null,
-        valor: t.valor ?? t.value ?? null,
-        associacao: t.associacao ?? t.pais ?? t.country ?? null,
-      }))
-      participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
-      if (participantes.length % 2 === 1) {
-        const ord = [...participantes].sort((a,b)=>{
-          const oa=(a.overall??0)-(b.overall??0); if (oa!==0) return oa
-          return (a.valor??0)-(b.valor??0)
-        })
-        const removido = ord[0]
-        participantes = participantes.filter(t=>t.id!==removido.id)
-        toast('Participantes ímpares: removi 1 clube para manter paridade.', { icon: 'ℹ️' })
-        await supabase.from('bid').insert([{ tipo_evento:'Sistema', descricao:`Ajuste de paridade: ${removido.nome} removido.`, valor:null }])
+  /* ===================== Estádio helpers (iguais ao anexo) ===================== */
+  const asImportance = (s: any): 'normal'|'decisao'|'final' => (s === 'final' ? 'final' : s === 'decisao' ? 'decisao' : 'normal')
+  const asWeather = (s: any): 'bom'|'chuva' => (s === 'chuva' ? 'chuva' : 'bom')
+  const asDayType = (s: any): 'semana'|'fim' => (s === 'fim' ? 'fim' : 'semana')
+  const asDayTime = (s: any): 'dia'|'noite' => (s === 'dia' ? 'dia' : 'noite')
+
+  async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ publico: number; renda: number; erro?: string }> {
+    const { data: est, error } = await supabase
+      .from('estadios').select('*').eq('id_time', mandanteId).maybeSingle()
+
+    if (error || !est) {
+      return {
+        publico: Math.floor(Math.random() * 30000) + 10000,
+        renda: (Math.floor(Math.random() * 30000) + 10000) * 80,
+        erro: 'Estádio não encontrado (usando fallback aleatório).'
       }
-      if (participantes.length < 2) { toast.error('Participantes insuficientes.'); return }
+    }
 
-      const calendario = gerarChampionsSwiss(participantes, evitarMesmoPais)
-      if (!calendario.length) { toast.error('Falha ao gerar calendário.'); return }
+    const nivel = Number(est.nivel || 1)
+    const capacidade = Number(est.capacidade || 18000)
 
-      if (temColunaTemporada) {
-        const { error: delErr } = await supabase.from('copa_fase_liga').delete().eq('temporada', TEMPORADA)
-        if (delErr) { toast.error('Erro ao limpar jogos da temporada.'); return }
-      } else {
-        const { error: delErr } = await supabase.from('copa_fase_liga').delete().neq('id', -1)
-        if (delErr) { toast.error('Erro ao limpar tabela de jogos.'); return }
-      }
+    const ref = referencePrices(nivel)
+    const prices: PriceMap = (Object.keys(sectorProportion) as Sector[]).reduce((acc, s) => {
+      const col = `preco_${s}`
+      const v = Number(est[col])
+      acc[s] = Number.isFinite(v) && v > 0 ? Math.round(v) : ref[s]
+      return acc
+    }, {} as PriceMap)
 
-      const rowsInsert = calendario.map(j => ({
-        ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
-        rodada: j.rodada, time1: j.casa, time2: j.fora,
-        gols_time1: null, gols_time2: null, bonus_pago: false,
-      }))
-      const { error: insErr } = await supabase.from('copa_fase_liga').insert(rowsInsert)
-      if (insErr) { console.error(insErr); toast.error('Erro ao inserir confrontos.'); return }
+    const ctx: EstadioContext = {
+      importance: asImportance(est.ctx_importancia),
+      derby: !!est.ctx_derby,
+      weather: asWeather(est.ctx_clima),
+      dayType: asDayType(est.ctx_dia),
+      dayTime: asDayTime(est.ctx_horario),
+      opponentStrength: Number.isFinite(Number(est.ctx_forca_adv)) ? Number(est.ctx_forca_adv) : 70,
+      moraleTec: Number.isFinite(Number(est.ctx_moral_tec)) ? Number(est.ctx_moral_tec) : 7.5,
+      moraleTor: Number.isFinite(Number(est.ctx_moral_tor)) ? Number(est.ctx_moral_tor) : 60,
+      sociosPct: Number.isFinite(Number(est.socio_percentual)) ? Number(est.socio_percentual) : 15,
+      sociosPreco: Number.isFinite(Number(est.socio_preco)) ? Number(est.socio_preco) : 25,
+      infraScore: Number.isFinite(Number(est.infra_score)) ? Number(est.infra_score) : 55,
+      level: nivel,
+    }
 
-      await atualizarClassificacao()
-      await buscarJogos()
-      await supabase.from('bid').insert([{
-        tipo_evento:'Sistema',
-        descricao:`Fase Liga (modelo suíço) gerada ${temColunaTemporada?`para ${TEMPORADA}`:'(sem coluna de temporada)'}. Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
-        valor:null
-      }])
-      toast.success(`✅ Gerado com sucesso: ${rowsInsert.length} jogos em ${ROUNDS} rodadas!`)
-      topRef.current?.scrollIntoView({ behavior: 'smooth' })
-    } finally { setGerando(false) }
+    const sim = simulate(capacidade, prices, ctx)
+    return { publico: Math.round(sim.totalAudience), renda: Math.round(sim.totalRevenue) }
   }
 
+  /* ===================== Salário / Elenco helpers ===================== */
+  async function somarSalarios(timeId: string): Promise<number> {
+    const { data } = await supabase.from('elenco').select('salario').eq('id_time', timeId)
+    if (!data) return 0
+    return data.reduce((acc, j) => acc + (j.salario || 0), 0)
+  }
+  async function ajustarJogosElenco(timeId: string, delta: number) {
+    const { data: jogadores } = await supabase.from('elenco').select('id, jogos').eq('id_time', timeId)
+    if (!jogadores) return
+    await Promise.all(
+      jogadores.map(j =>
+        supabase.from('elenco')
+          .update({ jogos: Math.max(0, (j.jogos || 0) + delta) })
+          .eq('id', j.id)
+      )
+    )
+  }
+  async function descontarSalariosComRegistro(timeId: string): Promise<number> {
+    const { data: elenco } = await supabase.from('elenco').select('salario').eq('id_time', timeId)
+    if (!elenco) return 0
+    const totalSalarios = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
+
+    await supabase.rpc('atualizar_saldo', { id_time: timeId, valor: -totalSalarios })
+    const dataAgora = new Date().toISOString()
+
+    await supabase.from('movimentacoes').insert({
+      id_time: timeId, tipo: 'salario', valor: totalSalarios,
+      descricao: 'Desconto de salários após partida', data: dataAgora,
+    })
+    await supabase.from('bid').insert({
+      tipo_evento: 'despesas', descricao: 'Desconto de salários após a partida',
+      id_time1: timeId, valor: -totalSalarios, data_evento: dataAgora,
+    })
+    return totalSalarios
+  }
+
+  /* ===================== Premiação (COPA) ===================== */
+  async function premiarPorJogoCopa(timeId: string, gols_pro: number, gols_contra: number): Promise<number> {
+    if (gols_pro === undefined || gols_contra === undefined) return 0
+
+    const { data: timeData, error: eTime } = await supabase
+      .from('times').select('divisao').eq('id', timeId).single()
+    if (eTime || !timeData) return 0
+
+    // monta histórico a partir da tabela da COPA
+    const { data: partidas } = await supabase
+      .from('copa_fase_liga')
+      .select('time1,time2,gols_time1,gols_time2')
+      .or(`time1.eq.${timeId},time2.eq.${timeId}`)
+      .not('gols_time1','is',null)
+      .not('gols_time2','is',null)
+
+    const historico: { resultado:'vitoria'|'empate'|'derrota' }[] = []
+    partidas?.forEach((j: any) => {
+      const isMandante = j.time1 === timeId
+      const gp = isMandante ? j.gols_time1 : j.gols_time2
+      const gc = isMandante ? j.gols_time2 : j.gols_time1
+      let r: 'vitoria'|'empate'|'derrota' = 'empate'
+      if (gp > gc) r = 'vitoria'
+      if (gp < gc) r = 'derrota'
+      historico.push({ resultado: r })
+    })
+
+    const valor = calcularPremiacaoPorDivisao({
+      divisao: timeData.divisao,
+      gols_pro,
+      gols_contra,
+      historico
+    })
+    if (valor <= 0) return 0
+
+    await supabase.rpc('atualizar_saldo', { id_time: timeId, valor })
+    await supabase.from('movimentacoes').insert({
+      id_time: timeId, tipo: 'premiacao', valor,
+      descricao: 'Premiação por desempenho (COPA)', data: new Date().toISOString(),
+    })
+    await supabase.from('bid').insert({
+      tipo_evento: 'bonus', descricao: 'Bônus por desempenho (COPA)',
+      id_time1: timeId, valor, data_evento: new Date().toISOString(),
+    })
+    return valor
+  }
+
+  /* ===================== Salvar (1º lançamento) com finanças ===================== */
   async function salvarPlacar(jogo: Jogo) {
+    if (!isAdmin) return
     setSalvandoId(jogo.id)
 
     // evita pagar 2x
     const { data: existente, error: erroVer } =
       await supabase.from('copa_fase_liga').select('bonus_pago').eq('id', jogo.id).single()
     if (erroVer) { toast.error('Erro ao verificar status do jogo'); setSalvandoId(null); return }
-    if (existente?.bonus_pago) { toast.error('❌ Pagamento já efetuado para esse jogo!'); setSalvandoId(null); return }
-
-    // salva placar
-    const { error: erroPlacar } = await supabase
-      .from('copa_fase_liga')
-      .update({ gols_time1: jogo.gols_time1, gols_time2: jogo.gols_time2 })
-      .eq('id', jogo.id)
-    if (erroPlacar) { toast.error('Erro ao salvar placar!'); setSalvandoId(null); return }
-
-    // atualiza classificação
-    await atualizarClassificacao()
-
-    // paga via RPC (participação + desempenho + gols) E marca bonus_pago=true
-    const { data: pagamentos, error: erroRpc } = await supabase.rpc('pagar_premios_partida', {
-      _jogo_id: jogo.id,
-      _taxa: TAXA_POR_JOGO,
-      _bonus_vitoria: BONUS_VITORIA,
-      _bonus_empate: BONUS_EMPATE,
-      _bonus_derrota: BONUS_DERROTA,
-      _premio_gol_marcado: PREMIO_GOL_MARCADO,
-      _multa_gol_sofrido: PENALIDADE_GOL_SOFRIDO,
-    })
-
-    if (erroRpc) {
-      console.error(erroRpc)
-      toast.error('Erro ao pagar participação/desempenho')
+    if (existente?.bonus_pago) {
+      await salvarAjusteResultado(jogo, jogo.gols_time1 ?? 0, jogo.gols_time2 ?? 0, true)
       setSalvandoId(null)
       return
     }
 
-    const n1 = timesMap[jogo.time1]?.nome ?? 'Time 1'
-    const n2 = timesMap[jogo.time2]?.nome ?? 'Time 2'
-    const total1 = Number(pagamentos?.[0]?.total_time1 ?? 0)
-    const total2 = Number(pagamentos?.[0]?.total_time2 ?? 0)
+    // precisa de gols preenchidos
+    if (jogo.gols_time1 == null || jogo.gols_time2 == null) {
+      toast.error('Preencha os gols antes de salvar.')
+      setSalvandoId(null)
+      return
+    }
 
-    toast.success(`✅ Pagos! ${n1} +${total1.toLocaleString('pt-BR')} | ${n2} +${total2.toLocaleString('pt-BR')}`)
+    const mandanteId = jogo.time1
+    const visitanteId = jogo.time2
 
-    // recarrega jogos para refletir bonus_pago=true
+    // público/renda pelo estádio do mandante
+    const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
+    if (pr.erro) toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
+    const publico = pr.publico
+    const renda = pr.renda
+
+    // receita 95/5
+    const receitaMandante = Math.round(renda * 0.95)
+    const receitaVisitante = Math.round(renda * 0.05)
+    await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: receitaMandante })
+    await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: receitaVisitante })
+
+    // salários com registro
+    const salariosMandante = await descontarSalariosComRegistro(mandanteId)
+    const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
+
+    // premiação COPA (+50%)
+    const premiacaoMandante = await premiarPorJogoCopa(mandanteId, jogo.gols_time1, jogo.gols_time2)
+    const premiacaoVisitante = await premiarPorJogoCopa(visitanteId, jogo.gols_time2, jogo.gols_time1)
+
+    // BID de receita (renda + bônus)
+    await supabase.from('bid').insert([
+      {
+        tipo_evento: 'receita_partida',
+        descricao: 'Receita da partida (renda + bônus) — COPA',
+        id_time1: mandanteId,
+        valor: receitaMandante + premiacaoMandante,
+        data_evento: new Date().toISOString(),
+      },
+      {
+        tipo_evento: 'receita_partida',
+        descricao: 'Receita da partida (renda + bônus) — COPA',
+        id_time1: visitanteId,
+        valor: receitaVisitante + premiacaoVisitante,
+        data_evento: new Date().toISOString(),
+      },
+    ])
+
+    // atualiza elenco (jogos +1)
+    await ajustarJogosElenco(mandanteId, +1)
+    await ajustarJogosElenco(visitanteId, +1)
+
+    // atualiza placar + marca bonus_pago + (extras se existir)
+    const patchBase: any = {
+      gols_time1: jogo.gols_time1,
+      gols_time2: jogo.gols_time2,
+      bonus_pago: true,
+    }
+    const patchExtras: any = temExtrasFinanceiros ? {
+      renda,
+      publico,
+      receita_mandante: receitaMandante,
+      receita_visitante: receitaVisitante,
+      salarios_mandante: salariosMandante,
+      salarios_visitante: salariosVisitante,
+      premiacao_mandante: premiacaoMandante,
+      premiacao_visitante: premiacaoVisitante,
+    } : {}
+
+    const { error: erroPlacar } = await supabase
+      .from('copa_fase_liga')
+      .update({ ...patchBase, ...patchExtras })
+      .eq('id', jogo.id)
+    if (erroPlacar) { toast.error('Erro ao salvar/registrar finanças'); setSalvandoId(null); return }
+
+    // atualiza classificação
+    await atualizarClassificacao()
+
+    const n1 = timesMap[mandanteId]?.nome ?? 'Mandante'
+    const n2 = timesMap[visitanteId]?.nome ?? 'Visitante'
+    toast.success(
+      `✅ Placar salvo e finanças pagas (COPA)!
+🎟️ Público: ${publico.toLocaleString()}  |  💰 Renda: R$ ${renda.toLocaleString()}
+💵 ${n1}: R$ ${Math.round(receitaMandante).toLocaleString()} + bônus
+💵 ${n2}: R$ ${Math.round(receitaVisitante).toLocaleString()} + bônus`,
+      { duration: 9000 }
+    )
+
     await buscarJogos()
     setSalvandoId(null)
   }
 
-  async function excluirPlacar(jogo: Jogo) {
-    setSalvandoId(jogo.id)
+  /* ===================== Ajuste de resultado (sem repetir finanças) ===================== */
+  async function salvarAjusteResultado(jogo: Jogo, gm: number, gv: number, silencioso = false) {
+    if (!isAdmin) return
     const { error } = await supabase
       .from('copa_fase_liga')
-      .update({ gols_time1: null, gols_time2: null, bonus_pago: false })
+      .update({ gols_time1: gm, gols_time2: gv, bonus_pago: true })
       .eq('id', jogo.id)
-    if (error) toast.error('Erro ao excluir resultado!')
-    else { await atualizarClassificacao(); toast.success('🗑️ Resultado excluído!'); await buscarJogos() }
+    if (error) { toast.error('Erro ao ajustar placar'); return }
+
+    await atualizarClassificacao()
+    await buscarJogos()
+    if (!silencioso) toast.success('✏️ Resultado atualizado (sem repetir bônus).')
+  }
+
+  /* ===================== Excluir placar (com estorno automático) ===================== */
+  async function excluirPlacar(jogo: Jogo) {
+    if (!isAdmin) return
+    if (!confirm('Excluir resultado deste jogo? Estorno financeiro será aplicado.')) return
+    setSalvandoId(jogo.id)
+
+    const mandanteId = jogo.time1
+    const visitanteId = jogo.time2
+    const now = new Date().toISOString()
+
+    if (jogo.bonus_pago) {
+      // valores para estorno (fallback se colunas não existirem)
+      const receitaMandante = jogo.receita_mandante ?? (jogo.renda ? Math.round(jogo.renda * 0.95) : 0)
+      const receitaVisitante = jogo.receita_visitante ?? (jogo.renda ? Math.round(jogo.renda * 0.05) : 0)
+      const salariosMandante = jogo.salarios_mandante ?? await somarSalarios(mandanteId)
+      const salariosVisitante = jogo.salarios_visitante ?? await somarSalarios(visitanteId)
+      const premiacaoMandante = jogo.premiacao_mandante ?? 0
+      const premiacaoVisitante = jogo.premiacao_visitante ?? 0
+
+      // 1) Reverter saldos
+      await Promise.all([
+        receitaMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante }) : Promise.resolve(),
+        receitaVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante }) : Promise.resolve(),
+        salariosMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante }) : Promise.resolve(),
+        salariosVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante }) : Promise.resolve(),
+        premiacaoMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante }) : Promise.resolve(),
+        premiacaoVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante }) : Promise.resolve(),
+      ])
+
+      // 2) Registrar estornos em movimentacoes
+      const movs: any[] = []
+      if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida (COPA)', data: now })
+      if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida (COPA)', data: now })
+      if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (COPA)', data: now })
+      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
+      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de bônus por desempenho (COPA)', data: now })
+      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de bônus por desempenho (COPA)', data: now })
+      if (movs.length) await supabase.from('movimentacoes').insert(movs)
+
+      // 3) Registrar estornos no BID
+      const bids: any[] = []
+      if (receitaMandante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
+      if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
+      if (salariosMandante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
+      if (salariosVisitante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
+      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (COPA)', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
+      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (COPA)', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
+      if (bids.length) await supabase.from('bid').insert(bids)
+
+      // 4) Decrementa 1 jogo no elenco dos dois times
+      await ajustarJogosElenco(mandanteId, -1)
+      await ajustarJogosElenco(visitanteId, -1)
+    }
+
+    // 5) Zera placar e limpa extras se houver
+    const patch: any = {
+      gols_time1: null, gols_time2: null, bonus_pago: false
+    }
+    if (temExtrasFinanceiros) {
+      Object.assign(patch, {
+        renda: null, publico: null,
+        receita_mandante: null, receita_visitante: null,
+        salarios_mandante: null, salarios_visitante: null,
+        premiacao_mandante: null, premiacao_visitante: null,
+      })
+    }
+    const { error: erroLimpar } = await supabase
+      .from('copa_fase_liga')
+      .update(patch)
+      .eq('id', jogo.id)
+    if (erroLimpar) { toast.error('Erro ao limpar resultado'); setSalvandoId(null); return }
+
+    await atualizarClassificacao()
+    await buscarJogos()
+    toast.success('🗑️ Resultado removido e estorno financeiro concluído (COPA).')
     setSalvandoId(null)
   }
 
@@ -370,28 +641,15 @@ export default function FaseLigaAdminPage() {
     value: number | null; onChange: (v:number)=>void; disabled?: boolean
   }) => (
     <div className="flex items-center gap-1 rounded-full bg-zinc-950/70 border border-zinc-700 px-1">
-      <button
-        className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40"
-        onClick={()=>onChange(clampInt((value ?? 0)-1))}
-        disabled={disabled}
-        aria-label="Diminuir"
-      >
+      <button className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40" onClick={()=>onChange(clampInt((value ?? 0)-1))} disabled={disabled} aria-label="Diminuir">
         <FiMinus />
       </button>
       <input
-        type="number"
-        min={0}
+        type="number" min={0}
         className="w-12 text-center bg-transparent outline-none font-bold"
-        value={value ?? ''}
-        onChange={(e)=>onChange(clampInt(parseInt(e.target.value||'0',10)))}
-        disabled={disabled}
+        value={value ?? ''} onChange={(e)=>onChange(clampInt(parseInt(e.target.value||'0',10)))} disabled={disabled}
       />
-      <button
-        className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40"
-        onClick={()=>onChange(clampInt((value ?? 0)+1))}
-        disabled={disabled}
-        aria-label="Aumentar"
-      >
+      <button className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40" onClick={()=>onChange(clampInt((value ?? 0)+1))} disabled={disabled} aria-label="Aumentar">
         <FiPlus />
       </button>
     </div>
@@ -552,7 +810,7 @@ export default function FaseLigaAdminPage() {
                               onClick={()=>salvarPlacar(jogo)}
                               disabled={salvandoId === jogo.id}
                               className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                              title="Salvar placar e pagar bônus"
+                              title="Salvar placar e processar finanças (COPA)"
                             >
                               <FiSave />
                               {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
@@ -561,7 +819,7 @@ export default function FaseLigaAdminPage() {
                               onClick={()=>excluirPlacar(jogo)}
                               disabled={salvandoId === jogo.id}
                               className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-                              title="Zerar placar deste jogo"
+                              title="Zerar placar deste jogo (estorno)"
                             >
                               <FiTrash2 />
                               {salvandoId === jogo.id ? 'Excluindo...' : 'Excluir'}
@@ -569,6 +827,19 @@ export default function FaseLigaAdminPage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Info de renda/público se houver */}
+                      {jogo.renda != null && jogo.publico != null && (
+                        <div className="text-xs text-zinc-400 text-right mt-1 mr-10">
+                          🎟️ Público: {Number(jogo.publico).toLocaleString()} | 💰 Renda: R$ {Number(jogo.renda).toLocaleString()}
+                        </div>
+                      )}
+
+                      {jogo.bonus_pago && (
+                        <div className="mt-2 text-[11px] text-emerald-300/80">
+                          ✔️ Lançado com finanças. Edições futuras não repetem bônus/salários — apenas atualizam o placar e a classificação.
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -593,7 +864,10 @@ export default function FaseLigaAdminPage() {
               </button>
               <button
                 className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
-                onClick={()=>{ setAbrirModalSwiss(false); gerarSwiss() }}
+                onClick={async ()=>{
+                  setAbrirModalSwiss(false)
+                  await gerarSwiss() // mantém seu gerador atual
+                }}
               >
                 {gerando ? 'Gerando...' : 'Sim, gerar'}
               </button>
