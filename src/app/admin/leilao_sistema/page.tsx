@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import classNames from 'classnames'
-import toast, { Toaster } from 'react-hot-toast' // ← (1) import do toast
+import toast, { Toaster } from 'react-hot-toast'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,6 +57,22 @@ export default function LeilaoSistemaPage() {
 
   // logos de times (nome -> url)
   const [logos, setLogos] = useState<Record<string, string>>({})
+
+  // ===== efeitos por botão (novos) =====
+  const [efeito, setEfeito] = useState<
+    Record<string, { tipo: 'sad' | 'morno' | 'empolgado' | 'fogo' | 'explosao'; key: number }>
+  >({})
+  const DUR = { sad: 1000, morno: 1100, empolgado: 1400, fogo: 1800, explosao: 2200 } as const
+  function acionarEfeito(leilaoId: string, tipo: keyof typeof DUR) {
+    setEfeito((prev) => ({ ...prev, [leilaoId]: { tipo, key: (prev[leilaoId]?.key ?? 0) + 1 } }))
+    setTimeout(() => {
+      setEfeito((prev) => {
+        const c = { ...prev }
+        delete c[leilaoId]
+        return c
+      })
+    }, DUR[tipo])
+  }
 
   // -------- utils ----------
   const isUuid = (s: string) =>
@@ -236,7 +252,7 @@ export default function LeilaoSistemaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idTime, nomeTime])
 
-  // ==== (2) Realtime: toast curto quando valor_atual subir ====
+  // ==== Realtime: toast global animado 6s quando valor_atual subir ====
   useEffect(() => {
     const channel = supabase
       .channel('leiloes_realtime')
@@ -246,14 +262,41 @@ export default function LeilaoSistemaPage() {
         (payload) => {
           const novo = payload.new as any
           const antigo = payload.old as any
-          const aumentou =
-            Number(novo?.valor_atual ?? 0) > Number(antigo?.valor_atual ?? 0)
+          const aumentou = Number(novo?.valor_atual ?? 0) > Number(antigo?.valor_atual ?? 0)
+          if (novo?.status !== 'ativo' || !aumentou) return
 
-          if (novo?.status === 'ativo' && aumentou) {
-            const quem = novo?.nome_time_vencedor || 'Um time'
-            const jogador = novo?.nome || 'jogador'
-            toast(`${quem} enviou ${brl(Number(novo.valor_atual))} no ${jogador} 📢`)
-          }
+          const quem = novo?.nome_time_vencedor || 'Um time'
+          const jogador = novo?.nome || 'jogador'
+          const valor = Number(novo?.valor_atual ?? 0)
+
+          toast.custom(
+            (t) => (
+              <div
+                className={`pointer-events-auto w-[min(92vw,520px)] overflow-hidden rounded-2xl border border-emerald-700/30 bg-neutral-950/95 shadow-lg ${
+                  t.visible ? 'lf-enter' : 'lf-exit'
+                }`}
+              >
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-emerald-600/20">📢</div>
+                  <div className="flex-1 text-sm leading-5">
+                    <b>{quem}</b> enviou{' '}
+                    <b>
+                      {valor.toLocaleString('pt-BR', {
+                        style: 'currency',
+                        currency: 'BRL',
+                        maximumFractionDigits: 0,
+                      })}
+                    </b>{' '}
+                    no <b>{jogador}</b>
+                  </div>
+                </div>
+                <div className="h-1 w-full bg-zinc-800">
+                  <div className="lf-progress h-full bg-emerald-500" />
+                </div>
+              </div>
+            ),
+            { duration: 6000, position: 'top-center' }
+          )
         }
       )
       .subscribe()
@@ -261,7 +304,7 @@ export default function LeilaoSistemaPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, []) // executa uma vez
+  }, [])
 
   // ===== UI helpers =====
   const formatarTempo = (segundos: number) => {
@@ -272,12 +315,9 @@ export default function LeilaoSistemaPage() {
   }
 
   const tierGrad = (valor: number) => {
-    if (valor >= 360_000_000)
-      return 'from-fuchsia-500/50 via-purple-500/35 to-amber-400/25'
-    if (valor >= 240_000_000)
-      return 'from-cyan-400/45 via-blue-500/35 to-purple-500/25'
-    if (valor >= 120_000_000)
-      return 'from-emerald-400/45 via-teal-400/30 to-cyan-400/20'
+    if (valor >= 360_000_000) return 'from-fuchsia-500/50 via-purple-500/35 to-amber-400/25'
+    if (valor >= 240_000_000) return 'from-cyan-400/45 via-blue-500/35 to-purple-500/25'
+    if (valor >= 120_000_000) return 'from-emerald-400/45 via-teal-400/30 to-cyan-400/20'
     return 'from-emerald-500/25 via-emerald-400/15 to-transparent'
   }
 
@@ -294,7 +334,7 @@ export default function LeilaoSistemaPage() {
     return null
   }, [idTime, nomeTime])
 
-  // ===== helpers de animação =====
+  // ===== helpers de animação já existentes =====
   const acionarAnimacao = (leilaoId: string) => {
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
     setBurst((prev) => ({ ...prev, [leilaoId]: true }))
@@ -359,12 +399,19 @@ export default function LeilaoSistemaPage() {
         p_valor_novo: novoValor,
         p_id_time_vencedor: idTime,
         p_nome_time_vencedor: nomeTime,
-        p_estender: tempoRestante < 15
+        p_estender: tempoRestante < 15,
       })
       if (error) {
         console.error('RPC error:', error)
         throw new Error(error.message || 'Falha ao registrar lance.')
       }
+
+      // animação por delta (manual)
+      if (incremento > 20_000_000) acionarEfeito(leilaoId, 'explosao')
+      else if (incremento === 20_000_000) acionarEfeito(leilaoId, 'fogo')
+      else if (incremento >= 15_000_000) acionarEfeito(leilaoId, 'empolgado')
+      else if (incremento >= 6_000_000) acionarEfeito(leilaoId, 'morno')
+      else acionarEfeito(leilaoId, 'sad')
 
       await buscarLeiloesAtivos()
       await buscarSaldo()
@@ -421,12 +468,18 @@ export default function LeilaoSistemaPage() {
         p_valor_novo: novoValor,
         p_id_time_vencedor: idTime,
         p_nome_time_vencedor: nomeTime,
-        p_estender: tempoRestante < 15
+        p_estender: tempoRestante < 15,
       })
       if (error) {
         console.error('RPC error:', error)
         throw new Error(error.message || 'Falha ao registrar lance.')
       }
+
+      // animação por botão (incrementos fixos)
+      if (incremento === 4_000_000) acionarEfeito(leilaoId, 'sad')
+      else if (incremento <= 10_000_000) acionarEfeito(leilaoId, 'morno')
+      else if (incremento === 15_000_000) acionarEfeito(leilaoId, 'empolgado')
+      else if (incremento === 20_000_000) acionarEfeito(leilaoId, 'fogo')
 
       await buscarLeiloesAtivos()
       await buscarSaldo()
@@ -442,10 +495,7 @@ export default function LeilaoSistemaPage() {
 
   const finalizarLeilaoAgora = async (leilaoId: string) => {
     if (!confirm('Deseja finalizar esse leilão agora?')) return
-    const { error } = await supabase
-      .from('leiloes_sistema')
-      .update({ status: 'leiloado' })
-      .eq('id', leilaoId)
+    const { error } = await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilaoId)
 
     if (error) alert('Erro ao finalizar leilão: ' + error.message)
     else {
@@ -459,11 +509,11 @@ export default function LeilaoSistemaPage() {
     <main className="min-h-screen bg-neutral-950 text-zinc-100">
       <audio ref={audioRef} src="/beep.mp3" preload="auto" />
 
-      {/* (3) Toaster global para os alerts de lance */}
+      {/* Toaster global (6s) */}
       <Toaster
         position="top-center"
         toastOptions={{
-          duration: 2000,
+          duration: 6000,
           style: { background: '#0a0a0a', color: '#e5e7eb', border: '1px solid #27272a' },
         }}
       />
@@ -509,7 +559,7 @@ export default function LeilaoSistemaPage() {
         {carregando ? (
           <div className="grid grid-cols-1 gap-4 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: MAX_ATIVOS }).map((_, i) => (
-              <div key={i} className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 animate-pulse">
+              <div key={i} className="animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
                 <div className="flex items-center gap-3">
                   <div className="h-14 w-14 rounded-2xl bg-zinc-800" />
                   <div className="flex-1">
@@ -550,18 +600,16 @@ export default function LeilaoSistemaPage() {
 
               const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
               const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
-              const propostaInvalida = !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido
               const saldoInsuf =
                 saldo !== null && isFinite(valorPropostoNum) && valorPropostoNum > Number(saldo)
 
-              // logo do vencedor atual (se houver)
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
 
               return (
                 <div key={leilao.id} className="relative">
                   {/* efeito de borda */}
-                  <div className={classNames('rounded-2xl p-[1px] bg-gradient-to-br', tierGrad(leilao.valor_atual))}>
+                  <div className={classNames('rounded-2xl bg-gradient-to-br p-[1px]', tierGrad(leilao.valor_atual))}>
                     <article
                       className={classNames(
                         'relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
@@ -569,14 +617,63 @@ export default function LeilaoSistemaPage() {
                         tremores[leilao.id] ? 'animate-[pulse_0.3s_ease_1] ring-1 ring-emerald-500/30' : ''
                       )}
                     >
-                      {/* burst de emojis */}
+                      {/* burst de emojis existente */}
                       {burst[leilao.id] && (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                          <div className="animate-[fadeout_0.7s_ease_forwards] text-2xl select-none">
-                            💥✨🔥
-                          </div>
+                          <div className="animate-[fadeout_0.7s_ease_forwards] select-none text-2xl">💥✨🔥</div>
                         </div>
                       )}
+
+                      {/* ===== NOVO: overlay de efeitos por botão ===== */}
+                      {efeito[leilao.id] && (
+                        <div key={efeito[leilao.id].key} className="pointer-events-none absolute inset-0">
+                          {efeito[leilao.id].tipo === 'sad' && (
+                            <div className="absolute inset-x-0 bottom-2 flex justify-center gap-3 text-2xl">
+                              <span className="lf-float-slow opacity-80">😕</span>
+                              <span className="lf-float-slow delay-100 opacity-80">🙁</span>
+                              <span className="lf-float-slow delay-200 opacity-80">😞</span>
+                            </div>
+                          )}
+
+                          {efeito[leilao.id].tipo === 'morno' && (
+                            <div className="absolute inset-x-0 bottom-3 flex justify-center gap-3 text-2xl">
+                              <span className="lf-pop opacity-90">👍</span>
+                              <span className="lf-pop delay-100 opacity-90">👏</span>
+                              <span className="lf-pop delay-200 opacity-90">🙂</span>
+                            </div>
+                          )}
+
+                          {efeito[leilao.id].tipo === 'empolgado' && (
+                            <div className="absolute inset-0 grid place-items-center">
+                              <div className="relative">
+                                <span className="lf-confetti block text-2xl">🎉</span>
+                                <span className="lf-confetti delay-75 absolute -left-8 -top-2 text-xl">✨</span>
+                                <span className="lf-confetti delay-150 absolute -right-8 -top-1 text-xl">🎉</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {efeito[leilao.id].tipo === 'fogo' && (
+                            <div className="absolute inset-x-0 bottom-2 flex items-end justify-center gap-2 text-2xl">
+                              <span className="lf-fire">🔥</span>
+                              <span className="lf-fire delay-100">🔥</span>
+                              <span className="lf-fire delay-200">🔥</span>
+                            </div>
+                          )}
+
+                          {efeito[leilao.id].tipo === 'explosao' && (
+                            <div className="absolute inset-0 grid place-items-center">
+                              <div className="relative">
+                                <span className="lf-burst text-3xl">💥</span>
+                                <span className="lf-sparkle absolute -left-10 -top-2 text-2xl">✨</span>
+                                <span className="lf-sparkle delay-150 absolute -right-10 -top-3 text-2xl">✨</span>
+                                <span className="lf-ring absolute left-1/2 top-1/2 -z-10 h-28 w-28 -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-400/40" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {/* ===== FIM overlay de efeitos ===== */}
 
                       {/* barra de tempo */}
                       <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
@@ -597,9 +694,7 @@ export default function LeilaoSistemaPage() {
                           )}
                         >
                           {disabledPorTempo ? 'Encerrado' : 'Termina em'}
-                          {!disabledPorTempo && (
-                            <b className="tabular-nums">{formatarTempo(tempoRestante)}</b>
-                          )}
+                          {!disabledPorTempo && <b className="tabular-nums">{formatarTempo(tempoRestante)}</b>}
                         </span>
                       </div>
 
@@ -741,7 +836,7 @@ export default function LeilaoSistemaPage() {
                         </div>
                       </div>
 
-                      {/* ==== Botões de incremento (mantidos) ==== */}
+                      {/* ==== Botões de incremento ==== */}
                       <div className="mt-4">
                         <div className="grid grid-cols-3 gap-2">
                           {increments.map((inc) => {
@@ -818,12 +913,89 @@ export default function LeilaoSistemaPage() {
         )}
       </section>
 
-      {/* keyframes util para o fadeout do burst (compatível com Tailwind Arbitrary) */}
+      {/* keyframes (existentes + novos) */}
       <style jsx>{`
+        /* usado pelo burst existente */
         @keyframes fadeout {
           0% { opacity: 1; transform: scale(1) translateY(0); }
           100% { opacity: 0; transform: scale(1.3) translateY(-10px); }
         }
+
+        /* toast global animado */
+        @keyframes lfSlideIn {
+          0% { transform: translateY(-12px) scale(.98); opacity: 0; }
+          40% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes lfSlideOut {
+          to { transform: translateY(-6px); opacity: 0; }
+        }
+        .lf-enter { animation: lfSlideIn .35s ease-out; }
+        .lf-exit { animation: lfSlideOut .25s ease-in forwards; }
+
+        @keyframes lfProgress {
+          from { width: 100%; }
+          to { width: 0%; }
+        }
+        .lf-progress { animation: lfProgress 6s linear forwards; }
+
+        /* === efeitos por botão === */
+        /* flutuar pra cima (carinhas tristes) */
+        @keyframes lfFloat {
+          0% { transform: translateY(8px) scale(.98); opacity: 0; }
+          30% { opacity: 1; }
+          100% { transform: translateY(-36px) scale(1); opacity: 0; }
+        }
+        .lf-float-slow { animation: lfFloat 1s ease-out forwards; }
+
+        /* pop/elastic (morno) */
+        @keyframes lfPop {
+          0% { transform: scale(.6); opacity: 0; }
+          50% { transform: scale(1.1); opacity: 1; }
+          100% { transform: scale(1); opacity: 0; }
+        }
+        .lf-pop { animation: lfPop 1.1s cubic-bezier(.2, .8, .2, 1) forwards; }
+
+        /* confete curto */
+        @keyframes lfConfetti {
+          0% { transform: translateY(-6px) rotate(-8deg); opacity: 0; }
+          20% { opacity: 1; }
+          100% { transform: translateY(26px) rotate(12deg); opacity: 0; }
+        }
+        .lf-confetti { animation: lfConfetti 1.4s ease-out forwards; }
+
+        /* fogo: tremula + sobe */
+        @keyframes lfRise {
+          0% { transform: translateY(8px) scale(.9); opacity: .2; }
+          25% { opacity: .8; }
+          100% { transform: translateY(-28px) scale(1.05); opacity: 0; }
+        }
+        @keyframes lfFlicker {
+          0%, 100% { filter: drop-shadow(0 0 0px #ef4444); }
+          50% { filter: drop-shadow(0 0 8px #f59e0b); }
+        }
+        .lf-fire { animation: lfRise 1.8s ease-out forwards, lfFlicker .6s ease-in-out infinite; }
+
+        /* explosão: burst + brilhos + anel */
+        @keyframes lfBurst {
+          0% { transform: scale(.7); opacity: 0; }
+          35% { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(1); opacity: 0; }
+        }
+        .lf-burst { animation: lfBurst 1.4s cubic-bezier(.2,.8,.2,1) forwards; }
+
+        @keyframes lfSparkle {
+          0% { transform: translateY(0) scale(.8) rotate(0deg); opacity: 0; }
+          30% { opacity: 1; }
+          100% { transform: translateY(-26px) scale(1.1) rotate(15deg); opacity: 0; }
+        }
+        .lf-sparkle { animation: lfSparkle 1.6s ease-out forwards; }
+
+        @keyframes lfRing {
+          0% { transform: translate(-50%, -50%) scale(.6); opacity: .4; }
+          80% { opacity: .2; }
+          100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; }
+        }
+        .lf-ring { animation: lfRing 2.2s ease-out forwards; }
       `}</style>
 
       <div className="h-6 md:h-8" />
