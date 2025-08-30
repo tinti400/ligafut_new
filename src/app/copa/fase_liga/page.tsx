@@ -1,6 +1,3 @@
-Aqui está o **arquivo completo e corrigido** (`src/app/copa/fase_liga/page.tsx`). Troquei o nome da exportação para `FaseLigaPage` (já que está em `/fase_liga`) e corrigi o typo `saláriosVisitante` → `salariosVisitante`.
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1010,4 +1007,4 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     </div>
   )
 }
-```
+
