@@ -1,3 +1,6 @@
+Aqui está o **arquivo completo e corrigido** (`src/app/copa/fase_liga/page.tsx`). Troquei o nome da exportação para `FaseLigaPage` (já que está em `/fase_liga`) e corrigi o typo `saláriosVisitante` → `salariosVisitante`.
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -9,7 +12,7 @@ import {
   FiMinus, FiPlus, FiChevronDown, FiChevronUp
 } from 'react-icons/fi'
 
-// 🔽 Motor de Estádio (comente se não existir no seu projeto)
+// 🔽 Motor de Estádio (ajuste o import se seu projeto usar outro caminho/nome)
 import {
   simulate,
   referencePrices,
@@ -214,7 +217,7 @@ const Badge: React.FC<{ tone?: BadgeTone; children: React.ReactNode }> = ({ chil
 }
 
 /* ================= PAGE ================= */
-export default function FaseLigaAdminPage() {
+export default function FaseLigaPage() {
   const { isAdmin } = useAdmin()
   const [jogos, setJogos] = useState<Jogo[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, TimeMini>>({})
@@ -235,7 +238,7 @@ export default function FaseLigaAdminPage() {
   const topRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    ; (async () => {
+    ;(async () => {
       await detectarColunaTemporada()
       await detectarColunasExtras()
       await Promise.all([carregarTimesBase(), buscarJogos()])
@@ -418,7 +421,7 @@ export default function FaseLigaAdminPage() {
         associacao: t.associacao ?? t.pais ?? t.country ?? null,
       }))
 
-      // regra custom: excluir Palmeiras do sorteio
+      // regra custom: excluir Palmeiras do sorteio (remova se não quiser)
       participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
 
       // precisa ser par — remove o mais fraco se ímpar
@@ -655,7 +658,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida (COPA)', data: now })
       if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida (COPA)', data: now })
       if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (COPA)', data: now })
-      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: saláriosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
+      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
       if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_total', valor: premiacaoMandante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
       if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_total', valor: premiacaoVisitante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
@@ -778,7 +781,9 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         <div className="mx-auto max-w-7xl px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">
-              <span className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-500 bg-clip-text text-transparent drop-shadow">UEFA Champions — Fase Liga (modelo suíço){temColunaTemporada ? ` • ${TEMPORADA}` : ''}</span>
+              <span className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-500 bg-clip-text text-transparent drop-shadow">
+                UEFA Champions — Fase Liga (modelo suíço){temColunaTemporada ? ` • ${TEMPORADA}` : ''}
+              </span>
             </h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
               <Badge tone="emerald">1–8 Oitavas</Badge>
@@ -861,13 +866,13 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
               ))}
               <span className="ml-auto" />
               <button
-                onClick={() => setRodadasAbertas(Object.fromEntries(listaRodadas.map(r => [r, true])))}
+                onClick={() => setRodadasAbertas(Object.fromEntries(listaRodadas.map(r => [r, true])) as Record<number, boolean>)}
                 className="text-xs text-zinc-300 underline underline-offset-2 hover:text-white"
               >
                 expandir tudo
               </button>
               <button
-                onClick={() => setRodadasAbertas(Object.fromEntries(listaRodadas.map(r => [r, false])))}
+                onClick={() => setRodadasAbertas(Object.fromEntries(listaRodadas.map(r => [r, false])) as Record<number, boolean>)}
                 className="text-xs text-zinc-300 underline underline-offset-2 hover:text-white"
               >
                 recolher tudo
@@ -1005,3 +1010,4 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     </div>
   )
 }
+```
