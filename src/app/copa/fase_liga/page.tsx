@@ -198,6 +198,21 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
   return calendario
 }
 
+/* ================= BADGES / UI PRIMITIVES ================= */
+type BadgeTone = 'zinc' | 'emerald' | 'sky' | 'violet'
+const Badge: React.FC<{ tone?: BadgeTone; children: React.ReactNode }> = ({ children, tone = 'zinc' }) => {
+  const cls =
+    {
+      zinc: 'bg-white/5 text-zinc-200 border-white/10',
+      emerald: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+      sky: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
+      violet: 'bg-violet-500/10 text-violet-300 border-violet-500/30',
+    }[tone] || 'bg-white/5 text-zinc-200 border-white/10'
+  return (
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold border ${cls}`}>{children}</span>
+  )
+}
+
 /* ================= PAGE ================= */
 export default function FaseLigaAdminPage() {
   const { isAdmin } = useAdmin()
@@ -217,7 +232,7 @@ export default function FaseLigaAdminPage() {
 
   // UI
   const [rodadasAbertas, setRodadasAbertas] = useState<Record<number, boolean>>({})
-  const topRef = useRef<HTMLDivElement>(null)
+  const topRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     ; (async () => {
@@ -355,7 +370,6 @@ export default function FaseLigaAdminPage() {
   }
 
   /* ===================== Premiação (COPA — PADRÃO) ===================== */
-  // Premiação por desempenho da COPA — independente de divisão
   async function premiarPorJogoCopa(timeId: string, gols_pro: number, gols_contra: number): Promise<number> {
     if (gols_pro == null || gols_contra == null) return 0
 
@@ -368,7 +382,6 @@ export default function FaseLigaAdminPage() {
       base + (gols_pro * COPA_GOL_MARCADO) - (gols_contra * COPA_GOL_SOFRIDO)
     )
 
-    // Credita no caixa e registra
     await supabase.rpc('atualizar_saldo', { id_time: timeId, valor })
     const agora = new Date().toISOString()
 
@@ -642,7 +655,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida (COPA)', data: now })
       if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida (COPA)', data: now })
       if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (COPA)', data: now })
-      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
+      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: saláriosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
       if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_total', valor: premiacaoMandante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
       if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_total', valor: premiacaoVisitante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
@@ -705,7 +718,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
   const ScoreInput = ({ value, onChange, disabled }: {
     value: number | null; onChange: (v: number) => void; disabled?: boolean
   }) => (
-    <div className="flex items-center gap-1 rounded-full bg-zinc-950/70 border border-zinc-700 px-1">
+    <div className="group flex items-center gap-1 rounded-full bg-zinc-50/5 border border-zinc-700 px-1 shadow-inner">
       <button
         className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40"
         onClick={() => onChange(clampInt((value ?? 0) - 1))}
@@ -717,7 +730,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       <input
         type="number"
         min={0}
-        className="w-12 text-center bg-transparent outline-none font-bold"
+        className="w-12 text-center bg-transparent outline-none font-extrabold tracking-wider"
         value={value ?? ''}
         onChange={(e) => onChange(clampInt(parseInt(e.target.value || '0', 10)))}
         disabled={disabled}
@@ -736,54 +749,77 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
   const RoundHeader = ({ r }: { r: number }) => {
     const open = !!rodadasAbertas[r]
     return (
-      <button
-        onClick={() => setRodadasAbertas(s => ({ ...s, [r]: !open }))}
-        className="group flex w-full items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 px-4 py-3 hover:border-zinc-700"
-      >
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-emerald-400 text-xs font-semibold border border-emerald-700/30">
-            Rodada
-          </span>
-          <span className="text-lg font-bold text-green-400">{r}</span>
-        </div>
-        <span className="text-zinc-400 group-hover:text-white">{open ? <FiChevronUp /> : <FiChevronDown />}</span>
-      </button>
+      <div className="sticky top-[64px] z-20">
+        <button
+          onClick={() => setRodadasAbertas(s => ({ ...s, [r]: !open }))}
+          className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-gradient-to-br from-zinc-900/90 to-zinc-950/90 px-4 py-3 hover:border-zinc-600/50 ring-1 ring-inset ring-white/10 shadow-[0_1px_0_rgba(255,255,255,0.04)]"
+        >
+          <div className="flex items-center gap-3">
+            <Badge tone="emerald">Rodada</Badge>
+            <span className="text-lg font-extrabold text-green-400">{r}</span>
+          </div>
+          <span className="text-zinc-400 group-hover:text-white">{open ? <FiChevronUp /> : <FiChevronDown />}</span>
+        </button>
+      </div>
     )
   }
+
+  const totalJogos = jogos.length
+  const totalParticipantes = useMemo(() => {
+    const ids = new Set<string>()
+    jogos.forEach(j => { ids.add(j.time1); ids.add(j.time2) })
+    return ids.size
+  }, [jogos])
 
   return (
     <div ref={topRef} className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black text-white">
       {/* Sticky toolbar */}
-      <div className="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-black/40 bg-black/60 border-b border-zinc-800">
-        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
+      <div className="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-black/50 bg-black/70 border-b border-white/10">
+        <div className="mx-auto max-w-7xl px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">
-              <span className="bg-gradient-to-r from-yellow-300 to-yellow-500 bg-clip-text text-transparent">
-                UEFA Champions — Fase Liga (modelo suíço){temColunaTemporada ? ` • ${TEMPORADA}` : ''}
-              </span>
+              <span className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-500 bg-clip-text text-transparent drop-shadow">UEFA Champions — Fase Liga (modelo suíço){temColunaTemporada ? ` • ${TEMPORADA}` : ''}</span>
             </h1>
-            <p className="text-xs text-zinc-400">
-              Corte: <span className="text-green-400 font-semibold">1–8 Oitavas</span>, <span className="text-sky-400 font-semibold">9–24 Play-off</span>
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <Badge tone="emerald">1–8 Oitavas</Badge>
+              <Badge tone="sky">9–24 Play-off</Badge>
+              <Badge>8 rodadas • 4 casa / 4 fora</Badge>
+            </div>
           </div>
 
           {isAdmin && (
             <div className="flex items-center gap-2">
-              <label className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs">
-                <input type="checkbox" checked={evitarMesmoPais} onChange={e => setEvitarMesmoPais(e.target.checked)} />
+              <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
+                <input type="checkbox" className="accent-emerald-500" checked={evitarMesmoPais} onChange={e => setEvitarMesmoPais(e.target.checked)} />
                 <FiTarget /> Evitar mesmo país
               </label>
               <button
                 onClick={() => setAbrirModalSwiss(true)}
                 disabled={gerando}
-                className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-violet-400/60"
                 title="Gera 8 rodadas no modelo suíço"
               >
                 <FiRotateCcw />
-                {gerando ? 'Gerando...' : 'Gerar Fase Champions (8 rodadas)'}
+                {gerando ? 'Gerando...' : 'Gerar Fase Champions'}
               </button>
             </div>
           )}
+        </div>
+
+        {/* Metrics bar */}
+        <div className="mx-auto max-w-7xl px-4 pb-3 grid grid-cols-3 gap-2 text-xs">
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <div className="text-white/70">Rodadas</div>
+            <div className="text-lg font-bold">{listaRodadas.length || 0}</div>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <div className="text-white/70">Jogos</div>
+            <div className="text-lg font-bold tabular-nums">{totalJogos}</div>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <div className="text-white/70">Participantes</div>
+            <div className="text-lg font-bold tabular-nums">{totalParticipantes}</div>
+          </div>
         </div>
       </div>
 
@@ -795,11 +831,17 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
             <select
               value={filtroTime}
               onChange={(e) => setFiltroTime(e.target.value)}
-              className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
+              className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
             >
               <option value="Todos">Todos</option>
               {nomesDosTimes.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
+            {filtroTime !== 'Todos' && (
+              <button
+                onClick={() => setFiltroTime('Todos')}
+                className="text-xs rounded-md border border-white/10 bg-white/5 px-2 py-1 hover:bg-white/10"
+              >Limpar</button>
+            )}
           </div>
 
           {listaRodadas.length > 0 && (
@@ -812,7 +854,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
                     const el = document.getElementById(`rodada-${r}`)
                     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                   }}
-                  className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs hover:border-zinc-600"
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs hover:bg-white/10"
                 >
                   {r}
                 </button>
@@ -838,11 +880,11 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         {loading ? (
           <div className="grid gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-20 animate-pulse rounded-xl bg-zinc-900/60 border border-zinc-800" />
+              <div key={i} className="h-20 animate-pulse rounded-xl bg-zinc-900/60 border border-white/10" />
             ))}
           </div>
         ) : listaRodadas.length === 0 ? (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-10 text-center text-zinc-300">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-10 text-center text-zinc-200">
             Nenhum jogo para exibir. Clique em <span className="font-semibold text-white">Gerar Fase Champions (8 rodadas)</span>.
           </div>
         ) : (
@@ -852,12 +894,16 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
               {rodadasAbertas[r] && (
                 <div className="mt-3 grid gap-3">
                   {jogosPorRodada[r].map((jogo) => (
-                    <div key={jogo.id} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 shadow hover:border-zinc-700">
+                    <div
+                      key={jogo.id}
+                      className="relative rounded-xl border border-white/10 bg-gradient-to-br from-zinc-900/70 to-zinc-950/70 p-4 shadow hover:border-white/20 transition"
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         {/* Time 1 */}
                         <div className="flex min-w-[220px] items-center gap-3">
                           <img src={timesMap[jogo.time1]?.logo_url || '/default.png'} alt="" className="h-10 w-10 rounded-full border bg-white object-cover" />
                           <span className="max-w-[180px] truncate font-semibold">{timesMap[jogo.time1]?.nome || jogo.time1}</span>
+                          <Badge>Mandante</Badge>
                         </div>
 
                         {/* Placar */}
@@ -877,7 +923,8 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
 
                         {/* Time 2 */}
                         <div className="flex min-w-[220px] items-center justify-end gap-3">
-                          <span className="max-w-[180px] truncate font-semibold">{timesMap[jogo.time2]?.nome || jogo.time2}</span>
+                          <Badge tone="sky">Visitante</Badge>
+                          <span className="max-w-[180px] truncate font-semibold text-right">{timesMap[jogo.time2]?.nome || jogo.time2}</span>
                           <img src={timesMap[jogo.time2]?.logo_url || '/default.png'} alt="" className="h-10 w-10 rounded-full border bg-white object-cover" />
                         </div>
 
@@ -887,7 +934,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
                             <button
                               onClick={() => salvarPlacar(jogo)}
                               disabled={salvandoId === jogo.id}
-                              className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                              className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
                               title="Salvar placar e processar finanças (COPA)"
                             >
                               <FiSave />
@@ -896,7 +943,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
                             <button
                               onClick={() => excluirPlacar(jogo)}
                               disabled={salvandoId === jogo.id}
-                              className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                              className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-red-400/60"
                               title="Zerar placar deste jogo (estorno)"
                             >
                               <FiTrash2 />
@@ -906,18 +953,23 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
                         )}
                       </div>
 
-                      {/* Info de renda/público se houver */}
-                      {jogo.renda != null && jogo.publico != null && (
-                        <div className="text-xs text-zinc-400 text-right mt-1 mr-10">
-                          🎟️ Público: {Number(jogo.publico).toLocaleString()} | 💰 Renda: R$ {Number(jogo.renda).toLocaleString()}
-                        </div>
-                      )}
+                      {/* Info extra */}
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400">
+                        {jogo.renda != null && jogo.publico != null ? (
+                          <div className="flex items-center gap-3">
+                            <span>🎟️ Público: <span className="tabular-nums text-zinc-200">{Number(jogo.publico).toLocaleString()}</span></span>
+                            <span>💰 Renda: <span className="tabular-nums text-zinc-200">R$ {Number(jogo.renda).toLocaleString()}</span></span>
+                          </div>
+                        ) : (
+                          <div className="text-zinc-500">Sem relatório financeiro ainda</div>
+                        )}
 
-                      {jogo.bonus_pago && (
-                        <div className="mt-2 text-[11px] text-emerald-300/80">
-                          ✔️ Lançado com finanças. Edições futuras não repetem bônus/salários — apenas atualizam o placar e a classificação.
-                        </div>
-                      )}
+                        {jogo.bonus_pago ? (
+                          <Badge tone="emerald">Finanças lançadas</Badge>
+                        ) : (
+                          <Badge tone="zinc">Aguardando lançamento</Badge>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -930,18 +982,18 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       {/* Modal */}
       {abrirModalSwiss && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
-            <h3 className="mb-2 text-xl font-bold text-yellow-400">Gerar Fase Champions (8 rodadas)?</h3>
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 shadow-2xl">
+            <h3 className="mb-2 text-xl font-bold text-yellow-300">Gerar Fase Champions (8 rodadas)?</h3>
             <p className="mb-6 text-zinc-200">
               Isso apaga os jogos {temColunaTemporada ? `da temporada "${TEMPORADA}"` : 'atuais'} e cria exatamente 8 rodadas
               (4 casa / 4 fora, 2 adversários por pote). Palmeiras será excluído do sorteio.
             </p>
             <div className="flex items-center justify-end gap-3">
-              <button className="rounded-md border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800" onClick={() => setAbrirModalSwiss(false)}>
+              <button className="rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-200 hover:bg-white/10" onClick={() => setAbrirModalSwiss(false)}>
                 Cancelar
               </button>
               <button
-                className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
+                className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-400/60"
                 onClick={async () => { setAbrirModalSwiss(false); await gerarSwiss() }}
               >
                 {gerando ? 'Gerando...' : 'Sim, gerar'}
