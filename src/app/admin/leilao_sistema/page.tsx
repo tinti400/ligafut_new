@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import classNames from 'classnames'
+import toast, { Toaster } from 'react-hot-toast' // ← (1) import do toast
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -78,7 +79,7 @@ export default function LeilaoSistemaPage() {
     let url = String(u).trim().replace(/^"(.*)"$/, '$1')
     if (url.startsWith('//')) url = 'https:' + url
     if (url.startsWith('http://')) url = 'https://' + url.slice(7)
-    if (!/^https?:\/\//i.test(url)) return ''
+    if (!/^https?:\/\/\S+/i.test(url)) return ''
     return url
   }
 
@@ -234,6 +235,33 @@ export default function LeilaoSistemaPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idTime, nomeTime])
+
+  // ==== (2) Realtime: toast curto quando valor_atual subir ====
+  useEffect(() => {
+    const channel = supabase
+      .channel('leiloes_realtime')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'leiloes_sistema' },
+        (payload) => {
+          const novo = payload.new as any
+          const antigo = payload.old as any
+          const aumentou =
+            Number(novo?.valor_atual ?? 0) > Number(antigo?.valor_atual ?? 0)
+
+          if (novo?.status === 'ativo' && aumentou) {
+            const quem = novo?.nome_time_vencedor || 'Um time'
+            const jogador = novo?.nome || 'jogador'
+            toast(`${quem} enviou ${brl(Number(novo.valor_atual))} no ${jogador} 📢`)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, []) // executa uma vez
 
   // ===== UI helpers =====
   const formatarTempo = (segundos: number) => {
@@ -430,6 +458,15 @@ export default function LeilaoSistemaPage() {
   return (
     <main className="min-h-screen bg-neutral-950 text-zinc-100">
       <audio ref={audioRef} src="/beep.mp3" preload="auto" />
+
+      {/* (3) Toaster global para os alerts de lance */}
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          duration: 2000,
+          style: { background: '#0a0a0a', color: '#e5e7eb', border: '1px solid #27272a' },
+        }}
+      />
 
       {/* Header fixo com saldo */}
       <header className="sticky top-0 z-20 border-b border-zinc-900/80 bg-neutral-950/80 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/60">
@@ -793,4 +830,3 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
-
