@@ -1,3 +1,6 @@
+aqui está o componente completo com: **toast global animado (6s)**, **animações por botão**, e **botão “Excluir” só para admin** (com checagem via Auth / localStorage / coluna `times.is_admin`):
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -57,6 +60,9 @@ export default function LeilaoSistemaPage() {
 
   // logos de times (nome -> url)
   const [logos, setLogos] = useState<Record<string, string>>({})
+
+  // ===== admin =====
+  const [isAdmin, setIsAdmin] = useState(false)
 
   // ===== efeitos por botão (novos) =====
   const [efeito, setEfeito] = useState<
@@ -158,11 +164,7 @@ export default function LeilaoSistemaPage() {
     try {
       if (idTime && isUuid(idTime)) return
       if (!nomeTime) return
-      const { data, error } = await supabase
-        .from('times')
-        .select('id')
-        .eq('nome', nomeTime)
-        .single()
+      const { data, error } = await supabase.from('times').select('id').eq('nome', nomeTime).single()
       if (!error && data?.id && isUuid(data.id)) {
         localStorage.setItem('id_time', data.id)
         setIdTime(data.id)
@@ -233,6 +235,40 @@ export default function LeilaoSistemaPage() {
   useEffect(() => {
     garantirIdTimeValido()
   }, [nomeTime, idTime])
+
+  // detectar admin (auth -> localStorage -> coluna times.is_admin)
+  useEffect(() => {
+    let stop = false
+    ;(async () => {
+      try {
+        const { data } = await supabase.auth.getUser()
+        const u = data?.user
+        if (!stop && (u?.app_metadata?.role === 'admin' || u?.user_metadata?.is_admin === true)) {
+          setIsAdmin(true); return
+        }
+      } catch {}
+
+      try {
+        const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
+        if (raw) {
+          const obj = JSON.parse(raw)
+          if (!stop && (obj?.is_admin === true || obj?.role === 'admin')) {
+            setIsAdmin(true); return
+          }
+        }
+      } catch {}
+
+      try {
+        if (idTime && isUuid(idTime)) {
+          const { data, error } = await supabase.from('times').select('is_admin').eq('id', idTime).maybeSingle()
+          if (!stop && !error && data?.is_admin === true) {
+            setIsAdmin(true); return
+          }
+        }
+      } catch {}
+    })()
+    return () => { stop = true }
+  }, [idTime])
 
   useEffect(() => {
     ;(async () => {
@@ -344,6 +380,27 @@ export default function LeilaoSistemaPage() {
     setTimeout(() => {
       setTremores((prev) => ({ ...prev, [leilaoId]: false }))
     }, 150)
+  }
+
+  // ===== ações admin =====
+  const excluirDoLeilao = async (leilaoId: string) => {
+    if (!isAdmin) {
+      alert('Ação restrita a administradores.')
+      return
+    }
+    if (!confirm('Tem certeza que deseja excluir este item do leilão?')) return
+
+    const { error } = await supabase
+      .from('leiloes_sistema')
+      .update({ status: 'cancelado' }) // soft delete; troque por delete() se preferir
+      .eq('id', leilaoId)
+
+    if (error) {
+      toast.error('Erro ao excluir: ' + (error.message || ''))
+    } else {
+      toast.success('Leilão excluído.')
+      await buscarLeiloesAtivos()
+    }
   }
 
   // ===== Lance manual (valor livre, mínimo +20mi) =====
@@ -495,7 +552,10 @@ export default function LeilaoSistemaPage() {
 
   const finalizarLeilaoAgora = async (leilaoId: string) => {
     if (!confirm('Deseja finalizar esse leilão agora?')) return
-    const { error } = await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilaoId)
+    const { error } = await supabase
+      .from('leiloes_sistema')
+      .update({ status: 'leiloado' })
+      .eq('id', leilaoId)
 
     if (error) alert('Erro ao finalizar leilão: ' + error.message)
     else {
@@ -547,7 +607,7 @@ export default function LeilaoSistemaPage() {
           </div>
 
           {erroTela && (
-            <div className="mt-3 rounded-xl border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            <div className="mt-3 rounded-2xl border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">
               ⚠️ {erroTela}
             </div>
           )}
@@ -600,8 +660,6 @@ export default function LeilaoSistemaPage() {
 
               const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
               const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
-              const saldoInsuf =
-                saldo !== null && isFinite(valorPropostoNum) && valorPropostoNum > Number(saldo)
 
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
@@ -617,6 +675,17 @@ export default function LeilaoSistemaPage() {
                         tremores[leilao.id] ? 'animate-[pulse_0.3s_ease_1] ring-1 ring-emerald-500/30' : ''
                       )}
                     >
+                      {/* botão admin: excluir */}
+                      {isAdmin && (
+                        <button
+                          onClick={() => excluirDoLeilao(leilao.id)}
+                          className="absolute right-3 top-3 rounded-lg border border-red-900/40 bg-red-950/40 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
+                          title="Excluir do leilão (admin)"
+                        >
+                          🗑️ Excluir
+                        </button>
+                      )}
+
                       {/* burst de emojis existente */}
                       {burst[leilao.id] && (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -624,7 +693,7 @@ export default function LeilaoSistemaPage() {
                         </div>
                       )}
 
-                      {/* ===== NOVO: overlay de efeitos por botão ===== */}
+                      {/* overlay de efeitos por botão */}
                       {efeito[leilao.id] && (
                         <div key={efeito[leilao.id].key} className="pointer-events-none absolute inset-0">
                           {efeito[leilao.id].tipo === 'sad' && (
@@ -673,7 +742,6 @@ export default function LeilaoSistemaPage() {
                           )}
                         </div>
                       )}
-                      {/* ===== FIM overlay de efeitos ===== */}
 
                       {/* barra de tempo */}
                       <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
@@ -1002,3 +1070,4 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
+```
