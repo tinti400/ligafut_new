@@ -11,7 +11,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const MAX_ATIVOS = 15
+const MAX_ATIVOS = 200 // antes 15
 const INCREMENTO_MINIMO = 20_000_000 // mínimo +20mi para lance manual
 
 type Leilao = {
@@ -62,7 +62,7 @@ export default function LeilaoSistemaPage() {
   // ===== admin =====
   const [isAdmin, setIsAdmin] = useState(false)
 
-  // ===== efeitos por botão (corrigidos) =====
+  // ===== efeitos por botão =====
   const [efeito, setEfeito] = useState<
     Record<string, { tipo: 'sad' | 'morno' | 'empolgado' | 'fogo' | 'explosao'; key: number }>
   >({})
@@ -129,6 +129,18 @@ export default function LeilaoSistemaPage() {
       }
     }
     return row?.imagem_url ? normalizeUrl(row.imagem_url) : ''
+  }
+
+  // ===== parse de data estável (assume UTC se vier sem timezone) =====
+  const toMs = (v: any) => {
+    if (!v) return NaN
+    if (typeof v === 'string') {
+      let s = v.trim()
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) s = s.replace(' ', 'T')
+      if (!/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) s = s + 'Z'
+      return Date.parse(s)
+    }
+    return new Date(v).getTime()
   }
 
   function carregarIdentidadeLocal() {
@@ -243,7 +255,7 @@ export default function LeilaoSistemaPage() {
       .from('leiloes_sistema')
       .select('*')
       .eq('status', 'ativo')
-      .order('criado_em', { ascending: true })
+      .order('fim', { ascending: true }) // ordena pelo fim real
       .limit(MAX_ATIVOS)
 
     if (!error && data) {
@@ -258,7 +270,6 @@ export default function LeilaoSistemaPage() {
           const prev = prevLeiloesRef.current[l.id]
           const novoValor = Number(l.valor_atual ?? 0)
           if (prev && novoValor > prev.valor) {
-            // dedupe entre realtime e polling
             if ((lastToastValorRef.current[l.id] || 0) < novoValor) {
               lastToastValorRef.current[l.id] = novoValor
               showLanceToast(l.nome_time_vencedor, l.nome, novoValor)
@@ -307,12 +318,10 @@ export default function LeilaoSistemaPage() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      // override por env
       if (process.env.NEXT_PUBLIC_FORCE_ADMIN === '1') {
         if (!cancelled) setIsAdmin(true)
         return
       }
-      // session auth
       try {
         const { data: { session } } = await supabase.auth.getSession()
         const u = session?.user
@@ -327,7 +336,6 @@ export default function LeilaoSistemaPage() {
           }
         }
       } catch {}
-      // localStorage
       try {
         const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
         if (raw && !cancelled) {
@@ -336,7 +344,6 @@ export default function LeilaoSistemaPage() {
           if (roleStr === 'admin' || isTrue(obj?.is_admin) || isTrue(obj?.admin)) { setIsAdmin(true); return }
         }
       } catch {}
-      // tabela times
       try {
         if (idTime && isUuid(idTime) && !cancelled) {
           const { data } = await supabase.from('times').select('is_admin, admin, role').eq('id', idTime).maybeSingle()
@@ -538,7 +545,7 @@ export default function LeilaoSistemaPage() {
         .single()
       if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
       if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
-      const fimMs = new Date(atual.fim).getTime()
+      const fimMs = toMs(atual.fim)
       if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
 
       const incremento = novoValor - Number(valorAtual)
@@ -608,7 +615,7 @@ export default function LeilaoSistemaPage() {
         .single()
       if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
       if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
-      const fimMs = new Date(atual.fim).getTime()
+      const fimMs = toMs(atual.fim)
       if (isNaN(fimMs) || fimMs - Date.now() <= 0) throw new Error('Leilão encerrado.')
 
       const { error } = await supabase.rpc('dar_lance_no_leilao', {
@@ -731,8 +738,8 @@ export default function LeilaoSistemaPage() {
         ) : (
           <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
             {leiloes.map((leilao, index) => {
-              const tempoFinal = new Date(leilao.fim).getTime()
-              const tempoInicio = new Date(leilao.criado_em).getTime()
+              const tempoFinal = toMs(leilao.fim)
+              const tempoInicio = toMs(leilao.criado_em)
               const agora = Date.now()
 
               let tempoRestante = Math.floor((tempoFinal - agora) / 1000)
@@ -745,8 +752,6 @@ export default function LeilaoSistemaPage() {
               const disabledPorTempo = tempoRestante === 0
               const disabledPorIdentidade = !!travadoPorIdentidade
               const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
-
-              const increments = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000]
 
               const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
               const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
