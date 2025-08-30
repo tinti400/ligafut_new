@@ -10,7 +10,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const MAX_ATIVOS = 9
+const MAX_ATIVOS = 11
 const INCREMENTO_MINIMO = 20_000_000 // mínimo +20mi para lance manual
 
 type Leilao = {
