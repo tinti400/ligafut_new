@@ -1,6 +1,3 @@
-aqui está o componente completo com: **toast global animado (6s)**, **animações por botão**, e **botão “Excluir” só para admin** (com checagem via Auth / localStorage / coluna `times.is_admin`):
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1070,4 +1067,3 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
-```
