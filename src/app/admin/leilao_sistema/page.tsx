@@ -24,6 +24,7 @@ type Leilao = {
   link_sofifa?: string | null
   valor_atual: number
   nome_time_vencedor?: string | null
+  id_time_vencedor?: string | null
   fim: string
   criado_em: string
   status: 'ativo' | 'leiloado' | 'cancelado'
@@ -61,7 +62,7 @@ export default function LeilaoSistemaPage() {
   // ===== admin =====
   const [isAdmin, setIsAdmin] = useState(false)
 
-  // ===== efeitos por botão (novos) =====
+  // ===== efeitos por botão (corrigidos) =====
   const [efeito, setEfeito] = useState<
     Record<string, { tipo: 'sad' | 'morno' | 'empolgado' | 'fogo' | 'explosao'; key: number }>
   >({})
@@ -80,6 +81,9 @@ export default function LeilaoSistemaPage() {
   // -------- utils ----------
   const isUuid = (s: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+
+  const isTrue = (v: any) =>
+    v === true || v === 1 || v === '1' || (typeof v === 'string' && ['true', 't', 'yes', 'on'].includes(v.toLowerCase()))
 
   const sane = (str: any) => {
     if (typeof str !== 'string') return null
@@ -190,6 +194,50 @@ export default function LeilaoSistemaPage() {
     }
   }
 
+  // ---------- TOAST helpers + fallback por diff ----------
+  const prevLeiloesRef = useRef<Record<string, { valor: number; vencedor?: string | null; nome: string }>>({})
+  const inicializadoRef = useRef(false)
+  const lastToastValorRef = useRef<Record<string, number>>({})
+
+  const showLanceToast = (quem: string | null | undefined, jogador: string | null | undefined, valor: number) => {
+    toast.custom(
+      (t) => (
+        <div
+          className={`pointer-events-auto w-[min(92vw,520px)] overflow-hidden rounded-2xl border border-emerald-700/30 bg-neutral-950/95 shadow-lg ${
+            t.visible ? 'lf-enter' : 'lf-exit'
+          }`}
+        >
+          <div className="flex items-center gap-3 px-4 py-3">
+            <div className="grid h-8 w-8 place-items-center rounded-full bg-emerald-600/20">📢</div>
+            <div className="flex-1 text-sm leading-5">
+              <b>{quem || 'Um time'}</b> enviou{' '}
+              <b>
+                {Number(valor).toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                  maximumFractionDigits: 0,
+                })}
+              </b>{' '}
+              no <b>{jogador || 'jogador'}</b>
+            </div>
+          </div>
+          <div className="h-1 w-full bg-zinc-800">
+            <div className="lf-progress h-full bg-emerald-500" />
+          </div>
+        </div>
+      ),
+      { duration: 6000, position: 'top-center' }
+    )
+  }
+
+  function efeitoPorDelta(leilaoId: string, delta: number) {
+    if (delta > 20_000_000) acionarEfeito(leilaoId, 'explosao')
+    else if (delta === 20_000_000) acionarEfeito(leilaoId, 'fogo')
+    else if (delta >= 15_000_000) acionarEfeito(leilaoId, 'empolgado')
+    else if (delta >= 6_000_000) acionarEfeito(leilaoId, 'morno')
+    else acionarEfeito(leilaoId, 'sad')
+  }
+
   const buscarLeiloesAtivos = async () => {
     const { data, error } = await supabase
       .from('leiloes_sistema')
@@ -202,7 +250,23 @@ export default function LeilaoSistemaPage() {
       const arr = data.map((l: any) => ({
         ...l,
         imagem_url: pickImagemUrl(l) || null,
-      }))
+      })) as Leilao[]
+
+      // -------- fallback: detectar aumentos e tostar/animar --------
+      if (inicializadoRef.current) {
+        for (const l of arr) {
+          const prev = prevLeiloesRef.current[l.id]
+          const novoValor = Number(l.valor_atual ?? 0)
+          if (prev && novoValor > prev.valor) {
+            // dedupe entre realtime e polling
+            if ((lastToastValorRef.current[l.id] || 0) < novoValor) {
+              lastToastValorRef.current[l.id] = novoValor
+              showLanceToast(l.nome_time_vencedor, l.nome, novoValor)
+              efeitoPorDelta(l.id, novoValor - prev.valor)
+            }
+          }
+        }
+      }
 
       // beep ao perder liderança
       arr.forEach((leilao: any) => {
@@ -211,12 +275,18 @@ export default function LeilaoSistemaPage() {
         }
       })
 
-      setLeiloes(arr as Leilao[])
+      // atualizar prev
+      const snapshot: Record<string, { valor: number; vencedor?: string | null; nome: string }> = {}
+      for (const l of arr) snapshot[l.id] = { valor: Number(l.valor_atual ?? 0), vencedor: l.nome_time_vencedor, nome: l.nome }
+      prevLeiloesRef.current = snapshot
+      inicializadoRef.current = true
+
+      setLeiloes(arr)
 
       // inicializa input manual com (valor_atual + 20mi)
       setPropostas((prev) => {
         const next = { ...prev }
-        for (const l of arr as Leilao[]) {
+        for (const l of arr) {
           if (!next[l.id]) next[l.id] = String((l.valor_atual ?? 0) + INCREMENTO_MINIMO)
         }
         return next
@@ -233,38 +303,49 @@ export default function LeilaoSistemaPage() {
     garantirIdTimeValido()
   }, [nomeTime, idTime])
 
-  // detectar admin (auth -> localStorage -> coluna times.is_admin)
+  // detectar admin (robusto)
   useEffect(() => {
-    let stop = false
+    let cancelled = false
     ;(async () => {
+      // override por env
+      if (process.env.NEXT_PUBLIC_FORCE_ADMIN === '1') {
+        if (!cancelled) setIsAdmin(true)
+        return
+      }
+      // session auth
       try {
-        const { data } = await supabase.auth.getUser()
-        const u = data?.user
-        if (!stop && (u?.app_metadata?.role === 'admin' || u?.user_metadata?.is_admin === true)) {
-          setIsAdmin(true); return
+        const { data: { session } } = await supabase.auth.getSession()
+        const u = session?.user
+        if (u && !cancelled) {
+          const roles = ([] as string[]).concat(
+            (u.app_metadata?.roles as any) || [],
+            (u.user_metadata?.roles as any) || []
+          ).map(String).map(s => s.toLowerCase())
+          const roleStr = String(u.app_metadata?.role || u.user_metadata?.role || '').toLowerCase()
+          if (roleStr === 'admin' || roles.includes('admin') || isTrue(u.user_metadata?.is_admin) || isTrue(u.app_metadata?.is_admin)) {
+            setIsAdmin(true); return
+          }
         }
       } catch {}
-
+      // localStorage
       try {
         const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
-        if (raw) {
+        if (raw && !cancelled) {
           const obj = JSON.parse(raw)
-          if (!stop && (obj?.is_admin === true || obj?.role === 'admin')) {
-            setIsAdmin(true); return
-          }
+          const roleStr = String(obj?.role || '').toLowerCase()
+          if (roleStr === 'admin' || isTrue(obj?.is_admin) || isTrue(obj?.admin)) { setIsAdmin(true); return }
         }
       } catch {}
-
+      // tabela times
       try {
-        if (idTime && isUuid(idTime)) {
-          const { data, error } = await supabase.from('times').select('is_admin').eq('id', idTime).maybeSingle()
-          if (!stop && !error && data?.is_admin === true) {
-            setIsAdmin(true); return
-          }
+        if (idTime && isUuid(idTime) && !cancelled) {
+          const { data } = await supabase.from('times').select('is_admin, admin, role').eq('id', idTime).maybeSingle()
+          const roleStr = String(data?.role || '').toLowerCase()
+          if (isTrue(data?.is_admin) || isTrue(data?.admin) || roleStr === 'admin') { setIsAdmin(true); return }
         }
       } catch {}
     })()
-    return () => { stop = true }
+    return () => { cancelled = true }
   }, [idTime])
 
   useEffect(() => {
@@ -285,7 +366,7 @@ export default function LeilaoSistemaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idTime, nomeTime])
 
-  // ==== Realtime: toast global animado 6s quando valor_atual subir ====
+  // ==== Realtime: toast global animado 6s quando valor_atual subir (com dedupe) ====
   useEffect(() => {
     const channel = supabase
       .channel('leiloes_realtime')
@@ -298,38 +379,12 @@ export default function LeilaoSistemaPage() {
           const aumentou = Number(novo?.valor_atual ?? 0) > Number(antigo?.valor_atual ?? 0)
           if (novo?.status !== 'ativo' || !aumentou) return
 
-          const quem = novo?.nome_time_vencedor || 'Um time'
-          const jogador = novo?.nome || 'jogador'
-          const valor = Number(novo?.valor_atual ?? 0)
+          const novoValor = Number(novo?.valor_atual ?? 0)
+          if ((lastToastValorRef.current[novo.id] || 0) >= novoValor) return // dedupe
+          lastToastValorRef.current[novo.id] = novoValor
 
-          toast.custom(
-            (t) => (
-              <div
-                className={`pointer-events-auto w-[min(92vw,520px)] overflow-hidden rounded-2xl border border-emerald-700/30 bg-neutral-950/95 shadow-lg ${
-                  t.visible ? 'lf-enter' : 'lf-exit'
-                }`}
-              >
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="grid h-8 w-8 place-items-center rounded-full bg-emerald-600/20">📢</div>
-                  <div className="flex-1 text-sm leading-5">
-                    <b>{quem}</b> enviou{' '}
-                    <b>
-                      {valor.toLocaleString('pt-BR', {
-                        style: 'currency',
-                        currency: 'BRL',
-                        maximumFractionDigits: 0,
-                      })}
-                    </b>{' '}
-                    no <b>{jogador}</b>
-                  </div>
-                </div>
-                <div className="h-1 w-full bg-zinc-800">
-                  <div className="lf-progress h-full bg-emerald-500" />
-                </div>
-              </div>
-            ),
-            { duration: 6000, position: 'top-center' }
-          )
+          showLanceToast(novo?.nome_time_vencedor, novo?.nome, novoValor)
+          efeitoPorDelta(novo.id, novoValor - Number(antigo?.valor_atual ?? 0))
         }
       )
       .subscribe()
@@ -347,17 +402,60 @@ export default function LeilaoSistemaPage() {
     return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
   }
 
-  const tierGrad = (valor: number) => {
-    if (valor >= 360_000_000) return 'from-fuchsia-500/50 via-purple-500/35 to-amber-400/25'
-    if (valor >= 240_000_000) return 'from-cyan-400/45 via-blue-500/35 to-purple-500/25'
-    if (valor >= 120_000_000) return 'from-emerald-400/45 via-teal-400/30 to-cyan-400/20'
-    return 'from-emerald-500/25 via-emerald-400/15 to-transparent'
+  // ===== gradiente do card a cada 50 mi (0 .. 2 bi => 41 degraus) =====
+  const CARD_GRADIENTS = [
+    'from-emerald-500/40 via-emerald-400/25 to-emerald-300/20',
+    'from-emerald-400/45 via-teal-400/30 to-cyan-400/20',
+    'from-teal-400/45 via-cyan-400/30 to-sky-400/20',
+    'from-cyan-400/45 via-sky-400/30 to-blue-400/20',
+    'from-sky-400/45 via-blue-500/30 to-indigo-500/20',
+    'from-blue-500/45 via-indigo-500/30 to-violet-500/20',
+    'from-indigo-500/45 via-violet-500/30 to-fuchsia-500/20',
+    'from-violet-500/45 via-fuchsia-500/30 to-pink-500/20',
+    'from-fuchsia-500/45 via-pink-500/30 to-rose-500/20',
+    'from-pink-500/45 via-rose-500/30 to-red-500/20',
+    'from-rose-500/45 via-red-500/30 to-orange-500/20',
+    'from-red-500/45 via-orange-500/30 to-amber-500/20',
+    'from-orange-500/45 via-amber-500/30 to-yellow-500/20',
+    'from-amber-500/45 via-yellow-400/30 to-lime-400/20',
+    'from-yellow-400/45 via-lime-400/30 to-emerald-400/20',
+    'from-lime-400/45 via-emerald-400/30 to-teal-400/20',
+    'from-emerald-600/40 via-teal-500/30 to-cyan-500/20',
+    'from-teal-500/45 via-cyan-500/30 to-sky-500/20',
+    'from-cyan-500/45 via-sky-500/30 to-blue-500/20',
+    'from-sky-500/45 via-blue-600/30 to-indigo-600/20',
+    'from-blue-600/45 via-indigo-600/30 to-violet-600/20',
+    'from-indigo-600/45 via-violet-600/30 to-fuchsia-600/20',
+    'from-violet-600/45 via-fuchsia-600/30 to-pink-600/20',
+    'from-fuchsia-600/45 via-pink-600/30 to-rose-600/20',
+    'from-pink-600/45 via-rose-600/30 to-red-600/20',
+    'from-rose-600/45 via-red-600/30 to-orange-600/20',
+    'from-red-600/45 via-orange-600/30 to-amber-600/20',
+    'from-orange-600/45 via-amber-600/30 to-yellow-600/20',
+    'from-amber-600/45 via-yellow-500/30 to-lime-500/20',
+    'from-yellow-500/45 via-lime-500/30 to-emerald-500/20',
+    'from-lime-500/45 via-emerald-500/30 to-teal-500/20',
+    'from-emerald-700/40 via-teal-600/30 to-cyan-600/20',
+    'from-teal-600/45 via-cyan-600/30 to-sky-600/20',
+    'from-cyan-600/45 via-sky-600/30 to-blue-600/20',
+    'from-sky-600/45 via-blue-700/30 to-indigo-700/20',
+    'from-blue-700/45 via-indigo-700/30 to-violet-700/20',
+    'from-indigo-700/45 via-violet-700/30 to-fuchsia-700/20',
+    'from-violet-700/45 via-fuchsia-700/30 to-pink-700/20',
+    'from-fuchsia-700/45 via-pink-700/30 to-rose-700/20',
+    'from-rose-700/45 via-red-700/30 to-orange-700/20',
+    'from-red-700/45 via-orange-700/30 to-amber-700/20',
+  ] as const
+  const gradIndexForValor = (v: number) => {
+    const idx = Math.floor((v || 0) / 50_000_000) // 0 .. 40
+    return Math.max(0, Math.min(idx, CARD_GRADIENTS.length - 1))
   }
 
   const tierBadge = (valor: number) => {
-    if (valor >= 360_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
-    if (valor >= 240_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
-    if (valor >= 120_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
+    if (valor >= 1_500_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
+    if (valor >= 1_000_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
+    if (valor >= 500_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
+    if (valor >= 250_000_000) return 'text-amber-300 border-amber-900/40 bg-amber-950/30'
     return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
   }
 
@@ -461,11 +559,7 @@ export default function LeilaoSistemaPage() {
       }
 
       // animação por delta (manual)
-      if (incremento > 20_000_000) acionarEfeito(leilaoId, 'explosao')
-      else if (incremento === 20_000_000) acionarEfeito(leilaoId, 'fogo')
-      else if (incremento >= 15_000_000) acionarEfeito(leilaoId, 'empolgado')
-      else if (incremento >= 6_000_000) acionarEfeito(leilaoId, 'morno')
-      else acionarEfeito(leilaoId, 'sad')
+      efeitoPorDelta(leilaoId, incremento)
 
       await buscarLeiloesAtivos()
       await buscarSaldo()
@@ -530,10 +624,7 @@ export default function LeilaoSistemaPage() {
       }
 
       // animação por botão (incrementos fixos)
-      if (incremento === 4_000_000) acionarEfeito(leilaoId, 'sad')
-      else if (incremento <= 10_000_000) acionarEfeito(leilaoId, 'morno')
-      else if (incremento === 15_000_000) acionarEfeito(leilaoId, 'empolgado')
-      else if (incremento === 20_000_000) acionarEfeito(leilaoId, 'fogo')
+      efeitoPorDelta(leilaoId, incremento)
 
       await buscarLeiloesAtivos()
       await buscarSaldo()
@@ -549,10 +640,7 @@ export default function LeilaoSistemaPage() {
 
   const finalizarLeilaoAgora = async (leilaoId: string) => {
     if (!confirm('Deseja finalizar esse leilão agora?')) return
-    const { error } = await supabase
-      .from('leiloes_sistema')
-      .update({ status: 'leiloado' })
-      .eq('id', leilaoId)
+    const { error } = await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilaoId)
 
     if (error) alert('Erro ao finalizar leilão: ' + error.message)
     else {
@@ -595,6 +683,11 @@ export default function LeilaoSistemaPage() {
               >
                 💳 Saldo: <b className="ml-1 tabular-nums">{brl(saldo ?? undefined)}</b>
               </div>
+              {isAdmin && (
+                <span className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
+                  Modo Admin
+                </span>
+              )}
               {travadoPorIdentidade && (
                 <div className="rounded-xl border border-yellow-900/40 bg-yellow-950/40 px-3 py-2 text-xs text-yellow-200">
                   ⚠️ {travadoPorIdentidade}
@@ -661,10 +754,12 @@ export default function LeilaoSistemaPage() {
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
 
+              const gradIdx = gradIndexForValor(leilao.valor_atual)
+
               return (
                 <div key={leilao.id} className="relative">
-                  {/* efeito de borda */}
-                  <div className={classNames('rounded-2xl bg-gradient-to-br p-[1px]', tierGrad(leilao.valor_atual))}>
+                  {/* efeito de borda com gradiente por faixa */}
+                  <div className={classNames('rounded-2xl bg-gradient-to-br p-[1px]', CARD_GRADIENTS[gradIdx])}>
                     <article
                       className={classNames(
                         'relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
@@ -696,16 +791,16 @@ export default function LeilaoSistemaPage() {
                           {efeito[leilao.id].tipo === 'sad' && (
                             <div className="absolute inset-x-0 bottom-2 flex justify-center gap-3 text-2xl">
                               <span className="lf-float-slow opacity-80">😕</span>
-                              <span className="lf-float-slow delay-100 opacity-80">🙁</span>
-                              <span className="lf-float-slow delay-200 opacity-80">😞</span>
+                              <span className="lf-float-slow ad-100 opacity-80">🙁</span>
+                              <span className="lf-float-slow ad-200 opacity-80">😞</span>
                             </div>
                           )}
 
                           {efeito[leilao.id].tipo === 'morno' && (
                             <div className="absolute inset-x-0 bottom-3 flex justify-center gap-3 text-2xl">
                               <span className="lf-pop opacity-90">👍</span>
-                              <span className="lf-pop delay-100 opacity-90">👏</span>
-                              <span className="lf-pop delay-200 opacity-90">🙂</span>
+                              <span className="lf-pop ad-100 opacity-90">👏</span>
+                              <span className="lf-pop ad-200 opacity-90">🙂</span>
                             </div>
                           )}
 
@@ -713,8 +808,8 @@ export default function LeilaoSistemaPage() {
                             <div className="absolute inset-0 grid place-items-center">
                               <div className="relative">
                                 <span className="lf-confetti block text-2xl">🎉</span>
-                                <span className="lf-confetti delay-75 absolute -left-8 -top-2 text-xl">✨</span>
-                                <span className="lf-confetti delay-150 absolute -right-8 -top-1 text-xl">🎉</span>
+                                <span className="lf-confetti ad-100 absolute -left-8 -top-2 text-xl">✨</span>
+                                <span className="lf-confetti ad-200 absolute -right-8 -top-1 text-xl">🎉</span>
                               </div>
                             </div>
                           )}
@@ -722,8 +817,8 @@ export default function LeilaoSistemaPage() {
                           {efeito[leilao.id].tipo === 'fogo' && (
                             <div className="absolute inset-x-0 bottom-2 flex items-end justify-center gap-2 text-2xl">
                               <span className="lf-fire">🔥</span>
-                              <span className="lf-fire delay-100">🔥</span>
-                              <span className="lf-fire delay-200">🔥</span>
+                              <span className="lf-fire ad-100">🔥</span>
+                              <span className="lf-fire ad-200">🔥</span>
                             </div>
                           )}
 
@@ -731,8 +826,8 @@ export default function LeilaoSistemaPage() {
                             <div className="absolute inset-0 grid place-items-center">
                               <div className="relative">
                                 <span className="lf-burst text-3xl">💥</span>
-                                <span className="lf-sparkle absolute -left-10 -top-2 text-2xl">✨</span>
-                                <span className="lf-sparkle delay-150 absolute -right-10 -top-3 text-2xl">✨</span>
+                                <span className="lf-sparkle ad-100 absolute -left-10 -top-2 text-2xl">✨</span>
+                                <span className="lf-sparkle ad-200 absolute -right-10 -top-3 text-2xl">✨</span>
                                 <span className="lf-ring absolute left-1/2 top-1/2 -z-10 h-28 w-28 -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-400/40" />
                               </div>
                             </div>
@@ -904,7 +999,7 @@ export default function LeilaoSistemaPage() {
                       {/* ==== Botões de incremento ==== */}
                       <div className="mt-4">
                         <div className="grid grid-cols-3 gap-2">
-                          {increments.map((inc) => {
+                          {([4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000] as const).map((inc) => {
                             const disabled =
                               tempoRestante === 0 ||
                               !!travadoPorIdentidade ||
@@ -1061,6 +1156,11 @@ export default function LeilaoSistemaPage() {
           100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; }
         }
         .lf-ring { animation: lfRing 2.2s ease-out forwards; }
+
+        /* util: animation-delay custom (para keyframes, não transitions) */
+        .ad-100 { animation-delay: .1s !important; }
+        .ad-150 { animation-delay: .15s !important; }
+        .ad-200 { animation-delay: .2s !important; }
       `}</style>
 
       <div className="h-6 md:h-8" />
