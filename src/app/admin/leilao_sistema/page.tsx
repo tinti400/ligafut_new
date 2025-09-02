@@ -50,8 +50,11 @@ export default function LeilaoSistemaPage() {
   const [burst, setBurst] = useState<Record<string, boolean>>({})
   const [erroTela, setErroTela] = useState<string | null>(null)
 
-  // sincronização de relógio com o servidor (evita “acabar” por clock do cliente)
+  // sincronização de relógio com o servidor
   const [serverOffsetMs, setServerOffsetMs] = useState<number>(0) // serverNow - clientNow
+
+  // loading por leilão ao finalizar
+  const [finalizando, setFinalizando] = useState<Record<string, boolean>>({})
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const intervaloRef = useRef<NodeJS.Timeout | null>(null)
@@ -149,7 +152,6 @@ export default function LeilaoSistemaPage() {
   // ===== sincroniza relógio cliente/servidor =====
   async function syncServerClock() {
     try {
-      // exige RPC servertime_ms() (SQL abaixo)
       const { data, error } = await supabase.rpc('servertime_ms')
       if (!error && typeof data === 'number') {
         const clientNow = Date.now()
@@ -157,7 +159,6 @@ export default function LeilaoSistemaPage() {
       }
     } catch {}
   }
-
   function nowServerMs() {
     return Date.now() + serverOffsetMs
   }
@@ -428,7 +429,7 @@ export default function LeilaoSistemaPage() {
     return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
   }
 
-  // ===== gradiente do card a cada 50 mi (0 .. 2 bi => 41 degraus) =====
+  // ===== gradiente do card a cada 50 mi =====
   const CARD_GRADIENTS = [
     'from-emerald-500/40 via-emerald-400/25 to-emerald-300/20',
     'from-emerald-400/45 via-teal-400/30 to-cyan-400/20',
@@ -498,7 +499,7 @@ export default function LeilaoSistemaPage() {
     setTimeout(() => setTremores((prev) => ({ ...prev, [leilaoId]: false })), 150)
   }
 
-  // ===== ações admin (mantido: só aparece quando 0s) =====
+  // ===== ações admin =====
   const excluirDoLeilao = async (leilaoId: string) => {
     if (!isAdmin) {
       alert('Ação restrita a administradores.')
@@ -516,6 +517,46 @@ export default function LeilaoSistemaPage() {
     } else {
       toast.success('Leilão excluído.')
       await buscarLeiloesAtivos()
+    }
+  }
+
+  async function finalizarLeilao(leilaoId: string) {
+    if (!isAdmin) {
+      toast.error('Ação restrita a administradores.')
+      return
+    }
+    setFinalizando((p) => ({ ...p, [leilaoId]: true }))
+    try {
+      const { data, error } = await supabase
+        .from('leiloes_sistema')
+        .select('fim')
+        .eq('id', leilaoId)
+        .single()
+      if (error) {
+        toast.error('Erro ao validar fim do leilão.')
+        return
+      }
+      const fimMs = toMs(data?.fim)
+      const agoraSrv = nowServerMs()
+      if (fimMs - agoraSrv > 0) {
+        const secs = Math.ceil((fimMs - agoraSrv) / 1000)
+        toast.error(`Ainda restam ${secs}s no servidor. Aguarde para finalizar.`)
+        return
+      }
+
+      const { error: e2 } = await supabase
+        .from('leiloes_sistema')
+        .update({ status: 'leiloado' })
+        .eq('id', leilaoId)
+
+      if (e2) {
+        toast.error('Erro ao finalizar: ' + e2.message)
+      } else {
+        toast.success('Leilão finalizado!')
+        await buscarLeiloesAtivos()
+      }
+    } finally {
+      setFinalizando((p) => ({ ...p, [leilaoId]: false }))
     }
   }
 
@@ -542,7 +583,7 @@ export default function LeilaoSistemaPage() {
     acionarAnimacao(leilaoId)
 
     try {
-      // validação FORTEMENTE baseada no servidor
+      // validação baseada no servidor
       const { data: atual, error: e1 } = await supabase
         .from('leiloes_sistema')
         .select('status, valor_atual, fim')
@@ -563,7 +604,6 @@ export default function LeilaoSistemaPage() {
         p_valor_novo: novoValor,
         p_id_time_vencedor: idTime,
         p_nome_time_vencedor: nomeTime,
-        // estende só se servidor considerar <15s (o RPC também verifica)
         p_estender: (fimMs - agoraSrv) / 1000 < 15,
       })
       if (error) throw new Error(error.message || 'Falha ao registrar lance.')
@@ -1037,30 +1077,27 @@ export default function LeilaoSistemaPage() {
                         )}
                       </div>
 
-                      {/* Botão finalizar só aparece quando 0s — evita encerramento prematuro visual */}
-                      {tempoRestante === 0 && isAdmin && (
-                        <button
-                          onClick={async () => {
-                            // proteção extra: checa de novo com relógio do servidor
-                            const { data, error } = await supabase.from('leiloes_sistema').select('fim').eq('id', leilao.id).single()
-                            if (error) return alert('Erro ao validar fim do leilão.')
-                            const fimMs = toMs(data?.fim)
-                            const agoraSrv = nowServerMs()
-                            if (fimMs - agoraSrv > 0) {
-                              toast.error('Ainda não chegou a 0s no servidor.')
-                              return
+                      {/* ===== Ações administrativas ===== */}
+                      {isAdmin && (
+                        <div className="mt-4">
+                          <button
+                            onClick={() => finalizarLeilao(leilao.id)}
+                            disabled={finalizando[leilao.id] || tempoRestante > 0}
+                            className={classNames(
+                              'w-full rounded-xl px-3 py-2 text-sm font-semibold transition',
+                              finalizando[leilao.id] || tempoRestante > 0
+                                ? 'cursor-not-allowed border border-zinc-800 bg-zinc-900/60 text-zinc-500'
+                                : 'border border-red-900/40 bg-red-600/90 text-white hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400/30'
+                            )}
+                            title={
+                              tempoRestante > 0
+                                ? '⏱️ Aguarde o relógio do servidor zerar para finalizar.'
+                                : 'Finaliza este leilão agora (servidor já zerou).'
                             }
-                            const { error: e2 } = await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilao.id)
-                            if (e2) alert('Erro ao finalizar leilão: ' + e2.message)
-                            else {
-                              toast.success('Leilão finalizado!')
-                              await buscarLeiloesAtivos()
-                            }
-                          }}
-                          className="mt-4 w-full rounded-xl bg-red-600/90 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400/30"
-                        >
-                          Finalizar Leilão
-                        </button>
+                          >
+                            {finalizando[leilao.id] ? 'Finalizando…' : 'Finalizar Leilão'}
+                          </button>
+                        </div>
                       )}
                     </article>
                   </div>
@@ -1099,17 +1136,20 @@ export default function LeilaoSistemaPage() {
         @keyframes lfConfetti { 0% { transform: translateY(-6px) rotate(-8deg); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(26px) rotate(12deg); opacity: 0; } }
         .lf-confetti { animation: lfConfetti 1.4s ease-out forwards; }
 
-        @keyframes lfRise { 0% { transform: translateY(8px) scale(.9); opacity: .2; } 25% { opacity: .8; } 100% { transform: translateY(-28px) scale(1.05); opacity: 0; } }
+        @keyframes lfRise { 0% { transform: translateY(8px) scale(.9); opacity: .2; }
+          25% { opacity: .8; } 100% { transform: translateY(-28px) scale(1.05); opacity: 0; } }
         @keyframes lfFlicker { 0%, 100% { filter: drop-shadow(0 0 0px #ef4444); } 50% { filter: drop-shadow(0 0 8px #f59e0b); } }
         .lf-fire { animation: lfRise 1.8s ease-out forwards, lfFlicker .6s ease-in-out infinite; }
 
         @keyframes lfBurst { 0% { transform: scale(.7); opacity: 0; } 35% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
         .lf-burst { animation: lfBurst 1.4s cubic-bezier(.2,.8,.2,1) forwards; }
 
-        @keyframes lfSparkle { 0% { transform: translateY(0) scale(.8) rotate(0deg); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(-26px) scale(1.1) rotate(15deg); opacity: 0; } }
+        @keyframes lfSparkle { 0% { transform: translateY(0) scale(.8) rotate(0deg); opacity: 0; }
+          30% { opacity: 1; } 100% { transform: translateY(-26px) scale(1.1) rotate(15deg); opacity: 0; } }
         .lf-sparkle { animation: lfSparkle 1.6s ease-out forwards; }
 
-        @keyframes lfRing { 0% { transform: translate(-50%, -50%) scale(.6); opacity: .4; } 80% { opacity: .2; } 100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; } }
+        @keyframes lfRing { 0% { transform: translate(-50%, -50%) scale(.6); opacity: .4; }
+          80% { opacity: .2; } 100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; } }
         .lf-ring { animation: lfRing 2.2s ease-out forwards; }
 
         .ad-100 { animation-delay: .1s !important; }
