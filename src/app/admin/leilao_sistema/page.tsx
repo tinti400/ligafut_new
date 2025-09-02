@@ -1,14 +1,3 @@
-aí vai o arquivo **completo** da página do leilão — já inclui:
-
-* relógio sincronizado com o servidor (`servertime_ms`)
-* verificação de admin robusta (tabela `admins` por e-mail + roles/metadados + times + overrides `?force_admin=1`/`NEXT_PUBLIC_FORCE_ADMIN=1`)
-* **botão “Finalizar Leilão” sempre visível para admin** (fica desabilitado até o tempo do **servidor** zerar)
-* RPC `dar_lance_no_leilao` com extensão automática (<15s)
-* layout e barras de tempo com cores por urgência
-
-> OBS: mantenha a função RPC `servertime_ms()` e `dar_lance_no_leilao` no banco.
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1105,5 +1094,5 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
-```
+
 
