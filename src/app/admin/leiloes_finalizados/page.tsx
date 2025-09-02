@@ -56,7 +56,7 @@ export default function LeiloesFinalizadosPage() {
   // bloqueio de duplo clique por leilão
   const [processando, setProcessando] = useState<Record<string, boolean>>({})
 
-  // ====== NOVO: times e seleção de destino por leilão ======
+  // times e seleção de destino por leilão
   const [times, setTimes] = useState<TimeRow[]>([])
   const [destinos, setDestinos] = useState<Record<string, string>>({}) // leilaoId -> timeId
 
@@ -197,6 +197,40 @@ export default function LeiloesFinalizadosPage() {
 
   const getDestino = (leilao: any) => destinos[leilao.id] || leilao.id_time_vencedor || ''
 
+  // ====== Prorrogar +30s (volta leilão para 'ativo' e empurra fim +30s) ======
+  const prorrogarLeilao = async (leilao: any) => {
+    if (processando[leilao.id]) return
+    if (!confirm('Deseja prorrogar este leilão por +30 segundos e reabrí-lo?')) return
+    setProcessando((p) => ({ ...p, [leilao.id]: true }))
+    try {
+      // 1) tenta usar RPC (recomendado — SQL opcional abaixo)
+      const { error } = await supabase.rpc('prorrogar_leilao', {
+        p_leilao_id: leilao.id,
+        p_segundos: 30,
+      })
+
+      if (error) {
+        // 2) fallback simples: seta status=ativo e fim = agora + 30s (usa relógio do cliente)
+        const novoFim = new Date(Date.now() + 30_000).toISOString()
+        const { error: e2 } = await supabase
+          .from('leiloes_sistema')
+          .update({ status: 'ativo', fim: novoFim })
+          .eq('id', leilao.id)
+
+        if (e2) {
+          alert(`❌ Falha ao prorrogar: ${e2.message}`)
+          return
+        }
+      }
+
+      // remove da lista local (voltou a "ativo")
+      setLeiloes((prev) => prev.filter((l) => l.id !== leilao.id))
+      alert('⏱️ Leilão prorrogado por +30s e reaberto!')
+    } finally {
+      setProcessando((p) => ({ ...p, [leilao.id]: false }))
+    }
+  }
+
   // ====== Enviar para um time (com débito + BID), independente de ter vencedor ======
   const enviarParaTime = async (leilao: any) => {
     const destinoId = getDestino(leilao)
@@ -311,10 +345,8 @@ export default function LeiloesFinalizadosPage() {
       const valor = Number(leilao.valor_atual || 0)
       const salario = calcularSalario(valor)
 
-      // ATENÇÃO: se sua tabela mercado_transferencias exige jogador_id NOT NULL,
-      // mude a coluna para permitir NULL ou crie um "time do sistema" e um registro em elenco.
       const { error: errIns } = await supabase.from('mercado_transferencias').insert({
-        jogador_id: null, // deixe null se a coluna permitir; senão, crie previamente no elenco de um time "Sistema"
+        jogador_id: null,
         nome: leilao.nome,
         posicao: leilao.posicao,
         overall: leilao.overall,
@@ -412,7 +444,8 @@ export default function LeiloesFinalizadosPage() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-emerald-400">📜 Leilões Finalizados</h1>
             <p className="text-gray-400 text-sm">
-              Itens com status <span className="font-semibold text-gray-200">leiloado</span> aguardando envio ao elenco, escolha do time destino ou anúncio no mercado.
+              Itens com status <span className="font-semibold text-gray-200">leiloado</span> aguardando envio ao elenco,
+              escolha do time destino, anúncio no mercado ou <span className="text-emerald-300">prorrogação</span>.
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-300">
@@ -542,7 +575,7 @@ export default function LeiloesFinalizadosPage() {
                       </a>
                     )}
 
-                    {/* ====== NOVO: seletor de time destino ====== */}
+                    {/* Seletor de time destino */}
                     <div className="mt-2">
                       <label className="block text-xs text-gray-400 mb-1">
                         🎯 Time destino
@@ -568,8 +601,24 @@ export default function LeiloesFinalizadosPage() {
                       )}
                     </div>
 
+                    {/* Ações */}
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      {/* Enviar p/ Time: funciona tanto com ou sem vencedor (usa o destino escolhido ou o vencedor) */}
+                      {/* Prorrogar +30s (reabre) */}
+                      <button
+                        onClick={() => prorrogarLeilao(leilao)}
+                        disabled={processing}
+                        className={classNames(
+                          'w-full rounded-lg py-2 font-semibold transition',
+                          processing
+                            ? 'bg-amber-700/50 text-white cursor-not-allowed'
+                            : 'bg-amber-600 hover:bg-amber-500 text-white'
+                        )}
+                        title="Reabre este leilão por mais 30 segundos (status volta para ativo)."
+                      >
+                        {processing ? 'Processando…' : '⏱️ Prorrogar +30s'}
+                      </button>
+
+                      {/* Enviar p/ Time */}
                       <button
                         onClick={() => enviarParaTime(leilao)}
                         disabled={processing}
@@ -602,9 +651,7 @@ export default function LeiloesFinalizadosPage() {
                       )}
 
                       {/* manter botão excluir ocupando a 2ª coluna quando tem vencedor */}
-                      {temVencedor && (
-                        <span className="hidden sm:block" />
-                      )}
+                      {temVencedor && <span className="hidden sm:block" />}
 
                       <button
                         onClick={() => excluirLeilao(leilao)}
