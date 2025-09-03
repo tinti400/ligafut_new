@@ -167,7 +167,7 @@ export default function PatrociniosPage() {
     }
 
     try {
-      // 🔥 Usa RPC transacional que ajusta o CAIXA pelo DELTA e faz UPSERT
+      // tenta o RPC transacional (ajusta caixa por delta + upsert + logs)
       const { error: rpcErr } = await supabase.rpc('trocar_patrocinios', {
         p_id_time: user.id_time,
         p_master: escolhas.master,
@@ -175,12 +175,85 @@ export default function PatrociniosPage() {
         p_secundario: escolhas.secundario,
         p_temporada: CURRENT_TEMPORADA,
       })
+
       if (rpcErr) {
-        console.error(rpcErr)
-        toast.error('Erro ao trocar patrocínios.')
-        return
+        toast.error(`Troca falhou: ${rpcErr.message || 'erro no RPC'}`)
+
+        // ================= Fallback: upsert + ajuste de DELTA no front =================
+        const msg = (rpcErr.message || '').toLowerCase()
+        if (msg.includes('42883') || msg.includes('does not exist') || msg.includes('trocar_patrocinios')) {
+          // 1) pega escolha antiga p/ delta
+          const { data: antigo } = await supabase
+            .from('patrocinios_escolhidos')
+            .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+            .eq('id_time', user.id_time)
+            .eq('temporada', CURRENT_TEMPORADA)
+            .maybeSingle()
+
+          const idsAntigos = [
+            antigo?.id_patrocinio_master,
+            antigo?.id_patrocinio_fornecedor,
+            antigo?.id_patrocinio_secundario,
+          ].filter(Boolean) as string[]
+
+          const idsNovos = [escolhas.master, escolhas.fornecedor, escolhas.secundario]
+
+          const { data: patsAnt } = idsAntigos.length
+            ? await supabase.from('patrocinios').select('id, valor_fixo').in('id', idsAntigos)
+            : { data: [] as {id:string,valor_fixo:number}[] } as any
+          const { data: patsNov } = await supabase.from('patrocinios').select('id, valor_fixo').in('id', idsNovos)
+
+          const soma = (arr?: any[]) => (arr||[]).reduce((a,b)=>a+(b?.valor_fixo||0),0)
+          const totalAntigo = soma(patsAnt)
+          const totalNovo   = soma(patsNov)
+          const delta       = (totalNovo - totalAntigo) || 0
+
+          // 2) upsert da escolha (mantendo temporada)
+          const { error: upErr } = await supabase
+            .from('patrocinios_escolhidos')
+            .upsert({
+              id_time: user.id_time,
+              id_patrocinio_master: escolhas.master,
+              id_patrocinio_fornecedor: escolhas.fornecedor,
+              id_patrocinio_secundario: escolhas.secundario,
+              temporada: CURRENT_TEMPORADA,
+            }, { onConflict: 'id_time,temporada' })
+          if (upErr) throw upErr
+
+          // 3) aplica delta no caixa — tenta atualizar_saldo e, se falhar, tenta incrementar_saldo
+          if (delta !== 0) {
+            let saldoErr: any = null
+            const res1 = await supabase.rpc('atualizar_saldo', { id_time: user.id_time, valor: delta } as any)
+            saldoErr = res1.error
+            if (saldoErr) {
+              const res2 = await supabase.rpc('incrementar_saldo', { id_time_param: user.id_time, valor_param: delta } as any)
+              saldoErr = res2.error
+            }
+            if (saldoErr) throw saldoErr
+
+            // 4) logs mínimos (movimentacoes/bid)
+            const now = new Date().toISOString()
+            await supabase.from('movimentacoes').insert({
+              id_time: user.id_time,
+              tipo: 'troca_patrocinio',
+              valor: delta,
+              descricao: `Troca de patrocinadores (fallback). Delta: ${formatarBRL(delta)}`,
+              data: now,
+            })
+            await supabase.from('bid').insert({
+              tipo_evento: 'patrocinio_troca',
+              descricao: `Troca de patrocinadores (fallback). Delta: ${formatarBRL(delta)}`,
+              id_time1: user.id_time,
+              valor: delta,
+              data_evento: now,
+            })
+          }
+        } else {
+          return // outro erro: já mostramos toast
+        }
       }
 
+      // sucesso (RPC ou fallback)
       setJaEscolheu(true)
       setModoTroca(false)
 
