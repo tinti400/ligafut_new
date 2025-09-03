@@ -69,6 +69,14 @@ type TimeDados = {
   historico: HistoricoJogo[]
 }
 
+/** ===================== 💵 Util: formatação BRL ===================== */
+const formatarBRL = (v?: number | null) =>
+  (v ?? 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 0,
+  })
+
 /** ===================== Regras de premiação (liga) ===================== */
 const BONUS_MULTIPLIER = 1.5 // +50% em todos os bônus por partida
 
