@@ -73,6 +73,7 @@ export default function PatrociniosPage() {
   const [patrocinios, setPatrocinios] = useState<Patrocinio[]>([])
   const [jaEscolheu, setJaEscolheu] = useState(false)
   const [modoTroca, setModoTroca] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [escolhas, setEscolhas] = useState<Escolhas>({ master: '', fornecedor: '', secundario: '' })
 
   const user = typeof window !== 'undefined'
@@ -114,14 +115,13 @@ export default function PatrociniosPage() {
           return
         }
 
-        // 3) Guard-rail por nome (garante só os 9 novos)
         const pats = (patsRaw || []).filter(p => NOVOS_NOMES.has(p.nome))
         setPatrocinios(pats as Patrocinio[])
 
         // 4) Já escolheu nesta temporada?
         const { data: escolhido } = await supabase
           .from('patrocinios_escolhidos')
-          .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada')
+          .select('id, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada, updated_at')
           .eq('id_time', user.id_time)
           .eq('temporada', CURRENT_TEMPORADA)
           .maybeSingle()
@@ -156,91 +156,66 @@ export default function PatrociniosPage() {
     setEscolhas(prev => ({ ...prev, [categoria]: id }))
   }
 
-  /** Helpers de saldo (tenta várias assinaturas) */
+  /* ===== Helpers de saldo: tenta várias assinaturas de RPC ===== */
   async function aplicarDeltaCaixa(id_time: string, delta: number) {
     if (!delta) return
     // 1) atualizar_saldo(id_time, valor)
     let { error } = await supabase.rpc('atualizar_saldo', { id_time, valor: delta } as any)
     if (!error) return
-
     // 2) incrementar_saldo(id_time_param, valor_param)
-    let r2 = await supabase.rpc('incrementar_saldo', { id_time_param: id_time, valor_param: delta } as any)
+    const r2 = await supabase.rpc('incrementar_saldo', { id_time_param: id_time, valor_param: delta } as any)
     if (!r2.error) return
-
     // 3) incrementar_saldo(id_time, valor)
-    let r3 = await supabase.rpc('incrementar_saldo', { id_time, valor: delta } as any)
+    const r3 = await supabase.rpc('incrementar_saldo', { id_time, valor: delta } as any)
     if (!r3.error) return
-
-    // se nada deu, propaga erro
     throw (error || r2.error || r3.error)
   }
 
-  /** Lê fixo total antigo (temporada -> fallback legado) */
-  async function buscarTotalAntigo(id_time: string): Promise<number> {
-    // Tenta temporada atual
-    const { data: antigoT } = await supabase
+  /** Busca linha existente e o total antigo */
+  async function buscarLinhaEAntigo(id_time: string) {
+    // tenta temporada
+    const { data: rowT } = await supabase
       .from('patrocinios_escolhidos')
-      .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+      .select('id, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada')
       .eq('id_time', id_time)
       .eq('temporada', CURRENT_TEMPORADA)
       .maybeSingle()
 
-    let idsAntigos = [
-      antigoT?.id_patrocinio_master,
-      antigoT?.id_patrocinio_fornecedor,
-      antigoT?.id_patrocinio_secundario,
-    ].filter(Boolean) as string[]
+    let row: any = rowT
 
-    // Fallback: sem temporada (legado)
-    if (!idsAntigos.length) {
-      const { data: antigoL } = await supabase
+    // fallback legado (sem temporada)
+    if (!row) {
+      const { data: rowL } = await supabase
         .from('patrocinios_escolhidos')
-        .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+        .select('id, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada')
         .eq('id_time', id_time)
         .maybeSingle()
-      idsAntigos = [
-        antigoL?.id_patrocinio_master,
-        antigoL?.id_patrocinio_fornecedor,
-        antigoL?.id_patrocinio_secundario,
-      ].filter(Boolean) as string[]
+      row = rowL
     }
 
-    if (!idsAntigos.length) return 0
+    const idsAntigos = [
+      row?.id_patrocinio_master,
+      row?.id_patrocinio_fornecedor,
+      row?.id_patrocinio_secundario,
+    ].filter(Boolean) as string[]
 
-    const { data: patsAnt } = await supabase
-      .from('patrocinios')
-      .select('id, valor_fixo')
-      .in('id', idsAntigos)
+    let totalAntigo = 0
+    if (idsAntigos.length) {
+      const { data: patsAnt } = await supabase
+        .from('patrocinios')
+        .select('id, valor_fixo')
+        .in('id', idsAntigos)
+      totalAntigo = (patsAnt ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
+    }
 
-    return (patsAnt ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
-  }
-
-  /** Upsert resiliente (tenta dois alvos de conflito) */
-  async function upsertEscolha(payload: {
-    id_time: string
-    id_patrocinio_master: string
-    id_patrocinio_fornecedor: string
-    id_patrocinio_secundario: string
-    temporada: string
-  }) {
-    // 1) prefere (id_time, temporada)
-    let { error } = await supabase
-      .from('patrocinios_escolhidos')
-      .upsert(payload, { onConflict: 'id_time,temporada' })
-
-    if (!error) return
-
-    // 2) fallback para schema legado (id_time)
-    let r2 = await supabase
-      .from('patrocinios_escolhidos')
-      .upsert(payload, { onConflict: 'id_time' })
-
-    if (r2.error) throw r2.error
+    return { row, totalAntigo }
   }
 
   async function salvar() {
-    if (!user?.id_time) return
-
+    if (!user?.id_time) {
+      toast.error('Usuário não identificado.')
+      return
+    }
     for (const cat of ['master','fornecedor','secundario'] as Categoria[]) {
       if (!escolhas[cat]) {
         toast.error(`Selecione um patrocinador para "${cat}".`)
@@ -248,33 +223,72 @@ export default function PatrociniosPage() {
       }
     }
 
+    setIsSaving(true)
     try {
-      // 1) total antigo (por temporada; fallback legado)
-      const totalAntigo = await buscarTotalAntigo(user.id_time)
+      // 1) linha existente + total antigo
+      const { row, totalAntigo } = await buscarLinhaEAntigo(user.id_time)
 
-      // 2) total novo
+      // 2) total novo + dados pra confirmação
       const idsNovos = [escolhas.master, escolhas.fornecedor, escolhas.secundario]
       const { data: patsNov } = await supabase
         .from('patrocinios')
-        .select('id, valor_fixo')
+        .select('id, nome, categoria, valor_fixo, regra')
         .in('id', idsNovos)
 
       const totalNovo = (patsNov ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
       const delta = (totalNovo - totalAntigo) || 0
 
-      // 3) upsert da escolha (sem campos opcionais para evitar 400)
-      await upsertEscolha({
+      // Se não mudou nada, avisa e sai
+      const idsAntigosSet = new Set([row?.id_patrocinio_master, row?.id_patrocinio_fornecedor, row?.id_patrocinio_secundario].filter(Boolean))
+      const mesmaEscolha = idsNovos.every(id => idsAntigosSet.has(id)) && idsAntigosSet.size === idsNovos.length
+      if (mesmaEscolha) {
+        toast('Nenhuma mudança para salvar.', { icon: 'ℹ️' })
+        setIsSaving(false)
+        return
+      }
+
+      // 3) mensagem de confirmação
+      const linhasResumo = (patsNov ?? []).map(p => `• ${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}`).join('\n')
+      const msg =
+        `Confirmar estes patrocínios?\n\n${linhasResumo}\n\n` +
+        `Fixo total novo: ${formatarBRL(totalNovo)}\n` +
+        `Δ no caixa (novo - antigo): ${formatarBRL(delta)}\n\n` +
+        `Deseja confirmar?`
+
+      const ok = typeof window !== 'undefined' ? window.confirm(msg) : true
+      if (!ok) {
+        toast('Operação cancelada. Nada foi salvo.', { icon: '🛑' })
+        setIsSaving(false)
+        return
+      }
+
+      // 4) write: UPDATE se existe linha; senão INSERT
+      const payload = {
         id_time: user.id_time,
         id_patrocinio_master: escolhas.master,
         id_patrocinio_fornecedor: escolhas.fornecedor,
         id_patrocinio_secundario: escolhas.secundario,
         temporada: CURRENT_TEMPORADA,
-      })
+        updated_at: new Date().toISOString(),
+      }
 
-      // 4) aplica delta no caixa
+      if (row?.id) {
+        const { error: upErr } = await supabase
+          .from('patrocinios_escolhidos')
+          .update(payload as any)
+          .eq('id', row.id)
+        if (upErr) throw upErr
+      } else {
+        const { error: insErr } = await supabase
+          .from('patrocinios_escolhidos')
+          .insert(payload as any)
+        if (insErr) throw insErr
+      }
+
+      // 5) aplica delta no caixa
       await aplicarDeltaCaixa(user.id_time, delta)
 
-      // 5) logs mínimos
+      // 6) logs
       const now = new Date().toISOString()
       await supabase.from('movimentacoes').insert({
         id_time: user.id_time,
@@ -291,12 +305,12 @@ export default function PatrociniosPage() {
         data_evento: now,
       })
 
-      // 6) sucesso + UI
+      // 7) sucesso + UI
       setJaEscolheu(true)
       setModoTroca(false)
 
-      const linhas = selecionados.map(p => {
-        const r = (p.regra || {}) as RegraDesempenho
+      const linhas = (patsNov ?? []).map(p => {
+        const r = (p as any).regra || {}
         const partes: string[] = []
         if (r.por_vitoria) partes.push(`Vitória ${formatarBRL(r.por_vitoria)}`)
         if (r.por_gol) partes.push(`Gol ${formatarBRL(r.por_gol)}`)
@@ -307,7 +321,10 @@ export default function PatrociniosPage() {
 
       toast.success(`✅ Patrocínios salvos!\n${linhas}\nΔ no caixa: ${formatarBRL(delta)}`, { duration: 9000 })
     } catch (e: any) {
-      toast.error(e?.message || 'Falha ao salvar.')
+      console.error(e)
+      toast.error(`Não foi possível salvar os patrocínios: ${e?.message || e || 'erro desconhecido'}`)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -366,9 +383,11 @@ export default function PatrociniosPage() {
             ) : (
               <button
                 onClick={salvar}
-                className="rounded-xl px-5 py-2 font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow"
+                disabled={isSaving}
+                className={`rounded-xl px-5 py-2 font-semibold shadow ${isSaving ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+                title="Salvar patrocinadores selecionados"
               >
-                ✅ Salvar
+                {isSaving ? 'Salvando...' : '✅ Salvar'}
               </button>
             )}
           </div>
@@ -493,9 +512,10 @@ export default function PatrociniosPage() {
           ) : (
             <button
               onClick={salvar}
-              className="rounded-xl px-4 py-2 font-semibold bg-emerald-600 text-white"
+              disabled={isSaving}
+              className={`rounded-xl px-4 py-2 font-semibold ${isSaving ? 'bg-zinc-700 text-zinc-400' : 'bg-emerald-600 text-white'}`}
             >
-              Salvar
+              {isSaving ? 'Salvando...' : 'Salvar'}
             </button>
           )}
         </div>
