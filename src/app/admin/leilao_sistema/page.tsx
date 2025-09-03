@@ -13,6 +13,7 @@ const supabase = createClient(
 
 const MAX_ATIVOS = 200
 const INCREMENTO_MINIMO = 20_000_000 // +20mi
+const LANCE_TOAST_ID = 'lance-unico' // 🔔 notificação única
 
 type Leilao = {
   id: string
@@ -225,29 +226,13 @@ export default function LeilaoSistemaPage() {
   const prevLeiloesRef = useRef<Record<string, { valor: number; vencedor?: string | null; nome: string }>>({})
   const inicializadoRef = useRef(false)
   const lastToastValorRef = useRef<Record<string, number>>({})
+  const orderRef = useRef<string[]>([]) // 🧩 ordem fixa dos cards
 
+  // 🔔 apenas 1 notificação (substitui a anterior)
   const showLanceToast = (quem: string | null | undefined, jogador: string | null | undefined, valor: number) => {
-    toast.custom(
-      (t) => (
-        <div
-          className={`pointer-events-auto w-[min(92vw,520px)] overflow-hidden rounded-2xl border border-emerald-700/30 bg-neutral-950/95 shadow-lg ${t.visible ? 'lf-enter' : 'lf-exit'}`}
-        >
-          <div className="flex items-center gap-3 px-4 py-3">
-            <div className="grid h-8 w-8 place-items-center rounded-full bg-emerald-600/20">📢</div>
-            <div className="flex-1 text-sm leading-5">
-              <b>{quem || 'Um time'}</b> enviou{' '}
-              <b>
-                {Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-              </b>{' '}
-              no <b>{jogador || 'jogador'}</b>
-            </div>
-          </div>
-          <div className="h-1 w-full bg-zinc-800">
-            <div className="lf-progress h-full bg-emerald-500" />
-          </div>
-        </div>
-      ),
-      { duration: 6000, position: 'top-center' }
+    toast(
+      `${quem || 'Um time'} ofertou ${brl(valor)} em ${jogador || 'jogador'}`,
+      { id: LANCE_TOAST_ID, position: 'top-center', duration: 4000 }
     )
   }
 
@@ -268,11 +253,27 @@ export default function LeilaoSistemaPage() {
       .limit(MAX_ATIVOS)
 
     if (!error && data) {
-      const arr = data.map((l: any) => ({
+      let arr = data.map((l: any) => ({
         ...l,
         imagem_url: pickImagemUrl(l) || null,
       })) as Leilao[]
 
+      // 🧩 FIXA A ORDEM: a do primeiro load é mantida; novos entram no fim
+      if (!inicializadoRef.current || orderRef.current.length === 0) {
+        orderRef.current = arr.map((l) => l.id)
+      } else {
+        // adiciona ids novos ao fim
+        for (const l of arr) if (!orderRef.current.includes(l.id)) orderRef.current.push(l.id)
+        // reordena arr conforme ordem fixa
+        const idxMap = new Map(orderRef.current.map((id, i) => [id, i]))
+        arr = arr.slice().sort((a, b) => {
+          const ia = idxMap.get(a.id) ?? Number.MAX_SAFE_INTEGER
+          const ib = idxMap.get(b.id) ?? Number.MAX_SAFE_INTEGER
+          return ia - ib
+        })
+      }
+
+      // toasts de lance (apenas 1 por vez) + efeitos
       if (inicializadoRef.current) {
         for (const l of arr) {
           const prev = prevLeiloesRef.current[l.id]
@@ -287,12 +288,14 @@ export default function LeilaoSistemaPage() {
         }
       }
 
+      // beep quando você perde a liderança
       arr.forEach((leilao: any) => {
         if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
           audioRef.current?.play().catch(() => {})
         }
       })
 
+      // snapshot p/ dedupe
       const snapshot: Record<string, { valor: number; vencedor?: string | null; nome: string }> = {}
       for (const l of arr) snapshot[l.id] = { valor: Number(l.valor_atual ?? 0), vencedor: l.nome_time_vencedor, nome: l.nome }
       prevLeiloesRef.current = snapshot
@@ -409,7 +412,7 @@ export default function LeilaoSistemaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idTime, nomeTime])
 
-  // ==== Realtime: toast quando valor_atual subir (dedupe) ====
+  // ==== Realtime: notificação única + dedupe ====
   useEffect(() => {
     const channel = supabase
       .channel('leiloes_realtime')
@@ -438,75 +441,18 @@ export default function LeilaoSistemaPage() {
   }, [])
 
   // ===== UI helpers =====
+  const travadoPorIdentidade = useMemo(() => {
+    if (!idTime || !isUuid(idTime) || !nomeTime)
+      return 'Identificação do time inválida. Faça login novamente.'
+    return null
+  }, [idTime, nomeTime])
+
   const formatarTempo = (segundos: number) => {
     const h = Math.floor(segundos / 3600)
     const min = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0')
     const sec = Math.max(0, Math.floor(segundos % 60)).toString().padStart(2, '0')
     return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
   }
-
-  // ===== gradiente do card a cada 50 mi =====
-  const CARD_GRADIENTS = [
-    'from-emerald-500/40 via-emerald-400/25 to-emerald-300/20',
-    'from-emerald-400/45 via-teal-400/30 to-cyan-400/20',
-    'from-teal-400/45 via-cyan-400/30 to-sky-400/20',
-    'from-cyan-400/45 via-sky-400/30 to-blue-400/20',
-    'from-sky-400/45 via-blue-500/30 to-indigo-500/20',
-    'from-blue-500/45 via-indigo-500/30 to-violet-500/20',
-    'from-indigo-500/45 via-violet-500/30 to-fuchsia-500/20',
-    'from-violet-500/45 via-fuchsia-500/30 to-pink-500/20',
-    'from-fuchsia-500/45 via-pink-500/30 to-rose-500/20',
-    'from-pink-500/45 via-rose-500/30 to-red-500/20',
-    'from-rose-500/45 via-red-500/30 to-orange-500/20',
-    'from-red-500/45 via-orange-500/30 to-amber-500/20',
-    'from-orange-500/45 via-amber-500/30 to-yellow-500/20',
-    'from-amber-500/45 via-yellow-400/30 to-lime-400/20',
-    'from-yellow-400/45 via-lime-400/30 to-emerald-400/20',
-    'from-lime-400/45 via-emerald-400/30 to-teal-400/20',
-    'from-emerald-600/40 via-teal-500/30 to-cyan-500/20',
-    'from-teal-500/45 via-cyan-500/30 to-sky-500/20',
-    'from-cyan-500/45 via-sky-500/30 to-blue-500/20',
-    'from-sky-500/45 via-blue-600/30 to-indigo-600/20',
-    'from-blue-600/45 via-indigo-600/30 to-violet-600/20',
-    'from-indigo-600/45 via-violet-600/30 to-fuchsia-600/20',
-    'from-violet-600/45 via-fuchsia-600/30 to-pink-600/20',
-    'from-fuchsia-600/45 via-pink-600/30 to-rose-600/20',
-    'from-pink-600/45 via-rose-600/30 to-red-600/20',
-    'from-rose-600/45 via-red-600/30 to-orange-600/20',
-    'from-red-600/45 via-orange-600/30 to-amber-600/20',
-    'from-orange-600/45 via-amber-600/30 to-yellow-600/20',
-    'from-amber-600/45 via-yellow-500/30 to-lime-500/20',
-    'from-yellow-500/45 via-lime-500/30 to-emerald-500/20',
-    'from-lime-500/45 via-emerald-500/30 to-teal-500/20',
-    'from-emerald-700/40 via-teal-600/30 to-cyan-600/20',
-    'from-teal-600/45 via-cyan-600/30 to-sky-600/20',
-    'from-cyan-600/45 via-sky-600/30 to-blue-600/20',
-    'from-sky-600/45 via-blue-700/30 to-indigo-700/20',
-    'from-blue-700/45 via-indigo-700/30 to-violet-700/20',
-    'from-indigo-700/45 via-violet-700/30 to-fuchsia-700/20',
-    'from-violet-700/45 via-fuchsia-700/30 to-pink-700/20',
-    'from-fuchsia-700/45 via-pink-700/30 to-rose-700/20',
-    'from-rose-700/45 via-red-700/30 to-orange-700/20',
-    'from-red-700/45 via-orange-700/30 to-amber-700/20',
-  ] as const
-  const gradIndexForValor = (v: number) => {
-    const idx = Math.floor((v || 0) / 50_000_000)
-    return Math.max(0, Math.min(idx, CARD_GRADIENTS.length - 1))
-  }
-
-  const tierBadge = (valor: number) => {
-    if (valor >= 1_500_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
-    if (valor >= 1_000_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
-    if (valor >= 500_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
-    if (valor >= 250_000_000) return 'text-amber-300 border-amber-900/40 bg-amber-950/30'
-    return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
-  }
-
-  const travadoPorIdentidade = useMemo(() => {
-    if (!idTime || !isUuid(idTime) || !nomeTime)
-      return 'Identificação do time inválida. Faça login novamente.'
-    return null
-  }, [idTime, nomeTime])
 
   const acionarAnimacao = (leilaoId: string) => {
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
@@ -602,12 +548,16 @@ export default function LeilaoSistemaPage() {
       })
       if (error) throw new Error(error.message || 'Falha ao registrar lance.')
 
+      // notificação única da sua ação
+      toast.success(`Lance registrado: ${brl(novoValor)}`, { id: LANCE_TOAST_ID })
+
       efeitoPorDelta(leilaoId, incremento)
       await buscarLeiloesAtivos()
       await buscarSaldo()
       setPropostas((prev) => ({ ...prev, [leilaoId]: String(novoValor + INCREMENTO_MINIMO) }))
     } catch (err: any) {
       setErroTela(err?.message || 'Erro ao dar lance.')
+      toast.error(err?.message || 'Erro ao dar lance.', { id: LANCE_TOAST_ID })
     } finally {
       setTimeout(() => setCooldownGlobal(false), 300)
       setTimeout(() => setCooldownPorLeilao((p) => ({ ...p, [leilaoId]: false })), 150)
@@ -649,11 +599,14 @@ export default function LeilaoSistemaPage() {
       })
       if (error) throw new Error(error.message || 'Falha ao registrar lance.')
 
+      toast.success(`Lance registrado: ${brl(novoValor)}`, { id: LANCE_TOAST_ID })
+
       efeitoPorDelta(leilaoId, incremento)
       await buscarLeiloesAtivos()
       await buscarSaldo()
     } catch (err: any) {
       setErroTela(err?.message || 'Erro ao dar lance.')
+      toast.error(err?.message || 'Erro ao dar lance.', { id: LANCE_TOAST_ID })
     } finally {
       setTimeout(() => setCooldownGlobal(false), 300)
       setTimeout(() => setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false })), 150)
@@ -665,11 +618,11 @@ export default function LeilaoSistemaPage() {
     <main className="min-h-screen bg-neutral-950 text-zinc-100">
       <audio ref={audioRef} src="/beep.mp3" preload="auto" />
 
-      {/* Toaster global */}
+      {/* Toaster global: uma notificação por vez (reaproveitamos o id) */}
       <Toaster
         position="top-center"
         toastOptions={{
-          duration: 6000,
+          duration: 4000,
           style: { background: '#0a0a0a', color: '#e5e7eb', border: '1px solid #27272a' },
         }}
       />
@@ -754,6 +707,39 @@ export default function LeilaoSistemaPage() {
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
 
+              const CARD_GRADIENTS = [
+                'from-emerald-500/40 via-emerald-400/25 to-emerald-300/20',
+                'from-emerald-400/45 via-teal-400/30 to-cyan-400/20',
+                'from-teal-400/45 via-cyan-400/30 to-sky-400/20',
+                'from-cyan-400/45 via-sky-400/30 to-blue-400/20',
+                'from-sky-400/45 via-blue-500/30 to-indigo-500/20',
+                'from-blue-500/45 via-indigo-500/30 to-violet-500/20',
+                'from-indigo-500/45 via-violet-500/30 to-fuchsia-500/20',
+                'from-violet-500/45 via-fuchsia-500/30 to-pink-500/20',
+                'from-fuchsia-500/45 via-pink-500/30 to-rose-500/20',
+                'from-pink-500/45 via-rose-500/30 to-red-500/20',
+                'from-rose-500/45 via-red-500/30 to-orange-500/20',
+                'from-red-500/45 via-orange-500/30 to-amber-500/20',
+                'from-orange-500/45 via-amber-500/30 to-yellow-500/20',
+                'from-amber-500/45 via-yellow-400/30 to-lime-400/20',
+                'from-yellow-400/45 via-lime-400/30 to-emerald-400/20',
+                'from-lime-400/45 via-emerald-400/30 to-teal-400/20',
+                'from-emerald-600/40 via-teal-500/30 to-cyan-500/20',
+                'from-teal-500/45 via-cyan-500/30 to-sky-500/20',
+                'from-cyan-500/45 via-sky-500/30 to-blue-500/20',
+                'from-sky-500/45 via-blue-600/30 to-indigo-600/20',
+                'from-blue-600/45 via-indigo-600/30 to-violet-600/20',
+                'from-indigo-600/45 via-violet-600/30 to-fuchsia-600/20',
+                'from-violet-600/45 via-fuchsia-600/30 to-pink-600/20',
+                'from-fuchsia-600/45 via-pink-600/30 to-rose-600/20',
+                'from-pink-600/45 via-rose-600/30 to-red-600/20',
+                'from-rose-600/45 via-red-600/30 to-orange-600/20',
+                'from-red-600/45 via-orange-600/30 to-amber-600/20',
+              ] as const
+              const gradIndexForValor = (v: number) => {
+                const idx = Math.floor((v || 0) / 50_000_000)
+                return Math.max(0, Math.min(idx, CARD_GRADIENTS.length - 1))
+              }
               const gradIdx = gradIndexForValor(leilao.valor_atual)
               const barraCor =
                 tempoRestante === 0 ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
@@ -1013,7 +999,7 @@ export default function LeilaoSistemaPage() {
                         )}
                       </div>
 
-                      {/* ===== Botão Finalizar (sempre visível p/ admin; habilita quando server<=0s) ===== */}
+                      {/* ===== Botão Finalizar (admin) ===== */}
                       {isAdmin && (
                         <div className="mt-4">
                           <button
@@ -1095,4 +1081,11 @@ export default function LeilaoSistemaPage() {
   )
 }
 
-
+// ==== estilos auxiliares usados no tierBadge ====
+function tierBadge(valor: number) {
+  if (valor >= 1_500_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
+  if (valor >= 1_000_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
+  if (valor >= 500_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
+  if (valor >= 250_000_000) return 'text-amber-300 border-amber-900/40 bg-amber-950/30'
+  return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
+}
