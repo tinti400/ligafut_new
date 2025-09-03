@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
@@ -26,13 +26,24 @@ interface Patrocinio {
   categoria: Categoria
   divisao: number
   valor_fixo: number
-  beneficio: string          // NOT NULL no schema
+  beneficio: string
   descricao_beneficio?: string | null
-  tipo_pagamento?: string | null // usamos 'misto'
+  tipo_pagamento?: string | null
   regra?: RegraDesempenho | null
+  ativo?: boolean
+  temporada?: string | null
+  created_at?: string
 }
 
 type Escolhas = Record<Categoria, string>
+
+/* ================= CONSTANTES ================= */
+const CURRENT_TEMPORADA = '2025'
+const NOVOS_NOMES = new Set([
+  'GlobalBank', 'Titan Energy', 'PrimeTel',
+  'SportMax', 'VictoryWear', 'ProGear',
+  'FastDelivery', 'MediaPlus', 'EcoFoods'
+])
 
 /* ================= UTILS ================= */
 const formatarBRL = (v?: number | null) =>
@@ -41,10 +52,9 @@ const formatarBRL = (v?: number | null) =>
 const CATEGORIAS: { key: Categoria; titulo: string; icone: string; desc: string; grad: string }[] = [
   { key: 'master',     titulo: 'Patrocínio Master',      icone: '🏆', desc: 'Contrato principal com maior valor.', grad: 'from-amber-500/20 to-amber-300/10' },
   { key: 'fornecedor', titulo: 'Material Desportivo',    icone: '👟', desc: 'Fornecimento de material com bônus.', grad: 'from-sky-500/20 to-sky-300/10' },
-  { key: 'secundario', titulo: 'Patrocínio Secundário',  icone: '📢', desc: 'Exposição adicional e incentivos.', grad: 'from-emerald-500/20 to-emerald-300/10' },
+  { key: 'secundario', titulo: 'Patrocínio Secundário',  icone: '📢', desc: 'Exposição adicional e incentivos.',   grad: 'from-emerald-500/20 to-emerald-300/10' },
 ]
 
-/* ================= SKELETON ================= */
 function SkeletonCard() {
   return (
     <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-5 animate-pulse">
@@ -68,7 +78,6 @@ export default function PatrociniosPage() {
     ? JSON.parse(localStorage.getItem('user') || '{}')
     : {}
 
-  /* ---------- Carregamento inicial ---------- */
   useEffect(() => {
     (async () => {
       try {
@@ -77,6 +86,7 @@ export default function PatrociniosPage() {
           return
         }
 
+        // 1) Divisão do time
         const { data: time, error: erroTime } = await supabase
           .from('times')
           .select('divisao')
@@ -89,17 +99,26 @@ export default function PatrociniosPage() {
         }
         setDivisao(time.divisao)
 
-        const { data: pats, error: erroPats } = await supabase
+        // 2) Buscar SOMENTE os novos (ativo, temporada, nomes) e ordenar por valor_fixo
+        const { data: patsRaw, error: erroPats } = await supabase
           .from('patrocinios')
-          .select('id, nome, categoria, divisao, valor_fixo, beneficio, descricao_beneficio, tipo_pagamento, regra')
+          .select('id, nome, categoria, divisao, valor_fixo, beneficio, descricao_beneficio, tipo_pagamento, regra, ativo, temporada, created_at')
           .eq('divisao', time.divisao)
+          .eq('ativo', true)
+          .eq('temporada', CURRENT_TEMPORADA)
+          .order('valor_fixo', { ascending: false })
 
         if (erroPats) {
           toast.error('Erro ao carregar patrocínios.')
           return
         }
-        setPatrocinios((pats || []) as Patrocinio[])
 
+        // 3) Guard-rail por nome (garante só os 9 novos)
+        const pats = (patsRaw || []).filter(p => NOVOS_NOMES.has(p.nome))
+
+        setPatrocinios(pats as Patrocinio[])
+
+        // 4) Já escolheu?
         const { data: escolhido } = await supabase
           .from('patrocinios_escolhidos')
           .select('id_time, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
@@ -121,7 +140,6 @@ export default function PatrociniosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /* ---------- Totais ---------- */
   const selecionados = useMemo(() => {
     const ids = Object.values(escolhas).filter(Boolean)
     return patrocinios.filter(p => ids.includes(p.id))
@@ -132,7 +150,6 @@ export default function PatrociniosPage() {
     [selecionados]
   )
 
-  /* ---------- Ações ---------- */
   function selecionar(categoria: Categoria, id: string) {
     if (jaEscolheu) return
     setEscolhas(prev => ({ ...prev, [categoria]: id }))
@@ -163,7 +180,7 @@ export default function PatrociniosPage() {
           id_patrocinio_master: escolhas.master,
           id_patrocinio_fornecedor: escolhas.fornecedor,
           id_patrocinio_secundario: escolhas.secundario,
-          snapshot_regras: snap,
+          snapshot_regras: snap, // se existir na sua tabela
         },
         { onConflict: 'id_time' }
       )
@@ -195,7 +212,7 @@ export default function PatrociniosPage() {
     })
 
     const descricao = [
-      `Patrocínios escolhidos (Divisão ${divisao ?? '-'})`,
+      `Patrocínios escolhidos (Divisão ${divisao ?? '-'}, Temporada ${CURRENT_TEMPORADA})`,
       ...linhas,
       `Crédito imediato total: ${formatarBRL(totalFixoSelecionado)}`
     ].join('\n')
@@ -213,20 +230,18 @@ export default function PatrociniosPage() {
       return
     }
 
-    setJaEscolheu(true)
     toast.success('Patrocínios salvos e saldo atualizado!')
+    setJaEscolheu(true)
   }
 
-  /* ---------- UI ---------- */
   return (
     <div className="relative min-h-screen bg-zinc-950">
-      {/* Gradientes de fundo decorativos */}
+      {/* BG decorativo */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-gradient-to-br from-emerald-500/20 to-emerald-300/10 blur-3xl"/>
         <div className="absolute -bottom-24 -right-24 h-96 w-96 rounded-full bg-gradient-to-br from-amber-500/20 to-amber-300/10 blur-3xl"/>
       </div>
 
-      {/* Header */}
       <header className="relative z-10 px-4 pt-10 pb-6">
         <div className="mx-auto max-w-6xl">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -235,7 +250,7 @@ export default function PatrociniosPage() {
                 💼 Patrocínios da Temporada
               </h1>
               <p className="mt-1 text-zinc-300">
-                Selecione <b className="text-white">1 Master</b>, <b className="text-white">1 Material</b> e <b className="text-white">1 Secundário</b>.
+                Temporada <b className="text-white">{CURRENT_TEMPORADA}</b> • Selecione <b className="text-white">1 Master</b>, <b className="text-white">1 Material</b> e <b className="text-white">1 Secundário</b>.
               </p>
             </div>
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-zinc-200">
@@ -246,7 +261,7 @@ export default function PatrociniosPage() {
         </div>
       </header>
 
-      {/* Barra fixa de resumo */}
+      {/* Resumo fixo */}
       <div className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-zinc-950/60 bg-zinc-950/80 border-b border-zinc-800">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="text-sm sm:text-base text-zinc-300">
@@ -262,7 +277,6 @@ export default function PatrociniosPage() {
         </div>
       </div>
 
-      {/* Conteúdo */}
       <main className="relative z-10 px-4 pb-16">
         <div className="mx-auto max-w-6xl space-y-10">
           {jaEscolheu && (
@@ -294,6 +308,7 @@ export default function PatrociniosPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {patrocinios
                     .filter(p => p.categoria === key)
+                    .sort((a, b) => (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0)) // reforça ordenação
                     .slice(0, 3)
                     .map((p) => {
                       const selecionado = escolhas[key] === p.id
@@ -309,7 +324,6 @@ export default function PatrociniosPage() {
                               : 'border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900/70 hover:border-zinc-700'}
                           `}
                         >
-                          {/* Marca de seleção */}
                           <div className={`absolute right-4 top-4 h-6 w-6 rounded-full border flex items-center justify-center text-xs
                             ${selecionado ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300' : 'border-zinc-700 text-zinc-500'}`}
                           >
@@ -349,10 +363,19 @@ export default function PatrociniosPage() {
               )}
             </section>
           ))}
+
+          {!carregando && patrocinios.length === 0 && (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 text-center text-zinc-300">
+              Nenhum patrocínio ativo para a temporada {CURRENT_TEMPORADA} nesta divisão.
+              <div className="text-zinc-400 text-sm mt-1">
+                Verifique se o script SQL marcou <b>ativo = true</b> e <b>temporada = '{CURRENT_TEMPORADA}'</b> para os 9 patrocinadores.
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
-      {/* Rodapé de ação mobile */}
+      {/* Rodapé de ação (mobile) */}
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-800 bg-zinc-950/90 backdrop-blur px-4 py-3 sm:hidden">
         <div className="mx-auto max-w-6xl flex items-center justify-between">
           <div className="text-sm text-zinc-300">
