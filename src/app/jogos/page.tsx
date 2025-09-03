@@ -37,6 +37,10 @@ type Jogo = {
   salarios_visitante?: number
   premiacao_mandante?: number
   premiacao_visitante?: number
+
+  // 🔥 novos: bônus de patrocinadores (para estorno)
+  premiacao_patrocinios_mandante?: number
+  premiacao_patrocinios_visitante?: number
 }
 
 type Rodada = {
@@ -65,7 +69,7 @@ type TimeDados = {
   historico: HistoricoJogo[]
 }
 
-/** ===================== Regras de premiação ===================== */
+/** ===================== Regras de premiação (liga) ===================== */
 const BONUS_MULTIPLIER = 1.5 // +50% em todos os bônus por partida
 
 function calcularPremiacao(time: TimeDados): number {
@@ -122,7 +126,7 @@ async function somarSalarios(timeId: string): Promise<number> {
   const { data } = await supabase
     .from('elenco')
     .select('salario')
-  .eq('id_time', timeId)
+    .eq('id_time', timeId)
   if (!data) return 0
   return data.reduce((acc, j) => acc + (j.salario || 0), 0)
 }
@@ -157,7 +161,6 @@ function asDayTime(s: any): 'dia'|'noite' {
 }
 
 async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ publico: number; renda: number; erro?: string }> {
-  // pega configuração de estádio do mandante
   const { data: est, error } = await supabase
     .from('estadios')
     .select('*')
@@ -175,7 +178,6 @@ async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ p
   const nivel = Number(est.nivel || 1)
   const capacidade = Number(est.capacidade || 18000)
 
-  // preços por setor
   const ref = referencePrices(nivel)
   const prices: PriceMap = (Object.keys(sectorProportion) as Sector[]).reduce((acc, s) => {
     const col = `preco_${s}`
@@ -184,7 +186,6 @@ async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ p
     return acc
   }, {} as PriceMap)
 
-  // contexto salvo no estádio (com defaults)
   const ctx: EstadioContext = {
     importance: asImportance(est.ctx_importancia),
     derby: !!est.ctx_derby,
@@ -231,7 +232,7 @@ async function descontarSalariosComRegistro(timeId: string): Promise<number> {
   return totalSalarios
 }
 
-/** ===================== Premiação por jogo ===================== */
+/** ===================== Premiação por jogo (LIGA) ===================== */
 async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number): Promise<number> {
   if (gols_pro === undefined || gols_contra === undefined) return 0
 
@@ -282,6 +283,89 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     id_time1: timeId, valor, data_evento: new Date().toISOString(),
   })
   return valor
+}
+
+/** ===================== 🔥 Patrocínios: helpers de bônus por jogo ===================== */
+
+// Busca os 3 patrocinadores escolhidos pelo time (master/fornecedor/secundario)
+async function obterPatrociniosDoTime(timeId: string) {
+  const { data: esc } = await supabase
+    .from('patrocinios_escolhidos')
+    .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+    .eq('id_time', timeId)
+    .maybeSingle()
+
+  if (!esc) return []
+
+  const ids = [esc.id_patrocinio_master, esc.id_patrocinio_fornecedor, esc.id_patrocinio_secundario].filter(Boolean) as string[]
+
+  if (!ids.length) return []
+
+  const { data: pats } = await supabase
+    .from('patrocinios')
+    .select('id, nome, categoria, regra')
+    .in('id', ids)
+
+  return pats || []
+}
+
+// Calcula o total de bônus dos patrocinadores para um placar
+function calcularBonusPatrocinios(pats: any[], gols_pro: number, gols_contra: number) {
+  let total = 0
+  const detalhes: string[] = []
+
+  const vitoria = gols_pro > gols_contra
+  const cleanSheet = gols_contra === 0
+  const gols = gols_pro || 0
+
+  for (const p of pats) {
+    const r = (p.regra || {}) as any
+    let credito = 0
+
+    if (vitoria && r.por_vitoria) credito += Number(r.por_vitoria) || 0
+    if (gols && r.por_gol) credito += (Number(r.por_gol) || 0) * gols
+    if (cleanSheet && r.por_clean_sheet) credito += Number(r.por_clean_sheet) || 0
+
+    if (credito > 0) {
+      total += credito
+      const partes: string[] = []
+      if (vitoria && r.por_vitoria) partes.push(`Vitória ${formatarBRL(r.por_vitoria)}`)
+      if (gols && r.por_gol) partes.push(`Gols ${gols}×${formatarBRL(r.por_gol)}`)
+      if (cleanSheet && r.por_clean_sheet) partes.push(`CS ${formatarBRL(r.por_clean_sheet)}`)
+      detalhes.push(`${p.nome}: ${partes.join(' + ')} = ${formatarBRL(credito)}`)
+    }
+  }
+
+  return { total, detalhes }
+}
+
+// Credita, registra e retorna o total + descrição
+async function pagarBonusPatrociniosPorJogo(timeId: string, gols_pro: number, gols_contra: number) {
+  const pats = await obterPatrociniosDoTime(timeId)
+  if (!pats.length) return { total: 0, detalheTexto: '' }
+
+  const { total, detalhes } = calcularBonusPatrocinios(pats, gols_pro, gols_contra)
+  if (total <= 0) return { total: 0, detalheTexto: '' }
+
+  const now = new Date().toISOString()
+
+  await supabase.rpc('atualizar_saldo', { id_time: timeId, valor: total })
+  await supabase.from('movimentacoes').insert({
+    id_time: timeId,
+    tipo: 'bonus_patrocinio',
+    valor: total,
+    descricao: `Bônus de patrocinadores por jogo: ${detalhes.join(' | ')}`,
+    data: now,
+  })
+  await supabase.from('bid').insert({
+    tipo_evento: 'bonus_patrocinio',
+    descricao: `Bônus de patrocinadores: ${detalhes.join(' | ')}`,
+    id_time1: timeId,
+    valor: total,
+    data_evento: now,
+  })
+
+  return { total, detalheTexto: detalhes.join(' | ') }
 }
 
 /** ===================== Página ===================== */
@@ -360,7 +444,7 @@ export default function Jogos() {
     }
   }
 
-  /** =============== SALVAR PRIMEIRO LANÇAMENTO (com finanças) =============== */
+  /** =============== SALVAR PRIMEIRO LANÇAMENTO (com finanças + patrocínios) =============== */
   const salvarPrimeiroLancamento = async (rodadaId: string, index: number, gm: number, gv: number) => {
     if (isSalvando) return
     setIsSalvando(true)
@@ -403,24 +487,28 @@ export default function Jogos() {
     const salariosMandante = await descontarSalariosComRegistro(mandanteId)
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-    // premiação por desempenho (+50%)
+    // premiação por desempenho (liga) +50%
     const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
     const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
-    // BID de receita (renda + bônus)
+    // 🔥 bônus de patrocinadores (vitória/gol/clean sheet) — agora pagos!
+    const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gm, gv)
+    const bonusPatroVis  = await pagarBonusPatrociniosPorJogo(visitanteId, gv, gm)
+
+    // BID de receita (renda + bônus de liga + patrocínios)
     await supabase.from('bid').insert([
       {
         tipo_evento: 'receita_partida',
-        descricao: 'Receita da partida (renda + bônus)',
+        descricao: `Receita da partida (renda + bônus liga + bônus patrocínios${bonusPatroMand.detalheTexto ? ' — ' + bonusPatroMand.detalheTexto : ''})`,
         id_time1: mandanteId,
-        valor: receitaMandante + premiacaoMandante,
+        valor: receitaMandante + premiacaoMandante + bonusPatroMand.total,
         data_evento: new Date().toISOString(),
       },
       {
         tipo_evento: 'receita_partida',
-        descricao: 'Receita da partida (renda + bônus)',
+        descricao: `Receita da partida (renda + bônus liga + bônus patrocínios${bonusPatroVis.detalheTexto ? ' — ' + bonusPatroVis.detalheTexto : ''})`,
         id_time1: visitanteId,
-        valor: receitaVisitante + premiacaoVisitante,
+        valor: receitaVisitante + premiacaoVisitante + bonusPatroVis.total,
         data_evento: new Date().toISOString(),
       },
     ])
@@ -445,6 +533,9 @@ export default function Jogos() {
       salarios_visitante: salariosVisitante,
       premiacao_mandante: premiacaoMandante,
       premiacao_visitante: premiacaoVisitante,
+      // 🔥 guarda os bônus de patrocinador para estorno
+      premiacao_patrocinios_mandante: bonusPatroMand.total,
+      premiacao_patrocinios_visitante: bonusPatroVis.total,
     }
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
 
@@ -462,8 +553,8 @@ export default function Jogos() {
     toast.success(
       `✅ Placar salvo! ${feitos}/${total} jogos desta rodada com placar.
 🎟️ Público (do estádio): ${publico.toLocaleString()}  |  💰 Renda (do estádio): R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${Math.round(receitaMandante).toLocaleString()} + bônus
-💵 ${visitanteNome}: R$ ${Math.round(receitaVisitante).toLocaleString()} + bônus`,
+💵 ${mandanteNome}: R$ ${Math.round(receitaMandante).toLocaleString()} + bônus (liga) + patrocínios
+💵 ${visitanteNome}: R$ ${Math.round(receitaVisitante).toLocaleString()} + bônus (liga) + patrocínios`,
       { duration: 9000 }
     )
 
@@ -488,7 +579,7 @@ export default function Jogos() {
     const jogo = novaLista[index]
     if (!jogo) { setIsSalvando(false); return }
 
-    // mantém renda/publico/bonus_pago, só ajusta placar
+    // mantém renda/publico/bonus_pago e totais já pagos, só ajusta placar
     const gmNum = Number.isFinite(gm) ? gm : 0
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
@@ -500,11 +591,9 @@ export default function Jogos() {
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
 
-    // recalcula classificação/moral
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
-    // estado local
     setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: novaLista } : r))
 
     if (!silencioso) {
@@ -538,6 +627,8 @@ export default function Jogos() {
       const salariosVisitante = jogo.salarios_visitante ?? await somarSalarios(visitanteId)
       const premiacaoMandante = jogo.premiacao_mandante ?? 0
       const premiacaoVisitante = jogo.premiacao_visitante ?? 0
+      const bonusPatroMandante = jogo.premiacao_patrocinios_mandante ?? 0
+      const bonusPatroVisitante = jogo.premiacao_patrocinios_visitante ?? 0
 
       // 1) Reverter saldos
       await Promise.all([
@@ -547,6 +638,8 @@ export default function Jogos() {
         salariosVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante }) : Promise.resolve(),
         premiacaoMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante }) : Promise.resolve(),
         premiacaoVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante }) : Promise.resolve(),
+        bonusPatroMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -bonusPatroMandante }) : Promise.resolve(),
+        bonusPatroVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -bonusPatroVisitante }) : Promise.resolve(),
       ])
 
       // 2) Registrar estornos em movimentacoes
@@ -555,8 +648,10 @@ export default function Jogos() {
       if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida', data: now })
       if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários da partida', data: now })
       if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários da partida', data: now })
-      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de bônus por desempenho', data: now })
-      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de bônus por desempenho', data: now })
+      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de bônus por desempenho (liga)', data: now })
+      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de bônus por desempenho (liga)', data: now })
+      if (bonusPatroMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroMandante, descricao: 'Estorno de bônus de patrocinadores', data: now })
+      if (bonusPatroVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroVisitante, descricao: 'Estorno de bônus de patrocinadores', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
       // 3) Registrar estornos no BID
@@ -565,8 +660,10 @@ export default function Jogos() {
       if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
       if (salariosMandante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários)', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
       if (salariosVisitante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários)', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
-      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
-      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
+      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (liga)', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
+      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (liga)', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
+      if (bonusPatroMandante) bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores', id_time1: mandanteId, valor: -bonusPatroMandante, data_evento: now })
+      if (bonusPatroVisitante) bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores', id_time1: visitanteId, valor: -bonusPatroVisitante, data_evento: now })
       if (bids.length) await supabase.from('bid').insert(bids)
 
       // 4) Decrementa 1 jogo no elenco dos dois times
@@ -589,6 +686,8 @@ export default function Jogos() {
       salarios_visitante: undefined,
       premiacao_mandante: undefined,
       premiacao_visitante: undefined,
+      premiacao_patrocinios_mandante: undefined,
+      premiacao_patrocinios_visitante: undefined,
     }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
@@ -627,7 +726,7 @@ export default function Jogos() {
 
       {/* Controles */}
       <div className="flex flex-wrap gap-2 mb-4 items-center">
-        {temporadasDisponiveis.map((temp) => (
+        {[1,2,3].map((temp) => (
           <button
             key={temp}
             onClick={() => setTemporada(temp)}
@@ -640,22 +739,20 @@ export default function Jogos() {
         ))}
 
         {/* botão admin para gerar T3 */}
-        {isAdmin && (
-          <button
-            onClick={gerarTemporada3}
-            disabled={gerando}
-            className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
-              gerando ? 'bg-gray-700 border-white/10 text-white/70' : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
-            }`}
-            title="Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada 3"
-          >
-            {gerando ? 'Processando…' : '⚙️ Gerar Temporada 3 (todas as divisões)'}
-          </button>
-        )}
+        <button
+          onClick={gerarTemporada3}
+          disabled={!isAdmin || gerando}
+          className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
+            gerando ? 'bg-gray-700 border-white/10 text-white/70' : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
+          }`}
+          title="Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada 3"
+        >
+          {gerando ? 'Processando…' : '⚙️ Gerar Temporada 3 (todas as divisões)'}
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
-        {divisoesDisponiveis.map((div) => (
+        {[1,2,3].map((div) => (
           <button
             key={div}
             onClick={() => setDivisao(div)}
@@ -700,11 +797,7 @@ export default function Jogos() {
                 const estaEditando = editandoRodada === rodada.id && editandoIndex === index
                 const jaPago = !!jogo.bonus_pago
 
-                const handleAutoBlur = async () => {
-                  if (!isAdmin || !estaEditando || !jaPago) return
-                  if (Number.isNaN(golsMandante) || Number.isNaN(golsVisitante)) return
-                  await salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))
-                }
+                const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
 
                 return (
                   <div key={index} className="bg-white/5 border border-white/10 text-white px-4 py-3 rounded-xl">
@@ -724,9 +817,8 @@ export default function Jogos() {
                           <div className="flex items-center justify-center gap-2">
                             <input
                               type="number"
-                              value={golsMandante}
+                              defaultValue={jogo.gols_mandante ?? 0}
                               onChange={(e) => setGolsMandante(Number(e.target.value))}
-                              onBlur={handleAutoBlur}
                               className="w-12 text-black text-center rounded-lg px-2 py-1"
                               placeholder="0"
                               min={0}
@@ -734,16 +826,15 @@ export default function Jogos() {
                             <span className="text-white/70">x</span>
                             <input
                               type="number"
-                              value={golsVisitante}
+                              defaultValue={jogo.gols_visitante ?? 0}
                               onChange={(e) => setGolsVisitante(Number(e.target.value))}
-                              onBlur={handleAutoBlur}
                               className="w-12 text-black text-center rounded-lg px-2 py-1"
                               placeholder="0"
                               min={0}
                             />
                           </div>
                         ) : isPlacarPreenchido(jogo) ? (
-                          <>{jogo.gols_mandante} x {jogo.gols_visitante}</>
+                          <>{gM} x {gV}</>
                         ) : (
                           <span className="text-white/50">🆚</span>
                         )}
@@ -766,7 +857,7 @@ export default function Jogos() {
                                 setGolsMandante(jogo.gols_mandante ?? 0)
                                 setGolsVisitante(jogo.gols_visitante ?? 0)
                                 if (jogo.bonus_pago) {
-                                  toast('Modo ajuste: edite e saia do campo para salvar automaticamente.', { icon: '✏️' })
+                                  toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
                                 }
                               }}
                               className="text-sm text-yellow-300"
@@ -794,7 +885,7 @@ export default function Jogos() {
                                 onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
                                 disabled={isSalvando}
                                 className="text-sm text-green-400 font-semibold"
-                                title="Salvar e processar finanças"
+                                title="Salvar e processar finanças + patrocínios"
                               >
                                 💾
                               </button>
@@ -828,7 +919,7 @@ export default function Jogos() {
 
                     {jogo.bonus_pago && (
                       <div className="mt-2 text-[11px] text-emerald-300/80">
-                        ✔️ Lançado com finanças. Edições futuras não repetem bônus/salários — apenas atualizam o placar e a classificação.
+                        ✔️ Lançado com finanças (inclui bônus de patrocinadores). Edições futuras não repetem bônus — apenas ajustam o placar e a classificação.
                       </div>
                     )}
                   </div>
