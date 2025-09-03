@@ -72,6 +72,7 @@ export default function PatrociniosPage() {
   const [divisao, setDivisao] = useState<number | null>(null)
   const [patrocinios, setPatrocinios] = useState<Patrocinio[]>([])
   const [jaEscolheu, setJaEscolheu] = useState(false)
+  const [modoTroca, setModoTroca] = useState(false)
   const [escolhas, setEscolhas] = useState<Escolhas>({ master: '', fornecedor: '', secundario: '' })
 
   const user = typeof window !== 'undefined'
@@ -115,14 +116,14 @@ export default function PatrociniosPage() {
 
         // 3) Guard-rail por nome (garante só os 9 novos)
         const pats = (patsRaw || []).filter(p => NOVOS_NOMES.has(p.nome))
-
         setPatrocinios(pats as Patrocinio[])
 
-        // 4) Já escolheu?
+        // 4) Já escolheu nesta temporada?
         const { data: escolhido } = await supabase
           .from('patrocinios_escolhidos')
-          .select('id_time, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+          .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada')
           .eq('id_time', user.id_time)
+          .eq('temporada', CURRENT_TEMPORADA)
           .maybeSingle()
 
         if (escolhido) {
@@ -151,7 +152,7 @@ export default function PatrociniosPage() {
   )
 
   function selecionar(categoria: Categoria, id: string) {
-    if (jaEscolheu) return
+    if (jaEscolheu && !modoTroca) return // bloqueia clique até ativar modoTroca
     setEscolhas(prev => ({ ...prev, [categoria]: id }))
   }
 
@@ -165,73 +166,38 @@ export default function PatrociniosPage() {
       }
     }
 
-    const snap = Object.fromEntries(
-      Object.entries(escolhas).map(([cat, id]) => {
-        const p = patrocinios.find(x => x.id === id)
-        return [cat, { id, nome: p?.nome, valor_fixo: p?.valor_fixo, regra: p?.regra }]
+    try {
+      // 🔥 Usa RPC transacional que ajusta o CAIXA pelo DELTA e faz UPSERT
+      const { error: rpcErr } = await supabase.rpc('trocar_patrocinios', {
+        p_id_time: user.id_time,
+        p_master: escolhas.master,
+        p_fornecedor: escolhas.fornecedor,
+        p_secundario: escolhas.secundario,
+        p_temporada: CURRENT_TEMPORADA,
       })
-    )
-
-    const { error: erroUpsert } = await supabase
-      .from('patrocinios_escolhidos')
-      .upsert(
-        {
-          id_time: user.id_time,
-          id_patrocinio_master: escolhas.master,
-          id_patrocinio_fornecedor: escolhas.fornecedor,
-          id_patrocinio_secundario: escolhas.secundario,
-          snapshot_regras: snap, // se existir na sua tabela
-        },
-        { onConflict: 'id_time' }
-      )
-
-    if (erroUpsert) {
-      toast.error('Erro ao salvar patrocínios.')
-      return
-    }
-
-    if (totalFixoSelecionado > 0) {
-      const { error: erroSaldo } = await supabase.rpc('incrementar_saldo', {
-        id_time_param: user.id_time,
-        valor_param: totalFixoSelecionado
-      })
-      if (erroSaldo) {
-        toast.error('Erro ao atualizar saldo.')
+      if (rpcErr) {
+        console.error(rpcErr)
+        toast.error('Erro ao trocar patrocínios.')
         return
       }
+
+      setJaEscolheu(true)
+      setModoTroca(false)
+
+      const linhas = selecionados.map(p => {
+        const r = (p.regra || {}) as RegraDesempenho
+        const partes: string[] = []
+        if (r.por_vitoria) partes.push(`Vitória ${formatarBRL(r.por_vitoria)}`)
+        if (r.por_gol) partes.push(`Gol ${formatarBRL(r.por_gol)}`)
+        if (r.por_clean_sheet) partes.push(`CS ${formatarBRL(r.por_clean_sheet)}`)
+        const bonusTxt = partes.length ? ` | Bônus: ${partes.join(' + ')}` : ''
+        return `${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}${bonusTxt}`
+      }).join('\n')
+
+      toast.success(`✅ Patrocínios salvos!\n${linhas}`, { duration: 7000 })
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao salvar.')
     }
-
-    const linhas = selecionados.map(p => {
-      const r = (p.regra || {}) as RegraDesempenho
-      const partes: string[] = []
-      if (r.por_vitoria) partes.push(`Vitória ${formatarBRL(r.por_vitoria)}`)
-      if (r.por_gol) partes.push(`Gol ${formatarBRL(r.por_gol)}`)
-      if (r.por_clean_sheet) partes.push(`Clean Sheet ${formatarBRL(r.por_clean_sheet)}`)
-      const bonusTxt = partes.length ? ` | Bônus: ${partes.join(' + ')}` : ''
-      return `${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}${bonusTxt}`
-    })
-
-    const descricao = [
-      `Patrocínios escolhidos (Divisão ${divisao ?? '-'}, Temporada ${CURRENT_TEMPORADA})`,
-      ...linhas,
-      `Crédito imediato total: ${formatarBRL(totalFixoSelecionado)}`
-    ].join('\n')
-
-    const { error: erroBid } = await supabase.from('bid').insert({
-      tipo_evento: 'patrocinio',
-      descricao,
-      id_time1: user.id_time,
-      valor: totalFixoSelecionado,
-      data_evento: new Date().toISOString()
-    })
-
-    if (erroBid) {
-      toast.error('Erro ao registrar no BID.')
-      return
-    }
-
-    toast.success('Patrocínios salvos e saldo atualizado!')
-    setJaEscolheu(true)
   }
 
   return (
@@ -253,9 +219,20 @@ export default function PatrociniosPage() {
                 Temporada <b className="text-white">{CURRENT_TEMPORADA}</b> • Selecione <b className="text-white">1 Master</b>, <b className="text-white">1 Material</b> e <b className="text-white">1 Secundário</b>.
               </p>
             </div>
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-zinc-200">
-              <span className="text-zinc-400">Divisão</span>
-              <div className="text-xl font-semibold">{divisao ?? '—'}</div>
+            <div className="flex items-end gap-2">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-zinc-200">
+                <span className="text-zinc-400">Divisão</span>
+                <div className="text-xl font-semibold text-white">{divisao ?? '—'}</div>
+              </div>
+              {jaEscolheu && !modoTroca && (
+                <button
+                  onClick={() => setModoTroca(true)}
+                  className="rounded-xl px-4 py-2 font-semibold bg-amber-600 hover:bg-amber-500 text-black shadow"
+                  title="Permitir trocar os patrocínios já escolhidos"
+                >
+                  🔁 Trocar patrocinadores
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -265,24 +242,34 @@ export default function PatrociniosPage() {
       <div className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-zinc-950/60 bg-zinc-950/80 border-b border-zinc-800">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="text-sm sm:text-base text-zinc-300">
-            Crédito imediato (fixos): <span className="font-bold text-emerald-400">{formatarBRL(totalFixoSelecionado)}</span>
+            Fixo selecionado: <span className="font-bold text-emerald-400">{formatarBRL(totalFixoSelecionado)}</span>
           </div>
-          <button
-            onClick={salvar}
-            disabled={jaEscolheu}
-            className={`rounded-xl px-5 py-2 font-semibold shadow transition-all ${jaEscolheu ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
-          >
-            {jaEscolheu ? 'Já escolhido' : '✅ Salvar Patrocínios'}
-          </button>
+          <div className="flex gap-2">
+            {jaEscolheu && !modoTroca ? (
+              <button
+                onClick={() => setModoTroca(true)}
+                className="rounded-xl px-5 py-2 font-semibold bg-amber-600 hover:bg-amber-500 text-black shadow"
+              >
+                🔁 Trocar
+              </button>
+            ) : (
+              <button
+                onClick={salvar}
+                className="rounded-xl px-5 py-2 font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow"
+              >
+                ✅ Salvar
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <main className="relative z-10 px-4 pb-16">
         <div className="mx-auto max-w-6xl space-y-10">
-          {jaEscolheu && (
+          {jaEscolheu && !modoTroca && (
             <div className="rounded-2xl border border-emerald-800/40 bg-emerald-900/10 p-5">
-              <p className="text-emerald-300 font-medium">✅ Você já escolheu seus patrocinadores desta temporada.</p>
-              <p className="text-zinc-400 text-sm">Para ajustes, contate a administração.</p>
+              <p className="text-emerald-300 font-medium">✅ Seu time já possui patrocinadores desta temporada.</p>
+              <p className="text-zinc-400 text-sm">Clique em <b>“Trocar”</b> para substituí-los. O ajuste de caixa será feito pelo <i>delta</i> automaticamente.</p>
             </div>
           )}
 
@@ -308,21 +295,25 @@ export default function PatrociniosPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {patrocinios
                     .filter(p => p.categoria === key)
-                    .sort((a, b) => (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0)) // reforça ordenação
+                    .sort((a, b) => (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0))
                     .slice(0, 3)
                     .map((p) => {
                       const selecionado = escolhas[key] === p.id
                       const r = (p.regra || {}) as RegraDesempenho
+                      const podeClicar = !jaEscolheu || modoTroca
 
                       return (
                         <button
                           key={p.id}
-                          onClick={() => selecionar(key, p.id)}
+                          onClick={() => podeClicar && selecionar(key, p.id)}
                           className={`group relative text-left rounded-2xl border p-5 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/60
                             ${selecionado
                               ? 'border-emerald-500/70 bg-emerald-950/30 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]'
-                              : 'border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900/70 hover:border-zinc-700'}
+                              : podeClicar
+                                ? 'border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900/70 hover:border-zinc-700'
+                                : 'border-zinc-800 bg-zinc-900/40 opacity-60 cursor-not-allowed'}
                           `}
+                          disabled={!podeClicar}
                         >
                           <div className={`absolute right-4 top-4 h-6 w-6 rounded-full border flex items-center justify-center text-xs
                             ${selecionado ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300' : 'border-zinc-700 text-zinc-500'}`}
@@ -381,13 +372,21 @@ export default function PatrociniosPage() {
           <div className="text-sm text-zinc-300">
             Fixo total: <span className="font-bold text-emerald-400">{formatarBRL(totalFixoSelecionado)}</span>
           </div>
-          <button
-            onClick={salvar}
-            disabled={jaEscolheu}
-            className={`rounded-xl px-4 py-2 font-semibold shadow ${jaEscolheu ? 'bg-zinc-700 text-zinc-400' : 'bg-emerald-600 text-white'}`}
-          >
-            {jaEscolheu ? 'Já escolhido' : 'Salvar'}
-          </button>
+          {jaEscolheu && !modoTroca ? (
+            <button
+              onClick={() => setModoTroca(true)}
+              className="rounded-xl px-4 py-2 font-semibold bg-amber-600 text-black"
+            >
+              Trocar
+            </button>
+          ) : (
+            <button
+              onClick={salvar}
+              className="rounded-xl px-4 py-2 font-semibold bg-emerald-600 text-white"
+            >
+              Salvar
+            </button>
+          )}
         </div>
       </div>
     </div>
