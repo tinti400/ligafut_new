@@ -156,6 +156,88 @@ export default function PatrociniosPage() {
     setEscolhas(prev => ({ ...prev, [categoria]: id }))
   }
 
+  /** Helpers de saldo (tenta várias assinaturas) */
+  async function aplicarDeltaCaixa(id_time: string, delta: number) {
+    if (!delta) return
+    // 1) atualizar_saldo(id_time, valor)
+    let { error } = await supabase.rpc('atualizar_saldo', { id_time, valor: delta } as any)
+    if (!error) return
+
+    // 2) incrementar_saldo(id_time_param, valor_param)
+    let r2 = await supabase.rpc('incrementar_saldo', { id_time_param: id_time, valor_param: delta } as any)
+    if (!r2.error) return
+
+    // 3) incrementar_saldo(id_time, valor)
+    let r3 = await supabase.rpc('incrementar_saldo', { id_time, valor: delta } as any)
+    if (!r3.error) return
+
+    // se nada deu, propaga erro
+    throw (error || r2.error || r3.error)
+  }
+
+  /** Lê fixo total antigo (temporada -> fallback legado) */
+  async function buscarTotalAntigo(id_time: string): Promise<number> {
+    // Tenta temporada atual
+    const { data: antigoT } = await supabase
+      .from('patrocinios_escolhidos')
+      .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+      .eq('id_time', id_time)
+      .eq('temporada', CURRENT_TEMPORADA)
+      .maybeSingle()
+
+    let idsAntigos = [
+      antigoT?.id_patrocinio_master,
+      antigoT?.id_patrocinio_fornecedor,
+      antigoT?.id_patrocinio_secundario,
+    ].filter(Boolean) as string[]
+
+    // Fallback: sem temporada (legado)
+    if (!idsAntigos.length) {
+      const { data: antigoL } = await supabase
+        .from('patrocinios_escolhidos')
+        .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+        .eq('id_time', id_time)
+        .maybeSingle()
+      idsAntigos = [
+        antigoL?.id_patrocinio_master,
+        antigoL?.id_patrocinio_fornecedor,
+        antigoL?.id_patrocinio_secundario,
+      ].filter(Boolean) as string[]
+    }
+
+    if (!idsAntigos.length) return 0
+
+    const { data: patsAnt } = await supabase
+      .from('patrocinios')
+      .select('id, valor_fixo')
+      .in('id', idsAntigos)
+
+    return (patsAnt ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
+  }
+
+  /** Upsert resiliente (tenta dois alvos de conflito) */
+  async function upsertEscolha(payload: {
+    id_time: string
+    id_patrocinio_master: string
+    id_patrocinio_fornecedor: string
+    id_patrocinio_secundario: string
+    temporada: string
+  }) {
+    // 1) prefere (id_time, temporada)
+    let { error } = await supabase
+      .from('patrocinios_escolhidos')
+      .upsert(payload, { onConflict: 'id_time,temporada' })
+
+    if (!error) return
+
+    // 2) fallback para schema legado (id_time)
+    let r2 = await supabase
+      .from('patrocinios_escolhidos')
+      .upsert(payload, { onConflict: 'id_time' })
+
+    if (r2.error) throw r2.error
+  }
+
   async function salvar() {
     if (!user?.id_time) return
 
@@ -167,98 +249,49 @@ export default function PatrociniosPage() {
     }
 
     try {
-      // tenta o RPC transacional (ajusta caixa por delta + upsert + logs)
-      const { error: rpcErr } = await supabase.rpc('trocar_patrocinios', {
-        p_id_time: user.id_time,
-        p_master: escolhas.master,
-        p_fornecedor: escolhas.fornecedor,
-        p_secundario: escolhas.secundario,
-        p_temporada: CURRENT_TEMPORADA,
+      // 1) total antigo (por temporada; fallback legado)
+      const totalAntigo = await buscarTotalAntigo(user.id_time)
+
+      // 2) total novo
+      const idsNovos = [escolhas.master, escolhas.fornecedor, escolhas.secundario]
+      const { data: patsNov } = await supabase
+        .from('patrocinios')
+        .select('id, valor_fixo')
+        .in('id', idsNovos)
+
+      const totalNovo = (patsNov ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
+      const delta = (totalNovo - totalAntigo) || 0
+
+      // 3) upsert da escolha (sem campos opcionais para evitar 400)
+      await upsertEscolha({
+        id_time: user.id_time,
+        id_patrocinio_master: escolhas.master,
+        id_patrocinio_fornecedor: escolhas.fornecedor,
+        id_patrocinio_secundario: escolhas.secundario,
+        temporada: CURRENT_TEMPORADA,
       })
 
-      if (rpcErr) {
-        toast.error(`Troca falhou: ${rpcErr.message || 'erro no RPC'}`)
+      // 4) aplica delta no caixa
+      await aplicarDeltaCaixa(user.id_time, delta)
 
-        // ================= Fallback: upsert + ajuste de DELTA no front =================
-        const msg = (rpcErr.message || '').toLowerCase()
-        if (msg.includes('42883') || msg.includes('does not exist') || msg.includes('trocar_patrocinios')) {
-          // 1) pega escolha antiga p/ delta
-          const { data: antigo } = await supabase
-            .from('patrocinios_escolhidos')
-            .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
-            .eq('id_time', user.id_time)
-            .eq('temporada', CURRENT_TEMPORADA)
-            .maybeSingle()
+      // 5) logs mínimos
+      const now = new Date().toISOString()
+      await supabase.from('movimentacoes').insert({
+        id_time: user.id_time,
+        tipo: 'troca_patrocinio',
+        valor: delta,
+        descricao: `Troca/definição de patrocinadores (${CURRENT_TEMPORADA}). Delta: ${formatarBRL(delta)}`,
+        data: now,
+      })
+      await supabase.from('bid').insert({
+        tipo_evento: 'patrocinio_troca',
+        descricao: `Troca/definição de patrocinadores (${CURRENT_TEMPORADA}). Delta: ${formatarBRL(delta)}`,
+        id_time1: user.id_time,
+        valor: delta,
+        data_evento: now,
+      })
 
-          const idsAntigos = [
-            antigo?.id_patrocinio_master,
-            antigo?.id_patrocinio_fornecedor,
-            antigo?.id_patrocinio_secundario,
-          ].filter(Boolean) as string[]
-
-          const idsNovos = [escolhas.master, escolhas.fornecedor, escolhas.secundario]
-
-          const patsAntRawRes = idsAntigos.length
-            ? await supabase.from('patrocinios').select('id, valor_fixo').in('id', idsAntigos)
-            : { data: [] as { id: string; valor_fixo: number }[] }
-          const patsNovRawRes = await supabase.from('patrocinios').select('id, valor_fixo').in('id', idsNovos)
-
-          const patsAnt = (patsAntRawRes.data ?? []) as { id: string; valor_fixo: number | null }[]
-          const patsNov = (patsNovRawRes.data ?? []) as { id: string; valor_fixo: number | null }[]
-
-          const soma = (arr: { valor_fixo: number | null }[] | null | undefined) =>
-            (arr ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
-
-          const totalAntigo = soma(patsAnt)
-          const totalNovo   = soma(patsNov)
-          const delta       = (totalNovo - totalAntigo) || 0
-
-          // 2) upsert da escolha (mantendo temporada)
-          const { error: upErr } = await supabase
-            .from('patrocinios_escolhidos')
-            .upsert({
-              id_time: user.id_time,
-              id_patrocinio_master: escolhas.master,
-              id_patrocinio_fornecedor: escolhas.fornecedor,
-              id_patrocinio_secundario: escolhas.secundario,
-              temporada: CURRENT_TEMPORADA,
-            }, { onConflict: 'id_time,temporada' })
-          if (upErr) throw upErr
-
-          // 3) aplica delta no caixa — tenta atualizar_saldo e, se falhar, tenta incrementar_saldo
-          if (delta !== 0) {
-            let saldoErr: any = null
-            const res1 = await supabase.rpc('atualizar_saldo', { id_time: user.id_time, valor: delta } as any)
-            saldoErr = res1.error
-            if (saldoErr) {
-              const res2 = await supabase.rpc('incrementar_saldo', { id_time_param: user.id_time, valor_param: delta } as any)
-              saldoErr = res2.error
-            }
-            if (saldoErr) throw saldoErr
-
-            // 4) logs mínimos (movimentacoes/bid)
-            const now = new Date().toISOString()
-            await supabase.from('movimentacoes').insert({
-              id_time: user.id_time,
-              tipo: 'troca_patrocinio',
-              valor: delta,
-              descricao: `Troca de patrocinadores (fallback). Delta: ${formatarBRL(delta)}`,
-              data: now,
-            })
-            await supabase.from('bid').insert({
-              tipo_evento: 'patrocinio_troca',
-              descricao: `Troca de patrocinadores (fallback). Delta: ${formatarBRL(delta)}`,
-              id_time1: user.id_time,
-              valor: delta,
-              data_evento: now,
-            })
-          }
-        } else {
-          return // outro erro: já mostramos toast
-        }
-      }
-
-      // sucesso (RPC ou fallback)
+      // 6) sucesso + UI
       setJaEscolheu(true)
       setModoTroca(false)
 
@@ -272,7 +305,7 @@ export default function PatrociniosPage() {
         return `${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}${bonusTxt}`
       }).join('\n')
 
-      toast.success(`✅ Patrocínios salvos!\n${linhas}`, { duration: 7000 })
+      toast.success(`✅ Patrocínios salvos!\n${linhas}\nΔ no caixa: ${formatarBRL(delta)}`, { duration: 9000 })
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao salvar.')
     }
