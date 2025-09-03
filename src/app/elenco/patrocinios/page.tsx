@@ -198,12 +198,17 @@ export default function PatrociniosPage() {
 
           const idsNovos = [escolhas.master, escolhas.fornecedor, escolhas.secundario]
 
-          const { data: patsAnt } = idsAntigos.length
+          const patsAntRawRes = idsAntigos.length
             ? await supabase.from('patrocinios').select('id, valor_fixo').in('id', idsAntigos)
-            : { data: [] as {id:string,valor_fixo:number}[] } as any
-          const { data: patsNov } = await supabase.from('patrocinios').select('id, valor_fixo').in('id', idsNovos)
+            : { data: [] as { id: string; valor_fixo: number }[] }
+          const patsNovRawRes = await supabase.from('patrocinios').select('id, valor_fixo').in('id', idsNovos)
 
-          const soma = (arr?: any[]) => (arr||[]).reduce((a,b)=>a+(b?.valor_fixo||0),0)
+          const patsAnt = (patsAntRawRes.data ?? []) as { id: string; valor_fixo: number | null }[]
+          const patsNov = (patsNovRawRes.data ?? []) as { id: string; valor_fixo: number | null }[]
+
+          const soma = (arr: { valor_fixo: number | null }[] | null | undefined) =>
+            (arr ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
+
           const totalAntigo = soma(patsAnt)
           const totalNovo   = soma(patsNov)
           const delta       = (totalNovo - totalAntigo) || 0
