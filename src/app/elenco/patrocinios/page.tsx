@@ -1,124 +1,211 @@
-'use client'
+"use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 
+/* ================= SUPABASE ================= */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/* ================= TIPOS ================= */
 type Categoria = 'master' | 'fornecedor' | 'secundario'
+
+type RegraDesempenho = {
+  por_vitoria?: number
+  por_gol?: number
+  por_clean_sheet?: number
+  [k: string]: any
+}
 
 interface Patrocinio {
   id: string
   nome: string
   categoria: Categoria
-  valor_fixo: number
-  descricao_beneficio: string
   divisao: number
+  valor_fixo: number
+  beneficio: string          // NOT NULL no schema
+  descricao_beneficio?: string | null
+  tipo_pagamento?: string | null // usamos 'misto'
+  regra?: RegraDesempenho | null
 }
 
+type Escolhas = Record<Categoria, string>
+
+/* ================= UTILS ================= */
+const formatarBRL = (v?: number | null) =>
+  (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })
+
+const CATEGORIAS: { key: Categoria; titulo: string; icone: string; desc: string; grad: string }[] = [
+  { key: 'master',     titulo: 'Patrocínio Master',      icone: '🏆', desc: 'Contrato principal com maior valor.', grad: 'from-amber-500/20 to-amber-300/10' },
+  { key: 'fornecedor', titulo: 'Material Desportivo',    icone: '👟', desc: 'Fornecimento de material com bônus.', grad: 'from-sky-500/20 to-sky-300/10' },
+  { key: 'secundario', titulo: 'Patrocínio Secundário',  icone: '📢', desc: 'Exposição adicional e incentivos.', grad: 'from-emerald-500/20 to-emerald-300/10' },
+]
+
+/* ================= SKELETON ================= */
+function SkeletonCard() {
+  return (
+    <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-5 animate-pulse">
+      <div className="h-6 w-40 bg-zinc-700/40 rounded mb-3"/>
+      <div className="h-4 w-56 bg-zinc-700/30 rounded mb-2"/>
+      <div className="h-4 w-24 bg-zinc-700/30 rounded mb-5"/>
+      <div className="h-9 w-full bg-zinc-700/20 rounded"/>
+    </div>
+  )
+}
+
+/* ================= COMPONENTE ================= */
 export default function PatrociniosPage() {
+  const [carregando, setCarregando] = useState(true)
+  const [divisao, setDivisao] = useState<number | null>(null)
   const [patrocinios, setPatrocinios] = useState<Patrocinio[]>([])
-  const [patrocinioSelecionado, setPatrocinioSelecionado] = useState<Record<Categoria, string>>({
-    master: '',
-    fornecedor: '',
-    secundario: ''
-  })
   const [jaEscolheu, setJaEscolheu] = useState(false)
+  const [escolhas, setEscolhas] = useState<Escolhas>({ master: '', fornecedor: '', secundario: '' })
 
-  const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
+  const user = typeof window !== 'undefined'
+    ? JSON.parse(localStorage.getItem('user') || '{}')
+    : {}
 
+  /* ---------- Carregamento inicial ---------- */
   useEffect(() => {
-    async function buscarPatrocinios() {
-      if (!user?.id_time) return
+    (async () => {
+      try {
+        if (!user?.id_time) {
+          toast.error('Faça login para escolher seus patrocínios.')
+          return
+        }
 
-      const { data: time, error: erroTime } = await supabase
-        .from('times')
-        .select('divisao')
-        .eq('id', user.id_time)
-        .single()
+        const { data: time, error: erroTime } = await supabase
+          .from('times')
+          .select('divisao')
+          .eq('id', user.id_time)
+          .single()
 
-      if (erroTime || !time) return
+        if (erroTime || !time) {
+          toast.error('Não foi possível carregar a divisão do time.')
+          return
+        }
+        setDivisao(time.divisao)
 
-      const { data, error } = await supabase
-        .from('patrocinios')
-        .select('*')
-        .eq('divisao', time.divisao)
+        const { data: pats, error: erroPats } = await supabase
+          .from('patrocinios')
+          .select('id, nome, categoria, divisao, valor_fixo, beneficio, descricao_beneficio, tipo_pagamento, regra')
+          .eq('divisao', time.divisao)
 
-      if (!error && data) setPatrocinios(data)
-    }
+        if (erroPats) {
+          toast.error('Erro ao carregar patrocínios.')
+          return
+        }
+        setPatrocinios((pats || []) as Patrocinio[])
 
-    async function verificarSeJaEscolheu() {
-      if (!user?.id_time) return
+        const { data: escolhido } = await supabase
+          .from('patrocinios_escolhidos')
+          .select('id_time, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
+          .eq('id_time', user.id_time)
+          .maybeSingle()
 
-      const { data, error } = await supabase
-        .from('patrocinios_escolhidos')
-        .select('*')
-        .eq('id_time', user.id_time)
-        .maybeSingle()
-
-      if (data) setJaEscolheu(true)
-    }
-
-    buscarPatrocinios()
-    verificarSeJaEscolheu()
+        if (escolhido) {
+          setJaEscolheu(true)
+          setEscolhas({
+            master: escolhido.id_patrocinio_master || '',
+            fornecedor: escolhido.id_patrocinio_fornecedor || '',
+            secundario: escolhido.id_patrocinio_secundario || ''
+          })
+        }
+      } finally {
+        setCarregando(false)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleSelecionar = (categoria: Categoria, id: string) => {
+  /* ---------- Totais ---------- */
+  const selecionados = useMemo(() => {
+    const ids = Object.values(escolhas).filter(Boolean)
+    return patrocinios.filter(p => ids.includes(p.id))
+  }, [escolhas, patrocinios])
+
+  const totalFixoSelecionado = useMemo(
+    () => selecionados.reduce((acc, p) => acc + (p.valor_fixo || 0), 0),
+    [selecionados]
+  )
+
+  /* ---------- Ações ---------- */
+  function selecionar(categoria: Categoria, id: string) {
     if (jaEscolheu) return
-    setPatrocinioSelecionado((prev) => ({ ...prev, [categoria]: id }))
+    setEscolhas(prev => ({ ...prev, [categoria]: id }))
   }
 
-  const formatarValor = (valor: number) => {
-    return valor.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-      minimumFractionDigits: 0
-    })
-  }
-
-  const salvarPatrocinios = async () => {
+  async function salvar() {
     if (!user?.id_time) return
 
-    const master = patrocinios.find(p => p.id === patrocinioSelecionado.master)
-    const fornecedor = patrocinios.find(p => p.id === patrocinioSelecionado.fornecedor)
-    const secundario = patrocinios.find(p => p.id === patrocinioSelecionado.secundario)
+    for (const cat of ['master','fornecedor','secundario'] as Categoria[]) {
+      if (!escolhas[cat]) {
+        toast.error(`Selecione um patrocinador para "${cat}".`)
+        return
+      }
+    }
 
-    const total = (master?.valor_fixo || 0) + (fornecedor?.valor_fixo || 0) + (secundario?.valor_fixo || 0)
+    const snap = Object.fromEntries(
+      Object.entries(escolhas).map(([cat, id]) => {
+        const p = patrocinios.find(x => x.id === id)
+        return [cat, { id, nome: p?.nome, valor_fixo: p?.valor_fixo, regra: p?.regra }]
+      })
+    )
 
     const { error: erroUpsert } = await supabase
       .from('patrocinios_escolhidos')
-      .insert({
-        id_time: user.id_time,
-        id_patrocinio_master: patrocinioSelecionado.master,
-        id_patrocinio_fornecedor: patrocinioSelecionado.fornecedor,
-        id_patrocinio_secundario: patrocinioSelecionado.secundario,
-      })
+      .upsert(
+        {
+          id_time: user.id_time,
+          id_patrocinio_master: escolhas.master,
+          id_patrocinio_fornecedor: escolhas.fornecedor,
+          id_patrocinio_secundario: escolhas.secundario,
+          snapshot_regras: snap,
+        },
+        { onConflict: 'id_time' }
+      )
 
     if (erroUpsert) {
       toast.error('Erro ao salvar patrocínios.')
       return
     }
 
-    const { error: erroSaldo } = await supabase.rpc('incrementar_saldo', {
-      id_time_param: user.id_time,
-      valor_param: total
+    if (totalFixoSelecionado > 0) {
+      const { error: erroSaldo } = await supabase.rpc('incrementar_saldo', {
+        id_time_param: user.id_time,
+        valor_param: totalFixoSelecionado
+      })
+      if (erroSaldo) {
+        toast.error('Erro ao atualizar saldo.')
+        return
+      }
+    }
+
+    const linhas = selecionados.map(p => {
+      const r = (p.regra || {}) as RegraDesempenho
+      const partes: string[] = []
+      if (r.por_vitoria) partes.push(`Vitória ${formatarBRL(r.por_vitoria)}`)
+      if (r.por_gol) partes.push(`Gol ${formatarBRL(r.por_gol)}`)
+      if (r.por_clean_sheet) partes.push(`Clean Sheet ${formatarBRL(r.por_clean_sheet)}`)
+      const bonusTxt = partes.length ? ` | Bônus: ${partes.join(' + ')}` : ''
+      return `${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}${bonusTxt}`
     })
 
-    if (erroSaldo) {
-      toast.error('Erro ao atualizar saldo.')
-      return
-    }
+    const descricao = [
+      `Patrocínios escolhidos (Divisão ${divisao ?? '-'})`,
+      ...linhas,
+      `Crédito imediato total: ${formatarBRL(totalFixoSelecionado)}`
+    ].join('\n')
 
     const { error: erroBid } = await supabase.from('bid').insert({
       tipo_evento: 'patrocinio',
-      descricao: `Recebeu ${formatarValor(total)} em patrocínios`,
+      descricao,
       id_time1: user.id_time,
-      valor: total,
-      data_evento: new Date().toISOString(),
+      valor: totalFixoSelecionado,
+      data_evento: new Date().toISOString()
     })
 
     if (erroBid) {
@@ -130,65 +217,156 @@ export default function PatrociniosPage() {
     toast.success('Patrocínios salvos e saldo atualizado!')
   }
 
-  const categorias: Categoria[] = ['master', 'fornecedor', 'secundario']
-
+  /* ---------- UI ---------- */
   return (
-    <div className="p-4 text-white min-h-screen bg-gradient-to-br from-zinc-900 to-zinc-800">
-      <h1 className="text-3xl font-extrabold text-center mb-8 text-yellow-400 drop-shadow">
-        💼 Escolha seus Patrocinadores
-      </h1>
+    <div className="relative min-h-screen bg-zinc-950">
+      {/* Gradientes de fundo decorativos */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-gradient-to-br from-emerald-500/20 to-emerald-300/10 blur-3xl"/>
+        <div className="absolute -bottom-24 -right-24 h-96 w-96 rounded-full bg-gradient-to-br from-amber-500/20 to-amber-300/10 blur-3xl"/>
+      </div>
 
-      {jaEscolheu ? (
-        <p className="text-center text-green-400 text-xl font-semibold">
-          ✅ Você já escolheu seus patrocinadores. Obrigado!
-        </p>
-      ) : (
-        categorias.map((categoria) => (
-          <div key={categoria} className="mb-10">
-            <h2 className="text-green-400 text-2xl font-bold mb-4 capitalize">
-              {categoria === 'master' && '🏆 Patrocínio Master'}
-              {categoria === 'fornecedor' && '🛍️ Fornecedor de Material'}
-              {categoria === 'secundario' && '📢 Patrocínio Secundário'}
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {patrocinios
-                .filter(p => p.categoria === categoria)
-                .map(p => (
-                  <div
-                    key={p.id}
-                    className={`rounded-lg border-2 p-4 shadow transition-all cursor-pointer hover:scale-105 hover:border-green-400 ${
-                      patrocinioSelecionado[categoria] === p.id
-                        ? 'border-green-500 bg-zinc-800'
-                        : 'border-zinc-700 bg-zinc-900'
-                    }`}
-                    onClick={() => handleSelecionar(categoria, p.id)}
-                  >
-                    <h3 className="text-xl font-semibold mb-2 text-white">{p.nome}</h3>
-                    <p className="text-sm text-gray-300 mb-1">
-                      💰 Valor Fixo: <strong className="text-white">{formatarValor(p.valor_fixo)}</strong>
-                    </p>
-                    <p className="text-sm text-yellow-300 whitespace-pre-line">
-                      🎁 {p.descricao_beneficio}
-                    </p>
-                  </div>
-                ))}
+      {/* Header */}
+      <header className="relative z-10 px-4 pt-10 pb-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+                💼 Patrocínios da Temporada
+              </h1>
+              <p className="mt-1 text-zinc-300">
+                Selecione <b className="text-white">1 Master</b>, <b className="text-white">1 Material</b> e <b className="text-white">1 Secundário</b>.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-zinc-200">
+              <span className="text-zinc-400">Divisão</span>
+              <div className="text-xl font-semibold">{divisao ?? '—'}</div>
             </div>
           </div>
-        ))
-      )}
+        </div>
+      </header>
 
-      {!jaEscolheu && (
-        <div className="text-center mt-10">
+      {/* Barra fixa de resumo */}
+      <div className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-zinc-950/60 bg-zinc-950/80 border-b border-zinc-800">
+        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
+          <div className="text-sm sm:text-base text-zinc-300">
+            Crédito imediato (fixos): <span className="font-bold text-emerald-400">{formatarBRL(totalFixoSelecionado)}</span>
+          </div>
           <button
-            onClick={salvarPatrocinios}
-            className="bg-green-600 hover:bg-green-700 px-8 py-3 rounded-lg text-white text-lg font-bold shadow-lg"
+            onClick={salvar}
+            disabled={jaEscolheu}
+            className={`rounded-xl px-5 py-2 font-semibold shadow transition-all ${jaEscolheu ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
           >
-            ✅ Salvar Patrocínios
+            {jaEscolheu ? 'Já escolhido' : '✅ Salvar Patrocínios'}
           </button>
         </div>
-      )}
+      </div>
+
+      {/* Conteúdo */}
+      <main className="relative z-10 px-4 pb-16">
+        <div className="mx-auto max-w-6xl space-y-10">
+          {jaEscolheu && (
+            <div className="rounded-2xl border border-emerald-800/40 bg-emerald-900/10 p-5">
+              <p className="text-emerald-300 font-medium">✅ Você já escolheu seus patrocinadores desta temporada.</p>
+              <p className="text-zinc-400 text-sm">Para ajustes, contate a administração.</p>
+            </div>
+          )}
+
+          {CATEGORIAS.map(({ key, titulo, icone, desc, grad }) => (
+            <section key={key} className="space-y-4">
+              <div className={`rounded-2xl border border-zinc-800 bg-gradient-to-br ${grad} p-5` }>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+                      <span className="text-2xl">{icone}</span> {titulo}
+                    </h2>
+                    <p className="text-zinc-300 text-sm mt-1">{desc}</p>
+                  </div>
+                  <div className="hidden sm:block text-zinc-400 text-sm">Escolha 1</div>
+                </div>
+              </div>
+
+              {carregando ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[...Array(3)].map((_, i) => <SkeletonCard key={i} />)}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {patrocinios
+                    .filter(p => p.categoria === key)
+                    .slice(0, 3)
+                    .map((p) => {
+                      const selecionado = escolhas[key] === p.id
+                      const r = (p.regra || {}) as RegraDesempenho
+
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => selecionar(key, p.id)}
+                          className={`group relative text-left rounded-2xl border p-5 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/60
+                            ${selecionado
+                              ? 'border-emerald-500/70 bg-emerald-950/30 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]'
+                              : 'border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900/70 hover:border-zinc-700'}
+                          `}
+                        >
+                          {/* Marca de seleção */}
+                          <div className={`absolute right-4 top-4 h-6 w-6 rounded-full border flex items-center justify-center text-xs
+                            ${selecionado ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300' : 'border-zinc-700 text-zinc-500'}`}
+                          >
+                            {selecionado ? '✓' : ''}
+                          </div>
+
+                          <h3 className="text-lg font-semibold text-white pr-10">{p.nome}</h3>
+                          <p className="mt-1 text-sm text-zinc-300 line-clamp-2">
+                            {p.beneficio || p.descricao_beneficio || '—'}
+                          </p>
+
+                          <div className="mt-4 grid grid-cols-2 gap-3">
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                              <div className="text-xs text-zinc-400">Fixo</div>
+                              <div className="text-base font-bold text-emerald-400">{formatarBRL(p.valor_fixo)}</div>
+                            </div>
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                              <div className="text-xs text-zinc-400">Tipo</div>
+                              <div className="text-sm font-semibold text-amber-300">MISTO</div>
+                            </div>
+                          </div>
+
+                          {(r.por_vitoria || r.por_gol || r.por_clean_sheet) && (
+                            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+                              <div className="text-xs text-zinc-400 mb-1">Bônus por desempenho</div>
+                              <ul className="text-sm text-sky-300 space-y-1">
+                                {r.por_vitoria ? <li>• {formatarBRL(r.por_vitoria)} por vitória</li> : null}
+                                {r.por_gol ? <li>• {formatarBRL(r.por_gol)} por gol</li> : null}
+                                {r.por_clean_sheet ? <li>• {formatarBRL(r.por_clean_sheet)} por clean sheet</li> : null}
+                              </ul>
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      </main>
+
+      {/* Rodapé de ação mobile */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-800 bg-zinc-950/90 backdrop-blur px-4 py-3 sm:hidden">
+        <div className="mx-auto max-w-6xl flex items-center justify-between">
+          <div className="text-sm text-zinc-300">
+            Fixo total: <span className="font-bold text-emerald-400">{formatarBRL(totalFixoSelecionado)}</span>
+          </div>
+          <button
+            onClick={salvar}
+            disabled={jaEscolheu}
+            className={`rounded-xl px-4 py-2 font-semibold shadow ${jaEscolheu ? 'bg-zinc-700 text-zinc-400' : 'bg-emerald-600 text-white'}`}
+          >
+            {jaEscolheu ? 'Já escolhido' : 'Salvar'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
-
