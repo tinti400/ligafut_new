@@ -28,7 +28,34 @@ interface Jogo {
   gols_time2: number | null
 }
 
-/** ========= Utils ========= */
+/** ===== Tipos p/ classificação (mesma base do page de classificação) ===== */
+interface LinhaClassificacao {
+  id_time: string
+  pontos: number
+  vitorias: number
+  gols_pro: number
+  gols_contra: number
+  saldo: number
+  jogos: number
+}
+type JogoLiga = {
+  id?: number
+  id_time1?: string | null
+  id_time2?: string | null
+  time1?: string | null
+  time2?: string | null
+  gols_time1: number | null
+  gols_time2: number | null
+}
+
+/** ========= Constantes / Utils (iguais ao page de classificação) ========= */
+const TIMES_EXCLUIDOS = ['palmeiras', 'sociedade esportiva palmeiras']
+const norm = (s?: string | null) => (s || '').toLowerCase().trim()
+function ehExcluido(mapa: Record<string, { nome: string }>, idOuNome?: string | null) {
+  if (!idOuNome) return false
+  if (mapa[idOuNome]) return TIMES_EXCLUIDOS.includes(norm(mapa[idOuNome].nome))
+  return TIMES_EXCLUIDOS.includes(norm(idOuNome))
+}
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -36,14 +63,6 @@ function shuffle<T>(arr: T[]): T[] {
     ;[a[i], a[j]] = [a[j], a[i]]
   }
   return a
-}
-function nomeRel(reg: any): string {
-  const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
-  return t?.nome ?? 'Time'
-}
-function logoRel(reg: any): string | null {
-  const t = (reg?.times && (Array.isArray(reg.times) ? reg.times[0] : reg.times)) || null
-  return t?.logo_url ?? null
 }
 
 /** ========= Componente ========= */
@@ -115,7 +134,7 @@ export default function PlayoffPage() {
     })
   }
 
-  /** ====== Dados dos jogos ====== */
+  /** ====== Dados dos jogos (tela) ====== */
   async function carregarJogosELogos() {
     try {
       setLoading(true)
@@ -150,6 +169,128 @@ export default function PlayoffPage() {
     }
   }
 
+  /** =======================
+   *  CLASSIFICAÇÃO “Fase Liga”
+   *  (mesma lógica do page de classificação)
+   *  ======================= */
+  async function carregarJogosFaseLiga(): Promise<JogoLiga[]> {
+    const { data: a, error: ea } = await supabase
+      .from('copa_fase_liga')
+      .select('*')
+      .not('gols_time1', 'is', null)
+      .not('gols_time2', 'is', null)
+    if (!ea && a && a.length) return a as JogoLiga[]
+
+    const { data: b } = await supabase
+      .from('fase_liga')
+      .select('*')
+      .not('gols_time1', 'is', null)
+      .not('gols_time2', 'is', null)
+    return (b || []) as JogoLiga[]
+  }
+
+  function resolverIdDoTime(
+    j: JogoLiga,
+    lado: 1 | 2,
+    mapa: Record<string, { id: string; nome: string }>
+  ) {
+    const direto = lado === 1 ? j.id_time1 : j.id_time2
+    if (direto && mapa[direto]) return direto
+    const raw = lado === 1 ? j.time1 : j.time2
+    if (!raw) return null
+    if (mapa[raw]) return raw
+    const alvo = norm(raw)
+    for (const [id, info] of Object.entries(mapa)) {
+      if (norm(info.nome) === alvo) return id
+    }
+    return null
+  }
+
+  /** Calcula a mesma classificação do page de classificação e retorna 9º–24º */
+  async function pegarClassificados9a24(): Promise<TimeRow[]> {
+    // 1) Times (com as mesmas exclusões)
+    const { data: times, error: errTimes } = await supabase
+      .from('times')
+      .select('id, nome, logo_url')
+    if (errTimes) throw errTimes
+
+    const mapaTimes: Record<string, { id: string; nome: string; logo_url: string | null }> = {}
+    for (const t of (times || [])) {
+      if (TIMES_EXCLUIDOS.includes(norm(t.nome))) continue
+      mapaTimes[t.id] = { id: t.id, nome: t.nome, logo_url: t.logo_url ?? null }
+    }
+
+    // 2) Jogos da fase liga (copa_fase_liga ou fallback fase_liga)
+    const jogos = await carregarJogosFaseLiga()
+
+    // 3) Base zerada
+    const base: Record<string, LinhaClassificacao> = {}
+    for (const id of Object.keys(mapaTimes)) {
+      base[id] = {
+        id_time: id,
+        pontos: 0,
+        vitorias: 0,
+        gols_pro: 0,
+        gols_contra: 0,
+        saldo: 0,
+        jogos: 0
+      }
+    }
+
+    // 4) Aplicar resultados (mesma regra)
+    for (const j of jogos) {
+      if (j.gols_time1 == null || j.gols_time2 == null) continue
+      const id1 = resolverIdDoTime(j, 1, mapaTimes)
+      const id2 = resolverIdDoTime(j, 2, mapaTimes)
+      if (!id1 || !id2) continue
+      if (ehExcluido(mapaTimes as any, id1) || ehExcluido(mapaTimes as any, id2)) continue
+      if (!base[id1] || !base[id2]) continue
+
+      const g1 = Number(j.gols_time1)
+      const g2 = Number(j.gols_time2)
+
+      base[id1].gols_pro += g1
+      base[id1].gols_contra += g2
+      base[id1].jogos += 1
+
+      base[id2].gols_pro += g2
+      base[id2].gols_contra += g1
+      base[id2].jogos += 1
+
+      if (g1 > g2) {
+        base[id1].vitorias += 1
+        base[id1].pontos += 3
+      } else if (g2 > g1) {
+        base[id2].vitorias += 1
+        base[id2].pontos += 3
+      } else {
+        base[id1].pontos += 1
+        base[id2].pontos += 1
+      }
+
+      base[id1].saldo = base[id1].gols_pro - base[id1].gols_contra
+      base[id2].saldo = base[id2].gols_pro - base[id2].gols_contra
+    }
+
+    // 5) Ordenação idêntica (Pts, SG, GP, Vitórias)
+    const ordenada = Object.values(base).sort((a, b) => {
+      if (b.pontos !== a.pontos) return b.pontos - a.pontos
+      const saldoA = a.gols_pro - a.gols_contra
+      const saldoB = b.gols_pro - b.gols_contra
+      if (saldoB !== saldoA) return saldoB - saldoA
+      if (b.gols_pro !== a.gols_pro) return b.gols_pro - a.gols_pro
+      return b.vitorias - a.vitorias
+    })
+
+    // 6) Pegar 9º..24º (índices 8..23) e mapear para TimeRow
+    const fatia = ordenada.slice(8, 24)
+    return fatia.map((l) => ({
+      id: l.id_time,
+      nome: mapaTimes[l.id_time]?.nome ?? 'Time',
+      logo_url: mapaTimes[l.id_time]?.logo_url ?? null
+    }))
+  }
+
   /** ====== Apagar confrontos ====== */
   async function apagarConfrontos() {
     if (!isAdmin) return
@@ -166,7 +307,7 @@ export default function PlayoffPage() {
     await carregarJogosELogos()
   }
 
-  /** ====== Iniciar sorteio ao vivo (só 9º–24º; 25º+ eliminado) ====== */
+  /** ====== Iniciar sorteio ao vivo — AGORA FORÇANDO 9º–24º DA CLASSIFICAÇÃO ====== */
   async function iniciarSorteio() {
     if (!isAdmin) return
 
@@ -180,58 +321,37 @@ export default function PlayoffPage() {
       return
     }
 
-    // buscamos campos suficientes para ranquear igual ao front
-    const { data: classificacao, error } = await supabase
-      .from('classificacao')
-      .select('id_time, pontos, vitorias, gols_pro, gols_contra, jogos, times ( nome, logo_url )')
-      .eq('temporada', 1)
-    if (error || !classificacao) {
-      toast.error('Erro ao buscar classificação')
-      return
+    try {
+      // Coleta 9º–24º exatamente como na página de classificação
+      const classificados924 = await pegarClassificados9a24()
+      if (classificados924.length !== 16) {
+        toast.error('Precisamos de 16 times (9º–24º). Verifique a classificação.')
+        return
+      }
+
+      const lista = shuffle(classificados924)
+
+      // reset estado
+      setSorteioAberto(true)
+      setSorteioAtivo(true)
+      setFila(lista)
+      setPares([])
+      setParAtual({ A:null, B:null })
+      setFlipA(false); setFlipB(false)
+      setConfirmavel(false)
+
+      broadcast({
+        sorteioAtivo: true,
+        fila: lista,
+        pares: [],
+        parAtual: {A:null, B:null},
+        flipA: false, flipB: false,
+        confirmavel: false
+      })
+    } catch (e) {
+      console.error(e)
+      toast.error('Falha ao carregar a classificação para o sorteio.')
     }
-
-    // ordena por: pontos desc, saldo desc, gols_pro desc, vitorias desc, jogos asc, nome asc
-    const ordenada = [...classificacao].sort((a: any, b: any) => {
-      const saldoA = (a.gols_pro ?? 0) - (a.gols_contra ?? 0)
-      const saldoB = (b.gols_pro ?? 0) - (b.gols_contra ?? 0)
-      return (
-        (b.pontos ?? 0) - (a.pontos ?? 0) ||
-        saldoB - saldoA ||
-        (b.gols_pro ?? 0) - (a.gols_pro ?? 0) ||
-        (b.vitorias ?? 0) - (a.vitorias ?? 0) ||
-        (a.jogos ?? 0) - (b.jogos ?? 0) ||
-        (nomeRel(a)).localeCompare(nomeRel(b))
-      )
-    })
-
-    // pega exatamente 9º..24º (índices 8..23); do 25º+ fica fora
-    const faixa = ordenada.slice(8, 24)
-    if (faixa.length !== 16) {
-      toast.error('Precisamos de 16 times entre 9º e 24º.')
-      return
-    }
-
-    const lista: TimeRow[] = shuffle(
-      faixa.map((r: any) => ({ id: r.id_time, nome: nomeRel(r), logo_url: logoRel(r) }))
-    )
-
-    // reset estado
-    setSorteioAberto(true)
-    setSorteioAtivo(true)
-    setFila(lista)
-    setPares([])
-    setParAtual({ A:null, B:null })
-    setFlipA(false); setFlipB(false)
-    setConfirmavel(false)
-
-    broadcast({
-      sorteioAtivo: true,
-      fila: lista,
-      pares: [],
-      parAtual: {A:null, B:null},
-      flipA: false, flipB: false,
-      confirmavel: false
-    })
   }
 
   /** ====== Fluxo manual ====== */
@@ -729,4 +849,3 @@ function FlipCard({ flipped, time }: { flipped: boolean; time: TimeRow | null })
     </div>
   )
 }
-
