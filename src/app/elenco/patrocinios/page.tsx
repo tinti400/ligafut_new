@@ -99,7 +99,7 @@ export default function PatrociniosPage() {
         }
         setDivisao(time.divisao)
 
-        // 2) Buscar patrocínios ativos da divisão (sem temporada)
+        // 2) Patrocínios ativos da divisão (sem temporada)
         const { data: patsRaw, error: erroPats } = await supabase
           .from('patrocinios')
           .select('id, nome, categoria, divisao, valor_fixo, beneficio, descricao_beneficio, tipo_pagamento, regra, ativo, created_at')
@@ -128,7 +128,7 @@ export default function PatrociniosPage() {
           toast.error(`Erro ao ler escolhas: ${errEscolhido.message}`)
         }
 
-        // Pré-seleção automática (maior valor por categoria) se não houver escolha salva
+        // Pré-seleção automática (top por categoria) se não houver escolha salva
         const prefillMaisCaro = () => {
           const byCat: Partial<Record<Categoria, string>> = {}
           for (const cat of ['master','fornecedor','secundario'] as Categoria[]) {
@@ -171,26 +171,39 @@ export default function PatrociniosPage() {
     setEscolhas(prev => ({ ...prev, [categoria]: id }))
   }
 
-  /* ===== Helpers de saldo: tenta várias assinaturas de RPC (não bloqueia o salvamento) ===== */
-  async function aplicarDeltaCaixa(id_time: string, delta: number) {
-    if (!delta) return { ok: true }
-    try {
-      // 1) atualizar_saldo(id_time, valor)
-      let { error } = await supabase.rpc('atualizar_saldo', { id_time, valor: delta } as any)
-      if (!error) return { ok: true }
+  /** Aplica delta direto no saldo do time (sem RPC) e retorna o saldo novo */
+  async function aplicarDeltaCaixaDireto(id_time: string, delta: number) {
+    if (!delta) return { ok: true, saldoNovo: undefined }
 
-      // 2) incrementar_saldo(id_time_param, valor_param)
-      const r2 = await supabase.rpc('incrementar_saldo', { id_time_param: id_time, valor_param: delta } as any)
-      if (!r2.error) return { ok: true }
+    // 1) lê saldo atual
+    const { data: atual, error: eSel } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', id_time)
+      .single()
 
-      // 3) incrementar_saldo(id_time, valor)
-      const r3 = await supabase.rpc('incrementar_saldo', { id_time, valor: delta } as any)
-      if (!r3.error) return { ok: true }
-
-      return { ok: false, error: error?.message || r2.error?.message || r3.error?.message || 'Erro RPC desconhecido' }
-    } catch (e: any) {
-      return { ok: false, error: e?.message || String(e) }
+    if (eSel) {
+      toast.error(`Erro lendo saldo do time: ${eSel.message}`)
+      return { ok: false, error: eSel.message }
     }
+
+    const saldoAtual = Number(atual?.saldo || 0)
+    const saldoNovo = saldoAtual + Number(delta)
+
+    // 2) atualiza saldo
+    const { data: upd, error: eUpd } = await supabase
+      .from('times')
+      .update({ saldo: saldoNovo })
+      .eq('id', id_time)
+      .select('saldo')
+      .single()
+
+    if (eUpd) {
+      toast.error(`Erro atualizando saldo: ${eUpd.message}`)
+      return { ok: false, error: eUpd.message }
+    }
+
+    return { ok: true, saldoNovo: upd?.saldo }
   }
 
   /** Busca linha existente e o total antigo (sem temporada) */
@@ -285,7 +298,9 @@ export default function PatrociniosPage() {
         return
       }
 
-      // 4) UPSERT por id_time (sem temporada!)
+      toast.success('✅ Patrocínios salvos! Aplicando ajustes de caixa…', { duration: 3000 })
+
+      // 4) UPSERT por id_time (sem temporada)
       const payload = {
         id_time: user.id_time,
         id_patrocinio_master: escolhas.master,
@@ -296,7 +311,7 @@ export default function PatrociniosPage() {
 
       const { error: upsertErr } = await supabase
         .from('patrocinios_escolhidos')
-        .upsert(payload as any, { onConflict: 'id_time' }) // <-- chave única apenas id_time
+        .upsert(payload as any, { onConflict: 'id_time' })
         .select('id')
 
       if (upsertErr) {
@@ -305,13 +320,15 @@ export default function PatrociniosPage() {
         return
       }
 
-      // 5) aplica delta no caixa (não bloqueia o sucesso)
-      const deltaResp = await aplicarDeltaCaixa(user.id_time, delta)
+      // 5) aplica delta no caixa (direto na tabela TIMES)
+      const deltaResp = await aplicarDeltaCaixaDireto(user.id_time, delta)
       if (!deltaResp.ok) {
         toast(`Patrocinadores salvos, mas delta do caixa falhou: ${deltaResp.error}`, { icon: '⚠️' })
+      } else {
+        toast.success(`💰 Caixa atualizado: ${formatarBRL(delta)} (saldo: ${formatarBRL(deltaResp.saldoNovo)})`, { duration: 6000 })
       }
 
-      // 6) logs (sem .catch encadeado – checamos o retorno!)
+      // 6) logs (movimentações e BID) — mostram erro se RLS bloquear
       {
         const { error: movErr } = await supabase.from('movimentacoes').insert({
           id_time: user.id_time,
@@ -320,7 +337,7 @@ export default function PatrociniosPage() {
           descricao: `Troca/definição de patrocinadores. Delta: ${formatarBRL(delta)}`,
           data: new Date().toISOString(),
         })
-        if (movErr) console.warn('movimentacoes.insert erro:', movErr.message)
+        if (movErr) toast.error(`Log (movimentações) falhou: ${movErr.message}`)
       }
       {
         const { error: bidErr } = await supabase.from('bid').insert({
@@ -330,7 +347,7 @@ export default function PatrociniosPage() {
           valor: delta,
           data_evento: new Date().toISOString(),
         })
-        if (bidErr) console.warn('bid.insert erro:', bidErr.message)
+        if (bidErr) toast.error(`Log (BID) falhou: ${bidErr.message}`)
       }
 
       // 7) sucesso + UI
@@ -347,7 +364,7 @@ export default function PatrociniosPage() {
         return `${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}${bonusTxt}`
       }).join('\n')
 
-      toast.success(`✅ Patrocínios salvos!\n${linhas}\nΔ no caixa: ${formatarBRL(delta)}`, { duration: 9000 })
+      toast.success(`✅ Tudo pronto!\n${linhas}\nΔ no caixa: ${formatarBRL(delta)}`, { duration: 9000 })
     } catch (e: any) {
       console.error(e)
       toast.error(`Falha ao salvar: ${e?.message || e || 'erro desconhecido'}`)
