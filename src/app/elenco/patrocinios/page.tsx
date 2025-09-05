@@ -38,7 +38,6 @@ interface Patrocinio {
 type Escolhas = Record<Categoria, string>
 
 /* ================= CONSTANTES ================= */
-const CURRENT_TEMPORADA = '2025'
 const NOVOS_NOMES = new Set([
   'GlobalBank', 'Titan Energy', 'PrimeTel',
   'SportMax', 'VictoryWear', 'ProGear',
@@ -71,6 +70,7 @@ export default function PatrociniosPage() {
   const [carregando, setCarregando] = useState(true)
   const [divisao, setDivisao] = useState<number | null>(null)
   const [patrocinios, setPatrocinios] = useState<Patrocinio[]>([])
+  const [temporada, setTemporada] = useState<string>('2025') // fallback; será substituída pelo dado do banco
   const [jaEscolheu, setJaEscolheu] = useState(false)
   const [modoTroca, setModoTroca] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -96,35 +96,71 @@ export default function PatrociniosPage() {
           .single()
 
         if (erroTime || !time) {
-          toast.error('Não foi possível carregar a divisão do time.')
+          toast.error(`Não foi possível carregar a divisão do time. ${erroTime?.message ?? ''}`)
           return
         }
         setDivisao(time.divisao)
 
-        // 2) Buscar SOMENTE os novos (ativo, temporada, nomes) e ordenar por valor_fixo
+        // 2) Buscar patrocínios ativos da divisão na temporada mais recente
+        // Primeiro detecta a 'temporada' mais nova existente para essa divisão
+        const { data: temps, error: errTemp } = await supabase
+          .from('patrocinios')
+          .select('temporada')
+          .eq('divisao', time.divisao)
+          .eq('ativo', true)
+          .not('temporada', 'is', null)
+          .order('temporada', { ascending: false })
+          .limit(1)
+
+        if (errTemp) {
+          toast.error(`Erro ao detectar temporada: ${errTemp.message}`)
+          return
+        }
+
+        const temporadaDetectada = temps?.[0]?.temporada || temporada
+        setTemporada(temporadaDetectada)
+
+        // Agora busca os patrocínios dessa temporada
         const { data: patsRaw, error: erroPats } = await supabase
           .from('patrocinios')
           .select('id, nome, categoria, divisao, valor_fixo, beneficio, descricao_beneficio, tipo_pagamento, regra, ativo, temporada, created_at')
           .eq('divisao', time.divisao)
           .eq('ativo', true)
-          .eq('temporada', CURRENT_TEMPORADA)
+          .eq('temporada', temporadaDetectada)
           .order('valor_fixo', { ascending: false })
 
         if (erroPats) {
-          toast.error('Erro ao carregar patrocínios.')
+          toast.error(`Erro ao carregar patrocínios: ${erroPats.message}`)
           return
         }
 
-        const pats = (patsRaw || []).filter(p => NOVOS_NOMES.has(p.nome))
+        // Filtro por nomes novos, mas com fallback se esvaziar
+        let pats = (patsRaw || []).filter(p => NOVOS_NOMES.has(p.nome))
+        if (pats.length === 0) pats = patsRaw || []
+
         setPatrocinios(pats as Patrocinio[])
 
-        // 4) Já escolheu nesta temporada?
-        const { data: escolhido } = await supabase
+        // Pré-seleção automática (maior valor por categoria) se ainda não houver escolha salva
+        function prefillMaisCaroPorCategoria(lista: Patrocinio[]) {
+          const byCat: Partial<Record<Categoria, string>> = {}
+          for (const cat of ['master','fornecedor','secundario'] as Categoria[]) {
+            const top = [...lista].filter(p => p.categoria === cat).sort((a, b) => (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0))[0]
+            if (top) byCat[cat] = top.id
+          }
+          return byCat
+        }
+
+        // 3) Já escolheu nesta temporada?
+        const { data: escolhido, error: errEscolhido } = await supabase
           .from('patrocinios_escolhidos')
           .select('id, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada, updated_at')
           .eq('id_time', user.id_time)
-          .eq('temporada', CURRENT_TEMPORADA)
+          .eq('temporada', temporadaDetectada)
           .maybeSingle()
+
+        if (errEscolhido) {
+          toast.error(`Erro ao ler escolhas: ${errEscolhido.message}`)
+        }
 
         if (escolhido) {
           setJaEscolheu(true)
@@ -133,7 +169,12 @@ export default function PatrociniosPage() {
             fornecedor: escolhido.id_patrocinio_fornecedor || '',
             secundario: escolhido.id_patrocinio_secundario || ''
           })
+        } else {
+          // se não há escolha salva, marcamos os top de cada categoria
+          const pref = prefillMaisCaroPorCategoria(pats)
+          setEscolhas(prev => ({ ...prev, ...pref }))
         }
+
       } finally {
         setCarregando(false)
       }
@@ -152,45 +193,43 @@ export default function PatrociniosPage() {
   )
 
   function selecionar(categoria: Categoria, id: string) {
-    if (jaEscolheu && !modoTroca) return // bloqueia clique até ativar modoTroca
+    if (jaEscolheu && !modoTroca) return
     setEscolhas(prev => ({ ...prev, [categoria]: id }))
   }
 
-  /* ===== Helpers de saldo: tenta várias assinaturas de RPC ===== */
+  /* ===== Helpers de saldo: tenta várias assinaturas de RPC (não bloqueia o salvamento) ===== */
   async function aplicarDeltaCaixa(id_time: string, delta: number) {
-    if (!delta) return
-    // 1) atualizar_saldo(id_time, valor)
-    let { error } = await supabase.rpc('atualizar_saldo', { id_time, valor: delta } as any)
-    if (!error) return
-    // 2) incrementar_saldo(id_time_param, valor_param)
-    const r2 = await supabase.rpc('incrementar_saldo', { id_time_param: id_time, valor_param: delta } as any)
-    if (!r2.error) return
-    // 3) incrementar_saldo(id_time, valor)
-    const r3 = await supabase.rpc('incrementar_saldo', { id_time, valor: delta } as any)
-    if (!r3.error) return
-    throw (error || r2.error || r3.error)
+    if (!delta) return { ok: true }
+    try {
+      // 1) atualizar_saldo(id_time, valor)
+      let { error } = await supabase.rpc('atualizar_saldo', { id_time, valor: delta } as any)
+      if (!error) return { ok: true }
+
+      // 2) incrementar_saldo(id_time_param, valor_param)
+      const r2 = await supabase.rpc('incrementar_saldo', { id_time_param: id_time, valor_param: delta } as any)
+      if (!r2.error) return { ok: true }
+
+      // 3) incrementar_saldo(id_time, valor)
+      const r3 = await supabase.rpc('incrementar_saldo', { id_time, valor: delta } as any)
+      if (!r3.error) return { ok: true }
+
+      return { ok: false, error: error?.message || r2.error?.message || r3.error?.message || 'Erro RPC desconhecido' }
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) }
+    }
   }
 
   /** Busca linha existente e o total antigo */
-  async function buscarLinhaEAntigo(id_time: string) {
-    // tenta temporada
-    const { data: rowT } = await supabase
+  async function buscarLinhaEAntigo(id_time: string, temp: string) {
+    const { data: row, error } = await supabase
       .from('patrocinios_escolhidos')
       .select('id, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada')
       .eq('id_time', id_time)
-      .eq('temporada', CURRENT_TEMPORADA)
+      .eq('temporada', temp)
       .maybeSingle()
 
-    let row: any = rowT
-
-    // fallback legado (sem temporada)
-    if (!row) {
-      const { data: rowL } = await supabase
-        .from('patrocinios_escolhidos')
-        .select('id, id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario, temporada')
-        .eq('id_time', id_time)
-        .maybeSingle()
-      row = rowL
+    if (error) {
+      toast.error(`Erro lendo linha existente: ${error.message}`)
     }
 
     const idsAntigos = [
@@ -201,10 +240,14 @@ export default function PatrociniosPage() {
 
     let totalAntigo = 0
     if (idsAntigos.length) {
-      const { data: patsAnt } = await supabase
+      const { data: patsAnt, error: eAnt } = await supabase
         .from('patrocinios')
         .select('id, valor_fixo')
         .in('id', idsAntigos)
+
+      if (eAnt) {
+        toast.error(`Erro lendo valores antigos: ${eAnt.message}`)
+      }
       totalAntigo = (patsAnt ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
     }
 
@@ -216,24 +259,37 @@ export default function PatrociniosPage() {
       toast.error('Usuário não identificado.')
       return
     }
+
+    // Garante que há 1 por categoria (se pré-seleção falhar)
     for (const cat of ['master','fornecedor','secundario'] as Categoria[]) {
       if (!escolhas[cat]) {
-        toast.error(`Selecione um patrocinador para "${cat}".`)
-        return
+        // tenta pegar o top da categoria agora
+        const top = [...patrocinios].filter(p => p.categoria === cat).sort((a,b) => (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0))[0]
+        if (top) {
+          escolhas[cat] = top.id
+        } else {
+          toast.error(`Sem opções disponíveis para "${cat}".`)
+          return
+        }
       }
     }
 
     setIsSaving(true)
     try {
       // 1) linha existente + total antigo
-      const { row, totalAntigo } = await buscarLinhaEAntigo(user.id_time)
+      const { row, totalAntigo } = await buscarLinhaEAntigo(user.id_time, temporada)
 
       // 2) total novo + dados pra confirmação
       const idsNovos = [escolhas.master, escolhas.fornecedor, escolhas.secundario]
-      const { data: patsNov } = await supabase
+      const { data: patsNov, error: eNov } = await supabase
         .from('patrocinios')
         .select('id, nome, categoria, valor_fixo, regra')
         .in('id', idsNovos)
+
+      if (eNov) {
+        toast.error(`Erro lendo seleções: ${eNov.message}`)
+        return
+      }
 
       const totalNovo = (patsNov ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
       const delta = (totalNovo - totalAntigo) || 0
@@ -247,7 +303,7 @@ export default function PatrociniosPage() {
         return
       }
 
-      // 3) mensagem de confirmação
+      // 3) confirmação
       const linhasResumo = (patsNov ?? []).map(p => `• ${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}`).join('\n')
       const msg =
         `Confirmar estes patrocínios?\n\n${linhasResumo}\n\n` +
@@ -262,55 +318,57 @@ export default function PatrociniosPage() {
         return
       }
 
-      // 4) write: UPDATE se existe linha; senão INSERT
+      // 4) UPSERT (requer unique (id_time, temporada))
       const payload = {
         id_time: user.id_time,
         id_patrocinio_master: escolhas.master,
         id_patrocinio_fornecedor: escolhas.fornecedor,
         id_patrocinio_secundario: escolhas.secundario,
-        temporada: CURRENT_TEMPORADA,
+        temporada,
         updated_at: new Date().toISOString(),
       }
 
-      if (row?.id) {
-        const { error: upErr } = await supabase
-          .from('patrocinios_escolhidos')
-          .update(payload as any)
-          .eq('id', row.id)
-        if (upErr) throw upErr
-      } else {
-        const { error: insErr } = await supabase
-          .from('patrocinios_escolhidos')
-          .insert(payload as any)
-        if (insErr) throw insErr
+      const { error: upsertErr } = await supabase
+        .from('patrocinios_escolhidos')
+        .upsert(payload as any, { onConflict: 'id_time,temporada' }) // <— chave única
+        .select('id') // força retorno/erro claro
+
+      if (upsertErr) {
+        toast.error(`Erro salvando escolhas (RLS/constraint?): ${upsertErr.message}`)
+        setIsSaving(false)
+        return
       }
 
-      // 5) aplica delta no caixa
-      await aplicarDeltaCaixa(user.id_time, delta)
+      // 5) aplica delta no caixa (não bloqueia o sucesso)
+      const deltaResp = await aplicarDeltaCaixa(user.id_time, delta)
+      if (!deltaResp.ok) {
+        toast(`Patrocinadores salvos, mas delta do caixa falhou: ${deltaResp.error}`, { icon: '⚠️' })
+      }
 
-      // 6) logs
+      // 6) logs (tenta; não bloqueia)
       const now = new Date().toISOString()
       await supabase.from('movimentacoes').insert({
         id_time: user.id_time,
         tipo: 'troca_patrocinio',
         valor: delta,
-        descricao: `Troca/definição de patrocinadores (${CURRENT_TEMPORADA}). Delta: ${formatarBRL(delta)}`,
+        descricao: `Troca/definição de patrocinadores (${temporada}). Delta: ${formatarBRL(delta)}`,
         data: now,
-      })
+      }).catch(() => {})
+
       await supabase.from('bid').insert({
         tipo_evento: 'patrocinio_troca',
-        descricao: `Troca/definição de patrocinadores (${CURRENT_TEMPORADA}). Delta: ${formatarBRL(delta)}`,
+        descricao: `Troca/definição de patrocinadores (${temporada}). Delta: ${formatarBRL(delta)}`,
         id_time1: user.id_time,
         valor: delta,
         data_evento: now,
-      })
+      }).catch(() => {})
 
       // 7) sucesso + UI
       setJaEscolheu(true)
       setModoTroca(false)
 
-      const linhas = (patsNov ?? []).map(p => {
-        const r = (p as any).regra || {}
+      const linhas = (patsNov ?? []).map((p: any) => {
+        const r = (p.regra || {}) as RegraDesempenho
         const partes: string[] = []
         if (r.por_vitoria) partes.push(`Vitória ${formatarBRL(r.por_vitoria)}`)
         if (r.por_gol) partes.push(`Gol ${formatarBRL(r.por_gol)}`)
@@ -322,7 +380,7 @@ export default function PatrociniosPage() {
       toast.success(`✅ Patrocínios salvos!\n${linhas}\nΔ no caixa: ${formatarBRL(delta)}`, { duration: 9000 })
     } catch (e: any) {
       console.error(e)
-      toast.error(`Não foi possível salvar os patrocínios: ${e?.message || e || 'erro desconhecido'}`)
+      toast.error(`Falha ao salvar: ${e?.message || e || 'erro desconhecido'}`)
     } finally {
       setIsSaving(false)
     }
@@ -344,7 +402,7 @@ export default function PatrociniosPage() {
                 💼 Patrocínios da Temporada
               </h1>
               <p className="mt-1 text-zinc-300">
-                Temporada <b className="text-white">{CURRENT_TEMPORADA}</b> • Selecione <b className="text-white">1 Master</b>, <b className="text-white">1 Material</b> e <b className="text-white">1 Secundário</b>.
+                Temporada <b className="text-white">{temporada}</b> • Selecione <b className="text-white">1 Master</b>, <b className="text-white">1 Material</b> e <b className="text-white">1 Secundário</b>.
               </p>
             </div>
             <div className="flex items-end gap-2">
@@ -487,9 +545,9 @@ export default function PatrociniosPage() {
 
           {!carregando && patrocinios.length === 0 && (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 text-center text-zinc-300">
-              Nenhum patrocínio ativo para a temporada {CURRENT_TEMPORADA} nesta divisão.
+              Nenhum patrocínio ativo para a temporada {temporada} nesta divisão.
               <div className="text-zinc-400 text-sm mt-1">
-                Verifique se o script SQL marcou <b>ativo = true</b> e <b>temporada = '{CURRENT_TEMPORADA}'</b> para os 9 patrocinadores.
+                Verifique se os registros têm <b>ativo = true</b> e <b>temporada</b> preenchida.
               </div>
             </div>
           )}
