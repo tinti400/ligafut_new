@@ -36,6 +36,15 @@ interface Patrocinio {
 
 type Escolhas = Record<Categoria, string>
 
+type TimesRow = {
+  id: string
+  divisao: number
+  saldo: number | null
+  patrocinio_master_id: string | null
+  patrocinio_fornecedor_id: string | null
+  patrocinio_secundario_id: string | null
+}
+
 /* ================= CONSTANTES ================= */
 const NOVOS_NOMES = new Set([
   'GlobalBank', 'Titan Energy', 'PrimeTel',
@@ -74,6 +83,9 @@ export default function PatrociniosPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [escolhas, setEscolhas] = useState<Escolhas>({ master: '', fornecedor: '', secundario: '' })
 
+  // Mantemos em memória o que está no times para calcular delta
+  const [timesRow, setTimesRow] = useState<TimesRow | null>(null)
+
   const user = typeof window !== 'undefined'
     ? JSON.parse(localStorage.getItem('user') || '{}')
     : {}
@@ -86,61 +98,56 @@ export default function PatrociniosPage() {
           return
         }
 
-        // 1) Divisão do time
-        const { data: time, error: erroTime } = await supabase
+        // 1) Ler linha do time (divisão, saldo e patrocinadores atuais)
+        const { data: trow, error: tErr } = await supabase
           .from('times')
-          .select('divisao')
+          .select('id, divisao, saldo, patrocinio_master_id, patrocinio_fornecedor_id, patrocinio_secundario_id')
           .eq('id', user.id_time)
           .single()
-        if (erroTime || !time) {
-          toast.error(`Não foi possível carregar a divisão do time. ${erroTime?.message ?? ''}`)
+
+        if (tErr || !trow) {
+          toast.error(`Não foi possível carregar dados do time. ${tErr?.message ?? ''}`)
           return
         }
-        setDivisao(time.divisao)
+        setTimesRow(trow as TimesRow)
+        setDivisao(trow.divisao)
 
-        // 2) Patrocínios ativos da divisão (sem temporada)
-        const { data: patsRaw, error: erroPats } = await supabase
+        // 2) Patrocínios ativos da divisão
+        const { data: patsRaw, error: pErr } = await supabase
           .from('patrocinios')
           .select('id, nome, categoria, divisao, valor_fixo, beneficio, descricao_beneficio, tipo_pagamento, regra, ativo, created_at')
-          .eq('divisao', time.divisao)
+          .eq('divisao', trow.divisao)
           .eq('ativo', true)
           .order('valor_fixo', { ascending: false })
-        if (erroPats) {
-          toast.error(`Erro ao carregar patrocínios: ${erroPats.message}`)
+
+        if (pErr) {
+          toast.error(`Erro ao carregar patrocínios: ${pErr.message}`)
           return
         }
 
-        // Filtro por nomes novos, com fallback
         let pats = (patsRaw || []).filter(p => NOVOS_NOMES.has(p.nome))
         if (pats.length === 0) pats = patsRaw || []
         setPatrocinios(pats as Patrocinio[])
 
-        // 3) Já escolheu? (sem temporada)
-        const { data: escolhido, error: errEscolhido } = await supabase
-          .from('patrocinios_escolhidos')
-          .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
-          .eq('id_time', user.id_time)
-          .maybeSingle()
-        if (errEscolhido) toast.error(`Erro ao ler escolhas: ${errEscolhido.message}`)
+        // 3) Preencher UI com o que já está no times (ou pré-selecionar top)
+        const jaTem = !!(trow.patrocinio_master_id || trow.patrocinio_fornecedor_id || trow.patrocinio_secundario_id)
+        setJaEscolheu(jaTem)
 
-        // Pré-seleção automática (top por categoria) se não houver escolha salva
-        const prefillMaisCaro = () => {
-          const byCat: Partial<Record<Categoria, string>> = {}
-          for (const cat of ['master','fornecedor','secundario'] as Categoria[]) {
-            const top = [...pats].filter(p => p.categoria === cat).sort((a,b) => (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0))[0]
-            if (top) byCat[cat] = top.id
-          }
-          return byCat
-        }
-
-        if (escolhido) {
-          setJaEscolheu(true)
+        if (jaTem) {
           setEscolhas({
-            master: escolhido.id_patrocinio_master || '',
-            fornecedor: escolhido.id_patrocinio_fornecedor || '',
-            secundario: escolhido.id_patrocinio_secundario || ''
+            master: trow.patrocinio_master_id ?? '',
+            fornecedor: trow.patrocinio_fornecedor_id ?? '',
+            secundario: trow.patrocinio_secundario_id ?? '',
           })
         } else {
+          const prefillMaisCaro = (): Partial<Escolhas> => {
+            const byCat: Partial<Escolhas> = {}
+            ;(['master','fornecedor','secundario'] as Categoria[]).forEach(cat => {
+              const top = [...pats].filter(p => p.categoria === cat).sort((a,b)=> (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0))[0]
+              if (top) (byCat as any)[cat] = top.id
+            })
+            return byCat
+          }
           setEscolhas(prev => ({ ...prev, ...prefillMaisCaro() }))
         }
       } finally {
@@ -165,65 +172,28 @@ export default function PatrociniosPage() {
     setEscolhas(prev => ({ ...prev, [categoria]: id }))
   }
 
-  /** Lê e atualiza public.times.saldo diretamente */
-  async function aplicarDeltaCaixaDireto(id_time: string, delta: number) {
-    if (!delta) return { ok: true, saldoNovo: undefined }
-
-    // Lê saldo atual
-    const { data: atual, error: eSel } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', id_time)
-      .single()
-    if (eSel) {
-      toast.error(`Erro lendo saldo do time: ${eSel.message}`)
-      return { ok: false, error: eSel.message }
-    }
-
-    const saldoAtual = Number(atual?.saldo || 0)
-    const saldoNovo = saldoAtual + Number(delta)
-
-    // Atualiza saldo
-    const { data: upd, error: eUpd } = await supabase
-      .from('times')
-      .update({ saldo: saldoNovo })
-      .eq('id', id_time)
-      .select('saldo')
-      .single()
-    if (eUpd) {
-      toast.error(`Erro atualizando saldo: ${eUpd.message}`)
-      return { ok: false, error: eUpd.message }
-    }
-
-    return { ok: true, saldoNovo: upd?.saldo }
-  }
-
-  /** Busca linha existente e soma antiga (sem temporada) */
-  async function buscarLinhaEAntigo(id_time: string) {
-    const { data: row, error } = await supabase
-      .from('patrocinios_escolhidos')
-      .select('id_patrocinio_master, id_patrocinio_fornecedor, id_patrocinio_secundario')
-      .eq('id_time', id_time)
-      .maybeSingle()
-    if (error) toast.error(`Erro lendo linha existente: ${error.message}`)
-
+  /** Calcula delta baseado no que já está no times.* */
+  async function calcularDelta(totalNovo: number) {
     const idsAntigos = [
-      row?.id_patrocinio_master,
-      row?.id_patrocinio_fornecedor,
-      row?.id_patrocinio_secundario,
+      timesRow?.patrocinio_master_id,
+      timesRow?.patrocinio_fornecedor_id,
+      timesRow?.patrocinio_secundario_id,
     ].filter(Boolean) as string[]
 
-    let totalAntigo = 0
-    if (idsAntigos.length) {
-      const { data: patsAnt, error: eAnt } = await supabase
-        .from('patrocinios')
-        .select('id, valor_fixo')
-        .in('id', idsAntigos)
-      if (eAnt) toast.error(`Erro lendo valores antigos: ${eAnt.message}`)
-      totalAntigo = (patsAnt ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
+    if (!idsAntigos.length) return totalNovo
+
+    const { data: patsAnt, error: eAnt } = await supabase
+      .from('patrocinios')
+      .select('id, valor_fixo')
+      .in('id', idsAntigos)
+
+    if (eAnt) {
+      toast.error(`Erro lendo valores antigos: ${eAnt.message}`)
+      return totalNovo // fallback
     }
 
-    return { totalAntigo }
+    const totalAntigo = (patsAnt ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
+    return totalNovo - totalAntigo
   }
 
   async function salvar() {
@@ -232,118 +202,102 @@ export default function PatrociniosPage() {
       return
     }
 
-    // Garante 1 por categoria
+    // Garante 1 de cada categoria
     for (const cat of ['master','fornecedor','secundario'] as Categoria[]) {
       if (!escolhas[cat]) {
         const top = [...patrocinios].filter(p => p.categoria === cat).sort((a,b) => (b.valor_fixo ?? 0) - (a.valor_fixo ?? 0))[0]
         if (top) escolhas[cat] = top.id
-        else {
-          toast.error(`Sem opções disponíveis para "${cat}".`)
-          return
-        }
+        else { toast.error(`Sem opções para "${cat}".`); return }
       }
     }
 
     setIsSaving(true)
     try {
-      // 1) total antigo
-      const { totalAntigo } = await buscarLinhaEAntigo(user.id_time)
-
-      // 2) total novo
+      // Total novo
       const idsNovos = [escolhas.master, escolhas.fornecedor, escolhas.secundario]
       const { data: patsNov, error: eNov } = await supabase
         .from('patrocinios')
         .select('id, nome, categoria, valor_fixo, regra')
         .in('id', idsNovos)
-      if (eNov) {
-        toast.error(`Erro lendo seleções: ${eNov.message}`)
-        return
-      }
+      if (eNov) { toast.error(`Erro lendo seleções: ${eNov.message}`); return }
 
-      const totalNovo = (patsNov ?? []).reduce((a, b) => a + (Number(b?.valor_fixo) || 0), 0)
-      const delta = (totalNovo - totalAntigo) || 0
+      const totalNovo = (patsNov ?? []).reduce((a,b)=> a + (Number(b?.valor_fixo) || 0), 0)
+      const delta = await calcularDelta(totalNovo)
 
-      // 3) confirmação
+      // Mesma escolha? (compara com o que está no times)
+      const antigos = [
+        timesRow?.patrocinio_master_id,
+        timesRow?.patrocinio_fornecedor_id,
+        timesRow?.patrocinio_secundario_id,
+      ].filter(Boolean) as string[]
+      const antigosSet = new Set(antigos)
+      const mesma = idsNovos.every(id => antigosSet.has(id)) && antigosSet.size === idsNovos.length
+      if (mesma) { toast('Nenhuma mudança para salvar.', { icon: 'ℹ️' }); setIsSaving(false); return }
+
+      // Confirmação
       const linhasResumo = (patsNov ?? []).map(p => `• ${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}`).join('\n')
       const ok = typeof window !== 'undefined'
         ? window.confirm(`Confirmar estes patrocínios?\n\n${linhasResumo}\n\nFixo total novo: ${formatarBRL(totalNovo)}\nΔ no caixa: ${formatarBRL(delta)}`)
         : true
-      if (!ok) {
-        toast('Operação cancelada. Nada foi salvo.', { icon: '🛑' })
-        setIsSaving(false)
-        return
-      }
+      if (!ok) { toast('Operação cancelada.', { icon: '🛑' }); setIsSaving(false); return }
 
       toast.success('✅ Patrocínios salvos! Aplicando ajustes de caixa…', { duration: 3000 })
 
-      // 4) UPDATE -> INSERT (sem on_conflict)
-      const payload = {
+      // Lê saldo atual
+      const { data: trowNow, error: tSelErr } = await supabase
+        .from('times')
+        .select('saldo')
+        .eq('id', user.id_time)
+        .single()
+      if (tSelErr) { toast.error(`Erro lendo saldo: ${tSelErr.message}`); return }
+      const saldoAtual = Number(trowNow?.saldo || 0)
+      const novoSaldo = saldoAtual + Number(delta)
+
+      // UPDATE direto na tabela times (3 colunas + saldo)
+      const { error: updErr } = await supabase
+        .from('times')
+        .update({
+          patrocinio_master_id: escolhas.master,
+          patrocinio_fornecedor_id: escolhas.fornecedor,
+          patrocinio_secundario_id: escolhas.secundario,
+          saldo: novoSaldo,
+        } as any)
+        .eq('id', user.id_time)
+
+      if (updErr) { toast.error(`Erro atualizando times: ${updErr.message}`); return }
+
+      // Logs
+      const now = new Date().toISOString()
+      const { error: movErr } = await supabase.from('movimentacoes').insert({
         id_time: user.id_time,
-        id_patrocinio_master: escolhas.master,
-        id_patrocinio_fornecedor: escolhas.fornecedor,
-        id_patrocinio_secundario: escolhas.secundario,
-        updated_at: new Date().toISOString(),
-      }
+        tipo: 'troca_patrocinio',
+        valor: delta,
+        descricao: `Troca/definição de patrocinadores. Delta: ${formatarBRL(delta)}`,
+        data: now,
+      })
+      if (movErr) toast.error(`Log (movimentações) falhou: ${movErr.message}`)
 
-      // UPDATE
-      const { data: updData, error: updErr } = await supabase
-        .from('patrocinios_escolhidos')
-        .update(payload as any)
-        .eq('id_time', user.id_time)
-        .select('id')
-      if (updErr) {
-        toast.error(`Erro atualizando escolhas: ${updErr.message}`)
-        setIsSaving(false)
-        return
-      }
+      const { error: bidErr } = await supabase.from('bid').insert({
+        tipo_evento: 'patrocinio_troca',
+        descricao: `Troca/definição de patrocinadores. Delta: ${formatarBRL(delta)}`,
+        id_time1: user.id_time,
+        valor: delta,
+        data_evento: now,
+      })
+      if (bidErr) toast.error(`Log (BID) falhou: ${bidErr.message}`)
 
-      // INSERT (se não havia linha)
-      if (!updData || updData.length === 0) {
-        const { error: insErr } = await supabase
-          .from('patrocinios_escolhidos')
-          .insert(payload as any)
-          .select('id')
-        if (insErr) {
-          toast.error(`Erro inserindo escolhas: ${insErr.message}`)
-          setIsSaving(false)
-          return
-        }
-      }
-
-      // 5) aplica delta no caixa (public.times.saldo)
-      const deltaResp = await aplicarDeltaCaixaDireto(user.id_time, delta)
-      if (!deltaResp.ok) {
-        toast(`Patrocinadores salvos, mas delta do caixa falhou: ${deltaResp.error}`, { icon: '⚠️' })
-      } else {
-        toast.success(`💰 Caixa atualizado: ${formatarBRL(delta)} (saldo: ${formatarBRL(deltaResp.saldoNovo)})`, { duration: 6000 })
-      }
-
-      // 6) logs (movimentações e BID) — mostram erro se RLS/constraints bloquearem
-      {
-        const { error: movErr } = await supabase.from('movimentacoes').insert({
-          id_time: user.id_time,
-          tipo: 'troca_patrocinio',
-          valor: delta,
-          descricao: `Troca/definição de patrocinadores. Delta: ${formatarBRL(delta)}`,
-          data: new Date().toISOString(),
-        })
-        if (movErr) toast.error(`Log (movimentações) falhou: ${movErr.message}`)
-      }
-      {
-        const { error: bidErr } = await supabase.from('bid').insert({
-          tipo_evento: 'patrocinio_troca',
-          descricao: `Troca/definição de patrocinadores. Delta: ${formatarBRL(delta)}`,
-          id_time1: user.id_time,
-          valor: delta,
-          data_evento: new Date().toISOString(),
-        })
-        if (bidErr) toast.error(`Log (BID) falhou: ${bidErr.message}`)
-      }
-
-      // 7) sucesso + UI
+      // UI
+      setTimesRow(prev => prev ? ({
+        ...prev,
+        patrocinio_master_id: escolhas.master,
+        patrocinio_fornecedor_id: escolhas.fornecedor,
+        patrocinio_secundario_id: escolhas.secundario,
+        saldo: novoSaldo,
+      }) : prev)
       setJaEscolheu(true)
       setModoTroca(false)
 
+      // Toast detalhado
       const linhas = (patsNov ?? []).map((p: any) => {
         const r = (p.regra || {}) as RegraDesempenho
         const partes: string[] = []
@@ -353,8 +307,8 @@ export default function PatrociniosPage() {
         const bonusTxt = partes.length ? ` | Bônus: ${partes.join(' + ')}` : ''
         return `${p.nome} (${p.categoria}) — Fixo ${formatarBRL(p.valor_fixo)}${bonusTxt}`
       }).join('\n')
+      toast.success(`✅ Tudo pronto!\n${linhas}\nΔ no caixa: ${formatarBRL(delta)}\nSaldo: ${formatarBRL(novoSaldo)}`, { duration: 9000 })
 
-      toast.success(`✅ Tudo pronto!\n${linhas}\nΔ no caixa: ${formatarBRL(delta)}`, { duration: 9000 })
     } catch (e: any) {
       console.error(e)
       toast.error(`Falha ao salvar: ${e?.message || e || 'erro desconhecido'}`)
