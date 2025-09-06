@@ -74,6 +74,16 @@ function formatCountdown(total: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+// ===== utils auxiliares para checagem de admin (iguais ao leilao_sistema)
+const isUuid = (s: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+
+const isTrue = (v: any) =>
+  v === true || v === 1 || v === '1' ||
+  (typeof v === 'string' && ['true', 't', 'yes', 'on'].includes(v.toLowerCase()))
+
+const normalizaEmail = (s?: string | null) => (s || '').trim().toLowerCase()
+
 /* ================= PAGE ================= */
 export default function LeilaoNoEscuroPage() {
   const [leilao, setLeilao] = useState<LeilaoEscuro | null>(null)
@@ -83,16 +93,112 @@ export default function LeilaoNoEscuroPage() {
 
   const [idTime, setIdTime] = useState<string | null>(null)
   const [nomeTime, setNomeTime] = useState<string | null>(null)
+
+  // Admin
   const [isAdmin, setIsAdmin] = useState(false)
 
   // URL assinada da imagem real (só quando liberar)
   const [imgReveladaUrl, setImgReveladaUrl] = useState<string | null>(null)
 
   useEffect(() => {
-    setIdTime(localStorage.getItem('id_time'))
-    setNomeTime(localStorage.getItem('nome_time'))
-    setIsAdmin(localStorage.getItem('is_admin') === 'true')
+    setIdTime(localStorage.getItem('id_time') || localStorage.getItem('idTime') || localStorage.getItem('time_id'))
+    setNomeTime(localStorage.getItem('nome_time') || localStorage.getItem('nomeTime') || localStorage.getItem('time_nome'))
   }, [])
+
+  // ===== admin (idêntico ao leilao_sistema)
+  useEffect(() => {
+    let cancelled = false
+
+    async function resolveIsAdmin() {
+      // a) forçar admin por ENV/URL (útil pra debug)
+      if (process.env.NEXT_PUBLIC_FORCE_ADMIN === '1') {
+        if (!cancelled) setIsAdmin(true)
+        return
+      }
+      try {
+        const url = new URL(window.location.href)
+        if (url.searchParams.get('force_admin') === '1') {
+          if (!cancelled) setIsAdmin(true)
+          return
+        }
+      } catch {}
+
+      // b) checar sessão do Supabase (roles/metas)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const u = session?.user
+        if (u && !cancelled) {
+          const roles = ([] as string[]).concat(
+            (u.app_metadata?.roles as any) || [],
+            (u.user_metadata?.roles as any) || []
+          ).map(String).map(s => s.toLowerCase())
+          const roleStr = String(u.app_metadata?.role || u.user_metadata?.role || '').toLowerCase()
+          const metaFlag = isTrue(u.user_metadata?.is_admin) || isTrue(u.app_metadata?.is_admin)
+          if (roleStr === 'admin' || roles.includes('admin') || metaFlag) {
+            setIsAdmin(true)
+            return
+          }
+        }
+      } catch {}
+
+      // c) checar tabela times (campo is_admin/admin/role) pelo idTime
+      try {
+        if (idTime && isUuid(idTime) && !cancelled) {
+          const { data } = await supabase
+            .from('times')
+            .select('is_admin, admin, role')
+            .eq('id', idTime)
+            .maybeSingle()
+          const roleStr = String(data?.role || '').toLowerCase()
+          if (isTrue(data?.is_admin) || isTrue(data?.admin) || roleStr === 'admin') {
+            setIsAdmin(true)
+            return
+          }
+        }
+      } catch {}
+
+      // d) checar tabela admins por e-mail (auth/localStorage/URL)
+      try {
+        const { data: userData } = await supabase.auth.getUser()
+        const emailAuth = normalizaEmail(userData?.user?.email)
+        const emailLS1 = normalizaEmail(localStorage.getItem('email'))
+        const emailLS2 = normalizaEmail(localStorage.getItem('Email'))
+
+        let emailObj = ''
+        try {
+          const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
+          if (raw) {
+            const obj = JSON.parse(raw)
+            emailObj = normalizaEmail(obj?.email || obj?.Email || obj?.e_mail)
+          }
+        } catch {}
+
+        let emailURL = ''
+        try {
+          emailURL = normalizaEmail(new URL(window.location.href).searchParams.get('email'))
+        } catch {}
+
+        const email = emailAuth || emailLS1 || emailLS2 || emailObj || emailURL
+        if (email) {
+          localStorage.setItem('email', email)
+          const { data, error } = await supabase
+            .from('admins')
+            .select('email')
+            .ilike('email', email)
+            .maybeSingle()
+          if (!cancelled && !error && data) {
+            setIsAdmin(true)
+            return
+          }
+        }
+      } catch {}
+
+      if (!cancelled) setIsAdmin(false)
+    }
+
+    resolveIsAdmin()
+    return () => { cancelled = true }
+  }, [idTime])
 
   // Buscar leilão ativo (o mais recente)
   useEffect(() => {
@@ -236,7 +342,7 @@ export default function LeilaoNoEscuroPage() {
     else toast.success('Leilão cancelado')
   }
 
-  // ➕ NOVO: Finalizar & Arquivar em "leiloes_finalizados"
+  // Finalizar & Arquivar em "leiloes_finalizados"
   async function finalizarEArquivar() {
     if (!leilao || !isAdmin) return
     const ok = confirm('Finalizar este leilão e enviar para Leilões Finalizados?')
@@ -244,52 +350,38 @@ export default function LeilaoNoEscuroPage() {
 
     const agora = new Date().toISOString()
 
-    // 1) Tentar inserir o resumo no "leiloes_finalizados"
-    //    (se a tabela não existir, o update abaixo ainda marcará como leiloado)
+    // 1) Insere resumo no "leiloes_finalizados" (se existir)
     const resumo = {
-      tipo: 'escuro',                          // para diferenciar no painel
+      tipo: 'escuro',
       id_leilao_origem: leilao.id,
       finalizado_em: agora,
       criado_em: leilao.criado_em,
       fim_original: leilao.fim,
-
       valor_final: leilao.valor_atual,
       id_time_vencedor: leilao.id_time_vencedor,
       nome_time_vencedor: leilao.nome_time_vencedor,
-
-      // atributos revelados
       nacionalidade: leilao.nacionalidade,
       posicao: leilao.posicao,
       overall: leilao.overall,
       velocidade: leilao.velocidade,
       finalizacao: leilao.finalizacao,
       cabeceio: leilao.cabeceio,
-
-      // imagens
       silhueta_url: leilao.silhueta_url,
       imagem_path_privada: leilao.imagem_path_privada,
     } as const
 
-    try {
-      await supabase.from('leiloes_finalizados').insert(resumo as any)
-    } catch {
-      // se der erro aqui (ex.: tabela não existe), seguimos para o update do status
-    }
+    try { await supabase.from('leiloes_finalizados').insert(resumo as any) } catch {}
 
-    // 2) Marcar como leiloado
+    // 2) Marca como leiloado
     const { error: upErr } = await supabase
       .from('leiloes_escuros')
       .update({ status: 'leiloado' })
       .eq('id', leilao.id)
       .in('status', ['ativo'])
 
-    if (upErr) {
-      toast.error('Falha ao finalizar')
-      return
-    }
+    if (upErr) { toast.error('Falha ao finalizar'); return }
 
     toast.success('Leilão finalizado e arquivado!')
-    // 3) Opcional: navegar para a lista de finalizados
     window.location.href = '/admin/leiloes_finalizados'
   }
 
@@ -301,12 +393,23 @@ export default function LeilaoNoEscuroPage() {
         <header className="flex items-center justify-between mb-4">
           <h1 className="text-2xl md:text-3xl font-bold">🕵️‍♂️ Leilão no Escuro</h1>
 
-          <div className="text-sm opacity-80">
-            {idTime ? (
-              <span>Time: <b>{nomeTime}</b></span>
-            ) : (
-              <span className="italic">Faça login / selecione seu time</span>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={finalizarEArquivar}
+                className="px-3 py-2 rounded-lg font-semibold bg-emerald-700 hover:bg-emerald-800"
+                title="Marca como leiloado e envia para Leilões Finalizados"
+              >
+                Finalizar & Arquivar
+              </button>
             )}
+            <div className="text-sm opacity-80">
+              {idTime ? (
+                <span>Time: <b>{nomeTime}</b></span>
+              ) : (
+                <span className="italic">Faça login / selecione seu time</span>
+              )}
+            </div>
           </div>
         </header>
 
@@ -457,9 +560,15 @@ export default function LeilaoNoEscuroPage() {
                   +{fmtBRL(10 * INCREMENTO_MINIMO)}
                 </button>
 
-                {/* Admin actions */}
                 {isAdmin && (
                   <>
+                    <button
+                      onClick={finalizarEArquivar}
+                      className="px-4 py-2 rounded-xl font-semibold bg-emerald-700 hover:bg-emerald-800"
+                      title="Marca como leiloado e envia para Leilões Finalizados"
+                    >
+                      Finalizar & Arquivar
+                    </button>
                     <button
                       onClick={encerrarLeilao}
                       className="px-4 py-2 rounded-xl font-semibold bg-amber-600 hover:bg-amber-700"
@@ -471,13 +580,6 @@ export default function LeilaoNoEscuroPage() {
                       className="px-4 py-2 rounded-xl font-semibold bg-red-600 hover:bg-red-700"
                     >
                       Cancelar
-                    </button>
-                    <button
-                      onClick={finalizarEArquivar}
-                      className="px-4 py-2 rounded-xl font-semibold bg-emerald-700 hover:bg-emerald-800"
-                      title="Marca como leiloado e envia para Leilões Finalizados"
-                    >
-                      Finalizar & Arquivar
                     </button>
                   </>
                 )}
