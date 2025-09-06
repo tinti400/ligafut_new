@@ -352,6 +352,10 @@ export default function Sidebar() {
               />
               <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
               <CollapsedItem href="/copa/final" label="Final" emoji="🏅" />
+
+              {/* Admin & Leilões (atalhos diretos) */}
+              <CollapsedItem href="/admin/leilao_sistema" label="Leilão Sistema" emoji="⚙️" />
+              <CollapsedItem href="/admin/leilao_escuro" label="Leilão Escuro" emoji="🕶️" />
               <CollapsedItem href="/admin" label="Administração" emoji="🗂️" />
             </div>
           ) : (
@@ -439,6 +443,7 @@ export default function Sidebar() {
                 {abrirLeilao && (
                   <div className="ml-3 mt-1 space-y-1 text-sm">
                     <NavLink href="/admin/leilao_sistema">⚙️ Leilão Sistema</NavLink>
+                    <NavLink href="/admin/leilao_escuro">🕶️ Leilão Escuro</NavLink>
                   </div>
                 )}
               </div>
