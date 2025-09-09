@@ -298,7 +298,8 @@ export default function PlayoffPage() {
     const msg = (temPlacar ? '⚠️ Existem jogos com placar lançado.\n\n' : '') + 'Tem certeza que deseja APAGAR todos os confrontos?'
     if (!confirm(msg)) return
 
-    const { error } = await supabase.from('copa_playoff').delete().neq('id', 0)
+    // id pode ser uuid; use um critério garantido
+    const { error } = await supabase.from('copa_playoff').delete().gte('ordem', 0)
     if (error) {
       toast.error('Erro ao apagar confrontos')
       return
@@ -435,7 +436,8 @@ export default function PlayoffPage() {
           gols_time1: null, gols_time2: null
         })
       }
-      const { error: delErr } = await supabase.from('copa_playoff').delete().neq('id', 0)
+      // apaga tudo de forma segura
+      const { error: delErr } = await supabase.from('copa_playoff').delete().gte('ordem', 0)
       if (delErr) throw delErr
       const { error: insErr } = await supabase.from('copa_playoff').insert(novos)
       if (insErr) throw insErr
@@ -478,8 +480,9 @@ export default function PlayoffPage() {
       const agoraDef = jogo.gols_time1 != null && jogo.gols_time2 != null
       if (!antesDef && agoraDef && jogo.gols_time1 !== jogo.gols_time2) {
         const vencedorId = jogo.gols_time1! > jogo.gols_time2! ? jogo.id_time1 : jogo.id_time2
-        const { error: rpcErr } = await supabase.rpc('incrementar_saldo', {
-          p_id_time: vencedorId, p_valor: 14_000_000
+        // usa a mesma RPC do restante do projeto
+        const { error: rpcErr } = await supabase.rpc('atualizar_saldo', {
+          id_time: vencedorId, valor: 14_000_000
         })
         if (rpcErr) toast.error('Erro ao pagar vitória (14M)')
         else toast.success('Vitória paga: R$ 14.000.000')
