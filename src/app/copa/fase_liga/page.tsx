@@ -44,7 +44,7 @@ type Jogo = {
   receita_visitante?: number | null
   salarios_mandante?: number | null
   salarios_visitante?: number | null
-  premiacao_mandante?: number | null
+  premiacao_mandante?: number | null // total = participação + desempenho
   premiacao_visitante?: number | null
 }
 
@@ -107,7 +107,7 @@ function atribuirPotes(times: TimeFull[]): Record<string, number> {
   return out
 }
 
-/* ===== Gerador Swiss (8 rodadas, sem BYE) ===== */
+/* ===== Gerador Swiss (8 rodadas, sem BYE) — corrigido ===== */
 type CalendarioItem = { rodada: number; casa: string; fora: string }
 function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true): CalendarioItem[] {
   const ids = participantes.map(t => t.id)
@@ -171,6 +171,7 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
 
       const b = L[0]; if (!b) { livres.delete(a); continue }
 
+      // Decide mando
       let casa = a, fora = b
       if (homeCnt[a] >= CASA_MAX && awayCnt[a] < FORA_MAX) { casa = b; fora = a }
       else if (homeCnt[b] >= CASA_MAX && awayCnt[b] < FORA_MAX) { casa = a; fora = b }
@@ -180,25 +181,28 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
         if (sBH > sAH && sAA > 0) { casa = b; fora = a }
       }
 
+      // Salva jogo
       calendario.push({ rodada, casa, fora })
       playedPairs.add(keyPair(a, b))
-      const potB = potes[b] ?? 4
-      // contadores
-      const fora = b
-      homeCnt[casa]++; awayCnt[fora]++; jogosRestantes[a]--; jogosRestantes[b]--
 
-      // ajusta necessidades por pote
-      needPot[a][potB] = Math.max(0, needPot[a][potB] - 1)
-      needPot[b][potA] = Math.max(0, needPot[b][potA] - 1)
+      // Atualiza contadores e necessidades
+      const pa = potes[a] ?? 4
+      const pb = potes[b] ?? 4
+      homeCnt[casa]++
+      awayCnt[fora]++
+      jogosRestantes[a]--
+      jogosRestantes[b]--
+      needPot[a][pb] = Math.max(0, needPot[a][pb] - 1)
+      needPot[b][pa] = Math.max(0, needPot[b][pa] - 1)
 
-      // marca como usados na rodada
+      // Remove da rodada
       livres.delete(a); livres.delete(b)
     }
   }
   return calendario
 }
 
-/* ===================== Helpers do Playoff (únicos) ===================== */
+/* ===================== Helpers do Playoff (corrigidos p/ schema) ===================== */
 type ClassRow = {
   posicao?: number | null
   id_time?: string | null
@@ -753,9 +757,8 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         return
       }
 
-      // Seeds: 9..16 (cabeças) vs 17..24 (desafiantes – embaralhados)
       const potA = faixa.slice(0, 8)                  // 9..16
-      const potB = shuffle(faixa.slice(8, 16))        // 17..24
+      const potB = shuffle(faixa.slice(8, 16))        // 17..24 (embaralha)
 
       const pares: { seedA:number; seedB:number; idA:string; idB:string; nomeA?:string|null; nomeB?:string|null }[] = []
       for (let i = 0; i < 8; i++) {
@@ -771,14 +774,14 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         })
       }
 
-      // Limpa a tabela (não tem coluna temporada)
+      // limpa tabela (não há coluna de temporada)
       const del = await supabase.from('copa_playoff').delete().neq('id', '00000000-0000-0000-0000-000000000000')
       if (del.error) {
         const del2 = await supabase.from('copa_playoff').delete().gte('ordem', 0)
         if (del2.error) throw del2.error
       }
 
-      // Insere ida (rodada 1) e volta (rodada 2)
+      // grava ida (rodada 1) e volta (rodada 2)
       const rowsInsert = pares.flatMap((p, idx) => {
         const ordem = idx + 1
         const nomeA = timesMap[p.idA]?.nome ?? p.nomeA ?? p.idA
