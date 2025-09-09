@@ -1,13 +1,3 @@
-aqui está o **arquivo completo** com o sorteio de **Playoff (9º–24º)** integrado. Eu preservei todo o que você já tinha e acrescentei:
-
-* helpers de classificação/sorteio (com embaralhamento);
-* estado/UI do playoff (checkbox “evitar mesmo país”, botão “Sortear Playoff (9–24)”, modal de confirmação);
-* persistência em `copa_playoff` (se existir) ou fallback para `copa_fase_liga` com `rodada = 9`;
-* resumo dos confrontos sorteados na própria página.
-
-> Obs.: para evitar mesmo país, durante o sorteio do playoff eu busco `associacao` diretamente na tabela `times` **apenas dos 16 clubes** envolvidos; se a coluna não existir, a regra é ignorada silenciosamente.
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1266,4 +1256,3 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     </div>
   )
 }
-```
