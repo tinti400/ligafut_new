@@ -183,17 +183,22 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
       calendario.push({ rodada, casa, fora })
       playedPairs.add(keyPair(a, b))
       const potB = potes[b] ?? 4
-      livres.delete(a); livres.delete(b)
+      // contadores
+      const fora = b
       homeCnt[casa]++; awayCnt[fora]++; jogosRestantes[a]--; jogosRestantes[b]--
 
+      // ajusta necessidades por pote
       needPot[a][potB] = Math.max(0, needPot[a][potB] - 1)
       needPot[b][potA] = Math.max(0, needPot[b][potA] - 1)
+
+      // marca como usados na rodada
+      livres.delete(a); livres.delete(b)
     }
   }
   return calendario
 }
 
-/* ===================== Helpers do Playoff (corrigidos p/ schema) ===================== */
+/* ===================== Helpers do Playoff (únicos) ===================== */
 type ClassRow = {
   posicao?: number | null
   id_time?: string | null
@@ -748,8 +753,9 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         return
       }
 
+      // Seeds: 9..16 (cabeças) vs 17..24 (desafiantes – embaralhados)
       const potA = faixa.slice(0, 8)                  // 9..16
-      const potB = shuffle(faixa.slice(8, 16))        // 17..24 (embaralha)
+      const potB = shuffle(faixa.slice(8, 16))        // 17..24
 
       const pares: { seedA:number; seedB:number; idA:string; idB:string; nomeA?:string|null; nomeB?:string|null }[] = []
       for (let i = 0; i < 8; i++) {
@@ -765,14 +771,14 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
         })
       }
 
-      // limpa tabela (não há coluna de temporada)
+      // Limpa a tabela (não tem coluna temporada)
       const del = await supabase.from('copa_playoff').delete().neq('id', '00000000-0000-0000-0000-000000000000')
       if (del.error) {
         const del2 = await supabase.from('copa_playoff').delete().gte('ordem', 0)
         if (del2.error) throw del2.error
       }
 
-      // grava ida (rodada 1) e volta (rodada 2)
+      // Insere ida (rodada 1) e volta (rodada 2)
       const rowsInsert = pares.flatMap((p, idx) => {
         const ordem = idx + 1
         const nomeA = timesMap[p.idA]?.nome ?? p.nomeA ?? p.idA
