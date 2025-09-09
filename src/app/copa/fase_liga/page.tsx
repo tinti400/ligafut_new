@@ -44,7 +44,7 @@ type Jogo = {
   receita_visitante?: number | null
   salarios_mandante?: number | null
   salarios_visitante?: number | null
-  premiacao_mandante?: number | null // total = participação + desempenho
+  premiacao_mandante?: number | null
   premiacao_visitante?: number | null
 }
 
@@ -60,15 +60,10 @@ type TimeFull = {
 }
 
 /* ================= REGRAS FINANCEIRAS (COPA — PADRÃO) ================= */
-// Participação fixa por jogo (cada time)
 const COPA_PARTICIPACAO_POR_JOGO = 10_000_000
-
-// Bônus por resultado (fixos, sem divisão)
 const COPA_VITORIA = 18_000_000
 const COPA_EMPATE  = 9_000_000
 const COPA_DERROTA = 5_000_000
-
-// Gol marcado / sofrido
 const COPA_GOL_MARCADO = 880_000
 const COPA_GOL_SOFRIDO = 160_000
 
@@ -187,52 +182,52 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
 
       calendario.push({ rodada, casa, fora })
       playedPairs.add(keyPair(a, b))
+      const potB = potes[b] ?? 4
       livres.delete(a); livres.delete(b)
       homeCnt[casa]++; awayCnt[fora]++; jogosRestantes[a]--; jogosRestantes[b]--
 
-      const pa = potes[a] ?? 4, pb = potes[b] ?? 4
-      needPot[a][pb] = Math.max(0, needPot[a][pb] - 1)
-      needPot[b][pa] = Math.max(0, needPot[b][pa] - 1)
+      needPot[a][potB] = Math.max(0, needPot[a][potB] - 1)
+      needPot[b][potA] = Math.max(0, needPot[b][potA] - 1)
     }
   }
   return calendario
 }
 
-/* ===================== Helpers do Playoff ===================== */
+/* ===================== Helpers do Playoff (corrigidos p/ schema) ===================== */
 type ClassRow = {
   posicao?: number | null
   id_time?: string | null
   time_id?: string | null
   time?: string | null
+  nome_time?: string | null
   temporada?: string | null
   pontos?: number | null
   saldo?: number | null
   vitorias?: number | null
 }
 
-async function lerClassificacaoCopa(temporada: string) {
-  // 1) tentativa: tabela com posicao
+function idFromRow(r: ClassRow): string | null {
+  return (r.id_time as any) || (r.time_id as any) || (r.time as any) || null
+}
+
+async function readClassificacaoOrdenada(temporada: string): Promise<ClassRow[]> {
   let q = supabase.from('classificacao_copa')
-    .select('posicao,id_time,time_id,time,temporada,pontos,saldo,vitorias')
-  const { data, error } = await q
+    .select('posicao,id_time,time_id,time,nome_time,temporada,pontos,saldo,vitorias')
     .eq('temporada', temporada)
     .order('posicao', { ascending: true })
-  if (!error && data && data.length) return data as ClassRow[]
+  let { data, error } = await q
+  if (!error && data?.length) return data as ClassRow[]
 
-  // 2) fallback: ordena por pontos/saldo/vitórias
   const { data: d2 } = await supabase.from('classificacao_copa')
-    .select('posicao,id_time,time_id,time,temporada,pontos,saldo,vitorias')
+    .select('posicao,id_time,time_id,time,nome_time,temporada,pontos,saldo,vitorias')
+    .eq('temporada', temporada)
     .order('pontos', { ascending: false })
     .order('saldo', { ascending: false })
     .order('vitorias', { ascending: false })
   return (d2 || []) as ClassRow[]
 }
 
-function pegaIdTimeLinha(r: ClassRow): string | null {
-  return (r.id_time as any) || (r.time_id as any) || (r.time as any) || null
-}
-
-function embaralhar<T>(arr: T[]): T[] {
+function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
@@ -543,7 +538,6 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     if (!isAdmin) return
     setSalvandoId(jogo.id)
 
-    // evita pagar 2x
     const { data: existente, error: erroVer } =
       await supabase.from('copa_fase_liga').select('bonus_pago').eq('id', jogo.id).single()
     if (erroVer) { toast.error('Erro ao verificar status do jogo'); setSalvandoId(null); return }
@@ -562,19 +556,16 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     const mandanteId = jogo.time1
     const visitanteId = jogo.time2
 
-    // público/renda pelo estádio
     const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
     if (pr.erro) toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
     const publico = pr.publico
     const renda = pr.renda
 
-    // receita 95/5
     const receitaMandante = Math.round(renda * 0.95)
     const receitaVisitante = Math.round(renda * 0.05)
     await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: receitaMandante })
     await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: receitaVisitante })
 
-    // ✅ Participação fixa da COPA (10 mi para cada time)
     await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: COPA_PARTICIPACAO_POR_JOGO })
     await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: COPA_PARTICIPACAO_POR_JOGO })
 
@@ -587,19 +578,15 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       { tipo_evento: 'bonus_participacao_copa', descricao: 'Participação fixa por jogo (COPA)', id_time1: visitanteId, valor: COPA_PARTICIPACAO_POR_JOGO, data_evento: new Date().toISOString() },
     ])
 
-    // bônus por desempenho (fixo, sem divisão)
     const premiacaoMandanteDesempenho = await premiarPorJogoCopa(mandanteId, jogo.gols_time1, jogo.gols_time2)
     const premiacaoVisitanteDesempenho = await premiarPorJogoCopa(visitanteId, jogo.gols_time2, jogo.gols_time1)
 
-    // salários (descontos após a partida)
     const salariosMandante = await descontarSalariosComRegistro(mandanteId)
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-    // totais de bônus = participação + desempenho
     const totalPremMandante = premiacaoMandanteDesempenho + COPA_PARTICIPACAO_POR_JOGO
     const totalPremVisitante = premiacaoVisitanteDesempenho + COPA_PARTICIPACAO_POR_JOGO
 
-    // BID receita total (renda + bônus)
     await supabase.from('bid').insert([
       {
         tipo_evento: 'receita_partida',
@@ -617,11 +604,9 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       },
     ])
 
-    // elenco: jogos +1
     await ajustarJogosElenco(mandanteId, +1)
     await ajustarJogosElenco(visitanteId, +1)
 
-    // persistência no jogo
     const patchBase: any = {
       gols_time1: jogo.gols_time1,
       gols_time2: jogo.gols_time2,
@@ -634,7 +619,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       receita_visitante: receitaVisitante,
       salarios_mandante: salariosMandante,
       salarios_visitante: salariosVisitante,
-      premiacao_mandante: totalPremMandante,     // total = participação + desempenho
+      premiacao_mandante: totalPremMandante,
       premiacao_visitante: totalPremVisitante,
     } : {}
 
@@ -689,7 +674,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
       const receitaVisitante = jogo.receita_visitante ?? (jogo.renda ? Math.round(jogo.renda * 0.05) : 0)
       const salariosMandante = jogo.salarios_mandante ?? await somarSalarios(mandanteId)
       const salariosVisitante = jogo.salarios_visitante ?? await somarSalarios(visitanteId)
-      const premiacaoMandante = jogo.premiacao_mandante ?? 0 // inclui participação + desempenho
+      const premiacaoMandante = jogo.premiacao_mandante ?? 0
       const premiacaoVisitante = jogo.premiacao_visitante ?? 0
 
       await Promise.all([
@@ -744,133 +729,93 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     setSalvandoId(null)
   }
 
-  /* ===================== Sorteio do PLAYOFF (9–24) ===================== */
+  /* ===================== Sorteio do PLAYOFF (9–24) — grava em public.copa_playoff ===================== */
   async function gerarPlayoff() {
     if (!isAdmin) { toast.error('Apenas admin pode sortear o playoff.'); return }
     setSorteandoPO(true)
     try {
-      // Lê classificação
-      const rows = await lerClassificacaoCopa(TEMPORADA)
-      if (!rows.length) { toast.error('Classificação indisponível.'); return }
+      await atualizarClassificacao()
 
-      // filtra 9..24 pela coluna posicao; se não tiver posicao, assume o array já ordenado e fatia
-      const temPos = rows.every(r => typeof r.posicao === 'number' && r.posicao! > 0)
-      const ordenada = temPos ? [...rows].sort((a,b)=>(a.posicao||0)-(b.posicao||0)) : [...rows]
-      const faixa = ordenada.slice(8, 24) // índices 8..23 ⇒ posições 9..24
+      const classif = await readClassificacaoOrdenada(TEMPORADA)
+      if (!classif.length) { toast.error('Classificação indisponível.'); return }
+
+      const arr = [...classif]
+      const temPos = arr.every(r => typeof r.posicao === 'number' && r.posicao! > 0)
+      const ordenada = temPos ? arr.sort((a,b)=>(a.posicao||0)-(b.posicao||0)) : arr
+      const faixa = ordenada.slice(8, 24) // 9º..24º
       if (faixa.length !== 16) {
         toast.error(`Esperava 16 equipes (9º–24º). Achei ${faixa.length}.`)
         return
       }
 
-      // ids a consultar associação
-      const ids = faixa.map(pegaIdTimeLinha).filter(Boolean) as string[]
-      const { data: timesAssoc } = await supabase
-        .from('times')
-        .select('id,associacao')
-        .in('id', ids)
+      const potA = faixa.slice(0, 8)                  // 9..16
+      const potB = shuffle(faixa.slice(8, 16))        // 17..24 (embaralha)
 
-      const assocMap = new Map<string, string | null>()
-      ;(timesAssoc || []).forEach((t:any) => assocMap.set(t.id, t.associacao ?? null))
-
-      // seeds
-      const potA = faixa.slice(0, 8)   // 9..16 (cabeças)
-      const potB = faixa.slice(8, 16)  // 17..24 (desafiantes)
-
-      const A = potA.map((r, i) => ({
-        seed: (r.posicao ?? (9 + i)),
-        id: pegaIdTimeLinha(r) as string,
-        assoc: assocMap.get(pegaIdTimeLinha(r) as string) ?? null
-      }))
-      const Bshuf = embaralhar(
-        potB.map((r, i) => ({
-          seed: (r.posicao ?? (17 + i)),
-          id: pegaIdTimeLinha(r) as string,
-          assoc: assocMap.get(pegaIdTimeLinha(r) as string) ?? null
-        }))
-      )
-
-      // pairing: 9×24, 10×23, ... tentando evitar mesmo país
-      const pares: { seedA:number; seedB:number; idA:string; idB:string }[] = []
-      const usados = new Set<number>()
-      for (let i = 0; i < A.length; i++) {
-        const a = A[i]
-        // alvo teórico (24,23,...,17)
-        const targetSeed = 24 - i
-
-        let idx = -1
-        if (evitarMesmoPaisPO) {
-          idx = Bshuf.findIndex(b => !usados.has(b.seed) && (a.assoc && b.assoc ? a.assoc !== b.assoc : true))
-        }
-        if (idx < 0) {
-          idx = Bshuf.findIndex(b => !usados.has(b.seed))
-        }
-        if (idx < 0) { toast.error('Falha ao parear playoff.'); return }
-        const b = Bshuf[idx]
-        usados.add(b.seed)
-        pares.push({ seedA: a.seed, seedB: b.seed, idA: a.id, idB: b.id })
-      }
-
-      // Tenta inserir em copa_playoff; se não existir, fallback em copa_fase_liga (rodada 9)
-      let gravados = 0
-      const agora = new Date().toISOString()
-
-      const tentativaPlayoff = await supabase
-        .from('copa_playoff')
-        .insert(
-          pares.map((p, i) => ({
-            temporada: TEMPORADA,
-            chave: i + 1, // 1..8
-            seed_melhor: p.seedA,
-            seed_pior: p.seedB,
-            time_melhor: p.idA,
-            time_pior: p.idB,
-            criado_em: agora
-          }))
-        )
-
-      if (!tentativaPlayoff.error) {
-        gravados = pares.length
-        await supabase.from('bid').insert({
-          tipo_evento: 'Sistema',
-          descricao: `Playoff sorteado (9º–24º) • ${TEMPORADA}. Gravado em "copa_playoff".`,
-          valor: null,
-          data_evento: agora
-        })
-      } else {
-        // fallback — cria como "rodada 9" na copa_fase_liga
-        const tentativaLiga = await supabase
-          .from('copa_fase_liga')
-          .insert(
-            pares.map((p) => ({
-              temporada: TEMPORADA,
-              rodada: 9,
-              time1: p.idA, // melhor seed mandante
-              time2: p.idB,
-              gols_time1: null,
-              gols_time2: null,
-              bonus_pago: false
-            }))
-          )
-
-        if (tentativaLiga.error) {
-          console.error('[Playoff] falha ao gravar:', tentativaPlayoff.error, tentativaLiga.error)
-          toast.error('Falha ao salvar o sorteio em copa_playoff e fallback em copa_fase_liga.')
-          return
-        }
-        gravados = pares.length
-        await supabase.from('bid').insert({
-          tipo_evento: 'Sistema',
-          descricao: `Playoff sorteado (9º–24º) • ${TEMPORADA}. (Fallback gravado em "copa_fase_liga", rodada 9)`,
-          valor: null,
-          data_evento: agora
+      const pares: { seedA:number; seedB:number; idA:string; idB:string; nomeA?:string|null; nomeB?:string|null }[] = []
+      for (let i = 0; i < 8; i++) {
+        const a = potA[i], b = potB[i]
+        const idA = idFromRow(a), idB = idFromRow(b)
+        if (!idA || !idB) { toast.error('ID de time ausente em alguma linha.'); return }
+        pares.push({
+          seedA: a.posicao ?? (9 + i),
+          seedB: b.posicao ?? (17 + i),
+          idA, idB,
+          nomeA: a.nome_time ?? null,
+          nomeB: b.nome_time ?? null
         })
       }
+
+      // limpa tabela (não há coluna de temporada)
+      const del = await supabase.from('copa_playoff').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (del.error) {
+        const del2 = await supabase.from('copa_playoff').delete().gte('ordem', 0)
+        if (del2.error) throw del2.error
+      }
+
+      // grava ida (rodada 1) e volta (rodada 2)
+      const rowsInsert = pares.flatMap((p, idx) => {
+        const ordem = idx + 1
+        const nomeA = timesMap[p.idA]?.nome ?? p.nomeA ?? p.idA
+        const nomeB = timesMap[p.idB]?.nome ?? p.nomeB ?? p.idB
+        return [
+          {
+            rodada: 1,
+            ordem,
+            id_time1: p.idA,
+            id_time2: p.idB,
+            time1: nomeA,
+            time2: nomeB,
+            gols_time1: null,
+            gols_time2: null,
+          },
+          {
+            rodada: 2,
+            ordem,
+            id_time1: p.idB,
+            id_time2: p.idA,
+            time1: nomeB,
+            time2: nomeA,
+            gols_time1: null,
+            gols_time2: null,
+          }
+        ]
+      })
+
+      const { error: insErr } = await supabase.from('copa_playoff').insert(rowsInsert)
+      if (insErr) throw insErr
 
       setConfrontosPO(pares)
-      toast.success(`✅ Playoff sorteado! ${gravados} confrontos.`)
+      toast.success('✅ Playoff (9º–24º) sorteado e gravado em public.copa_playoff (ida/volta)!')
 
-      // Atualiza listagem na tela (caso tenha usado fallback)
-      await buscarJogos()
+      await supabase.from('bid').insert({
+        tipo_evento: 'Sistema',
+        descricao: `Playoff sorteado (9º–24º) — gravado em public.copa_playoff (16 partidas).`,
+        valor: null,
+        data_evento: new Date().toISOString(),
+      })
+    } catch (e:any) {
+      console.error(e)
+      toast.error('Erro ao sortear/gravar o Playoff.')
     } finally {
       setSorteandoPO(false)
     }
@@ -1234,7 +1179,7 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
               Vamos pegar as equipes nas posições 9 a 24 da classificação e montar os 8 confrontos:
               cabeças de chave (9–16) x desafiantes (17–24).{' '}
               {evitarMesmoPaisPO ? 'Tentaremos evitar confrontos do mesmo país/associação.' : 'Sem restrição de país.'}
-              <br/>Confrontos serão salvos em <code>copa_playoff</code>. Se a tabela não existir, salvaremos na <code>copa_fase_liga</code> (rodada 9).
+              <br/>Confrontos serão salvos em <code>copa_playoff</code>.
             </p>
             <div className="flex items-center justify-end gap-3">
               <button
