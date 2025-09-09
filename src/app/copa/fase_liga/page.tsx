@@ -1,3 +1,13 @@
+aqui está o **arquivo completo** com o sorteio de **Playoff (9º–24º)** integrado. Eu preservei todo o que você já tinha e acrescentei:
+
+* helpers de classificação/sorteio (com embaralhamento);
+* estado/UI do playoff (checkbox “evitar mesmo país”, botão “Sortear Playoff (9–24)”, modal de confirmação);
+* persistência em `copa_playoff` (se existir) ou fallback para `copa_fase_liga` com `rodada = 9`;
+* resumo dos confrontos sorteados na própria página.
+
+> Obs.: para evitar mesmo país, durante o sorteio do playoff eu busco `associacao` diretamente na tabela `times` **apenas dos 16 clubes** envolvidos; se a coluna não existir, a regra é ignorada silenciosamente.
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -48,7 +58,7 @@ type Jogo = {
   premiacao_visitante?: number | null
 }
 
-type TimeMini = { nome: string; logo_url: string }
+type TimeMini = { nome: string; logo_url: string; associacao?: string | null }
 type TimeFull = {
   id: string
   nome: string
@@ -198,6 +208,49 @@ function gerarChampionsSwiss(participantes: TimeFull[], evitarMesmoPais = true):
   return calendario
 }
 
+/* ===================== Helpers do Playoff ===================== */
+type ClassRow = {
+  posicao?: number | null
+  id_time?: string | null
+  time_id?: string | null
+  time?: string | null
+  temporada?: string | null
+  pontos?: number | null
+  saldo?: number | null
+  vitorias?: number | null
+}
+
+async function lerClassificacaoCopa(temporada: string) {
+  // 1) tentativa: tabela com posicao
+  let q = supabase.from('classificacao_copa')
+    .select('posicao,id_time,time_id,time,temporada,pontos,saldo,vitorias')
+  const { data, error } = await q
+    .eq('temporada', temporada)
+    .order('posicao', { ascending: true })
+  if (!error && data && data.length) return data as ClassRow[]
+
+  // 2) fallback: ordena por pontos/saldo/vitórias
+  const { data: d2 } = await supabase.from('classificacao_copa')
+    .select('posicao,id_time,time_id,time,temporada,pontos,saldo,vitorias')
+    .order('pontos', { ascending: false })
+    .order('saldo', { ascending: false })
+    .order('vitorias', { ascending: false })
+  return (d2 || []) as ClassRow[]
+}
+
+function pegaIdTimeLinha(r: ClassRow): string | null {
+  return (r.id_time as any) || (r.time_id as any) || (r.time as any) || null
+}
+
+function embaralhar<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
 /* ================= BADGES / UI PRIMITIVES ================= */
 type BadgeTone = 'zinc' | 'emerald' | 'sky' | 'violet'
 const Badge: React.FC<{ tone?: BadgeTone; children: React.ReactNode }> = ({ children, tone = 'zinc' }) => {
@@ -234,6 +287,12 @@ export default function FaseLigaPage() {
   const [rodadasAbertas, setRodadasAbertas] = useState<Record<number, boolean>>({})
   const topRef = useRef<HTMLDivElement | null>(null)
 
+  // ====== Playoff (9–24)
+  const [sorteandoPO, setSorteandoPO] = useState(false)
+  const [evitarMesmoPaisPO, setEvitarMesmoPaisPO] = useState(true)
+  const [confrontosPO, setConfrontosPO] = useState<{ seedA:number; seedB:number; idA:string; idB:string }[]>([])
+  const [abrirModalPO, setAbrirModalPO] = useState(false)
+
   useEffect(() => {
     ;(async () => {
       await detectarColunaTemporada()
@@ -262,7 +321,8 @@ export default function FaseLigaPage() {
     rows.forEach((t: any) => {
       const nome = t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id)
       const logo = t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png'
-      novo[t.id] = { nome, logo_url: logo }
+      const associacao = t.associacao ?? t.pais ?? null
+      novo[t.id] = { nome, logo_url: logo, associacao }
     })
     setTimesMap(novo)
   }
@@ -415,7 +475,7 @@ export default function FaseLigaPage() {
         pote: t.pote ?? t.pot ?? null,
         overall: t.overall ?? t.rating ?? null,
         valor: t.valor ?? t.value ?? null,
-        associacao: t.associacao ?? t.pais ?? t.country ?? null,
+        associacao: t.associacao ?? t.pais ?? null,
       }))
 
       // regra custom: excluir Palmeiras do sorteio (remova se não quiser)
@@ -694,6 +754,138 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
     setSalvandoId(null)
   }
 
+  /* ===================== Sorteio do PLAYOFF (9–24) ===================== */
+  async function gerarPlayoff() {
+    if (!isAdmin) { toast.error('Apenas admin pode sortear o playoff.'); return }
+    setSorteandoPO(true)
+    try {
+      // Lê classificação
+      const rows = await lerClassificacaoCopa(TEMPORADA)
+      if (!rows.length) { toast.error('Classificação indisponível.'); return }
+
+      // filtra 9..24 pela coluna posicao; se não tiver posicao, assume o array já ordenado e fatia
+      const temPos = rows.every(r => typeof r.posicao === 'number' && r.posicao! > 0)
+      const ordenada = temPos ? [...rows].sort((a,b)=>(a.posicao||0)-(b.posicao||0)) : [...rows]
+      const faixa = ordenada.slice(8, 24) // índices 8..23 ⇒ posições 9..24
+      if (faixa.length !== 16) {
+        toast.error(`Esperava 16 equipes (9º–24º). Achei ${faixa.length}.`)
+        return
+      }
+
+      // ids a consultar associação
+      const ids = faixa.map(pegaIdTimeLinha).filter(Boolean) as string[]
+      const { data: timesAssoc } = await supabase
+        .from('times')
+        .select('id,associacao')
+        .in('id', ids)
+
+      const assocMap = new Map<string, string | null>()
+      ;(timesAssoc || []).forEach((t:any) => assocMap.set(t.id, t.associacao ?? null))
+
+      // seeds
+      const potA = faixa.slice(0, 8)   // 9..16 (cabeças)
+      const potB = faixa.slice(8, 16)  // 17..24 (desafiantes)
+
+      const A = potA.map((r, i) => ({
+        seed: (r.posicao ?? (9 + i)),
+        id: pegaIdTimeLinha(r) as string,
+        assoc: assocMap.get(pegaIdTimeLinha(r) as string) ?? null
+      }))
+      const Bshuf = embaralhar(
+        potB.map((r, i) => ({
+          seed: (r.posicao ?? (17 + i)),
+          id: pegaIdTimeLinha(r) as string,
+          assoc: assocMap.get(pegaIdTimeLinha(r) as string) ?? null
+        }))
+      )
+
+      // pairing: 9×24, 10×23, ... tentando evitar mesmo país
+      const pares: { seedA:number; seedB:number; idA:string; idB:string }[] = []
+      const usados = new Set<number>()
+      for (let i = 0; i < A.length; i++) {
+        const a = A[i]
+        // alvo teórico (24,23,...,17)
+        const targetSeed = 24 - i
+
+        let idx = -1
+        if (evitarMesmoPaisPO) {
+          idx = Bshuf.findIndex(b => !usados.has(b.seed) && (a.assoc && b.assoc ? a.assoc !== b.assoc : true))
+        }
+        if (idx < 0) {
+          idx = Bshuf.findIndex(b => !usados.has(b.seed))
+        }
+        if (idx < 0) { toast.error('Falha ao parear playoff.'); return }
+        const b = Bshuf[idx]
+        usados.add(b.seed)
+        pares.push({ seedA: a.seed, seedB: b.seed, idA: a.id, idB: b.id })
+      }
+
+      // Tenta inserir em copa_playoff; se não existir, fallback em copa_fase_liga (rodada 9)
+      let gravados = 0
+      const agora = new Date().toISOString()
+
+      const tentativaPlayoff = await supabase
+        .from('copa_playoff')
+        .insert(
+          pares.map((p, i) => ({
+            temporada: TEMPORADA,
+            chave: i + 1, // 1..8
+            seed_melhor: p.seedA,
+            seed_pior: p.seedB,
+            time_melhor: p.idA,
+            time_pior: p.idB,
+            criado_em: agora
+          }))
+        )
+
+      if (!tentativaPlayoff.error) {
+        gravados = pares.length
+        await supabase.from('bid').insert({
+          tipo_evento: 'Sistema',
+          descricao: `Playoff sorteado (9º–24º) • ${TEMPORADA}. Gravado em "copa_playoff".`,
+          valor: null,
+          data_evento: agora
+        })
+      } else {
+        // fallback — cria como "rodada 9" na copa_fase_liga
+        const tentativaLiga = await supabase
+          .from('copa_fase_liga')
+          .insert(
+            pares.map((p) => ({
+              temporada: TEMPORADA,
+              rodada: 9,
+              time1: p.idA, // melhor seed mandante
+              time2: p.idB,
+              gols_time1: null,
+              gols_time2: null,
+              bonus_pago: false
+            }))
+          )
+
+        if (tentativaLiga.error) {
+          console.error('[Playoff] falha ao gravar:', tentativaPlayoff.error, tentativaLiga.error)
+          toast.error('Falha ao salvar o sorteio em copa_playoff e fallback em copa_fase_liga.')
+          return
+        }
+        gravados = pares.length
+        await supabase.from('bid').insert({
+          tipo_evento: 'Sistema',
+          descricao: `Playoff sorteado (9º–24º) • ${TEMPORADA}. (Fallback gravado em "copa_fase_liga", rodada 9)`,
+          valor: null,
+          data_evento: agora
+        })
+      }
+
+      setConfrontosPO(pares)
+      toast.success(`✅ Playoff sorteado! ${gravados} confrontos.`)
+
+      // Atualiza listagem na tela (caso tenha usado fallback)
+      await buscarJogos()
+    } finally {
+      setSorteandoPO(false)
+    }
+  }
+
   /* ===== UI DERIVED ===== */
   const jogosFiltrados = useMemo(
     () =>
@@ -790,10 +982,11 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
           </div>
 
           {isAdmin && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Swiss */}
               <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
                 <input type="checkbox" className="accent-emerald-500" checked={evitarMesmoPais} onChange={e => setEvitarMesmoPais(e.target.checked)} />
-                <FiTarget /> Evitar mesmo país
+                <FiTarget /> Evitar mesmo país (Liga)
               </label>
               <button
                 onClick={() => setAbrirModalSwiss(true)}
@@ -803,6 +996,25 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
               >
                 <FiRotateCcw />
                 {gerando ? 'Gerando...' : 'Gerar Fase Champions'}
+              </button>
+
+              {/* Playoff */}
+              <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
+                <input
+                  type="checkbox"
+                  className="accent-emerald-500"
+                  checked={evitarMesmoPaisPO}
+                  onChange={e => setEvitarMesmoPaisPO(e.target.checked)}
+                />
+                <FiTarget /> Evitar mesmo país (PO)
+              </label>
+              <button
+                onClick={() => setAbrirModalPO(true)}
+                disabled={sorteandoPO}
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-amber-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+                title="Sorteia confrontos 9º–24º"
+              >
+                {sorteandoPO ? 'Sorteando…' : 'Sortear Playoff (9–24)'}
               </button>
             </div>
           )}
@@ -979,9 +1191,27 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
             </section>
           ))
         )}
+
+        {/* Resumo dos confrontos do Playoff sorteados agora */}
+        {confrontosPO.length > 0 && (
+          <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
+            <h3 className="text-sm font-bold text-amber-300 mb-2">Confrontos do Playoff (9–24) — Sorteados agora</h3>
+            <ul className="grid md:grid-cols-2 gap-2 text-sm">
+              {confrontosPO.map((c, i) => (
+                <li key={i} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-between">
+                  <span>
+                    <b>Chave {i+1}:</b> ({c.seedA}) {timesMap[c.idA]?.nome || c.idA}
+                    {' '}×{' '}
+                    ({c.seedB}) {timesMap[c.idB]?.nome || c.idB}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
-      {/* Modal */}
+      {/* Modal: gerar Swiss */}
       {abrirModalSwiss && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 shadow-2xl">
@@ -1004,7 +1234,36 @@ Corte: 1–8 Oitavas, 9–24 Play-off. Palmeiras excluído.`,
           </div>
         </div>
       )}
+
+      {/* Modal: sortear Playoff */}
+      {abrirModalPO && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 shadow-2xl">
+            <h3 className="mb-2 text-xl font-bold text-yellow-300">Sortear Playoff (9º–24º)?</h3>
+            <p className="mb-6 text-zinc-200">
+              Vamos pegar as equipes nas posições 9 a 24 da classificação e montar os 8 confrontos:
+              cabeças de chave (9–16) x desafiantes (17–24).{' '}
+              {evitarMesmoPaisPO ? 'Tentaremos evitar confrontos do mesmo país/associação.' : 'Sem restrição de país.'}
+              <br/>Confrontos serão salvos em <code>copa_playoff</code>. Se a tabela não existir, salvaremos na <code>copa_fase_liga</code> (rodada 9).
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                className="rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-200 hover:bg-white/10"
+                onClick={() => setAbrirModalPO(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+                onClick={async () => { setAbrirModalPO(false); await gerarPlayoff() }}
+              >
+                {sorteandoPO ? 'Sorteando…' : 'Sim, sortear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-
+```
