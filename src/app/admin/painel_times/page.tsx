@@ -1,3 +1,4 @@
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -489,7 +490,8 @@ export default function PainelTimesAdmin() {
       {/* Tabela */}
       <div className="overflow-auto rounded-2xl border border-slate-700 shadow bg-slate-800">
         <table className="w-full text-sm">
-          <thead className="sticky top-[92px] md:top-[88px] z-10">
+          {/* ✅ Cabeçalho sem sticky (como no código anterior) */}
+          <thead>
             <tr className="bg-slate-700 text-slate-200 text-center">
               <th className="border border-slate-700 p-3 sticky left-0 bg-slate-700">Time</th>
               <th className="border border-slate-700 p-3">Saldo Antes</th>
@@ -503,6 +505,7 @@ export default function PainelTimesAdmin() {
               <th className="border border-slate-700 p-3">Top Nacionalidades</th>
             </tr>
           </thead>
+
           <tbody className="divide-y divide-slate-700">
             {loading && Array.from({ length: 6 }).map((_, i) => <RowSkeleton key={i} />)}
 
@@ -644,3 +647,4 @@ export default function PainelTimesAdmin() {
     </div>
   )
 }
+```
