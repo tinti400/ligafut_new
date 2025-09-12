@@ -12,6 +12,34 @@ const supabase = createClient(
 /** ================== Tipos ================== */
 type Ordenacao = 'nome' | 'saldo' | 'salario_total'
 
+interface TimeRowDB {
+  id: string
+  nome: string
+  logo_url: string | null
+  saldo: number
+}
+
+interface ElencoRowDB {
+  id_time: string
+  overall: number | null
+  salario: number | null
+  nacionalidade: string | null
+}
+
+interface MovRowDB {
+  id_time: string
+  valor: number
+  tipo: 'compra' | 'venda' | string
+}
+
+interface BidRowDB {
+  valor: number
+  tipo_evento: string
+  data_evento: string
+  id_time1: string | null
+  id_time2: string | null
+}
+
 interface TimeInfo {
   id: string
   nome: string
@@ -26,14 +54,6 @@ interface TimeInfo {
   nacionalidades: Record<string, number>
 }
 
-interface RegistroBID {
-  valor: number
-  tipo_evento: string
-  data_evento: string
-  id_time1?: string
-  id_time2?: string
-}
-
 /** ================== Flags ================== */
 const bandeiras: Record<string, string> = {
   Brasil: 'br', Argentina: 'ar', Portugal: 'pt', Espanha: 'es', França: 'fr',
@@ -44,16 +64,16 @@ const bandeiras: Record<string, string> = {
   Nicarágua: 'ni', Guatemala: 'gt', Costa_Rica: 'cr', Panamá: 'pa', Jamaica: 'jm',
   Camarões: 'cm', Senegal: 'sn', Marrocos: 'ma', Egito: 'eg', Argélia: 'dz',
   Croácia: 'hr', Sérvia: 'rs', Suíça: 'ch', Polônia: 'pl', Rússia: 'ru',
-  Japão: 'jp', Coreia_do_Sul: 'kr', Austrália: 'au'
+  Japão: 'jp', Coreia_do_Sul: 'kr', Austrália: 'au', Outro: 'un'
 }
 
 /** ================== Utils ================== */
 const brl = (v: number) =>
-  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+  (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
-const numberFmt = (v: number) => v.toLocaleString('pt-BR')
+const numberFmt = (v: number) => (v ?? 0).toLocaleString('pt-BR')
 
-const normalizeNacKey = (s: string) => (s || 'Outro').replaceAll(' ', '_')
+const normalizeNacKey = (s: string | null) => (s || 'Outro').replaceAll(' ', '_')
 
 const safeCSV = (value: any) => {
   const str = String(value ?? '')
@@ -63,7 +83,47 @@ const safeCSV = (value: any) => {
   return str
 }
 
-/** ================== Skeleton ================== */
+// janela quinta→quinta (local)
+function getThursdayWindow(base = new Date()) {
+  const d = new Date(base)
+  d.setHours(0, 0, 0, 0)
+  const day = d.getDay() // 0 = dom, 4 = qui
+  const diffToThu = (day - 4 + 7) % 7 // dias desde a última quinta
+  const start = new Date(d)
+  start.setDate(d.getDate() - diffToThu) // última quinta 00:00 local
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(start)
+  end.setDate(start.getDate() + 7) // próxima quinta 00:00 local
+  // ISO (UTC) — tudo bem ter offset; a janela permanece correta
+  const startISO = start.toISOString()
+  const endISO = end.toISOString()
+  return { start, end, startISO, endISO }
+}
+
+const fmtPeriodo = (start: Date, end: Date) => {
+  const f = (dt: Date) =>
+    dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })
+  return `${f(start)} → ${f(new Date(end.getTime() - 1))}`
+}
+
+/** ================== Classificação de eventos do BID ================== */
+// Ajuste os dicionários abaixo se você tiver mais rótulos.
+const CREDIT_KEYWORDS = [
+  'venda','bonus','bônus','receita','renda','premio','prêmio','patrocinio','patrocínio',
+  'participação','participacao','premiação','premiacao','entrada','deposito','depósito'
+]
+const DEBIT_KEYWORDS_ID1 = [
+  'salario','salário','despesa','juros','multa','saída','saida'
+]
+const DEBIT_KEYWORDS_ID2 = [
+  'compra','leilao','leilão','aquisição','contratação'
+]
+
+function includesAny(hay: string, words: string[]) {
+  return words.some(w => hay.includes(w))
+}
+
+/** ================== Skeleton e UI ================== */
 function RowSkeleton() {
   return (
     <tr className="animate-pulse">
@@ -76,7 +136,6 @@ function RowSkeleton() {
   )
 }
 
-/** ================== Chip ================== */
 function Pill({
   children,
   tone = 'slate',
@@ -112,13 +171,17 @@ export default function PainelTimesAdmin() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // janela atual quinta→quinta (memoriza até recarregar)
+  const { start, end, startISO, endISO } = useMemo(() => getThursdayWindow(new Date()), [])
+
   useEffect(() => {
     carregarDados()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     if (!autoRefresh) return
-    const id = setInterval(() => carregarDados(false), 15000) // 15s
+    const id = setInterval(() => carregarDados(false), 15000)
     return () => clearInterval(id)
   }, [autoRefresh])
 
@@ -127,88 +190,116 @@ export default function PainelTimesAdmin() {
       if (showSpinner) setLoading(true)
       setErro(null)
 
+      // 1) Times
       const { data: timesData, error: eTimes } = await supabase
         .from('times')
         .select('id, nome, saldo, logo_url')
-        .order('nome', { ascending: true })
+        .order('nome', { ascending: true }) as unknown as { data: TimeRowDB[] | null, error: any }
 
       if (eTimes) throw eTimes
-      if (!timesData) {
+      const timesArr = timesData ?? []
+      if (timesArr.length === 0) {
         setTimes([])
         setLoading(false)
         return
       }
+      const ids = timesArr.map(t => t.id)
 
-      const hoje = new Date().toISOString().split('T')[0]
+      // 2) Elenco (uma vez, para todos os times)
+      const { data: elencoData, error: eElenco } = await supabase
+        .from('elenco')
+        .select('id_time, overall, salario, nacionalidade')
+        .in('id_time', ids) as unknown as { data: ElencoRowDB[] | null, error: any }
+      if (eElenco) throw eElenco
 
-      const resultados = await Promise.all(
-        timesData.map(async (time) => {
-          const [
-            { data: elenco, error: eElenco },
-            { data: movsCompra },
-            { data: movsVenda },
-            { data: movsAnteriores },
-          ] = await Promise.all([
-            supabase.from('elenco').select('overall, salario, nacionalidade').eq('id_time', time.id),
-            supabase.from('movimentacoes').select('valor').eq('id_time', time.id).eq('tipo', 'compra'),
-            supabase.from('movimentacoes').select('valor').eq('id_time', time.id).eq('tipo', 'venda'),
-            supabase
-              .from('bid')
-              .select('valor, tipo_evento, data_evento, id_time1, id_time2')
-              .or(`id_time1.eq.${time.id},id_time2.eq.${time.id}`),
-          ])
+      // 3) Movimentações (all-time, agregamos gasto/recebido)
+      const { data: movData } = await supabase
+        .from('movimentacoes')
+        .select('id_time, valor, tipo')
+        .in('id_time', ids) as unknown as { data: MovRowDB[] | null }
 
-          if (eElenco) throw eElenco
+      // 4) BID da semana (quinta→quinta)
+      const { data: bidSemana, error: eBid } = await supabase
+        .from('bid')
+        .select('valor, tipo_evento, data_evento, id_time1, id_time2')
+        .gte('data_evento', startISO)
+        .lt('data_evento', endISO) as unknown as { data: BidRowDB[] | null, error: any }
+      if (eBid) throw eBid
 
-          const qtdJogadores = elenco?.length || 0
-          const mediaOverall =
-            elenco && elenco.length > 0
-              ? Math.round(elenco.reduce((acc, j) => acc + (j.overall || 0), 0) / elenco.length)
-              : 0
+      // === agregações ===
 
-          const salarioTotal = elenco?.reduce((acc, j) => acc + (j.salario || 0), 0) || 0
+      // Elenco por time
+      const elencoByTime: Record<string, ElencoRowDB[]> = {}
+      for (const r of (elencoData ?? [])) {
+        (elencoByTime[r.id_time] ||= []).push(r)
+      }
 
-          const nacionalidades: Record<string, number> = {}
-          elenco?.forEach((j) => {
-            const nac = normalizeNacKey(j.nacionalidade || 'Outro')
-            nacionalidades[nac] = (nacionalidades[nac] || 0) + 1
-          })
+      // Movimentações por time
+      const movByTime: Record<string, { gasto: number, recebido: number }> = {}
+      for (const m of (movData ?? [])) {
+        const bucket = (movByTime[m.id_time] ||= { gasto: 0, recebido: 0 })
+        if (String(m.tipo).toLowerCase() === 'compra') bucket.gasto += (m.valor || 0)
+        else if (String(m.tipo).toLowerCase() === 'venda') bucket.recebido += (m.valor || 0)
+      }
 
-          const gasto = movsCompra?.reduce((acc, m) => acc + (m.valor || 0), 0) || 0
-          const recebido = movsVenda?.reduce((acc, m) => acc + (m.valor || 0), 0) || 0
+      // Efeito líquido da semana (quinta→quinta) a partir do BID
+      const netSemanaByTime: Record<string, number> = {}
+      for (const ev of (bidSemana ?? [])) {
+        const tipo = (ev.tipo_evento || '').toLowerCase()
+        const valor = ev.valor || 0
 
-          const saldoAnterior =
-            movsAnteriores?.reduce((acc: number, m: RegistroBID) => {
-              if (!m.data_evento || m.data_evento >= hoje) return acc
-              const valor = m.valor || 0
-              const tipo = m.tipo_evento
-
-              if (m.id_time1 === time.id) {
-                if (['venda', 'bonus', 'bonus_gol', 'receita_partida'].includes(tipo)) return acc + valor
-                if (['salario', 'despesas'].includes(tipo)) return acc - valor
-              } else if (m.id_time2 === time.id) {
-                if (['compra', 'leilao'].includes(tipo)) return acc - valor
-              }
-              return acc
-            }, 0) || 0
-
-          const t: TimeInfo = {
-            id: time.id,
-            nome: time.nome,
-            logo_url: time.logo_url,
-            saldo: time.saldo,
-            gasto,
-            recebido,
-            media_overall: mediaOverall, // ✅
-            qtd_jogadores: qtdJogadores, // ✅
-            salario_total: salarioTotal, // ✅
-            saldo_anterior: saldoAnterior,
-            nacionalidades,
+        // id_time1: geralmente o "beneficiário" do texto do BID
+        if (ev.id_time1) {
+          if (includesAny(tipo, CREDIT_KEYWORDS)) {
+            netSemanaByTime[ev.id_time1] = (netSemanaByTime[ev.id_time1] || 0) + valor
           }
+          if (includesAny(tipo, DEBIT_KEYWORDS_ID1)) {
+            netSemanaByTime[ev.id_time1] = (netSemanaByTime[ev.id_time1] || 0) - valor
+          }
+        }
+        // id_time2: geralmente o contraparte (ex: comprador em compra/leilão)
+        if (ev.id_time2) {
+          if (includesAny(tipo, DEBIT_KEYWORDS_ID2)) {
+            netSemanaByTime[ev.id_time2] = (netSemanaByTime[ev.id_time2] || 0) - valor
+          }
+        }
+      }
 
-          return t
-        })
-      )
+      // Monta o array final
+      const resultados: TimeInfo[] = timesArr.map((t) => {
+        const elenco = elencoByTime[t.id] || []
+        const qtdJog = elenco.length
+        const mediaOverall = qtdJog > 0
+          ? Math.round(elenco.reduce((acc, j) => acc + (j.overall || 0), 0) / qtdJog)
+          : 0
+        const salarioTotal = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
+
+        const nacionalidades: Record<string, number> = {}
+        for (const j of elenco) {
+          const nac = normalizeNacKey(j.nacionalidade)
+          nacionalidades[nac] = (nacionalidades[nac] || 0) + 1
+        }
+
+        const movAgg = movByTime[t.id] || { gasto: 0, recebido: 0 }
+        const netSemana = netSemanaByTime[t.id] || 0
+
+        // Saldo Antes = saldo atual - variação líquida na janela qui→qui
+        const saldoAnterior = (t.saldo ?? 0) - netSemana
+
+        return {
+          id: t.id,
+          nome: t.nome,
+          logo_url: t.logo_url || '',
+          saldo: t.saldo ?? 0,
+          gasto: movAgg.gasto,
+          recebido: movAgg.recebido,
+          media_overall: mediaOverall,
+          qtd_jogadores: qtdJog,
+          salario_total: salarioTotal,
+          saldo_anterior: saldoAnterior,
+          nacionalidades,
+        }
+      })
 
       setTimes(resultados)
     } catch (err: any) {
@@ -231,8 +322,8 @@ export default function PainelTimesAdmin() {
     if (times.length === 0) return
 
     const header = [
-      'ID','Nome','Saldo Antes','Saldo Atual','Variação',
-      'Gasto','Recebido','Média Overall','# Jogadores','Salário Total','Top Nacionalidades'
+      'ID','Nome','Saldo Antes (qui→qui)','Saldo Atual','Variação (semana)',
+      'Gasto (all-time)','Recebido (all-time)','Média OVR','# Jogadores','Salário Total','Top Nacionalidades'
     ]
 
     const linhas = timesFiltradosOrdenados.map(t => {
@@ -298,10 +389,12 @@ export default function PainelTimesAdmin() {
   }
 
   function Flag({ nac }: { nac: string }) {
-    const code = bandeiras[nac] || bandeiras[normalizeNacKey(nac)] || ''
-    if (!code) return <span className="text-[10px] text-slate-500">•</span>
-    return <img src={`https://flagcdn.com/w20/${code}.png`} alt={nac} className="w-5 h-3 rounded-sm" />
+    const key = nac.replaceAll('_', ' ')
+    const code = bandeiras[nac] || bandeiras[key] || bandeiras['Outro']
+    return <img src={`https://flagcdn.com/w20/${code}.png`} alt={key} className="w-5 h-3 rounded-sm" />
   }
+
+  const periodoTexto = useMemo(() => fmtPeriodo(start, end), [start, end])
 
   return (
     <div className="p-4 md:p-6 bg-slate-900 min-h-screen text-slate-100">
@@ -309,10 +402,12 @@ export default function PainelTimesAdmin() {
       <div className="sticky top-0 z-10 mb-4 rounded-2xl bg-slate-800/80 backdrop-blur border border-slate-700 shadow">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-3">
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-blue-600 text-white grid place-items-center font-bold">LF</div>
+            <div className="size-10 rounded-xl bg-blue-600 text-white grid place-items-center font-bold shadow-inner">LF</div>
             <div>
-              <h1 className="text-xl md:text-2xl font-semibold text-white">Painel de Times – Admin</h1>
-              <p className="text-xs text-slate-300 -mt-0.5">Visão geral financeira e esportiva</p>
+              <h1 className="text-xl md:text-2xl font-semibold text-white">Painel de Times — Admin</h1>
+              <p className="text-xs text-slate-300 -mt-0.5">
+                Janela <b>quinta → quinta</b> • <span className="opacity-90">{periodoTexto}</span>
+              </p>
             </div>
           </div>
 
@@ -371,21 +466,21 @@ export default function PainelTimesAdmin() {
             <div className="text-lg font-semibold text-white">{brl(totais.saldo)}</div>
           </div>
           <div className="rounded-xl border border-slate-700 bg-slate-800 p-3">
-            <div className="text-xs text-slate-300">Saldo Antes (soma)</div>
+            <div className="text-xs text-slate-300">Saldo Antes (qui→qui)</div>
             <div className="text-lg font-semibold text-white">{brl(totais.saldo_anterior)}</div>
           </div>
           <div className="rounded-xl border border-slate-700 bg-slate-800 p-3">
-            <div className="text-xs text-slate-300">Variação Total</div>
+            <div className="text-xs text-slate-300">Variação no Período</div>
             <div className={`text-lg font-semibold ${totais.saldo - totais.saldo_anterior >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {brl(totais.saldo - totais.saldo_anterior)}
             </div>
           </div>
           <div className="rounded-xl border border-slate-700 bg-slate-800 p-3">
-            <div className="text-xs text-slate-300">Gasto (soma)</div>
+            <div className="text-xs text-slate-300">Gasto (all-time)</div>
             <div className="text-lg font-semibold text-white">{brl(totais.gasto)}</div>
           </div>
           <div className="rounded-xl border border-slate-700 bg-slate-800 p-3">
-            <div className="text-xs text-slate-300">Recebido (soma)</div>
+            <div className="text-xs text-slate-300">Recebido (all-time)</div>
             <div className="text-lg font-semibold text-white">{brl(totais.recebido)}</div>
           </div>
         </div>
@@ -394,7 +489,7 @@ export default function PainelTimesAdmin() {
       {/* Tabela */}
       <div className="overflow-auto rounded-2xl border border-slate-700 shadow bg-slate-800">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-[92px] md:top-[88px] z-10">
             <tr className="bg-slate-700 text-slate-200 text-center">
               <th className="border border-slate-700 p-3 sticky left-0 bg-slate-700">Time</th>
               <th className="border border-slate-700 p-3">Saldo Antes</th>
@@ -408,20 +503,21 @@ export default function PainelTimesAdmin() {
               <th className="border border-slate-700 p-3">Top Nacionalidades</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-700">
             {loading && Array.from({ length: 6 }).map((_, i) => <RowSkeleton key={i} />)}
 
-            {!loading && pageData.map((time) => {
+            {!loading && pageData.map((time, idx) => {
               const delta = time.saldo - time.saldo_anterior
               const deltaPct = time.saldo_anterior ? (delta / time.saldo_anterior) * 100 : 0
               const top = topNacionalidades(time.nacionalidades, 3)
+              const zebra = idx % 2 === 0 ? 'bg-slate-800' : 'bg-slate-800/70'
 
               return (
-                <tr key={time.id} className="text-center hover:bg-slate-700/70 transition-colors">
+                <tr key={time.id} className={`text-center hover:bg-slate-700/70 transition-colors ${zebra}`}>
                   {/* Time */}
-                  <td className="border border-slate-700 p-3 text-left sticky left-0 bg-slate-800">
+                  <td className="border border-slate-700 p-3 text-left sticky left-0 bg-slate-800 z-[5]">
                     <div className="flex items-center gap-3">
-                      <img src={time.logo_url} alt="Logo" className="h-8 w-8 object-contain rounded-md border border-slate-700 bg-slate-900" />
+                      <img src={time.logo_url || ''} alt="Logo" className="h-8 w-8 object-contain rounded-md border border-slate-700 bg-slate-900" />
                       <div className="flex flex-col">
                         <span className="font-medium text-white">{time.nome}</span>
                         <span className="text-[10px] text-slate-400">ID: {time.id.slice(0, 8)}…</span>
