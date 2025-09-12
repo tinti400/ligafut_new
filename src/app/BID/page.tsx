@@ -274,7 +274,7 @@ export default function BIDPage() {
   const [nomeTimeLogado, setNomeTimeLogado] = useState<string | null>(null)
 
   // Auto-animate
-  const [listaDiasAnim] = useAutoanimate<HTMLDivElement>()
+  const [listaDiasAnim] = useAutoAnimate<HTMLDivElement>()
   const [commentsAnim] = useAutoAnimate<HTMLDivElement>()
 
   // Scroll anchor p/ paginação
