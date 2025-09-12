@@ -10,6 +10,10 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ===== Config de premiação ===== */
+const PREMIO_VITORIA = 14_000_000
+const PREMIO_POR_GOL = 500_000
+
 /** ========= Tipos ========= */
 interface TimeRow {
   id: string
@@ -17,7 +21,7 @@ interface TimeRow {
   logo_url: string | null
 }
 interface Jogo {
-  id?: number
+  id?: string | number
   rodada: 1 | 2
   ordem: number
   id_time1: string
@@ -39,7 +43,7 @@ interface LinhaClassificacao {
   jogos: number
 }
 type JogoLiga = {
-  id?: number
+  id?: string | number
   id_time1?: string | null
   id_time2?: string | null
   time1?: string | null
@@ -65,6 +69,17 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
+// compara dois jogos com tolerância (usa id quando tem, senão chaves naturais)
+function sameGame(a: Jogo, b: Jogo) {
+  if (a.id != null && b.id != null) return String(a.id) === String(b.id)
+  return (
+    a.rodada === b.rodada &&
+    a.ordem === b.ordem &&
+    a.id_time1 === b.id_time1 &&
+    a.id_time2 === b.id_time2
+  )
+}
+
 /** ========= Componente ========= */
 export default function PlayoffPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
@@ -84,6 +99,7 @@ export default function PlayoffPage() {
   const [flipB, setFlipB] = useState(false)
   const [confirmavel, setConfirmavel] = useState(false) // libera “Gravar confrontos”
   const [confirming, setConfirming] = useState(false) // trava anti duplo clique
+  const [savingId, setSavingId] = useState<string | number | null>(null)
 
   // realtime infra
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -298,7 +314,6 @@ export default function PlayoffPage() {
     const msg = (temPlacar ? '⚠️ Existem jogos com placar lançado.\n\n' : '') + 'Tem certeza que deseja APAGAR todos os confrontos?'
     if (!confirm(msg)) return
 
-    // id pode ser uuid; use um critério garantido
     const { error } = await supabase.from('copa_playoff').delete().gte('ordem', 0)
     if (error) {
       toast.error('Erro ao apagar confrontos')
@@ -308,11 +323,10 @@ export default function PlayoffPage() {
     await carregarJogosELogos()
   }
 
-  /** ====== Iniciar sorteio ao vivo — AGORA FORÇANDO 9º–24º DA CLASSIFICAÇÃO ====== */
+  /** ====== Iniciar sorteio ao vivo — 9º–24º ====== */
   async function iniciarSorteio() {
     if (!isAdmin) return
 
-    // trava: só sorteia se não houver jogos
     const { count, error: cErr } = await supabase
       .from('copa_playoff')
       .select('*', { count: 'exact', head: true })
@@ -323,7 +337,6 @@ export default function PlayoffPage() {
     }
 
     try {
-      // Coleta 9º–24º exatamente como na página de classificação
       const classificados924 = await pegarClassificados9a24()
       if (classificados924.length !== 16) {
         toast.error('Precisamos de 16 times (9º–24º). Verifique a classificação.')
@@ -436,22 +449,21 @@ export default function PlayoffPage() {
           gols_time1: null, gols_time2: null
         })
       }
-      // apaga tudo de forma segura
       const { error: delErr } = await supabase.from('copa_playoff').delete().gte('ordem', 0)
       if (delErr) throw delErr
+
       const { error: insErr } = await supabase.from('copa_playoff').insert(novos)
       if (insErr) throw insErr
 
       toast.success('Confrontos confirmados!')
       setSorteioAberto(false)
-      // fecha para todo mundo
       channelRef.current?.send({
         type: 'broadcast',
         event: 'state',
         payload: { ...stateRef.current, sorteioAberto: false }
       })
       await carregarJogosELogos()
-    } catch (e) {
+    } catch (e: any) {
       console.error(e)
       toast.error('Erro ao confirmar confrontos')
     } finally {
@@ -459,39 +471,110 @@ export default function PlayoffPage() {
     }
   }
 
-  /** ====== Salvar placar + pagar 14mi ====== */
+  /** ====== Salvar placar + pagar vitória + gols ====== */
   async function salvarPlacar(jogo: Jogo) {
     if (!isAdmin) return
+    if (jogo.gols_time1 == null || jogo.gols_time2 == null) {
+      toast.error('Preencha os dois placares antes de salvar.')
+      return
+    }
     try {
+      const key = jogo.id ?? `${jogo.rodada}-${jogo.ordem}-${jogo.id_time1}-${jogo.id_time2}`
+      setSavingId(key)
+
+      // 1) Descobrir o ID certo do jogo (por id ou fallback)
+      let rowId: string | number | null = null
+
+      if (jogo.id != null) {
+        const { data, error } = await supabase
+          .from('copa_playoff')
+          .select('id,gols_time1,gols_time2')
+          .eq('id', jogo.id as any)
+          .maybeSingle()
+        if (!error && data?.id != null) rowId = data.id as any
+      }
+
+      if (rowId == null) {
+        const { data, error } = await supabase
+          .from('copa_playoff')
+          .select('id,gols_time1,gols_time2')
+          .match({
+            rodada: jogo.rodada,
+            ordem: jogo.ordem,
+            id_time1: jogo.id_time1,
+            id_time2: jogo.id_time2,
+          })
+          .maybeSingle()
+        if (error) throw error
+        rowId = (data?.id ?? null) as any
+      }
+
+      if (rowId == null) {
+        toast.error('Não encontrei o registro deste jogo no banco.')
+        setSavingId(null)
+        return
+      }
+
+      // 2) Buscar placar anterior para saber se é primeiro lançamento
       const { data: antes, error: bErr } = await supabase
         .from('copa_playoff')
-        .select('gols_time1, gols_time2')
-        .eq('id', jogo.id).single()
+        .select('gols_time1,gols_time2')
+        .eq('id', rowId as any)
+        .single()
       if (bErr) throw bErr
 
       const antesDef = antes?.gols_time1 != null && antes?.gols_time2 != null
 
+      // 3) Atualizar placar
       const { error: uErr } = await supabase
         .from('copa_playoff')
         .update({ gols_time1: jogo.gols_time1, gols_time2: jogo.gols_time2 })
-        .eq('id', jogo.id)
+        .eq('id', rowId as any)
       if (uErr) throw uErr
 
+      // 4) 💰 bônus: vitória + gols — pago apenas no primeiro lançamento
       const agoraDef = jogo.gols_time1 != null && jogo.gols_time2 != null
-      if (!antesDef && agoraDef && jogo.gols_time1 !== jogo.gols_time2) {
-        const vencedorId = jogo.gols_time1! > jogo.gols_time2! ? jogo.id_time1 : jogo.id_time2
-        // usa a mesma RPC do restante do projeto
-        const { error: rpcErr } = await supabase.rpc('atualizar_saldo', {
-          id_time: vencedorId, valor: 14_000_000
-        })
-        if (rpcErr) toast.error('Erro ao pagar vitória (14M)')
-        else toast.success('Vitória paga: R$ 14.000.000')
+      if (!antesDef && agoraDef) {
+        // vitória (14M)
+        if (jogo.gols_time1 !== jogo.gols_time2) {
+          const vencedorId = jogo.gols_time1! > jogo.gols_time2! ? jogo.id_time1 : jogo.id_time2
+          const { error: eVit } = await supabase.rpc('atualizar_saldo', {
+            id_time: vencedorId, valor: PREMIO_VITORIA
+          })
+          if (eVit) console.error(eVit)
+        }
+        // gols marcados (500k por gol) – paga para os dois times
+        const premioMandante = (jogo.gols_time1 || 0) * PREMIO_POR_GOL
+        const premioVisitante = (jogo.gols_time2 || 0) * PREMIO_POR_GOL
+
+        if (premioMandante > 0) {
+          const { error: eGM } = await supabase.rpc('atualizar_saldo', {
+            id_time: jogo.id_time1, valor: premioMandante
+          })
+          if (eGM) console.error(eGM)
+        }
+        if (premioVisitante > 0) {
+          const { error: eGV } = await supabase.rpc('atualizar_saldo', {
+            id_time: jogo.id_time2, valor: premioVisitante
+          })
+          if (eGV) console.error(eGV)
+        }
+
+        // toasts informativos
+        const parts: string[] = []
+        if (jogo.gols_time1 !== jogo.gols_time2) parts.push('bônus de vitória (R$ 14.000.000)')
+        if ((jogo.gols_time1 || 0) > 0) parts.push(`mandante: +R$ ${(premioMandante).toLocaleString('pt-BR')}`)
+        if ((jogo.gols_time2 || 0) > 0) parts.push(`visitante: +R$ ${(premioVisitante).toLocaleString('pt-BR')}`)
+        if (parts.length) toast.success('Premiações pagas: ' + parts.join(' • '))
       }
 
       toast.success('Placar salvo!')
-    } catch (e) {
+      await carregarJogosELogos()
+    } catch (e: any) {
       console.error(e)
-      toast.error('Erro ao salvar placar')
+      toast.error(`Erro ao salvar placar`)
+    } finally {
+      setSavingId(null)
     }
   }
 
@@ -559,9 +642,9 @@ export default function PlayoffPage() {
                 <h2 className="text-xl font-semibold mb-3">Rodada 1 (ida)</h2>
                 <div className="grid gap-4 md:grid-cols-2">
                   {jogosPorRodada[1].map((j) => (
-                    <article key={j.id} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
+                    <article key={`${j.id ?? ''}-${j.rodada}-${j.ordem}-${j.id_time1}`} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
                       <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
-                        <span>Ordem #{j.ordem}</span><span>ID {j.id}</span>
+                        <span>Ordem #{j.ordem}</span><span>ID {String(j.id ?? '—')}</span>
                       </div>
 
                       <div className="flex items-center gap-3">
@@ -579,7 +662,7 @@ export default function PlayoffPage() {
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time1: Number.isNaN(gols as any) ? null : gols } : x))
+                              setJogos(prev => prev.map(x => sameGame(x, j) ? { ...x, gols_time1: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                           <span className="text-gray-400 font-semibold">x</span>
@@ -590,7 +673,7 @@ export default function PlayoffPage() {
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time2: Number.isNaN(gols as any) ? null : gols } : x))
+                              setJogos(prev => prev.map(x => sameGame(x, j) ? { ...x, gols_time2: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                         </div>
@@ -605,10 +688,11 @@ export default function PlayoffPage() {
                       {isAdmin && (
                         <div className="mt-4 flex justify-end">
                           <button
-                            className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 transition text-sm"
+                            className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 transition text-sm disabled:opacity-50"
                             onClick={() => salvarPlacar(j)}
+                            disabled={savingId === (j.id ?? `${j.rodada}-${j.ordem}-${j.id_time1}-${j.id_time2}`)}
                           >
-                            Salvar placar
+                            {savingId === (j.id ?? `${j.rodada}-${j.ordem}-${j.id_time1}-${j.id_time2}`) ? 'Salvando…' : 'Salvar placar'}
                           </button>
                         </div>
                       )}
@@ -624,9 +708,9 @@ export default function PlayoffPage() {
                 <h2 className="text-xl font-semibold mb-3">Rodada 2 (volta)</h2>
                 <div className="grid gap-4 md:grid-cols-2">
                   {jogosPorRodada[2].map((j) => (
-                    <article key={j.id} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
+                    <article key={`${j.id ?? ''}-${j.rodada}-${j.ordem}-${j.id_time1}`} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
                       <div className="flex items-center justify-between text-xs text-gray-400 mb-3">
-                        <span>Ordem #{j.ordem}</span><span>ID {j.id}</span>
+                        <span>Ordem #{j.ordem}</span><span>ID {String(j.id ?? '—')}</span>
                       </div>
 
                       <div className="flex items-center gap-3">
@@ -644,7 +728,7 @@ export default function PlayoffPage() {
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time1: Number.isNaN(gols as any) ? null : gols } : x))
+                              setJogos(prev => prev.map(x => sameGame(x, j) ? { ...x, gols_time1: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                           <span className="text-gray-400 font-semibold">x</span>
@@ -655,7 +739,7 @@ export default function PlayoffPage() {
                             onChange={(e) => {
                               const v = e.target.value
                               const gols = v === '' ? null : Math.max(0, parseInt(v))
-                              setJogos(prev => prev.map(x => x.id === j.id ? { ...x, gols_time2: Number.isNaN(gols as any) ? null : gols } : x))
+                              setJogos(prev => prev.map(x => sameGame(x, j) ? { ...x, gols_time2: Number.isNaN(gols as any) ? null : gols } : x))
                             }}
                           />
                         </div>
@@ -670,10 +754,11 @@ export default function PlayoffPage() {
                       {isAdmin && (
                         <div className="mt-4 flex justify-end">
                           <button
-                            className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 transition text-sm"
+                            className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 transition text-sm disabled:opacity-50"
                             onClick={() => salvarPlacar(j)}
+                            disabled={savingId === (j.id ?? `${j.rodada}-${j.ordem}-${j.id_time1}-${j.id_time2}`)}
                           >
-                            Salvar placar
+                            {savingId === (j.id ?? `${j.rodada}-${j.ordem}-${j.id_time1}-${j.id_time2}`) ? 'Salvando…' : 'Salvar placar'}
                           </button>
                         </div>
                       )}
