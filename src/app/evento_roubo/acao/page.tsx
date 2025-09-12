@@ -1,3 +1,6 @@
+segue o arquivo **completo** já com a lista de jogadores aparecendo logo **acima** do Status/ordem de clubes. Pode substituir seu arquivo por este:
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useState, ReactNode, useCallback, useRef } from 'react'
@@ -30,8 +33,7 @@ type ConfigEvento = {
   fase?: string | null
   roubo_evento_num?: number | null
   bloqueios_persistentes?: BloqPersistMap | null
-
-  // NOVO – cronômetro/pausa
+  // cronômetro/pausa (novos)
   vez_started_at?: string | null
   pausado?: boolean | null
   pausado_em?: string | null
@@ -87,13 +89,11 @@ function Cronometro({
   const firedRef = useRef(false)
   const lastStartRef = useRef<string | null>(vezStartedAt)
 
-  // tick por segundo
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [])
 
-  // reset fire guard quando muda a vez/início
   useEffect(() => {
     if (lastStartRef.current !== vezStartedAt) {
       firedRef.current = false
@@ -172,7 +172,7 @@ export default function EventoRouboPage() {
   const [roubosDaRodada, setRoubosDaRodada] = useState<Array<{ id: string; nome: string; posicao: string; de: string; para: string; valor: number }>>([])
   const [resumoFinal, setResumoFinal] = useState<typeof roubosDaRodada>([])
 
-  // NOVO: modal comparativo antes × depois
+  // Modal comparativo
   const [comparativo, setComparativo] = useState<null | {
     jogador: { id: string; nome: string; posicao: string; valor: number }
     de: { id: string; nome: string; logo_url: string | null; saldoAntes: number; saldoDepois: number }
@@ -183,7 +183,7 @@ export default function EventoRouboPage() {
   const [loading, setLoading] = useState(true)
   const [bloqueioBotao, setBloqueioBotao] = useState(false)
 
-  // NOVO: cronômetro/pausa
+  // cronômetro/pausa
   const [vezStartedAt, setVezStartedAt] = useState<string | null>(null)
   const [pausado, setPausado] = useState<boolean>(false)
   const [pausadoEm, setPausadoEm] = useState<string | null>(null)
@@ -354,11 +354,9 @@ export default function EventoRouboPage() {
 
   /** ===== Modal confirmar ===== */
   function abrirConfirmacao(j: Jogador) {
-    // revalida localmente antes de abrir
     if (!minhaVez) { toast.error('Não é a sua vez.'); return }
     if (pausado) { toast('Evento está pausado.'); return }
     if (!podeRoubar(j.id_time)) { toast.error('Limites atingidos para este alvo.'); return }
-
     const valor = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
     setConfirmJogador(j); setConfirmValor(valor)
   }
@@ -379,7 +377,6 @@ export default function EventoRouboPage() {
 
     setProcessandoRoubo(true); setBloqueioBotao(true)
     try {
-      // lê config com colunas válidas
       const { data: cfg, error: cfgErr } = await supabase
         .from('configuracoes')
         .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, limite_roubos_por_time, roubo_evento_num, bloqueios_persistentes, pausado')
@@ -406,7 +403,6 @@ export default function EventoRouboPage() {
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
 
-      // LE nomes/saldos ANTES (também útil se quiser validar saldo)
       const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
         supabase.from('times').select('saldo,nome,logo_url,id').eq('id', jogador.id_time).single(),
         supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTime).single()
@@ -416,7 +412,7 @@ export default function EventoRouboPage() {
       const saldoAlvoAntes = Number(alvoInfo?.saldo || 0)
       const saldoMeuAntes = Number(meuInfo?.saldo || 0)
 
-      // ===== 1) Transferência de elenco (condicional ao id_time original)
+      // 1) Transferência do jogador (otimista com condicional no id_time)
       const { data: updJog, error: errJog } = await supabase
         .from('elenco')
         .update({ id_time: idTime })
@@ -425,14 +421,11 @@ export default function EventoRouboPage() {
         .select('id')
       if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro.'); fecharConfirmacao(); return }
 
-      // ===== 2) Débito/Crédito
+      // 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
       const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, saldoAlvoAntes)
-      if (!debitei || !creditei) {
-        toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
-      }
+      if (!debitei || !creditei) toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
 
-      // Buscar saldos DEPOIS para mostrar no comparativo
       const { data: timesFresh } = await supabase
         .from('times')
         .select('id,nome,logo_url,saldo')
@@ -443,7 +436,7 @@ export default function EventoRouboPage() {
       const saldoMeuDepois = Number(freshMeu?.saldo ?? (saldoMeuAntes - valorPago))
       const saldoAlvoDepois = Number(freshAlvo?.saldo ?? (saldoAlvoAntes + valorPago))
 
-      // ===== 3) Atualiza contadores/bloqueios
+      // 3) Atualiza contadores/bloqueios
       const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
       if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
@@ -457,7 +450,6 @@ export default function EventoRouboPage() {
         bloqAtual[idTime] = listaNovo
       }
 
-      // bloqueio persistente até o próximo evento
       const persist: BloqPersistMap = { ...(cfg?.bloqueios_persistentes || {}) }
       const atualEvento = Number(cfg?.roubo_evento_num ?? 0)
       persist[jogador.id] = atualEvento + 1
@@ -466,7 +458,7 @@ export default function EventoRouboPage() {
         .update({ roubos: atualizado, bloqueios: bloqAtual, bloqueios_persistentes: persist })
         .eq('id', CONFIG_ID)
 
-      // ===== 4) Publicação no BID
+      // 4) BID
       await supabase.from('bid').insert({
         tipo_evento: 'roubo',
         descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
@@ -475,11 +467,10 @@ export default function EventoRouboPage() {
         valor: valorPago
       })
 
-      // ===== 5) Confirmações visuais / histórico
+      // 5) UI
       setUltimoRoubo({ jogador: jogador.nome, de: nomeAlvo, para: nomeMeu, valor: valorPago })
       setRoubosDaRodada((prev) => [...prev, { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, de: nomeAlvo, para: nomeMeu, valor: valorPago }])
 
-      // NOVO: abrir modal Antes × Depois
       setComparativo({
         jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
         de: {
@@ -499,7 +490,6 @@ export default function EventoRouboPage() {
         valorPago
       })
 
-      // reset UI
       setRoubos(atualizado)
       setMostrarJogadores(false)
       setAlvoSelecionado('')
@@ -546,12 +536,12 @@ export default function EventoRouboPage() {
         pausado: false,
         pausado_em: null,
         pausa_acumulada: 0,
-        // limpeza de resíduos do evento anterior
+        // limpa histórico para novo evento
         roubos: {},
         bloqueios: {}
       })
       .eq('id', CONFIG_ID)
-    if (errUpd) { toast.error('Erro ao sortear a ordem.'); return }
+    if (errUpd) { console.error(errUpd); toast.error(errUpd.message || 'Erro ao sortear a ordem.'); return }
 
     setEventoFinalizado(false)
     setResumoFinal([])
@@ -569,7 +559,6 @@ export default function EventoRouboPage() {
     const nowIso = new Date().toISOString()
     await supabase.from('configuracoes').update({
       vez: String(novaVez),
-      // reinicia o relógio da nova vez
       vez_started_at: nowIso,
       pausado: false,
       pausado_em: null,
@@ -586,7 +575,6 @@ export default function EventoRouboPage() {
   }
 
   async function togglePausa() {
-    // lê valores atuais para calcular pausa acumulada com precisão
     const { data: cfg, error } = await supabase
       .from('configuracoes')
       .select('pausado, pausado_em, pausa_acumulada')
@@ -617,7 +605,6 @@ export default function EventoRouboPage() {
   }
 
   async function limparSorteio() {
-    // limpa ordem + histórico de perdas/roubos/bloqueios e cronômetro
     const { error: err } = await supabase.from('configuracoes').update({
       ordem: null,
       vez: '0',
@@ -625,13 +612,12 @@ export default function EventoRouboPage() {
       fase: null,
       roubos: {},
       bloqueios: {},
-      // não mexemos nos bloqueios_persistentes (eles são por evento)
       // cronômetro
       vez_started_at: null,
       pausado: false,
       pausado_em: null,
       pausa_acumulada: 0,
-      // opcional: volta limite_perda para default
+      // reset default
       limite_perda: LIMITE_PERDA_DEFAULT
     }).eq('id', CONFIG_ID)
     if (err) { toast.error('Erro ao limpar sorteio.'); return }
@@ -644,7 +630,6 @@ export default function EventoRouboPage() {
   }
 
   async function finalizarEvento() {
-    // guarda resumo antes de limpar
     setResumoFinal(roubosDaRodada)
 
     const { data: cfg, error } = await supabase
@@ -851,6 +836,146 @@ export default function EventoRouboPage() {
           )}
         </div>
 
+        {/* Seletor de time-alvo */}
+        <Card>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
+            <div className="flex items-center gap-2">
+              <Chip>Seu limite total: {limiteRoubosPorTime} • Já roubou: {totalRoubosDoMeuTime()}</Chip>
+              {pausadoBadge}
+            </div>
+          </div>
+          <TeamSelect />
+          <div className="mt-3">
+            <button
+              onClick={carregarJogadoresDoAlvo}
+              disabled={!minhaVez || !alvoSelecionado || pausado}
+              className="w-full rounded-xl py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed transition font-semibold"
+            >
+              🔎 Ver jogadores do {nomeAlvoSelecionado || 'time selecionado'}
+            </button>
+          </div>
+        </Card>
+
+        {/* >>> Lista de jogadores aparece AQUI (acima do Status/ordem de clubes) <<< */}
+        {ordemSorteada && minhaVez && mostrarJogadores && (
+          <Card className="space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+              <h4 className="font-bold text-lg">📋 Jogadores disponíveis — {nomeAlvoSelecionado}</h4>
+              <input
+                value={filtroJogador}
+                onChange={(e)=>setFiltroJogador(e.target.value)}
+                placeholder="Filtrar por nome/posição..."
+                className="w-full sm:w-72 px-3 py-2 rounded-xl bg-white/10 border border-white/10 focus:outline-none"
+              />
+            </div>
+
+            {carregandoJogadores ? (
+              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {Array.from({length:6}).map((_,i)=>(
+                  <div key={i} className="rounded-xl p-3 border border-white/10 bg-white/5 animate-pulse h-28" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {jogadoresAlvo
+                  .filter(j => {
+                    const f = filtroJogador.trim().toLowerCase()
+                    if (!f) return true
+                    return j.nome.toLowerCase().includes(f) || (j.posicao || '').toLowerCase().includes(f)
+                  })
+                  .map((j) => {
+                    const valorRoubo = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
+                    const posCls = posColor[j.posicao] || 'bg-white/10 text-white/90 border-white/20'
+                    return (
+                      <div key={j.id} className="rounded-xl p-4 bg-white/5 border border-white/10 hover:bg-white/10 transition group">
+                        <div className="flex items-start gap-3">
+                          <div className="h-12 w-12 rounded-xl bg-gradient-to-b from-white/10 to-white/5 border border-white/10 grid place-items-center text-sm font-bold">
+                            {initials(j.nome)}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <p className="font-extrabold leading-tight">{j.nome}</p>
+                              <Chip className="ml-2">{brl(j.valor)}</Chip>
+                            </div>
+                            <div className="mt-1">
+                              <span className={cls('text-[11px] px-2 py-1 rounded-full border', posCls)}>{j.posicao}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => abrirConfirmacao(j)}
+                          disabled={bloqueioBotao || !podeRoubar(j.id_time)}
+                          className={cls(
+                            'mt-4 w-full rounded-lg py-2 font-semibold transition',
+                            'bg-green-600 hover:bg-green-700',
+                            (!podeRoubar(j.id_time) || bloqueioBotao) && 'bg-green-900 cursor-not-allowed hover:bg-green-900'
+                          )}
+                        >
+                          ✅ Roubar por {brl(valorRoubo)}
+                        </button>
+                      </div>
+                    )
+                  })}
+                {jogadoresAlvo.length === 0 && (
+                  <p className="col-span-full text-center opacity-80">
+                    Nenhum jogador disponível (bloqueado ou já levou).
+                  </p>
+                )}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Ações do Admin / Jogador */}
+        {!loading && !loadingAdmin && (
+          <div className="grid md:grid-cols-5 gap-3">
+            {isAdmin ? (
+              <>
+                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear Ordem</button>
+                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Passar Vez</button>
+                <button onClick={togglePausa} className={cls('rounded-xl py-3 transition font-semibold shadow', pausado ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-700 hover:bg-yellow-800')}>
+                  {pausado ? '▶ Retomar' : '⏸ Pausar'}
+                </button>
+                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Finalizar Evento</button>
+                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">🧹 Limpar Sorteio</button>
+              </>
+            ) : (
+              <>
+                <div className="md:col-span-4" />
+                {minhaVez && <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Encerrar Minha Vez</button>}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Status de perdas / ordem de clubes */}
+        {ordem.length > 0 && <StatusPerdas />}
+
+        {/* Área de ação (sem lista duplicada) */}
+        <Card className="space-y-3">
+          {loading || loadingAdmin ? (
+            <p className="text-center">Carregando...</p>
+          ) : ordemSorteada ? (
+            minhaVez ? (
+              !mostrarJogadores ? (
+                <div className="text-center py-6 opacity-80">
+                  Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores do time”</b>.
+                </div>
+              ) : null
+            ) : (
+              <div className="text-center py-6 opacity-80">
+                Aguarde sua vez. Time da vez: <b>{nomeTimeDaVez || '—'}</b>.
+              </div>
+            )
+          ) : (
+            <p className="text-center text-yellow-300 font-bold">
+              ⚠ Sorteie a ordem para iniciar o evento!
+            </p>
+          )}
+        </Card>
+
         {/* Confirmação fixa após roubo */}
         {ultimoRoubo && (
           <Card className="border-green-500/40 bg-green-900/20">
@@ -896,137 +1021,6 @@ export default function EventoRouboPage() {
             )}
           </Card>
         )}
-
-        {/* Seletor de time-alvo */}
-        <Card>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
-            <div className="flex items-center gap-2">
-              <Chip>Seu limite total: {limiteRoubosPorTime} • Já roubou: {totalRoubosDoMeuTime()}</Chip>
-              {pausadoBadge}
-            </div>
-          </div>
-          <TeamSelect />
-          <div className="mt-3">
-            <button
-              onClick={carregarJogadoresDoAlvo}
-              disabled={!minhaVez || !alvoSelecionado || pausado}
-              className="w-full rounded-xl py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed transition font-semibold"
-            >
-              🔎 Ver jogadores do {nomeAlvoSelecionado || 'time selecionado'}
-            </button>
-          </div>
-        </Card>
-
-        {/* Ações do Admin / Jogador */}
-        {!loading && !loadingAdmin && (
-          <div className="grid md:grid-cols-5 gap-3">
-            {isAdmin ? (
-              <>
-                <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear Ordem</button>
-                <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Passar Vez</button>
-                <button onClick={togglePausa} className={cls('rounded-xl py-3 transition font-semibold shadow', pausado ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-700 hover:bg-yellow-800')}>
-                  {pausado ? '▶ Retomar' : '⏸ Pausar'}
-                </button>
-                <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Finalizar Evento</button>
-                <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">🧹 Limpar Sorteio</button>
-              </>
-            ) : (
-              <>
-                <div className="md:col-span-4" />
-                {minhaVez && <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Encerrar Minha Vez</button>}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Status de perdas */}
-        {ordem.length > 0 && <StatusPerdas />}
-
-        {/* Área de ação / elenco */}
-        <Card className="space-y-3">
-          {loading || loadingAdmin ? (
-            <p className="text-center">Carregando...</p>
-          ) : ordemSorteada ? (
-            <>
-              {minhaVez ? (
-                <>
-                  {!mostrarJogadores ? (
-                    <div className="text-center py-6 opacity-80">Selecione um <b>time-alvo</b> e clique em <b>“Ver jogadores do time”</b>.</div>
-                  ) : (
-                    <>
-                      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-                        <h4 className="font-bold text-lg">📋 Jogadores disponíveis — {nomeAlvoSelecionado}</h4>
-                        <input
-                          value={filtroJogador}
-                          onChange={(e)=>setFiltroJogador(e.target.value)}
-                          placeholder="Filtrar por nome/posição..."
-                          className="w-full sm:w-72 px-3 py-2 rounded-xl bg-white/10 border border-white/10 focus:outline-none"
-                        />
-                      </div>
-
-                      {carregandoJogadores ? (
-                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-                          {Array.from({length:6}).map((_,i)=>(
-                            <div key={i} className="rounded-xl p-3 border border-white/10 bg-white/5 animate-pulse h-28" />
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-                          {jogadoresAlvo
-                            .filter(j => {
-                              const f = filtroJogador.trim().toLowerCase()
-                              if (!f) return true
-                              return j.nome.toLowerCase().includes(f) || (j.posicao || '').toLowerCase().includes(f)
-                            })
-                            .map((j) => {
-                              const valorRoubo = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
-                              const posCls = posColor[j.posicao] || 'bg-white/10 text-white/90 border-white/20'
-                              return (
-                                <div key={j.id} className="rounded-xl p-4 bg-white/5 border border-white/10 hover:bg-white/10 transition group">
-                                  <div className="flex items-start gap-3">
-                                    <div className="h-12 w-12 rounded-xl bg-gradient-to-b from-white/10 to-white/5 border border-white/10 grid place-items-center text-sm font-bold">
-                                      {initials(j.nome)}
-                                    </div>
-                                    <div className="flex-1">
-                                      <div className="flex items-center justify-between">
-                                        <p className="font-extrabold leading-tight">{j.nome}</p>
-                                        <Chip className="ml-2">{brl(j.valor)}</Chip>
-                                      </div>
-                                      <div className="mt-1">
-                                        <span className={cls('text-[11px] px-2 py-1 rounded-full border', posCls)}>{j.posicao}</span>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <button
-                                    onClick={() => abrirConfirmacao(j)}
-                                    disabled={bloqueioBotao || !podeRoubar(j.id_time)}
-                                    className={cls(
-                                      'mt-4 w-full rounded-lg py-2 font-semibold transition',
-                                      'bg-green-600 hover:bg-green-700',
-                                      (!podeRoubar(j.id_time) || bloqueioBotao) && 'bg-green-900 cursor-not-allowed hover:bg-green-900'
-                                    )}
-                                  >
-                                    ✅ Roubar por {brl(valorRoubo)}
-                                  </button>
-                                </div>
-                              )
-                            })}
-                          {jogadoresAlvo.length === 0 && <p className="col-span-full text-center opacity-80">Nenhum jogador disponível (bloqueado ou já levou).</p>}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-6 opacity-80">Aguarde sua vez. Time da vez: <b>{nomeTimeDaVez || '—'}</b>.</div>
-              )}
-            </>
-          ) : (
-            <p className="text-center text-yellow-300 font-bold">⚠ Sorteie a ordem para iniciar o evento!</p>
-          )}
-        </Card>
       </div>
 
       {/* ===== Modal de Confirmação ===== */}
@@ -1063,7 +1057,7 @@ export default function EventoRouboPage() {
         </div>
       )}
 
-      {/* ===== NOVO: Modal Antes × Depois ===== */}
+      {/* ===== Modal Antes × Depois ===== */}
       {comparativo && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <div className="w-full max-w-2xl rounded-2xl bg-gradient-to-b from-gray-800 to-gray-900 border border-white/10 p-5">
@@ -1127,3 +1121,4 @@ export default function EventoRouboPage() {
     </div>
   )
 }
+```
