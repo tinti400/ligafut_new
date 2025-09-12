@@ -32,7 +32,7 @@ interface Jogo {
   gols_time2: number | null
 }
 
-/** ===== Tipos p/ classificação (mesma base do page de classificação) ===== */
+/** ===== Tipos p/ classificação ===== */
 interface LinhaClassificacao {
   id_time: string
   pontos: number
@@ -52,7 +52,7 @@ type JogoLiga = {
   gols_time2: number | null
 }
 
-/** ========= Constantes / Utils (iguais ao page de classificação) ========= */
+/** ========= Constantes / Utils ========= */
 const TIMES_EXCLUIDOS = ['palmeiras', 'sociedade esportiva palmeiras']
 const norm = (s?: string | null) => (s || '').toLowerCase().trim()
 function ehExcluido(mapa: Record<string, { nome: string }>, idOuNome?: string | null) {
@@ -68,8 +68,6 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return a
 }
-
-// compara dois jogos com tolerância (usa id quando tem, senão chaves naturais)
 function sameGame(a: Jogo, b: Jogo) {
   if (a.id != null && b.id != null) return String(a.id) === String(b.id)
   return (
@@ -80,31 +78,52 @@ function sameGame(a: Jogo, b: Jogo) {
   )
 }
 
+/** ====== Helpers de integração ====== */
+async function creditarSaldo(id_time: string, valor: number): Promise<boolean> {
+  if (!valor) return true
+  const { error: e1 } = await supabase.rpc('atualizar_saldo', { id_time, valor })
+  if (!e1) return true
+  const { error: e2 } = await supabase.rpc('incrementar_saldo', { p_id_time: id_time, p_valor: valor })
+  if (!e2) return true
+  console.error('Falha ao creditar saldo:', { id_time, valor, e1, e2 })
+  return false
+}
+
+async function marcarBidPremiacao(id_time: string, valor: number) {
+  try {
+    await supabase.from('bid').insert({
+      tipo_evento: 'premiacao_copa',
+      descricao: 'Premiação fase playoff',
+      id_time1: id_time,
+      valor,
+      data_evento: new Date().toISOString(),
+    })
+  } catch (e) {
+    console.error('Falha ao registrar no BID:', e)
+  }
+}
+
 /** ========= Componente ========= */
 export default function PlayoffPage() {
   const { isAdmin, loading: loadingAdmin } = useAdmin()
 
-  // jogos exibidos
   const [jogos, setJogos] = useState<Jogo[]>([])
   const [loading, setLoading] = useState(true)
   const [timesMap, setTimesMap] = useState<Record<string, TimeRow>>({})
 
-  // sorteio ao vivo (sincronizado)
+  // sorteio ao vivo
   const [sorteioAberto, setSorteioAberto] = useState(false)
-  const [sorteioAtivo, setSorteioAtivo] = useState(false) // status visual
+  const [sorteioAtivo, setSorteioAtivo] = useState(false)
   const [fila, setFila] = useState<TimeRow[]>([])
   const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([])
   const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
   const [flipA, setFlipA] = useState(false)
   const [flipB, setFlipB] = useState(false)
-  const [confirmavel, setConfirmavel] = useState(false) // libera “Gravar confrontos”
-  const [confirming, setConfirming] = useState(false) // trava anti duplo clique
+  const [confirmavel, setConfirmavel] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const [savingId, setSavingId] = useState<string | number | null>(null)
 
-  // realtime infra
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-
-  // snapshot do estado (pro broadcast consistente)
   const stateRef = useRef({
     sorteioAberto, sorteioAtivo, fila, pares, parAtual, flipA, flipB, confirmavel
   })
@@ -115,13 +134,9 @@ export default function PlayoffPage() {
   useEffect(() => {
     carregarJogosELogos()
 
-    // canal realtime
     const ch = supabase.channel('playoff-sorteio', { config: { broadcast: { self: true } } })
-
-    // LISTENER COM MERGE DEFENSIVO
     ch.on('broadcast', { event: 'state' }, ({ payload }) => {
       const p = payload || {}
-
       if ('sorteioAberto' in p) setSorteioAberto(!!p.sorteioAberto)
       if ('sorteioAtivo' in p) setSorteioAtivo(!!p.sorteioAtivo)
       if ('fila' in p) setFila(p.fila || [])
@@ -131,16 +146,11 @@ export default function PlayoffPage() {
       if ('flipB' in p) setFlipB(!!p.flipB)
       if ('confirmavel' in p) setConfirmavel(!!p.confirmavel)
     })
-
     ch.subscribe()
     channelRef.current = ch
-
-    return () => {
-      ch.unsubscribe()
-    }
+    return () => { ch.unsubscribe() }
   }, [])
 
-  // BROADCAST sempre coerente (mantém sorteioAberto: true enquanto durar)
   function broadcast(partial: any) {
     const base = stateRef.current
     channelRef.current?.send({
@@ -185,10 +195,7 @@ export default function PlayoffPage() {
     }
   }
 
-  /** =======================
-   *  CLASSIFICAÇÃO “Fase Liga”
-   *  (mesma lógica do page de classificação)
-   *  ======================= */
+  /** ====== Classificação “Fase Liga” ====== */
   async function carregarJogosFaseLiga(): Promise<JogoLiga[]> {
     const { data: a, error: ea } = await supabase
       .from('copa_fase_liga')
@@ -222,9 +229,7 @@ export default function PlayoffPage() {
     return null
   }
 
-  /** Calcula a mesma classificação do page de classificação e retorna 9º–24º */
   async function pegarClassificados9a24(): Promise<TimeRow[]> {
-    // 1) Times (com as mesmas exclusões)
     const { data: times, error: errTimes } = await supabase
       .from('times')
       .select('id, nome, logo_url')
@@ -236,24 +241,15 @@ export default function PlayoffPage() {
       mapaTimes[t.id] = { id: t.id, nome: t.nome, logo_url: t.logo_url ?? null }
     }
 
-    // 2) Jogos da fase liga (copa_fase_liga ou fallback fase_liga)
     const jogos = await carregarJogosFaseLiga()
 
-    // 3) Base zerada
     const base: Record<string, LinhaClassificacao> = {}
     for (const id of Object.keys(mapaTimes)) {
       base[id] = {
-        id_time: id,
-        pontos: 0,
-        vitorias: 0,
-        gols_pro: 0,
-        gols_contra: 0,
-        saldo: 0,
-        jogos: 0
+        id_time: id, pontos: 0, vitorias: 0, gols_pro: 0, gols_contra: 0, saldo: 0, jogos: 0
       }
     }
 
-    // 4) Aplicar resultados (mesma regra)
     for (const j of jogos) {
       if (j.gols_time1 == null || j.gols_time2 == null) continue
       const id1 = resolverIdDoTime(j, 1, mapaTimes)
@@ -288,7 +284,6 @@ export default function PlayoffPage() {
       base[id2].saldo = base[id2].gols_pro - base[id2].gols_contra
     }
 
-    // 5) Ordenação idêntica (Pts, SG, GP, Vitórias)
     const ordenada = Object.values(base).sort((a, b) => {
       if (b.pontos !== a.pontos) return b.pontos - a.pontos
       const saldoA = a.gols_pro - a.gols_contra
@@ -298,12 +293,9 @@ export default function PlayoffPage() {
       return b.vitorias - a.vitorias
     })
 
-    // 6) Pegar 9º..24º (índices 8..23) e mapear para TimeRow
     const fatia = ordenada.slice(8, 24)
     return fatia.map((l) => ({
-      id: l.id_time,
-      nome: mapaTimes[l.id_time]?.nome ?? 'Time',
-      logo_url: mapaTimes[l.id_time]?.logo_url ?? null
+      id: l.id_time, nome: mapaTimes[l.id_time]?.nome ?? 'Time', logo_url: mapaTimes[l.id_time]?.logo_url ?? null
     }))
   }
 
@@ -345,7 +337,6 @@ export default function PlayoffPage() {
 
       const lista = shuffle(classificados924)
 
-      // reset estado
       setSorteioAberto(true)
       setSorteioAtivo(true)
       setFila(lista)
@@ -471,7 +462,7 @@ export default function PlayoffPage() {
     }
   }
 
-  /** ====== Salvar placar + pagar vitória + gols ====== */
+  /** ====== Salvar placar + pagar vitória + gols + BID ====== */
   async function salvarPlacar(jogo: Jogo) {
     if (!isAdmin) return
     if (jogo.gols_time1 == null || jogo.gols_time2 == null) {
@@ -482,9 +473,8 @@ export default function PlayoffPage() {
       const key = jogo.id ?? `${jogo.rodada}-${jogo.ordem}-${jogo.id_time1}-${jogo.id_time2}`
       setSavingId(key)
 
-      // 1) Descobrir o ID certo do jogo (por id ou fallback)
+      // Garantir ID da linha
       let rowId: string | number | null = null
-
       if (jogo.id != null) {
         const { data, error } = await supabase
           .from('copa_playoff')
@@ -493,79 +483,73 @@ export default function PlayoffPage() {
           .maybeSingle()
         if (!error && data?.id != null) rowId = data.id as any
       }
-
       if (rowId == null) {
         const { data, error } = await supabase
           .from('copa_playoff')
           .select('id,gols_time1,gols_time2')
-          .match({
-            rodada: jogo.rodada,
-            ordem: jogo.ordem,
-            id_time1: jogo.id_time1,
-            id_time2: jogo.id_time2,
-          })
+          .match({ rodada: jogo.rodada, ordem: jogo.ordem, id_time1: jogo.id_time1, id_time2: jogo.id_time2 })
           .maybeSingle()
         if (error) throw error
         rowId = (data?.id ?? null) as any
       }
-
       if (rowId == null) {
         toast.error('Não encontrei o registro deste jogo no banco.')
         setSavingId(null)
         return
       }
 
-      // 2) Buscar placar anterior para saber se é primeiro lançamento
+      // Placar anterior
       const { data: antes, error: bErr } = await supabase
         .from('copa_playoff')
         .select('gols_time1,gols_time2')
         .eq('id', rowId as any)
         .single()
       if (bErr) throw bErr
-
       const antesDef = antes?.gols_time1 != null && antes?.gols_time2 != null
 
-      // 3) Atualizar placar
+      // Atualiza placar
       const { error: uErr } = await supabase
         .from('copa_playoff')
         .update({ gols_time1: jogo.gols_time1, gols_time2: jogo.gols_time2 })
         .eq('id', rowId as any)
       if (uErr) throw uErr
 
-      // 4) 💰 bônus: vitória + gols — pago apenas no primeiro lançamento
+      // Premiações (apenas primeiro lançamento)
       const agoraDef = jogo.gols_time1 != null && jogo.gols_time2 != null
       if (!antesDef && agoraDef) {
-        // vitória (14M)
+        const parts: string[] = []
+
+        // Vitória
         if (jogo.gols_time1 !== jogo.gols_time2) {
           const vencedorId = jogo.gols_time1! > jogo.gols_time2! ? jogo.id_time1 : jogo.id_time2
-          const { error: eVit } = await supabase.rpc('atualizar_saldo', {
-            id_time: vencedorId, valor: PREMIO_VITORIA
-          })
-          if (eVit) console.error(eVit)
+          const ok = await creditarSaldo(vencedorId, PREMIO_VITORIA)
+          await marcarBidPremiacao(vencedorId, PREMIO_VITORIA)
+          parts.push(ok ? 'bônus de vitória (R$ 14.000.000)' : 'falha no bônus de vitória')
+          if (!ok) toast.error('Falha ao pagar bônus de vitória')
         }
-        // gols marcados (500k por gol) – paga para os dois times
+
+        // Gols (ambos)
         const premioMandante = (jogo.gols_time1 || 0) * PREMIO_POR_GOL
         const premioVisitante = (jogo.gols_time2 || 0) * PREMIO_POR_GOL
 
         if (premioMandante > 0) {
-          const { error: eGM } = await supabase.rpc('atualizar_saldo', {
-            id_time: jogo.id_time1, valor: premioMandante
-          })
-          if (eGM) console.error(eGM)
+          const ok = await creditarSaldo(jogo.id_time1, premioMandante)
+          await marcarBidPremiacao(jogo.id_time1, premioMandante)
+          parts.push(ok
+            ? `mandante +R$ ${premioMandante.toLocaleString('pt-BR')}`
+            : 'falha no bônus por gol do mandante')
+          if (!ok) toast.error('Falha ao pagar bônus por gol (mandante)')
         }
         if (premioVisitante > 0) {
-          const { error: eGV } = await supabase.rpc('atualizar_saldo', {
-            id_time: jogo.id_time2, valor: premioVisitante
-          })
-          if (eGV) console.error(eGV)
+          const ok = await creditarSaldo(jogo.id_time2, premioVisitante)
+          await marcarBidPremiacao(jogo.id_time2, premioVisitante)
+          parts.push(ok
+            ? `visitante +R$ ${premioVisitante.toLocaleString('pt-BR')}`
+            : 'falha no bônus por gol do visitante')
+          if (!ok) toast.error('Falha ao pagar bônus por gol (visitante)')
         }
 
-        // toasts informativos
-        const parts: string[] = []
-        if (jogo.gols_time1 !== jogo.gols_time2) parts.push('bônus de vitória (R$ 14.000.000)')
-        if ((jogo.gols_time1 || 0) > 0) parts.push(`mandante: +R$ ${(premioMandante).toLocaleString('pt-BR')}`)
-        if ((jogo.gols_time2 || 0) > 0) parts.push(`visitante: +R$ ${(premioVisitante).toLocaleString('pt-BR')}`)
-        if (parts.length) toast.success('Premiações pagas: ' + parts.join(' • '))
+        if (parts.length) toast.success('Premiações: ' + parts.join(' • '))
       }
 
       toast.success('Placar salvo!')
