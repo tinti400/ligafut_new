@@ -176,6 +176,17 @@ function useDebounce<T>(value: T, delay = 350) {
   return debounced
 }
 
+// --- utils para busca tolerante a pontuação/espacos/acentos ---
+function toTokens(raw: string) {
+  return raw
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')                // separa acentos
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos
+    .split(/[^a-z0-9]+/g)            // quebra por qq não alfanumérico (ponto, hífen, etc.)
+    .filter(t => t.length >= 2)
+}
+
 /** ========= Highlight ========= */
 function Highlight({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>
@@ -242,17 +253,15 @@ export default function BIDPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Filtros / Ordenação / Paginação
+  // Filtros / Busca / Ordenação / Paginação
   const [filtroTime, setFiltroTime] = useState('todos')
   const [tipoFiltro, setTipoFiltro] = useState<TipoChipKey>('todos')
-  const [sortOrder, setSortOrder] = useState<SortOrder>('recente')
-
-  // Busca
   const [buscaTexto, setBuscaTexto] = useState('')
   const debouncedBusca = useDebounce(buscaTexto, 350)
   const buscaAtiva = debouncedBusca.trim().length >= 2
 
-  // Paginação
+  const [sortOrder, setSortOrder] = useState<SortOrder>('recente')
+
   const [pagina, setPagina] = useState(1)
   const [limite] = useState(25)
   const [totalPaginas, setTotalPaginas] = useState(1)
@@ -262,7 +271,6 @@ export default function BIDPage() {
   const [comentando, setComentando] = useState<Record<string, boolean>>({})
   const [novoComentario, setNovoComentario] = useState<Record<string, string>>({})
   const [excluindoComentario, setExcluindoComentario] = useState<Record<string, boolean>>({})
-  const [comentarioAberto, setComentarioAberto] = useState<Record<string, boolean>>({})
 
   // Reações
   const [reacoesCount, setReacoesCount] = useState<Record<string, Record<Emoji, number>>>({})
@@ -274,14 +282,11 @@ export default function BIDPage() {
   const [nomeTimeLogado, setNomeTimeLogado] = useState<string | null>(null)
 
   // Auto-animate
-  const [listaDiasAnim] = useAutoAnimate<HTMLDivElement>()
-  const [commentsAnim] = useAutoAnimate<HTMLDivElement>()
+  const [listaDiasAnim]  = useAutoAnimate<HTMLDivElement>()
+  const [commentsAnim]   = useAutoAnimate<HTMLDivElement>()
 
   // Scroll anchor p/ paginação
   const topRef = useRef<HTMLDivElement | null>(null)
-
-  // Modo "filtro global" (sem paginação): quando há filtro de time ou tipo e NÃO está em busca textual
-  const filtroGlobalAtivo = !buscaAtiva && (filtroTime !== 'todos' || tipoFiltro !== 'todos')
 
   /** ====== Identidade do time (robusto) ====== */
   useEffect(() => {
@@ -323,56 +328,27 @@ export default function BIDPage() {
     })()
   }, [])
 
-  /** ====== Inicial ====== */
+  /** ====== Carrega eventos (paginado) ====== */
   useEffect(() => {
-    if (!buscaAtiva && !filtroGlobalAtivo) {
+    if (!buscaAtiva) {
       carregarDados(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** ====== Busca global reativa ====== */
+  /** ====== Busca/Ordenação reativas ====== */
   useEffect(() => {
     if (buscaAtiva) {
       buscarGlobal(debouncedBusca)
-    } else if (filtroGlobalAtivo) {
-      carregarFiltrado()
     } else {
       carregarDados(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedBusca])
+  }, [debouncedBusca, sortOrder])
 
-  /** ====== Filtro global reativo ====== */
-  useEffect(() => {
-    if (buscaAtiva) return
-    if (filtroGlobalAtivo) {
-      carregarFiltrado()
-    } else {
-      carregarDados(1)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroTime, tipoFiltro])
-
-  /** ====== Ordenação reativa ====== */
-  useEffect(() => {
-    // reordena localmente o que já está carregado
-    setEventos((prev) => {
-      const arr = [...prev]
-      if (sortOrder === 'valor') {
-        arr.sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
-      } else if (sortOrder === 'antigo') {
-        arr.sort((a, b) => +new Date(a.data_evento) - +new Date(b.data_evento))
-      } else {
-        arr.sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
-      }
-      return arr
-    })
-  }, [sortOrder])
-
-  /** ====== Dados: eventos paginados (modo normal) ====== */
+  /** ====== Dados: eventos paginados ====== */
   async function carregarDados(paginaAtual = 1) {
-    if (buscaAtiva || filtroGlobalAtivo) return
+    if (buscaAtiva) return // em modo busca, não usa paginação
     setLoading(true)
     setErro(null)
     const offset = (paginaAtual - 1) * limite
@@ -383,20 +359,21 @@ export default function BIDPage() {
         .select('*', { count: 'exact', head: true })
       if (errorCount) throw errorCount
 
-      const { data: eventosData, error: errorEventos } = await supabase
-        .from('bid')
-        .select('*')
-        .order('data_evento', { ascending: false })
+      let query = supabase.from('bid').select('*')
+
+      if (sortOrder === 'valor') {
+        query = query.order('valor', { ascending: false }).order('data_evento', { ascending: false })
+      } else if (sortOrder === 'antigo') {
+        query = query.order('data_evento', { ascending: true })
+      } else {
+        query = query.order('data_evento', { ascending: false })
+      }
+
+      const { data: eventosData, error: errorEventos } = await query
         .range(offset, offset + limite - 1)
       if (errorEventos) throw errorEventos
 
-      const lista = (eventosData as EventoBID[] || [])
-      lista.sort((a, b) =>
-        sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
-        : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
-        : (+new Date(b.data_evento) - +new Date(a.data_evento))
-      )
-
+      const lista = (eventosData as EventoBID[]) || []
       setEventos(lista)
       await carregarJogadoresParaEventos(lista)
 
@@ -410,9 +387,9 @@ export default function BIDPage() {
         carregarReacoesParaEventos(idsStr),
       ])
 
-      if (topRef.current) {
-        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
+      setErro(null) // garante limpar qualquer erro passado
+
+      if (topRef.current) topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar os eventos.')
@@ -425,135 +402,90 @@ export default function BIDPage() {
     }
   }
 
-  /** ====== Modo filtro global (time/tipo) — varre tudo ====== */
-  async function carregarFiltrado() {
-    setLoading(true)
-    setErro(null)
-    try {
-      let q = supabase.from('bid').select('*')
-
-      // Filtro por time: (id_time1 == X) OR (id_time2 == X)
-      if (filtroTime !== 'todos') {
-        q = q.or(`id_time1.eq.${filtroTime},id_time2.eq.${filtroTime}`)
-      }
-
-      // Filtro por tipo: padrões com e sem acento
-      if (tipoFiltro !== 'todos') {
-        const mapOr: Record<Exclude<TipoChipKey,'todos'>, string> = {
-          transfer: 'tipo_evento.ilike.*transfer*',
-          emprest: 'tipo_evento.ilike.*emprest*,tipo_evento.ilike.*emprést*',
-          rescis:   'tipo_evento.ilike.*rescis*',
-          compra:   'tipo_evento.ilike.*compra*',
-          salario:  'tipo_evento.ilike.*salario*',
-          bonus:    'tipo_evento.ilike.*bonus*,tipo_evento.ilike.*bônus*',
-        }
-        q = q.or(mapOr[tipoFiltro])
-      }
-
-      // Ordenação
-      if (sortOrder === 'valor') {
-        q = q.order('valor', { ascending: false, nullsFirst: false })
-      } else if (sortOrder === 'antigo') {
-        q = q.order('data_evento', { ascending: true })
-      } else {
-        q = q.order('data_evento', { ascending: false })
-      }
-
-      const { data, error } = await q
-      if (error) throw error
-
-      const lista = (data as EventoBID[] || [])
-      setEventos(lista)
-      await carregarJogadoresParaEventos(lista)
-
-      // sem paginação no modo filtro
-      setTotalPaginas(1)
-      setPagina(1)
-
-      const idsStr = lista.map((e) => String(e.id))
-      await Promise.all([
-        carregarComentariosParaEventos(idsStr),
-        carregarReacoesParaEventos(idsStr),
-      ])
-
-      if (topRef.current) {
-        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-    } catch (err: any) {
-      console.error(err)
-      setErro('Erro ao carregar com filtros.')
-      setEventos([])
-      setComentariosMap({})
-      setReacoesCount({})
-      setMinhasReacoes({})
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  /** ====== Busca global (texto) — varre tudo ====== */
+  /** ====== Busca global (texto) — varre tudo, tolera pontuação ====== */
   async function buscarGlobal(termo: string) {
     const termoTrim = termo.trim()
-    if (termoTrim.length < 2) return
+    if (termoTrim.length < 2) {
+      setEventos([])
+      setTotalPaginas(1)
+      setPagina(1)
+      setErro(null)
+      return
+    }
+
     setLoading(true)
     setErro(null)
 
     try {
-      // Encontrar times cujo nome bate com o termo
-      const { data: timesLike, error: errTimesLike } = await supabase
-        .from('times')
-        .select('id')
-        .ilike('nome', `%${termoTrim}%`)
-      if (errTimesLike) throw errTimesLike
-      const timeIds = (timesLike || []).map((t: any) => t.id)
+      const tokens = toTokens(termoTrim) // ex.: "M.Thuram" -> ["thuram"]
 
-      // Descrição
-      const { data: porDesc, error: errDesc } = await supabase
-        .from('bid')
-        .select('*')
-        .ilike('descricao', `%${termoTrim}%`)
-        .order('data_evento', { ascending: false })
-      if (errDesc) throw errDesc
+      // helper: aplica .ilike (AND) para todos tokens em uma mesma coluna
+      const ilikeAll = (q: any, coluna: string, toks: string[]) =>
+        toks.reduce((acc: any, tk: string) => acc.ilike(coluna, `%${tk}%`), q)
 
-      // Jogador
-      const { data: porJogador, error: errJog } = await supabase
-        .from('bid')
-        .select('*')
-        .ilike('nome_jogador', `%${termoTrim}%`)
-        .order('data_evento', { ascending: false })
-      if (errJog) throw errJog
+      const resultados: Record<string, EventoBID> = {}
 
-      // time1
-      let porTime1: EventoBID[] = []
-      if (timeIds.length) {
-        const { data, error } = await supabase
+      // 1) Descrição — exata e tokens
+      {
+        const { data } = await supabase
           .from('bid')
           .select('*')
+          .ilike('descricao', `%${termoTrim}%`)
+          .order('data_evento', { ascending: false })
+        ;(data as EventoBID[] || []).forEach(ev => { resultados[String(ev.id)] = ev })
+
+        if (tokens.length) {
+          let q = supabase.from('bid').select('*').order('data_evento', { ascending: false })
+          q = ilikeAll(q, 'descricao', tokens)
+          const { data: dTok } = await q
+          ;(dTok as EventoBID[] || []).forEach(ev => { resultados[String(ev.id)] = ev })
+        }
+      }
+
+      // 2) Nome do jogador — exata e tokens
+      {
+        const { data } = await supabase
+          .from('bid')
+          .select('*')
+          .ilike('nome_jogador', `%${termoTrim}%`)
+          .order('data_evento', { ascending: false })
+        ;(data as EventoBID[] || []).forEach(ev => { resultados[String(ev.id)] = ev })
+
+        if (tokens.length) {
+          let q = supabase.from('bid').select('*').order('data_evento', { ascending: false })
+          q = ilikeAll(q, 'nome_jogador', tokens)
+          const { data: dTok } = await q
+          ;(dTok as EventoBID[] || []).forEach(ev => { resultados[String(ev.id)] = ev })
+        }
+      }
+
+      // 3) Times cujo nome contém TODOS os tokens (AND). Se não houver tokens, usa ilike do termo inteiro
+      let timeIds: string[] = []
+      if (tokens.length) {
+        let qt = supabase.from('times').select('id')
+        qt = ilikeAll(qt, 'nome', tokens)
+        const { data } = await qt
+        timeIds = (data || []).map((t: any) => t.id)
+      } else {
+        const { data } = await supabase.from('times').select('id').ilike('nome', `%${termoTrim}%`)
+        timeIds = (data || []).map((t: any) => t.id)
+      }
+
+      if (timeIds.length) {
+        const { data: d1 } = await supabase
+          .from('bid').select('*')
           .in('id_time1', timeIds)
           .order('data_evento', { ascending: false })
-        if (error) throw error
-        porTime1 = data as EventoBID[] || []
-      }
-
-      // time2
-      let porTime2: EventoBID[] = []
-      if (timeIds.length) {
-        const { data, error } = await supabase
-          .from('bid')
-          .select('*')
+        const { data: d2 } = await supabase
+          .from('bid').select('*')
           .in('id_time2', timeIds)
           .order('data_evento', { ascending: false })
-        if (error) throw error
-        porTime2 = data as EventoBID[] || []
+        ;[...(d1 as EventoBID[] || []), ...(d2 as EventoBID[] || [])]
+          .forEach(ev => { resultados[String(ev.id)] = ev })
       }
 
-      // Merge único
-      const mapa: Record<string, EventoBID> = {}
-      ;[...(porDesc as EventoBID[] || []), ...porJogador as EventoBID[] || [], ...porTime1, ...porTime2]
-        .forEach((ev) => { mapa[String(ev.id)] = ev })
-      let unicos = Object.values(mapa)
-
-      // Ordenar
+      // 4) Consolidar e ordenar (cliente)
+      let unicos = Object.values(resultados)
       unicos.sort((a, b) =>
         sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
         : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
@@ -563,7 +495,6 @@ export default function BIDPage() {
       setEventos(unicos)
       await carregarJogadoresParaEventos(unicos)
 
-      // sem paginação na busca
       setTotalPaginas(1)
       setPagina(1)
 
@@ -573,10 +504,10 @@ export default function BIDPage() {
         carregarReacoesParaEventos(idsStr),
       ])
 
-      if (topRef.current) {
-        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-    } catch (err: any) {
+      setErro(null) // evita "Erro na busca" ficar preso
+
+      if (topRef.current) topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } catch (err) {
       console.error(err)
       setErro('Erro na busca.')
       setEventos([])
@@ -592,9 +523,7 @@ export default function BIDPage() {
   async function carregarJogadoresParaEventos(lista: EventoBID[]) {
     try {
       const ids = Array.from(
-        new Set(
-          lista.map(ev => ev.id_jogador || '').filter(Boolean)
-        )
+        new Set(lista.map(ev => ev.id_jogador || '').filter(Boolean))
       ).filter((id) => !jogadoresMap[id as string])
 
       if (!ids.length) return
@@ -684,7 +613,6 @@ export default function BIDPage() {
         return { ...prev, [idEvento]: arr }
       })
       setNovoComentario((prev) => ({ ...prev, [idEvento]: '' }))
-      setComentarioAberto((p)=>({ ...p, [idEvento]: true }))
     } catch (err: any) {
       console.error(err)
       toast.error(`Não foi possível publicar: ${err?.message || 'erro desconhecido'}`)
@@ -741,47 +669,10 @@ export default function BIDPage() {
     setMinhasReacoes(mineMap)
   }
 
-  async function toggleReacao(idEventoRaw: IDEvt, emoji: Emoji) {
-    const idEvento = String(idEventoRaw)
-    if (!idTimeLogado) { toast.error('Faça login no seu time para reagir.'); return }
-    if (reagindo[idEvento]) return
-
-    setReagindo((p) => ({ ...p, [idEvento]: true }))
-    try {
-      const { data: existente, error: selErr } = await supabase
-        .from('bid_reacoes')
-        .select('id')
-        .eq('id_evento', idEvento)
-        .eq('id_time', idTimeLogado)
-        .eq('emoji', emoji)
-        .maybeSingle()
-      if (selErr) throw selErr
-
-      if (existente) {
-        const { error: delErr } = await supabase.from('bid_reacoes').delete().eq('id', existente.id)
-        if (delErr) throw delErr
-      } else {
-        const { error: insErr } = await supabase
-          .from('bid_reacoes')
-          .insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
-        if (insErr) throw insErr
-      }
-
-      await carregarReacoesParaEventos([idEvento])
-    } catch (err: any) {
-      console.error(err)
-      toast.error(`Não foi possível reagir: ${err?.message || 'erro'}`)
-    } finally {
-      setReagindo((p) => ({ ...p, [idEvento]: false }))
-    }
-  }
-
   /** ====== Filtros / Agrupamento ====== */
   const eventosFiltrados = useMemo(() => {
     const termo = debouncedBusca.trim().toLowerCase()
-
-    // 1) aplica filtros por time e tipo SEMPRE (mas lembre: no modo filtro global já vem filtrado do servidor)
-    const base = eventos.filter((evento) => {
+    return eventos.filter((evento) => {
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
       if (!timeOK) return false
 
@@ -789,7 +680,7 @@ export default function BIDPage() {
       const tipoOK = tipoFiltro === 'todos' || tipoKey === tipoFiltro
       if (!tipoOK) return false
 
-      // 2) filtro textual local só quando NÃO estiver em busca global
+      // quando NÃO estiver em "busca global", permitimos um filtro leve no cliente
       if (!buscaAtiva && termo) {
         const nome1 = timesMap[evento.id_time1]?.nome || ''
         const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
@@ -798,16 +689,7 @@ export default function BIDPage() {
       }
       return true
     })
-
-    // 3) ordenação local
-    base.sort((a, b) =>
-      sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
-      : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
-      : (+new Date(b.data_evento) - +new Date(a.data_evento))
-    )
-
-    return base
-  }, [eventos, filtroTime, tipoFiltro, debouncedBusca, buscaAtiva, timesMap, sortOrder])
+  }, [eventos, filtroTime, tipoFiltro, debouncedBusca, buscaAtiva, timesMap])
 
   const eventosAgrupados = useMemo(() => {
     const grupos: Record<string, EventoBID[]> = {}
@@ -826,7 +708,7 @@ export default function BIDPage() {
       {/* topo/anchor */}
       <div ref={topRef} />
 
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-5xl mx-auto px-4 py-6">
         <header className="mb-6 text-center">
           <div className="inline-block rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-5 py-3 shadow-sm">
             <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
@@ -876,7 +758,7 @@ export default function BIDPage() {
                 </button>
               </div>
 
-              <div className="flex gap-3 w-full md:w-auto">
+              <div className="flex gap-3 w-full md:w-auto items-center">
                 <input
                   type="text"
                   placeholder="Buscar por jogador, time ou termo… (2+ letras)"
@@ -884,93 +766,57 @@ export default function BIDPage() {
                   value={buscaTexto}
                   onChange={(e) => setBuscaTexto(e.target.value)}
                 />
-                {/* paginação compacta (apenas quando NÃO estiver em busca e NÃO estiver em filtro global) */}
-                {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
-                  <div className="hidden md:flex items-center gap-2">
-                    <button
-                      onClick={() => carregarDados(1)}
-                      disabled={pagina === 1}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Primeira"
-                    >«</button>
-                    <button
-                      onClick={() => carregarDados(pagina - 1)}
-                      disabled={pagina === 1}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Anterior"
-                    >‹</button>
-                    <span className="text-xs text-gray-300 select-none">
-                      pág. <strong>{pagina}</strong>/<strong>{totalPaginas}</strong>
-                    </span>
-                    <button
-                      onClick={() => carregarDados(pagina + 1)}
-                      disabled={pagina === totalPaginas}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Próxima"
-                    >›</button>
-                    <button
-                      onClick={() => carregarDados(totalPaginas)}
-                      disabled={pagina === totalPaginas}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Última"
-                    >»</button>
-                  </div>
-                )}
+
+                {/* Ordenação */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">Ordenar</span>
+                  <select
+                    className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    value={sortOrder}
+                    onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+                  >
+                    <option value="recente">Mais recentes</option>
+                    <option value="antigo">Mais antigos</option>
+                    <option value="valor">Maior valor</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Chips segmentados + ordenar */}
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-full border border-gray-700 bg-gray-900/60 p-1">
-                {TIPOS_CHIP.map(({ key, label }) => {
-                  const ativo = tipoFiltro === key
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setTipoFiltro(key)}
-                      className={classNames(
-                        'whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition',
-                        ativo
-                          ? 'bg-emerald-600/25 text-emerald-200 ring-1 ring-emerald-400/30'
-                          : 'text-gray-300 hover:bg-gray-800'
-                      )}
-                      aria-pressed={ativo}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-
-              <div className="ml-auto flex items-center gap-2">
-                <label htmlFor="ordem" className="text-xs text-gray-400">Ordenar</label>
-                <select
-                  id="ordem"
-                  className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-                >
-                  <option value="recente">Mais recentes</option>
-                  <option value="antigo">Mais antigos</option>
-                  <option value="valor">Maior valor</option>
-                </select>
-
-                {(tipoFiltro !== 'todos' || filtroTime !== 'todos' || buscaAtiva) && (
+            {/* Chips de tipo */}
+            <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+              {TIPOS_CHIP.map(({ key, label }) => {
+                const ativo = tipoFiltro === key
+                return (
                   <button
-                    onClick={() => { setTipoFiltro('todos'); setFiltroTime('todos'); setBuscaTexto(''); setSortOrder('recente') }}
-                    className="text-xs text-gray-300 underline hover:text-gray-100"
-                    title="Limpar filtros"
+                    key={key}
+                    onClick={() => setTipoFiltro(key)}
+                    className={classNames(
+                      'whitespace-nowrap rounded-full px-3 py-1.5 text-sm border transition',
+                      ativo
+                        ? 'bg-emerald-600/25 border-emerald-400 text-emerald-200 shadow shadow-emerald-900/30'
+                        : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
+                    )}
                   >
-                    Limpar
+                    {label}
                   </button>
-                )}
-              </div>
+                )
+              })}
+              {(tipoFiltro !== 'todos' || filtroTime !== 'todos' || buscaAtiva) && (
+                <button
+                  onClick={() => { setTipoFiltro('todos'); setFiltroTime('todos'); setBuscaTexto('') }}
+                  className="ml-1 text-xs text-gray-300 underline hover:text-gray-100"
+                  title="Limpar filtros"
+                >
+                  Limpar filtros
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Paginação (mobile) — só no modo normal */}
-        {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
+        {/* Paginação (mobile) — só quando NÃO estiver buscando */}
+        {!buscaAtiva && totalPaginas > 1 && (
           <div className="md:hidden flex justify-center items-center gap-3 mb-4">
             <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
               className="px-4 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">⬅</button>
@@ -985,11 +831,8 @@ export default function BIDPage() {
           <div className="space-y-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="animate-pulse">
-                <div className="h-4 w-64 bg-white/10 rounded mb-3 mx-auto md:mx-0" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="h-24 w-full bg-white/5 rounded-xl" />
-                  <div className="h-24 w-full bg-white/5 rounded-xl" />
-                </div>
+                <div className="h-4 w-40 bg-white/10 rounded mb-3" />
+                <div className="h-24 w-full bg-white/5 rounded-lg" />
               </div>
             ))}
           </div>
@@ -997,253 +840,227 @@ export default function BIDPage() {
         {erro && <p className="text-red-400 text-center">{erro}</p>}
         {!loading && Object.keys(eventosAgrupados).length === 0 && (
           <div className="text-center text-gray-300 py-8">
-            <p className="text-lg">Nenhum evento encontrado {buscaAtiva || filtroGlobalAtivo ? 'para os filtros atuais.' : 'para esse filtro.'}</p>
+            <p className="text-lg">Nenhum evento encontrado {buscaAtiva ? 'para a busca atual.' : 'para esse filtro.'}</p>
           </div>
         )}
 
         {/* Timeline de eventos */}
-        <div className="space-y-12" ref={listaDiasAnim}>
+        <div className="space-y-10" ref={listaDiasAnim}>
           {Object.entries(eventosAgrupados).map(([data, eventosDoDia]) => {
             const d0 = eventosDoDia[0]?.data_evento ? new Date(eventosDoDia[0].data_evento) : new Date()
             return (
               <section key={data} className="relative">
                 {/* Cabeçalho do dia */}
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/30 to-transparent" />
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/40 to-transparent" />
                   <div className="shrink-0">
                     <div className="text-center">
                       <p className="text-xs uppercase tracking-wider text-yellow-400/80">{diaSemanaPt(d0)}</p>
-                      <h2 className="text-2xl font-bold text-yellow-300">{data}</h2>
+                      <h2 className="text-xl font-bold text-yellow-300">{data}</h2>
                     </div>
                   </div>
-                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/30 to-transparent" />
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/40 to-transparent" />
                 </div>
 
-                {/* Espinha da timeline */}
-                <div className="relative pl-4 md:pl-6">
-                  <div className="absolute left-1 md:left-2 top-0 bottom-0 w-px bg-gradient-to-b from-white/10 via-white/15 to-transparent" />
+                {/* Lista do dia */}
+                <div className="space-y-4">
+                  {eventosDoDia.map((evento) => {
+                    const idEvento = String(evento.id)
+                    const time1 = timesMap[evento.id_time1]
+                    const time2 = evento.id_time2 ? timesMap[evento.id_time2] : null
+                    const comentarios = comentariosMap[idEvento] || []
+                    const counts = reacoesCount[idEvento] || {}
+                    const mine = minhasReacoes[idEvento] || {}
+                    const estilo = tipoToStyle(evento.tipo_evento)
 
-                  {/* Lista do dia em grid 2 colunas (≥ md) */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
-                    {eventosDoDia.map((evento) => {
-                      const idEvento = String(evento.id)
-                      const time1 = timesMap[evento.id_time1]
-                      const time2 = evento.id_time2 ? timesMap[evento.id_time2] : null
-                      const comentarios = comentariosMap[idEvento] || []
-                      const counts = reacoesCount[idEvento] || {}
-                      const mine = minhasReacoes[idEvento] || {}
-                      const estilo = tipoToStyle(evento.tipo_evento)
-                      const aberto = !!comentarioAberto[idEvento]
+                    return (
+                      <article
+                        key={idEvento}
+                        className={classNames(
+                          'relative rounded-xl bg-gray-900/70 border border-white/10 p-4 md:p-5 shadow-md',
+                          'ring-1', estilo.ring, 'hover:shadow-emerald-600/10 hover:scale-[1.003] transition'
+                        )}
+                      >
+                        {/* Timeline dot */}
+                        <span className={classNames('absolute -left-3 top-5 size-2 rounded-full', estilo.dot)} />
 
-                      return (
-                        <article
-                          key={idEvento}
-                          className={classNames(
-                            'relative rounded-2xl bg-gray-900/70 border border-white/10 p-4 md:p-5 shadow-md',
-                            'ring-1', estilo.ring, 'hover:shadow-emerald-600/10 hover:scale-[1.002] transition'
-                          )}
-                        >
-                          {/* Timeline dot conectado à espinha */}
-                          <span className={classNames('absolute -left-3 md:-left-4 top-6 size-2 rounded-full', estilo.dot)} />
-
-                          {/* Header */}
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xl">{iconeTipo(evento.tipo_evento)}</span>
-                              <span className={classNames('px-2 py-0.5 rounded-full text-xs font-semibold', estilo.chip)}>
-                                {capitalizar(evento.tipo_evento)}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-300">{horaPt(new Date(evento.data_evento))}</div>
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">{iconeTipo(evento.tipo_evento)}</span>
+                            <span className={classNames('px-2 py-0.5 rounded-full text-xs font-semibold', estilo.chip)}>
+                              {capitalizar(evento.tipo_evento)}
+                            </span>
                           </div>
+                          <div className="text-xs text-gray-300">{horaPt(new Date(evento.data_evento))}</div>
+                        </div>
 
-                          {/* Conteúdo */}
-                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div className="md:col-span-2">
-                              <p className="text-gray-100 leading-relaxed">
-                                {buscaAtiva ? (
-                                  <Highlight text={evento.descricao} query={debouncedBusca} />
-                                ) : (
-                                  evento.descricao
-                                )}
-                              </p>
+                        {/* Conteúdo */}
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="md:col-span-2">
+                            <p className="text-gray-100 leading-relaxed">
+                              {buscaAtiva ? (
+                                <Highlight text={evento.descricao} query={debouncedBusca} />
+                              ) : (
+                                evento.descricao
+                              )}
+                            </p>
 
-                              <div className="mt-3 flex flex-wrap items-center gap-3">
-                                {/* time 1 */}
+                            <div className="mt-3 flex flex-wrap items-center gap-3">
+                              {/* time 1 */}
+                              <div className="flex items-center gap-2">
+                                <AvatarTime nome={time1?.nome || 'Time'} logo={time1?.logo_url} />
+                                <div className="text-sm">
+                                  <p className="text-gray-400">Time principal</p>
+                                  <p className="font-semibold">{time1?.nome || 'Desconhecido'}</p>
+                                </div>
+                              </div>
+
+                              {/* separador */}
+                              {time2 && <span className="text-gray-500">•</span>}
+
+                              {/* time 2 */}
+                              {time2 && (
                                 <div className="flex items-center gap-2">
-                                  <AvatarTime nome={time1?.nome || 'Time'} logo={time1?.logo_url} />
+                                  <AvatarTime nome={time2?.nome || 'Time'} logo={time2?.logo_url} />
                                   <div className="text-sm">
-                                    <p className="text-gray-400">Time principal</p>
-                                    <p className="font-semibold">{time1?.nome || 'Desconhecido'}</p>
-                                  </div>
-                                </div>
-
-                                {/* separador */}
-                                {time2 && <span className="text-gray-500">•</span>}
-
-                                {/* time 2 */}
-                                {time2 && (
-                                  <div className="flex items-center gap-2">
-                                    <AvatarTime nome={time2?.nome || 'Time'} logo={time2?.logo_url} />
-                                    <div className="text-sm">
-                                      <p className="text-gray-400">Time adversário</p>
-                                      <p className="font-semibold">{time2?.nome || 'Desconhecido'}</p>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Lado direito: Jogador + valor/estrelas */}
-                            <div className="md:col-span-1 space-y-3">
-                              {/* Player Card */}
-                              {(() => {
-                                const jEv: Partial<Jogador> = {
-                                  id: evento.id_jogador || undefined,
-                                  nome: evento.nome_jogador || undefined,
-                                  foto_url: evento.foto_jogador_url || undefined,
-                                }
-                                const jFromMap = evento.id_jogador ? jogadoresMap[evento.id_jogador] : undefined
-                                const jogador = jEv.nome || jEv.foto_url ? { ...jFromMap, ...jEv } : jFromMap
-                                return jogador ? (
-                                  <CardJogador j={jogador} highlight={buscaAtiva ? debouncedBusca : ''} />
-                                ) : null
-                              })()}
-
-                              {/* Movimentação */}
-                              {evento.valor != null && (
-                                <div className="rounded-lg bg-black/30 border border-white/10 p-3">
-                                  <p className="text-xs text-gray-400 mb-1">Movimentação</p>
-                                  <p className="text-lg font-bold text-yellow-300">
-                                    {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  </p>
-                                  <div className="mt-1 text-sm">
-                                    <span className="text-gray-400 mr-2">Impacto</span>
-                                    <Estrelas valor={evento.valor} />
+                                    <p className="text-gray-400">Time adversário</p>
+                                    <p className="font-semibold">{time2?.nome || 'Desconhecido'}</p>
                                   </div>
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Reações (compactas) */}
-                          <div className="mt-4 rounded-md bg-black/25 border border-white/10 p-2.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {EMOJIS.map((e) => {
-                                const qtd = (counts[e] || 0)
-                                const ativo = !!mine[e]
-                                if (qtd === 0 && !ativo) return null
-                                return (
-                                  <button
-                                    key={e}
-                                    onClick={() => toggleReacao(idEvento, e)}
-                                    disabled={!idTimeLogado || !!reagindo[idEvento]}
-                                    aria-pressed={ativo}
-                                    className={classNames(
-                                      'px-2 py-1 rounded-full text-sm border transition',
-                                      ativo
-                                        ? 'bg-emerald-600/25 border-emerald-500 ring-2 ring-emerald-400/40'
-                                        : 'bg-gray-800/60 border-gray-600 hover:bg-gray-700'
-                                    )}
-                                    title={ativo ? 'Remover reação' : 'Reagir'}
-                                  >
-                                    <span className="mr-1">{e}</span>
-                                    <span className="text-xs text-gray-200">{qtd}</span>
-                                  </button>
-                                )
-                              })}
-                              {!idTimeLogado && (
-                                <span className="text-xs text-gray-300 ml-1">Faça login no seu time para reagir.</span>
-                              )}
-                            </div>
-                          </div>
+                          {/* Lado direito: Jogador + valor/estrelas */}
+                          <div className="md:col-span-1 space-y-3">
+                            {/* Player Card */}
+                            {(() => {
+                              const jEv: Partial<Jogador> = {
+                                id: evento.id_jogador || undefined,
+                                nome: evento.nome_jogador || undefined,
+                                foto_url: evento.foto_jogador_url || undefined,
+                              }
+                              const jFromMap = evento.id_jogador ? jogadoresMap[evento.id_jogador] : undefined
+                              const jogador = jEv.nome || jEv.foto_url ? { ...jFromMap, ...jEv } : jFromMap
+                              return jogador ? (
+                                <CardJogador j={jogador} highlight={buscaAtiva ? debouncedBusca : ''} />
+                              ) : null
+                            })()}
 
-                          {/* Comentários (colapsável) */}
-                          <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <h3 className="font-semibold text-white" aria-live="polite">
-                                💬 Comentários ({comentarios.length})
-                              </h3>
-                              <div className="flex items-center gap-3">
-                                {!idTimeLogado && <span className="text-xs text-gray-300">Faça login para comentar.</span>}
-                                <button
-                                  onClick={() => setComentarioAberto((p)=>({ ...p, [idEvento]: !p[idEvento] }))}
-                                  className="text-sm text-emerald-300 hover:text-emerald-200 underline underline-offset-4"
-                                >
-                                  {aberto ? 'Fechar' : 'Comentar…'}
-                                </button>
-                              </div>
-                            </div>
-
-                            {aberto && (
-                              <>
-                                <div ref={commentsAnim} className="space-y-2">
-                                  {comentarios.length === 0 && (
-                                    <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
-                                  )}
-                                  {comentarios.map((c) => (
-                                    <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
-                                      <div className="flex items-center justify-between">
-                                        <div className="text-sm flex items-center gap-2">
-                                          <AvatarTime
-                                            nome={c.nome_time}
-                                            logo={timesMap[c.id_time]?.logo_url}
-                                          />
-                                          <span className="font-semibold text-emerald-300">{c.nome_time}</span>
-                                          <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
-                                        </div>
-                                        {podeExcluirComentario(c) && (
-                                          <button
-                                            onClick={() => excluirComentario(idEvento, c.id)}
-                                            disabled={!!excluindoComentario[c.id]}
-                                            className="text-red-300 hover:text-red-500 text-xs"
-                                          >
-                                            {excluindoComentario[c.id] ? 'Excluindo…' : 'Excluir'}
-                                          </button>
-                                        )}
-                                      </div>
-                                      <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
-                                    </div>
-                                  ))}
+                            {/* Movimentação */}
+                            {evento.valor != null && (
+                              <div className="rounded-lg bg-black/30 border border-white/10 p-3">
+                                <p className="text-xs text-gray-400 mb-1">Movimentação</p>
+                                <p className="text-lg font-bold text-yellow-300">
+                                  {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </p>
+                                <div className="mt-1 text-sm">
+                                  <span className="text-gray-400 mr-2">Impacto</span>
+                                  <Estrelas valor={evento.valor} />
                                 </div>
-
-                                {/* Form */}
-                                <ComentarioForm
-                                  idEvento={idEvento}
-                                  comentarioAtual={novoComentario[idEvento] || ''}
-                                  setTexto={onChangeComentario}
-                                  enviando={!!comentando[idEvento]}
-                                  podeComentar={!!idTimeLogado}
-                                  onSubmit={() => enviarComentario(idEvento)}
-                                />
-                              </>
+                              </div>
                             )}
                           </div>
+                        </div>
 
-                          {/* Ações admin */}
-                          {isAdmin && (
-                            <div className="mt-3 flex justify-end">
-                              <button
-                                onClick={() => excluirEvento(idEvento)}
-                                className="text-red-300 hover:text-red-400 text-sm underline underline-offset-4"
-                                title="Excluir evento"
-                              >
-                                🗑️ Excluir evento
-                              </button>
-                            </div>
-                          )}
-                        </article>
-                      )
-                    })}
-                  </div>
+                        {/* Reações */}
+                        <div className="mt-4 rounded-md bg-black/25 border border-white/10 p-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {EMOJIS.map((e) => {
+                              const qtd = counts[e] || 0
+                              const ativo = !!mine[e]
+                              return (
+                                <button
+                                  key={e}
+                                  onClick={() => toggleReacao(idEvento, e)}
+                                  disabled={!idTimeLogado || !!reagindo[idEvento]}
+                                  className={classNames(
+                                    'px-2 py-1 rounded-md text-sm border transition',
+                                    ativo
+                                      ? 'bg-emerald-600/25 border-emerald-500 ring-1 ring-emerald-400/30'
+                                      : 'bg-gray-800/60 border-gray-600 hover:bg-gray-700'
+                                  )}
+                                  title={ativo ? 'Remover reação' : 'Reagir'}
+                                >
+                                  <span className="mr-1">{e}</span>
+                                  <span className="text-xs text-gray-200">{qtd}</span>
+                                </button>
+                              )
+                            })}
+                            {!idTimeLogado && (
+                              <span className="text-xs text-gray-300 ml-1">Faça login no seu time para reagir.</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Comentários */}
+                        <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-semibold text-white">💬 Comentários ({comentarios.length})</h3>
+                            {!idTimeLogado && <span className="text-xs text-gray-300">Faça login no seu time para comentar.</span>}
+                          </div>
+
+                          <div ref={commentsAnim} className="space-y-2">
+                            {comentarios.length === 0 && (
+                              <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
+                            )}
+                            {comentarios.map((c) => (
+                              <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-sm">
+                                    <span className="font-semibold text-emerald-300">{c.nome_time}</span>
+                                    <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
+                                  </div>
+                                  {podeExcluirComentario(c) && (
+                                    <button
+                                      onClick={() => excluirComentario(idEvento, c.id)}
+                                      disabled={!!excluindoComentario[c.id]}
+                                      className="text-red-300 hover:text-red-500 text-xs"
+                                    >
+                                      {excluindoComentario[c.id] ? 'Excluindo…' : 'Excluir'}
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Form */}
+                          <ComentarioForm
+                            idEvento={idEvento}
+                            comentarioAtual={novoComentario[idEvento] || ''}
+                            setTexto={onChangeComentario}
+                            enviando={!!comentando[idEvento]}
+                            podeComentar={!!idTimeLogado}
+                            onSubmit={() => enviarComentario(idEvento)}
+                          />
+                        </div>
+
+                        {/* Ações admin */}
+                        {isAdmin && (
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              onClick={() => excluirEvento(idEvento)}
+                              className="text-red-300 hover:text-red-400 text-sm underline underline-offset-4"
+                              title="Excluir evento"
+                            >
+                              🗑️ Excluir evento
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    )
+                  })}
                 </div>
               </section>
             )
           })}
         </div>
 
-        {/* Rodapé paginação (somente no modo normal) */}
-        {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
+        {/* Rodapé paginação (somente sem busca) */}
+        {!buscaAtiva && totalPaginas > 1 && (
           <div className="mt-10 flex justify-center items-center gap-3">
             <button onClick={() => carregarDados(1)} disabled={pagina === 1}
               className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">«</button>
@@ -1297,7 +1114,7 @@ function ComentarioForm({
           podeComentar ? 'Escreva um comentário…' : 'Você precisa estar logado no seu time para comentar.'
         }
         disabled={!podeComentar || enviando}
-        className="w-full rounded-md bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
+        className="w-full rounded-md bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60"
         value={comentarioAtual}
         onChange={(e) => setTexto(idEvento, e.target.value)}
       />
