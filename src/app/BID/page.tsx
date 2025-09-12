@@ -78,6 +78,8 @@ const TIPOS_CHIP = [
 ] as const
 type TipoChipKey = typeof TIPOS_CHIP[number]['key']
 
+type SortOrder = 'recente' | 'antigo' | 'valor'
+
 /** ========= Helpers visuais ========= */
 function tipoToStyle(tipo: string) {
   const t = tipo.toLowerCase()
@@ -134,6 +136,7 @@ function Estrelas({ valor }: { valor: number }) {
 function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
   if (logo) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={logo}
         alt={nome}
@@ -199,6 +202,7 @@ function CardJogador({ j, highlight }: { j: Partial<Jogador>, highlight?: string
   return (
     <div className="rounded-lg bg-black/30 border border-white/10 p-3 flex gap-3 items-center">
       {j.foto_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={j.foto_url}
           alt={j.nome || 'Jogador'}
@@ -238,13 +242,17 @@ export default function BIDPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Filtros / Paginação
+  // Filtros / Ordenação / Paginação
   const [filtroTime, setFiltroTime] = useState('todos')
   const [tipoFiltro, setTipoFiltro] = useState<TipoChipKey>('todos')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('recente')
+
+  // Busca
   const [buscaTexto, setBuscaTexto] = useState('')
   const debouncedBusca = useDebounce(buscaTexto, 350)
   const buscaAtiva = debouncedBusca.trim().length >= 2
 
+  // Paginação
   const [pagina, setPagina] = useState(1)
   const [limite] = useState(25)
   const [totalPaginas, setTotalPaginas] = useState(1)
@@ -254,6 +262,7 @@ export default function BIDPage() {
   const [comentando, setComentando] = useState<Record<string, boolean>>({})
   const [novoComentario, setNovoComentario] = useState<Record<string, string>>({})
   const [excluindoComentario, setExcluindoComentario] = useState<Record<string, boolean>>({})
+  const [comentarioAberto, setComentarioAberto] = useState<Record<string, boolean>>({})
 
   // Reações
   const [reacoesCount, setReacoesCount] = useState<Record<string, Record<Emoji, number>>>({})
@@ -329,6 +338,22 @@ export default function BIDPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedBusca])
 
+  /** ====== Ordenação reativa ====== */
+  useEffect(() => {
+    // reordenar localmente, preservando conteúdo carregado
+    setEventos((prev) => {
+      const arr = [...prev]
+      if (sortOrder === 'valor') {
+        arr.sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
+      } else if (sortOrder === 'antigo') {
+        arr.sort((a, b) => +new Date(a.data_evento) - +new Date(b.data_evento))
+      } else {
+        arr.sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
+      }
+      return arr
+    })
+  }, [sortOrder])
+
   /** ====== Dados: eventos paginados ====== */
   async function carregarDados(paginaAtual = 1) {
     if (buscaAtiva) return // em modo busca, não usa paginação
@@ -349,14 +374,22 @@ export default function BIDPage() {
         .range(offset, offset + limite - 1)
       if (errorEventos) throw errorEventos
 
-      setEventos(eventosData as EventoBID[] || [])
-      await carregarJogadoresParaEventos(eventosData as EventoBID[] || [])
+      const lista = (eventosData as EventoBID[] || [])
+      // aplica ordenação local
+      lista.sort((a, b) =>
+        sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
+        : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
+        : (+new Date(b.data_evento) - +new Date(a.data_evento))
+      )
+
+      setEventos(lista)
+      await carregarJogadoresParaEventos(lista)
 
       const paginas = Math.ceil((count || 1) / limite)
       setTotalPaginas(paginas)
       setPagina(paginaAtual)
 
-      const idsStr = (eventosData || []).map((e: any) => String(e.id))
+      const idsStr = lista.map((e: any) => String(e.id))
       await Promise.all([
         carregarComentariosParaEventos(idsStr),
         carregarReacoesParaEventos(idsStr),
@@ -385,6 +418,7 @@ export default function BIDPage() {
     setErro(null)
 
     try {
+      // Encontrar times cujo nome bate com o termo
       const { data: timesLike, error: errTimesLike } = await supabase
         .from('times')
         .select('id')
@@ -392,6 +426,7 @@ export default function BIDPage() {
       if (errTimesLike) throw errTimesLike
       const timeIds = (timesLike || []).map((t: any) => t.id)
 
+      // Descrição
       const { data: porDesc, error: errDesc } = await supabase
         .from('bid')
         .select('*')
@@ -399,6 +434,15 @@ export default function BIDPage() {
         .order('data_evento', { ascending: false })
       if (errDesc) throw errDesc
 
+      // Jogador
+      const { data: porJogador, error: errJog } = await supabase
+        .from('bid')
+        .select('*')
+        .ilike('nome_jogador', `%${termoTrim}%`)
+        .order('data_evento', { ascending: false })
+      if (errJog) throw errJog
+
+      // time1
       let porTime1: EventoBID[] = []
       if (timeIds.length) {
         const { data, error } = await supabase
@@ -410,6 +454,7 @@ export default function BIDPage() {
         porTime1 = data as EventoBID[] || []
       }
 
+      // time2
       let porTime2: EventoBID[] = []
       if (timeIds.length) {
         const { data, error } = await supabase
@@ -421,10 +466,18 @@ export default function BIDPage() {
         porTime2 = data as EventoBID[] || []
       }
 
+      // Merge único
       const mapa: Record<string, EventoBID> = {}
-      ;[...(porDesc as EventoBID[] || []), ...porTime1, ...porTime2]
+      ;[...(porDesc as EventoBID[] || []), ...porJogador as EventoBID[] || [], ...porTime1, ...porTime2]
         .forEach((ev) => { mapa[String(ev.id)] = ev })
-      const unicos = Object.values(mapa).sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
+      let unicos = Object.values(mapa)
+
+      // Ordenar
+      unicos.sort((a, b) =>
+        sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
+        : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
+        : (+new Date(b.data_evento) - +new Date(a.data_evento))
+      )
 
       setEventos(unicos)
       await carregarJogadoresParaEventos(unicos)
@@ -549,6 +602,7 @@ export default function BIDPage() {
         return { ...prev, [idEvento]: arr }
       })
       setNovoComentario((prev) => ({ ...prev, [idEvento]: '' }))
+      setComentarioAberto((p)=>({ ...p, [idEvento]: true }))
     } catch (err: any) {
       console.error(err)
       toast.error(`Não foi possível publicar: ${err?.message || 'erro desconhecido'}`)
@@ -643,7 +697,9 @@ export default function BIDPage() {
   /** ====== Filtros / Agrupamento ====== */
   const eventosFiltrados = useMemo(() => {
     const termo = debouncedBusca.trim().toLowerCase()
-    return eventos.filter((evento) => {
+
+    // 1) sempre aplica filtros por time e tipo
+    const base = eventos.filter((evento) => {
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
       if (!timeOK) return false
 
@@ -651,6 +707,7 @@ export default function BIDPage() {
       const tipoOK = tipoFiltro === 'todos' || tipoKey === tipoFiltro
       if (!tipoOK) return false
 
+      // 2) só aplica filtro textual local quando NÃO estiver em modo de busca global
       if (!buscaAtiva && termo) {
         const nome1 = timesMap[evento.id_time1]?.nome || ''
         const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
@@ -659,7 +716,16 @@ export default function BIDPage() {
       }
       return true
     })
-  }, [eventos, filtroTime, tipoFiltro, debouncedBusca, buscaAtiva, timesMap])
+
+    // 3) ordenação local
+    base.sort((a, b) =>
+      sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
+      : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
+      : (+new Date(b.data_evento) - +new Date(a.data_evento))
+    )
+
+    return base
+  }, [eventos, filtroTime, tipoFiltro, debouncedBusca, buscaAtiva, timesMap, sortOrder])
 
   const eventosAgrupados = useMemo(() => {
     const grupos: Record<string, EventoBID[]> = {}
@@ -678,7 +744,7 @@ export default function BIDPage() {
       {/* topo/anchor */}
       <div ref={topRef} />
 
-      <div className="max-w-5xl mx-auto px-4 py-6">
+      <div className="max-w-6xl mx-auto px-4 py-6">
         <header className="mb-6 text-center">
           <div className="inline-block rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-5 py-3 shadow-sm">
             <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
@@ -771,34 +837,52 @@ export default function BIDPage() {
               </div>
             </div>
 
-            {/* Chips de tipo */}
-            <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
-              {TIPOS_CHIP.map(({ key, label }) => {
-                const ativo = tipoFiltro === key
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setTipoFiltro(key)}
-                    className={classNames(
-                      'whitespace-nowrap rounded-full px-3 py-1.5 text-sm border transition',
-                      ativo
-                        ? 'bg-emerald-600/25 border-emerald-400 text-emerald-200 shadow shadow-emerald-900/30'
-                        : 'bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800'
-                    )}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-              {(tipoFiltro !== 'todos' || filtroTime !== 'todos' || buscaAtiva) && (
-                <button
-                  onClick={() => { setTipoFiltro('todos'); setFiltroTime('todos'); setBuscaTexto('') }}
-                  className="ml-1 text-xs text-gray-300 underline hover:text-gray-100"
-                  title="Limpar filtros"
+            {/* Chips segmentados + ordenar */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex rounded-full border border-gray-700 bg-gray-900/60 p-1">
+                {TIPOS_CHIP.map(({ key, label }) => {
+                  const ativo = tipoFiltro === key
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setTipoFiltro(key)}
+                      className={classNames(
+                        'whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition',
+                        ativo
+                          ? 'bg-emerald-600/25 text-emerald-200 ring-1 ring-emerald-400/30'
+                          : 'text-gray-300 hover:bg-gray-800'
+                      )}
+                      aria-pressed={ativo}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                <label htmlFor="ordem" className="text-xs text-gray-400">Ordenar</label>
+                <select
+                  id="ordem"
+                  className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as SortOrder)}
                 >
-                  Limpar filtros
-                </button>
-              )}
+                  <option value="recente">Mais recentes</option>
+                  <option value="antigo">Mais antigos</option>
+                  <option value="valor">Maior valor</option>
+                </select>
+
+                {(tipoFiltro !== 'todos' || filtroTime !== 'todos' || buscaAtiva) && (
+                  <button
+                    onClick={() => { setTipoFiltro('todos'); setFiltroTime('todos'); setBuscaTexto(''); setSortOrder('recente') }}
+                    className="text-xs text-gray-300 underline hover:text-gray-100"
+                    title="Limpar filtros"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -819,8 +903,11 @@ export default function BIDPage() {
           <div className="space-y-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="animate-pulse">
-                <div className="h-4 w-40 bg-white/10 rounded mb-3" />
-                <div className="h-24 w-full bg-white/5 rounded-lg" />
+                <div className="h-4 w-64 bg-white/10 rounded mb-3 mx-auto md:mx-0" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="h-24 w-full bg-white/5 rounded-xl" />
+                  <div className="h-24 w-full bg-white/5 rounded-xl" />
+                </div>
               </div>
             ))}
           </div>
@@ -833,214 +920,240 @@ export default function BIDPage() {
         )}
 
         {/* Timeline de eventos */}
-        <div className="space-y-10" ref={listaDiasAnim}>
+        <div className="space-y-12" ref={listaDiasAnim}>
           {Object.entries(eventosAgrupados).map(([data, eventosDoDia]) => {
             const d0 = eventosDoDia[0]?.data_evento ? new Date(eventosDoDia[0].data_evento) : new Date()
             return (
               <section key={data} className="relative">
                 {/* Cabeçalho do dia */}
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/40 to-transparent" />
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/30 to-transparent" />
                   <div className="shrink-0">
                     <div className="text-center">
                       <p className="text-xs uppercase tracking-wider text-yellow-400/80">{diaSemanaPt(d0)}</p>
-                      <h2 className="text-xl font-bold text-yellow-300">{data}</h2>
+                      <h2 className="text-2xl font-bold text-yellow-300">{data}</h2>
                     </div>
                   </div>
-                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/40 to-transparent" />
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/30 to-transparent" />
                 </div>
 
-                {/* Lista do dia */}
-                <div className="space-y-4">
-                  {eventosDoDia.map((evento) => {
-                    const idEvento = String(evento.id)
-                    const time1 = timesMap[evento.id_time1]
-                    const time2 = evento.id_time2 ? timesMap[evento.id_time2] : null
-                    const comentarios = comentariosMap[idEvento] || []
-                    const counts = reacoesCount[idEvento] || {}
-                    const mine = minhasReacoes[idEvento] || {}
-                    const estilo = tipoToStyle(evento.tipo_evento)
+                {/* Espinha da timeline */}
+                <div className="relative pl-4 md:pl-6">
+                  <div className="absolute left-1 md:left-2 top-0 bottom-0 w-px bg-gradient-to-b from-white/10 via-white/15 to-transparent" />
 
-                    return (
-                      <article
-                        key={idEvento}
-                        className={classNames(
-                          'relative rounded-xl bg-gray-900/70 border border-white/10 p-4 md:p-5 shadow-md',
-                          'ring-1', estilo.ring, 'hover:shadow-emerald-600/10 hover:scale-[1.003] transition'
-                        )}
-                      >
-                        {/* Timeline dot */}
-                        <span className={classNames('absolute -left-3 top-5 size-2 rounded-full', estilo.dot)} />
+                  {/* Lista do dia em grid 2 colunas (≥ md) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+                    {eventosDoDia.map((evento) => {
+                      const idEvento = String(evento.id)
+                      const time1 = timesMap[evento.id_time1]
+                      const time2 = evento.id_time2 ? timesMap[evento.id_time2] : null
+                      const comentarios = comentariosMap[idEvento] || []
+                      const counts = reacoesCount[idEvento] || {}
+                      const mine = minhasReacoes[idEvento] || {}
+                      const estilo = tipoToStyle(evento.tipo_evento)
+                      const aberto = !!comentarioAberto[idEvento]
 
-                        {/* Header */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl">{iconeTipo(evento.tipo_evento)}</span>
-                            <span className={classNames('px-2 py-0.5 rounded-full text-xs font-semibold', estilo.chip)}>
-                              {capitalizar(evento.tipo_evento)}
-                            </span>
+                      return (
+                        <article
+                          key={idEvento}
+                          className={classNames(
+                            'relative rounded-2xl bg-gray-900/70 border border-white/10 p-4 md:p-5 shadow-md',
+                            'ring-1', estilo.ring, 'hover:shadow-emerald-600/10 hover:scale-[1.002] transition'
+                          )}
+                        >
+                          {/* Timeline dot conectado à espinha */}
+                          <span className={classNames('absolute -left-3 md:-left-4 top-6 size-2 rounded-full', estilo.dot)} />
+
+                          {/* Header */}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xl">{iconeTipo(evento.tipo_evento)}</span>
+                              <span className={classNames('px-2 py-0.5 rounded-full text-xs font-semibold', estilo.chip)}>
+                                {capitalizar(evento.tipo_evento)}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-300">{horaPt(new Date(evento.data_evento))}</div>
                           </div>
-                          <div className="text-xs text-gray-300">{horaPt(new Date(evento.data_evento))}</div>
-                        </div>
 
-                        {/* Conteúdo */}
-                        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div className="md:col-span-2">
-                            <p className="text-gray-100 leading-relaxed">
-                              {buscaAtiva ? (
-                                <Highlight text={evento.descricao} query={debouncedBusca} />
-                              ) : (
-                                evento.descricao
-                              )}
-                            </p>
+                          {/* Conteúdo */}
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="md:col-span-2">
+                              <p className="text-gray-100 leading-relaxed">
+                                {buscaAtiva ? (
+                                  <Highlight text={evento.descricao} query={debouncedBusca} />
+                                ) : (
+                                  evento.descricao
+                                )}
+                              </p>
 
-                            <div className="mt-3 flex flex-wrap items-center gap-3">
-                              {/* time 1 */}
-                              <div className="flex items-center gap-2">
-                                <AvatarTime nome={time1?.nome || 'Time'} logo={time1?.logo_url} />
-                                <div className="text-sm">
-                                  <p className="text-gray-400">Time principal</p>
-                                  <p className="font-semibold">{time1?.nome || 'Desconhecido'}</p>
-                                </div>
-                              </div>
-
-                              {/* separador */}
-                              {time2 && <span className="text-gray-500">•</span>}
-
-                              {/* time 2 */}
-                              {time2 && (
+                              <div className="mt-3 flex flex-wrap items-center gap-3">
+                                {/* time 1 */}
                                 <div className="flex items-center gap-2">
-                                  <AvatarTime nome={time2?.nome || 'Time'} logo={time2?.logo_url} />
+                                  <AvatarTime nome={time1?.nome || 'Time'} logo={time1?.logo_url} />
                                   <div className="text-sm">
-                                    <p className="text-gray-400">Time adversário</p>
-                                    <p className="font-semibold">{time2?.nome || 'Desconhecido'}</p>
+                                    <p className="text-gray-400">Time principal</p>
+                                    <p className="font-semibold">{time1?.nome || 'Desconhecido'}</p>
+                                  </div>
+                                </div>
+
+                                {/* separador */}
+                                {time2 && <span className="text-gray-500">•</span>}
+
+                                {/* time 2 */}
+                                {time2 && (
+                                  <div className="flex items-center gap-2">
+                                    <AvatarTime nome={time2?.nome || 'Time'} logo={time2?.logo_url} />
+                                    <div className="text-sm">
+                                      <p className="text-gray-400">Time adversário</p>
+                                      <p className="font-semibold">{time2?.nome || 'Desconhecido'}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Lado direito: Jogador + valor/estrelas */}
+                            <div className="md:col-span-1 space-y-3">
+                              {/* Player Card */}
+                              {(() => {
+                                const jEv: Partial<Jogador> = {
+                                  id: evento.id_jogador || undefined,
+                                  nome: evento.nome_jogador || undefined,
+                                  foto_url: evento.foto_jogador_url || undefined,
+                                }
+                                const jFromMap = evento.id_jogador ? jogadoresMap[evento.id_jogador] : undefined
+                                const jogador = jEv.nome || jEv.foto_url ? { ...jFromMap, ...jEv } : jFromMap
+                                return jogador ? (
+                                  <CardJogador j={jogador} highlight={buscaAtiva ? debouncedBusca : ''} />
+                                ) : null
+                              })()}
+
+                              {/* Movimentação */}
+                              {evento.valor != null && (
+                                <div className="rounded-lg bg-black/30 border border-white/10 p-3">
+                                  <p className="text-xs text-gray-400 mb-1">Movimentação</p>
+                                  <p className="text-lg font-bold text-yellow-300">
+                                    {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </p>
+                                  <div className="mt-1 text-sm">
+                                    <span className="text-gray-400 mr-2">Impacto</span>
+                                    <Estrelas valor={evento.valor} />
                                   </div>
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Lado direito: Jogador + valor/estrelas */}
-                          <div className="md:col-span-1 space-y-3">
-                            {/* Player Card */}
-                            {(() => {
-                              const jEv: Partial<Jogador> = {
-                                id: evento.id_jogador || undefined,
-                                nome: evento.nome_jogador || undefined,
-                                foto_url: evento.foto_jogador_url || undefined,
-                              }
-                              const jFromMap = evento.id_jogador ? jogadoresMap[evento.id_jogador] : undefined
-                              const jogador = jEv.nome || jEv.foto_url ? { ...jFromMap, ...jEv } : jFromMap
-                              return jogador ? (
-                                <CardJogador j={jogador} highlight={buscaAtiva ? debouncedBusca : ''} />
-                              ) : null
-                            })()}
-
-                            {/* Movimentação */}
-                            {evento.valor != null && (
-                              <div className="rounded-lg bg-black/30 border border-white/10 p-3">
-                                <p className="text-xs text-gray-400 mb-1">Movimentação</p>
-                                <p className="text-lg font-bold text-yellow-300">
-                                  {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </p>
-                                <div className="mt-1 text-sm">
-                                  <span className="text-gray-400 mr-2">Impacto</span>
-                                  <Estrelas valor={evento.valor} />
-                                </div>
-                              </div>
-                            )}
+                          {/* Reações (compactas) */}
+                          <div className="mt-4 rounded-md bg-black/25 border border-white/10 p-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {EMOJIS.map((e) => {
+                                const qtd = (counts[e] || 0)
+                                const ativo = !!mine[e]
+                                if (qtd === 0 && !ativo) return null
+                                return (
+                                  <button
+                                    key={e}
+                                    onClick={() => toggleReacao(idEvento, e)}
+                                    disabled={!idTimeLogado || !!reagindo[idEvento]}
+                                    aria-pressed={ativo}
+                                    className={classNames(
+                                      'px-2 py-1 rounded-full text-sm border transition',
+                                      ativo
+                                        ? 'bg-emerald-600/25 border-emerald-500 ring-2 ring-emerald-400/40'
+                                        : 'bg-gray-800/60 border-gray-600 hover:bg-gray-700'
+                                    )}
+                                    title={ativo ? 'Remover reação' : 'Reagir'}
+                                  >
+                                    <span className="mr-1">{e}</span>
+                                    <span className="text-xs text-gray-200">{qtd}</span>
+                                  </button>
+                                )
+                              })}
+                              {!idTimeLogado && (
+                                <span className="text-xs text-gray-300 ml-1">Faça login no seu time para reagir.</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Reações */}
-                        <div className="mt-4 rounded-md bg-black/25 border border-white/10 p-2.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {EMOJIS.map((e) => {
-                              const qtd = counts[e] || 0
-                              const ativo = !!mine[e]
-                              return (
+                          {/* Comentários (colapsável) */}
+                          <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <h3 className="font-semibold text-white" aria-live="polite">
+                                💬 Comentários ({comentarios.length})
+                              </h3>
+                              <div className="flex items-center gap-3">
+                                {!idTimeLogado && <span className="text-xs text-gray-300">Faça login para comentar.</span>}
                                 <button
-                                  key={e}
-                                  onClick={() => toggleReacao(idEvento, e)}
-                                  disabled={!idTimeLogado || !!reagindo[idEvento]}
-                                  className={classNames(
-                                    'px-2 py-1 rounded-md text-sm border transition',
-                                    ativo
-                                      ? 'bg-emerald-600/25 border-emerald-500 ring-1 ring-emerald-400/30'
-                                      : 'bg-gray-800/60 border-gray-600 hover:bg-gray-700'
-                                  )}
-                                  title={ativo ? 'Remover reação' : 'Reagir'}
+                                  onClick={() => setComentarioAberto((p)=>({ ...p, [idEvento]: !p[idEvento] }))}
+                                  className="text-sm text-emerald-300 hover:text-emerald-200 underline underline-offset-4"
                                 >
-                                  <span className="mr-1">{e}</span>
-                                  <span className="text-xs text-gray-200">{qtd}</span>
+                                  {aberto ? 'Fechar' : 'Comentar…'}
                                 </button>
-                              )
-                            })}
-                            {!idTimeLogado && (
-                              <span className="text-xs text-gray-300 ml-1">Faça login no seu time para reagir.</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Comentários */}
-                        <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <h3 className="font-semibold text-white">💬 Comentários ({comentarios.length})</h3>
-                            {!idTimeLogado && <span className="text-xs text-gray-300">Faça login no seu time para comentar.</span>}
-                          </div>
-
-                          <div ref={commentsAnim} className="space-y-2">
-                            {comentarios.length === 0 && (
-                              <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
-                            )}
-                            {comentarios.map((c) => (
-                              <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
-                                <div className="flex items-center justify-between">
-                                  <div className="text-sm">
-                                    <span className="font-semibold text-emerald-300">{c.nome_time}</span>
-                                    <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
-                                  </div>
-                                  {podeExcluirComentario(c) && (
-                                    <button
-                                      onClick={() => excluirComentario(idEvento, c.id)}
-                                      disabled={!!excluindoComentario[c.id]}
-                                      className="text-red-300 hover:text-red-500 text-xs"
-                                    >
-                                      {excluindoComentario[c.id] ? 'Excluindo…' : 'Excluir'}
-                                    </button>
-                                  )}
-                                </div>
-                                <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
                               </div>
-                            ))}
+                            </div>
+
+                            {aberto && (
+                              <>
+                                <div ref={commentsAnim} className="space-y-2">
+                                  {comentarios.length === 0 && (
+                                    <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
+                                  )}
+                                  {comentarios.map((c) => (
+                                    <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
+                                      <div className="flex items-center justify-between">
+                                        <div className="text-sm flex items-center gap-2">
+                                          <AvatarTime
+                                            nome={c.nome_time}
+                                            logo={timesMap[c.id_time]?.logo_url}
+                                          />
+                                          <span className="font-semibold text-emerald-300">{c.nome_time}</span>
+                                          <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
+                                        </div>
+                                        {podeExcluirComentario(c) && (
+                                          <button
+                                            onClick={() => excluirComentario(idEvento, c.id)}
+                                            disabled={!!excluindoComentario[c.id]}
+                                            className="text-red-300 hover:text-red-500 text-xs"
+                                          >
+                                            {excluindoComentario[c.id] ? 'Excluindo…' : 'Excluir'}
+                                          </button>
+                                        )}
+                                      </div>
+                                      <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Form */}
+                                <ComentarioForm
+                                  idEvento={idEvento}
+                                  comentarioAtual={novoComentario[idEvento] || ''}
+                                  setTexto={onChangeComentario}
+                                  enviando={!!comentando[idEvento]}
+                                  podeComentar={!!idTimeLogado}
+                                  onSubmit={() => enviarComentario(idEvento)}
+                                />
+                              </>
+                            )}
                           </div>
 
-                          {/* Form */}
-                          <ComentarioForm
-                            idEvento={idEvento}
-                            comentarioAtual={novoComentario[idEvento] || ''}
-                            setTexto={onChangeComentario}
-                            enviando={!!comentando[idEvento]}
-                            podeComentar={!!idTimeLogado}
-                            onSubmit={() => enviarComentario(idEvento)}
-                          />
-                        </div>
-
-                        {/* Ações admin */}
-                        {isAdmin && (
-                          <div className="mt-3 flex justify-end">
-                            <button
-                              onClick={() => excluirEvento(idEvento)}
-                              className="text-red-300 hover:text-red-400 text-sm underline underline-offset-4"
-                              title="Excluir evento"
-                            >
-                              🗑️ Excluir evento
-                            </button>
-                          </div>
-                        )}
-                      </article>
-                    )
-                  })}
+                          {/* Ações admin */}
+                          {isAdmin && (
+                            <div className="mt-3 flex justify-end">
+                              <button
+                                onClick={() => excluirEvento(idEvento)}
+                                className="text-red-300 hover:text-red-400 text-sm underline underline-offset-4"
+                                title="Excluir evento"
+                              >
+                                🗑️ Excluir evento
+                              </button>
+                            </div>
+                          )}
+                        </article>
+                      )
+                    })}
+                  </div>
                 </div>
               </section>
             )
@@ -1102,7 +1215,7 @@ function ComentarioForm({
           podeComentar ? 'Escreva um comentário…' : 'Você precisa estar logado no seu time para comentar.'
         }
         disabled={!podeComentar || enviando}
-        className="w-full rounded-md bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60"
+        className="w-full rounded-md bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
         value={comentarioAtual}
         onChange={(e) => setTexto(idEvento, e.target.value)}
       />
