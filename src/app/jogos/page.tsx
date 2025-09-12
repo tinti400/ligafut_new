@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
 
-// 🔽 usa o motor do estádio para calcular público/renda reais
+// 🔽 motor do estádio (público/renda reais do mandante)
 import {
   simulate,
   referencePrices,
@@ -69,13 +69,9 @@ type TimeDados = {
   historico: HistoricoJogo[]
 }
 
-/** ===================== 💵 Util: formatação BRL ===================== */
+/** ===================== Util ===================== */
 const formatarBRL = (v?: number | null) =>
-  (v ?? 0).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 0,
-  })
+  (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })
 
 /** ===================== Regras de premiação (liga) ===================== */
 const BONUS_MULTIPLIER = 1.5 // +50% em todos os bônus por partida
@@ -131,19 +127,13 @@ const contagemGlobal = (rodadas: Rodada[], timeSelecionado?: string) => {
 
 // soma salários sem registrar (fallback p/ estorno de jogos antigos)
 async function somarSalarios(timeId: string): Promise<number> {
-  const { data } = await supabase
-    .from('elenco')
-    .select('salario')
-    .eq('id_time', timeId)
+  const { data } = await supabase.from('elenco').select('salario').eq('id_time', timeId)
   if (!data) return 0
   return data.reduce((acc, j) => acc + (j.salario || 0), 0)
 }
 
 async function ajustarJogosElenco(timeId: string, delta: number) {
-  const { data: jogadores } = await supabase
-    .from('elenco')
-    .select('id, jogos')
-    .eq('id_time', timeId)
+  const { data: jogadores } = await supabase.from('elenco').select('id, jogos').eq('id_time', timeId)
   if (!jogadores) return
   await Promise.all(
     jogadores.map(j =>
@@ -155,18 +145,10 @@ async function ajustarJogosElenco(timeId: string, delta: number) {
 }
 
 /** ========= Público & Renda com base no ESTÁDIO do mandante ========= */
-function asImportance(s: any): 'normal'|'decisao'|'final' {
-  return s === 'final' ? 'final' : s === 'decisao' ? 'decisao' : 'normal'
-}
-function asWeather(s: any): 'bom'|'chuva' {
-  return s === 'chuva' ? 'chuva' : 'bom'
-}
-function asDayType(s: any): 'semana'|'fim' {
-  return s === 'fim' ? 'fim' : 'semana'
-}
-function asDayTime(s: any): 'dia'|'noite' {
-  return s === 'dia' ? 'dia' : 'noite'
-}
+function asImportance(s: any): 'normal'|'decisao'|'final' { return s === 'final' ? 'final' : s === 'decisao' ? 'decisao' : 'normal' }
+function asWeather(s: any): 'bom'|'chuva' { return s === 'chuva' ? 'chuva' : 'bom' }
+function asDayType(s: any): 'semana'|'fim' { return s === 'fim' ? 'fim' : 'semana' }
+function asDayTime(s: any): 'dia'|'noite' { return s === 'dia' ? 'dia' : 'noite' }
 
 async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ publico: number; renda: number; erro?: string }> {
   const { data: est, error } = await supabase
@@ -210,19 +192,12 @@ async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ p
   }
 
   const sim = simulate(capacidade, prices, ctx)
-  return {
-    publico: Math.round(sim.totalAudience),
-    renda: Math.round(sim.totalRevenue),
-  }
+  return { publico: Math.round(sim.totalAudience), renda: Math.round(sim.totalRevenue) }
 }
 
 /** ===================== Salários (com registro) ===================== */
 async function descontarSalariosComRegistro(timeId: string): Promise<number> {
-  const { data: elenco } = await supabase
-    .from('elenco')
-    .select('salario')
-    .eq('id_time', timeId)
-
+  const { data: elenco } = await supabase.from('elenco').select('salario').eq('id_time', timeId)
   if (!elenco) return 0
   const totalSalarios = elenco.reduce((acc, j) => acc + (j.salario || 0), 0)
 
@@ -244,8 +219,7 @@ async function descontarSalariosComRegistro(timeId: string): Promise<number> {
 async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: number): Promise<number> {
   if (gols_pro === undefined || gols_contra === undefined) return 0
 
-  const { data: timeData, error: errorTime } = await supabase
-    .from('times').select('divisao').eq('id', timeId).single()
+  const { data: timeData, error: errorTime } = await supabase.from('times').select('divisao').eq('id', timeId).single()
   if (errorTime || !timeData) return 0
 
   const divisao = timeData.divisao
@@ -260,8 +234,7 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     rodada.jogos.forEach((jogo: any) => {
       if (
         (jogo.mandante === timeId || jogo.visitante === timeId) &&
-        jogo.gols_mandante !== undefined &&
-        jogo.gols_visitante !== undefined
+        jogo.gols_mandante !== undefined && jogo.gols_visitante !== undefined
       ) {
         const isMandante = jogo.mandante === timeId
         const g_pro = isMandante ? jogo.gols_mandante : jogo.gols_visitante
@@ -293,9 +266,7 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
   return valor
 }
 
-/** ===================== 🔥 Patrocínios: helpers de bônus por jogo ===================== */
-
-// Busca os 3 patrocinadores escolhidos pelo time (master/fornecedor/secundario)
+/** ===================== 🔥 Patrocínios (bônus por jogo) ===================== */
 async function obterPatrociniosDoTime(timeId: string) {
   const { data: esc } = await supabase
     .from('patrocinios_escolhidos')
@@ -305,7 +276,8 @@ async function obterPatrociniosDoTime(timeId: string) {
 
   if (!esc) return []
 
-  const ids = [esc.id_patrocinio_master, esc.id_patrocinio_fornecedor, esc.id_patrocinio_secundario].filter(Boolean) as string[]
+  const ids = [esc.id_patrocinio_master, esc.id_patrocinio_fornecedor, esc.id_patrocinio_secundario]
+    .filter(Boolean) as string[]
 
   if (!ids.length) return []
 
@@ -317,7 +289,6 @@ async function obterPatrociniosDoTime(timeId: string) {
   return pats || []
 }
 
-// Calcula o total de bônus dos patrocinadores para um placar
 function calcularBonusPatrocinios(pats: any[], gols_pro: number, gols_contra: number) {
   let total = 0
   const detalhes: string[] = []
@@ -347,7 +318,6 @@ function calcularBonusPatrocinios(pats: any[], gols_pro: number, gols_contra: nu
   return { total, detalhes }
 }
 
-// Credita, registra e retorna o total + descrição
 async function pagarBonusPatrociniosPorJogo(timeId: string, gols_pro: number, gols_contra: number) {
   const pats = await obterPatrociniosDoTime(timeId)
   if (!pats.length) return { total: 0, detalheTexto: '' }
@@ -385,18 +355,15 @@ export default function Jogos() {
   const [divisao, setDivisao] = useState(1)
   const [timeSelecionado, setTimeSelecionado] = useState<string>('')
 
-  // estado de edição
+  // edição
   const [editandoRodada, setEditandoRodada] = useState<string | null>(null)
   const [editandoIndex, setEditandoIndex] = useState<number | null>(null)
   const [golsMandante, setGolsMandante] = useState<number>(0)
   const [golsVisitante, setGolsVisitante] = useState<number>(0)
   const [isSalvando, setIsSalvando] = useState(false)
 
-  // estado do botão "Gerar T3"
+  // gerar temporada
   const [gerando, setGerando] = useState(false)
-
-  const temporadasDisponiveis = [1, 2, 3]
-  const divisoesDisponiveis = [1, 2, 3]
 
   const carregarDados = async () => {
     const { data: times } = await supabase.from('times').select('id, nome, logo_url')
@@ -416,7 +383,7 @@ export default function Jogos() {
 
   useEffect(() => { carregarDados() }, [temporada, divisao])
 
-  // gera T3 (todas as divisões, ida+volta)
+  // gerar T3 (todas divisões, ida+volta) — visível só para admin
   const gerarTemporada3 = async () => {
     if (!isAdmin) return
     if (!confirm('Gerar jogos da Temporada 3 para as Divisões 1, 2 e 3?')) return
@@ -425,8 +392,7 @@ export default function Jogos() {
       toast.loading('Iniciando Temporada 3...', { id: 'gerar-t3' })
 
       const resA = await fetch('/api/iniciar-temporada', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ temporada: 3 })
       })
       const a = await resA.json()
@@ -434,15 +400,13 @@ export default function Jogos() {
 
       toast.loading('Gerando rodadas/jogos da T3...', { id: 'gerar-t3' })
       const resB = await fetch('/api/gerar-jogos-temporada', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ temporada: 3, divisoes: [1,2,3], duploTurno: true })
       })
       const b = await resB.json()
       if (!resB.ok || !b?.ok) throw new Error(b?.erro || 'Falha ao gerar jogos')
 
       toast.success('✅ Temporada 3 gerada com sucesso!', { id: 'gerar-t3' })
-
       setTemporada(3)
       await carregarDados()
     } catch (e: any) {
@@ -479,9 +443,7 @@ export default function Jogos() {
 
     // 🔥 público/renda via ESTÁDIO do mandante
     const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
-    if (pr.erro) {
-      toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
-    }
+    if (pr.erro) toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
     const publico = pr.publico
     const renda = pr.renda
 
@@ -499,11 +461,11 @@ export default function Jogos() {
     const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
     const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
-    // 🔥 bônus de patrocinadores (vitória/gol/clean sheet) — agora pagos!
+    // 🔥 bônus de patrocinadores
     const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gm, gv)
     const bonusPatroVis  = await pagarBonusPatrociniosPorJogo(visitanteId, gv, gm)
 
-    // BID de receita (renda + bônus de liga + patrocínios)
+    // BID de receita
     await supabase.from('bid').insert([
       {
         tipo_evento: 'receita_partida',
@@ -521,7 +483,7 @@ export default function Jogos() {
       },
     ])
 
-    // atualiza elenco (jogos +1)
+    // elenco (jogos +1)
     await ajustarJogosElenco(mandanteId, +1)
     await ajustarJogosElenco(visitanteId, +1)
 
@@ -541,7 +503,6 @@ export default function Jogos() {
       salarios_visitante: salariosVisitante,
       premiacao_mandante: premiacaoMandante,
       premiacao_visitante: premiacaoVisitante,
-      // 🔥 guarda os bônus de patrocinador para estorno
       premiacao_patrocinios_mandante: bonusPatroMand.total,
       premiacao_patrocinios_visitante: bonusPatroVis.total,
     }
@@ -551,7 +512,7 @@ export default function Jogos() {
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
-    // atualiza estado local
+    // estado local
     setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: novaLista } : r))
 
     const { feitos, total } = contagemDaRodada({ ...(rodadas.find(r=>r.id===rodadaId) as Rodada), jogos: novaLista })
@@ -590,15 +551,9 @@ export default function Jogos() {
     // mantém renda/publico/bonus_pago e totais já pagos, só ajusta placar
     const gmNum = Number.isFinite(gm) ? gm : 0
     const gvNum = Number.isFinite(gv) ? gv : 0
-    novaLista[index] = {
-      ...jogo,
-      gols_mandante: gmNum,
-      gols_visitante: gvNum,
-      bonus_pago: true,
-    }
+    novaLista[index] = { ...jogo, gols_mandante: gmNum, gols_visitante: gvNum, bonus_pago: true }
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
-
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
@@ -614,7 +569,7 @@ export default function Jogos() {
     setIsSalvando(false)
   }
 
-  /** =============== Excluir placar (com ESTORNO automático) =============== */
+  /** =============== Excluir placar (com ESTORNO) =============== */
   const excluirResultado = async (rodadaId: string, index: number) => {
     if (!confirm('Deseja excluir o resultado deste jogo? Isso fará estorno automático de todas as finanças.')) return
     const rodada = rodadas.find((r) => r.id === rodadaId)
@@ -650,7 +605,7 @@ export default function Jogos() {
         bonusPatroVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -bonusPatroVisitante }) : Promise.resolve(),
       ])
 
-      // 2) Registrar estornos em movimentacoes
+      // 2) movimentações
       const movs: any[] = []
       if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida', data: now })
       if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida', data: now })
@@ -662,7 +617,7 @@ export default function Jogos() {
       if (bonusPatroVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroVisitante, descricao: 'Estorno de bônus de patrocinadores', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
-      // 3) Registrar estornos no BID
+      // 3) BID
       const bids: any[] = []
       if (receitaMandante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
       if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
@@ -674,12 +629,12 @@ export default function Jogos() {
       if (bonusPatroVisitante) bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores', id_time1: visitanteId, valor: -bonusPatroVisitante, data_evento: now })
       if (bids.length) await supabase.from('bid').insert(bids)
 
-      // 4) Decrementa 1 jogo no elenco dos dois times
+      // 4) jogos -1 no elenco
       await ajustarJogosElenco(mandanteId, -1)
       await ajustarJogosElenco(visitanteId, -1)
     }
 
-    // 5) Limpa o placar e zera campos financeiros do jogo
+    // limpa placar e campos financeiros
     const novaLista = [...rodada.jogos]
     novaLista[index] = {
       ...novaLista[index],
@@ -723,220 +678,254 @@ export default function Jogos() {
   const { feitos: feitosGlobais, total: totalGlobais } = contagemGlobal(rodadasFiltradas, timeSelecionado)
 
   return (
-    <div className="relative p-6 max-w-7xl mx-auto">
+    <div className="relative min-h-screen pb-12">
       {/* glows de fundo */}
       <div className="pointer-events-none absolute -top-40 -right-40 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
 
-      <h1 className="text-3xl font-bold mb-4 bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
-        📅 Jogos da LigaFut
-      </h1>
+      {/* Cabeçalho */}
+      <header className="max-w-7xl mx-auto px-6 pt-6">
+        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+          📅 Jogos da LigaFut
+        </h1>
+        <p className="text-sm text-white/60 mt-1">Lance resultados, processe finanças e acompanhe o andamento das rodadas.</p>
+      </header>
 
-      {/* Controles */}
-      <div className="flex flex-wrap gap-2 mb-4 items-center">
-        {[1,2,3].map((temp) => (
-          <button
-            key={temp}
-            onClick={() => setTemporada(temp)}
-            className={`px-4 py-2 rounded-xl font-semibold border border-white/10 ${
-              temporada === temp ? 'bg-emerald-600 text-white' : 'bg-white/5 text-white/80'
-            }`}
-          >
-            Temporada {temp}
-          </button>
-        ))}
-
-        {/* botão admin para gerar T3 */}
-        <button
-          onClick={gerarTemporada3}
-          disabled={!isAdmin || gerando}
-          className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
-            gerando ? 'bg-gray-700 border-white/10 text-white/70' : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
-          }`}
-          title="Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada 3"
-        >
-          {gerando ? 'Processando…' : '⚙️ Gerar Temporada 3 (todas as divisões)'}
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-2 mb-4">
-        {[1,2,3].map((div) => (
-          <button
-            key={div}
-            onClick={() => setDivisao(div)}
-            className={`px-4 py-2 rounded-xl font-semibold border border-white/10 ${
-              divisao === div ? 'bg-sky-600 text-white' : 'bg-white/5 text-white/80'
-            }`}
-          >
-            Divisão {div}
-          </button>
-        ))}
-        <span className="ml-auto text-sm px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/70">
-          {feitosGlobais}/{totalGlobais} jogos com placar (filtro atual)
-        </span>
-      </div>
-
-      <select
-        className="mb-6 p-2 bg-white/5 border border-white/10 text-white rounded-lg"
-        onChange={(e) => setTimeSelecionado(e.target.value)}
-        value={timeSelecionado}
-      >
-        <option value="">Todos os times</option>
-        {Object.values(timesMap).map((time) => (
-          <option key={time.id} value={time.id}>{time.nome}</option>
-        ))}
-      </select>
-
-      {rodadasFiltradas.map((rodada) => {
-        const { feitos, total } = contagemDaRodada(rodada)
-        return (
-          <div key={rodada.id} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-white/10 rounded-2xl p-4 mb-6 shadow-xl">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xl font-semibold text-white">🏁 Rodada {rodada.numero}</h2>
-              <span className="text-xs px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-white/70">
-                {feitos}/{total} com placar
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {rodada.jogos.map((jogo, index) => {
-                const mandante = timesMap[jogo.mandante]
-                const visitante = timesMap[jogo.visitante]
-                const estaEditando = editandoRodada === rodada.id && editandoIndex === index
-                const jaPago = !!jogo.bonus_pago
-
-                const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
-
-                return (
-                  <div key={index} className="bg-white/5 border border-white/10 text-white px-4 py-3 rounded-xl">
-                    <div className="flex items-center justify-between">
-                      {/* mandante */}
-                      <div className="flex items-center w-1/3 justify-end gap-2">
-                        {mandante?.logo_url && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
-                        )}
-                        <span className="font-medium text-right">{mandante?.nome || '???'}</span>
-                      </div>
-
-                      {/* centro/placar */}
-                      <div className="w-1/3 text-center text-zinc-200 font-bold">
-                        {estaEditando ? (
-                          <div className="flex items-center justify-center gap-2">
-                            <input
-                              type="number"
-                              defaultValue={jogo.gols_mandante ?? 0}
-                              onChange={(e) => setGolsMandante(Number(e.target.value))}
-                              className="w-12 text-black text-center rounded-lg px-2 py-1"
-                              placeholder="0"
-                              min={0}
-                            />
-                            <span className="text-white/70">x</span>
-                            <input
-                              type="number"
-                              defaultValue={jogo.gols_visitante ?? 0}
-                              onChange={(e) => setGolsVisitante(Number(e.target.value))}
-                              className="w-12 text-black text-center rounded-lg px-2 py-1"
-                              placeholder="0"
-                              min={0}
-                            />
-                          </div>
-                        ) : isPlacarPreenchido(jogo) ? (
-                          <>{gM} x {gV}</>
-                        ) : (
-                          <span className="text-white/50">🆚</span>
-                        )}
-                      </div>
-
-                      {/* visitante + ações */}
-                      <div className="flex items-center w-1/3 justify-start gap-2">
-                        <span className="font-medium text-left">{visitante?.nome || '???'}</span>
-                        {visitante?.logo_url && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
-                        )}
-
-                        {isAdmin && !estaEditando && (
-                          <div className="flex gap-2 ml-2">
-                            <button
-                              onClick={() => {
-                                setEditandoRodada(rodada.id)
-                                setEditandoIndex(index)
-                                setGolsMandante(jogo.gols_mandante ?? 0)
-                                setGolsVisitante(jogo.gols_visitante ?? 0)
-                                if (jogo.bonus_pago) {
-                                  toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
-                                }
-                              }}
-                              className="text-sm text-yellow-300"
-                              title={jogo.bonus_pago ? 'Editar (ajuste sem repetir bônus)' : 'Editar (lançamento com finanças)'}
-                            >
-                              📝
-                            </button>
-
-                            {isPlacarPreenchido(jogo) && (
-                              <button
-                                onClick={() => excluirResultado(rodada.id, index)}
-                                className="text-sm text-red-400"
-                                title="Remover resultado (com estorno)"
-                              >
-                                🗑️
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {isAdmin && estaEditando && (
-                          <div className="flex gap-2 ml-2">
-                            {!jogo.bonus_pago ? (
-                              <button
-                                onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
-                                disabled={isSalvando}
-                                className="text-sm text-green-400 font-semibold"
-                                title="Salvar e processar finanças + patrocínios"
-                              >
-                                💾
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
-                                disabled={isSalvando}
-                                className="text-sm text-green-400 font-semibold"
-                                title="Salvar ajuste (sem repetir bônus)"
-                              >
-                                ✅
-                              </button>
-                            )}
-                            <button
-                              onClick={() => { setEditandoRodada(null); setEditandoIndex(null) }}
-                              className="text-sm text-red-400 font-semibold"
-                              title="Cancelar edição"
-                            >
-                              ❌
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {jogo.renda && jogo.publico && (
-                      <div className="text-xs text-zinc-400 text-right mt-1 mr-10">
-                        🎟️ Público: {jogo.publico.toLocaleString()} | 💰 Renda: R$ {jogo.renda.toLocaleString()}
-                      </div>
-                    )}
-
-                    {jogo.bonus_pago && (
-                      <div className="mt-2 text-[11px] text-emerald-300/80">
-                        ✔️ Lançado com finanças (inclui bônus de patrocinadores). Edições futuras não repetem bônus — apenas ajustam o placar e a classificação.
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+      {/* Painel de filtros (sticky) */}
+      <div className="sticky top-0 z-10 mt-4 bg-gradient-to-b from-black/60 to-transparent backdrop-blur px-6 py-3 border-b border-white/10">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-2">
+          {/* Temporadas */}
+          <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+            {[1,2,3].map((temp) => (
+              <button
+                key={temp}
+                onClick={() => setTemporada(temp)}
+                aria-pressed={temporada === temp}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${
+                  temporada === temp ? 'bg-emerald-600 text-white ring-1 ring-emerald-300'
+                                     : 'text-white/80 hover:bg-white/10'
+                }`}
+              >
+                Temporada {temp}
+              </button>
+            ))}
           </div>
-        )
-      })}
+
+          {/* Divisões */}
+          <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
+            {[1,2,3].map((div) => (
+              <button
+                key={div}
+                onClick={() => setDivisao(div)}
+                aria-pressed={divisao === div}
+                className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${
+                  divisao === div ? 'bg-sky-600 text-white ring-1 ring-sky-300'
+                                   : 'text-white/80 hover:bg-white/10'
+                }`}
+              >
+                Divisão {div}
+              </button>
+            ))}
+          </div>
+
+          {/* Filtro de time */}
+          <select
+            className="ml-2 p-2 bg-white/5 border border-white/10 text-white rounded-lg"
+            onChange={(e) => setTimeSelecionado(e.target.value)}
+            value={timeSelecionado}
+          >
+            <option value="">Todos os times</option>
+            {Object.values(timesMap).map((time) => (
+              <option key={time.id} value={time.id}>{time.nome}</option>
+            ))}
+          </select>
+
+          {/* Resumo */}
+          <span className="ml-auto text-xs md:text-sm px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/80">
+            {feitosGlobais}/{totalGlobais} jogos com placar (filtro atual)
+          </span>
+
+          {/* Botão admin (oculto para não-admin) */}
+          {isAdmin && (
+            <button
+              onClick={gerarTemporada3}
+              disabled={gerando}
+              className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
+                gerando ? 'bg-gray-700 border-white/10 text-white/70'
+                        : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
+              }`}
+              title="Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada 3"
+            >
+              {gerando ? 'Processando…' : '⚙️ Gerar Temporada 3'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lista de rodadas */}
+      <div className="max-w-7xl mx-auto px-6 mt-6">
+        {rodadasFiltradas.map((rodada) => {
+          const { feitos, total } = contagemDaRodada(rodada)
+          return (
+            <section key={rodada.id} className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xl font-semibold text-white">🏁 Rodada {rodada.numero}</h2>
+                <span className="text-xs px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-white/70">
+                  {feitos}/{total} com placar
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {rodada.jogos.map((jogo, index) => {
+                  const mandante = timesMap[jogo.mandante]
+                  const visitante = timesMap[jogo.visitante]
+                  const estaEditando = editandoRodada === rodada.id && editandoIndex === index
+                  const jaPago = !!jogo.bonus_pago
+                  const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
+                  const temPlacar = isPlacarPreenchido(jogo)
+
+                  return (
+                    <article
+                      key={index}
+                      className={`rounded-2xl border px-4 py-3 transition
+                        ${temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]'
+                                     : 'border-white/10 bg-white/5 hover:bg-white/7'}
+                      `}
+                    >
+                      <div className="grid grid-cols-12 items-center gap-2">
+                        {/* Mandante */}
+                        <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
+                          {mandante?.logo_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                          )}
+                          <span className="font-medium text-right truncate">{mandante?.nome || '???'}</span>
+                        </div>
+
+                        {/* Placar */}
+                        <div className="col-span-2 md:col-span-4 text-center">
+                          {estaEditando ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <input
+                                type="number"
+                                defaultValue={jogo.gols_mandante ?? 0}
+                                onChange={(e) => setGolsMandante(Number(e.target.value))}
+                                className="w-12 text-black text-center rounded-lg px-2 py-1"
+                                placeholder="0"
+                                min={0}
+                              />
+                              <span className="text-white/70 font-semibold">x</span>
+                              <input
+                                type="number"
+                                defaultValue={jogo.gols_visitante ?? 0}
+                                onChange={(e) => setGolsVisitante(Number(e.target.value))}
+                                className="w-12 text-black text-center rounded-lg px-2 py-1"
+                                placeholder="0"
+                                min={0}
+                              />
+                            </div>
+                          ) : temPlacar ? (
+                            <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
+                              {gM} <span className="text-white/60">x</span> {gV}
+                            </span>
+                          ) : (
+                            <span className="text-white/50">🆚</span>
+                          )}
+                        </div>
+
+                        {/* Visitante + ações */}
+                        <div className="col-span-5 md:col-span-4 flex items-center justify-start gap-2">
+                          <span className="font-medium text-left truncate">{visitante?.nome || '???'}</span>
+                          {visitante?.logo_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                          )}
+
+                          {/* Ações (apenas admin) */}
+                          {isAdmin && !estaEditando && (
+                            <div className="flex gap-2 ml-2">
+                              <button
+                                onClick={() => {
+                                  setEditandoRodada(rodada.id)
+                                  setEditandoIndex(index)
+                                  setGolsMandante(jogo.gols_mandante ?? 0)
+                                  setGolsVisitante(jogo.gols_visitante ?? 0)
+                                  if (jogo.bonus_pago) {
+                                    toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
+                                  }
+                                }}
+                                className="text-sm text-yellow-300 hover:text-yellow-200"
+                                title={jogo.bonus_pago ? 'Editar (ajuste sem repetir bônus)' : 'Editar (lançamento com finanças)'}
+                              >
+                                📝
+                              </button>
+
+                              {temPlacar && (
+                                <button
+                                  onClick={() => excluirResultado(rodada.id, index)}
+                                  className="text-sm text-red-400 hover:text-red-300"
+                                  title="Remover resultado (com estorno)"
+                                >
+                                  🗑️
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {isAdmin && estaEditando && (
+                            <div className="flex gap-2 ml-2">
+                              {!jogo.bonus_pago ? (
+                                <button
+                                  onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                  disabled={isSalvando}
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  title="Salvar e processar finanças + patrocínios"
+                                >
+                                  💾
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                  disabled={isSalvando}
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  title="Salvar ajuste (sem repetir bônus)"
+                                >
+                                  ✅
+                                </button>
+                              )}
+                              <button
+                                onClick={() => { setEditandoRodada(null); setEditandoIndex(null) }}
+                                className="text-sm text-red-400 font-semibold hover:text-red-300"
+                                title="Cancelar edição"
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Rodapé do jogo */}
+                      <div className="mt-1 flex flex-wrap items-center gap-2 justify-end">
+                        {jogo.renda && jogo.publico && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-300">
+                            🎟️ {jogo.publico.toLocaleString()} • 💰 R$ {jogo.renda.toLocaleString()}
+                          </span>
+                        )}
+                        {jogo.bonus_pago && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                            ✔️ Lançado com finanças (inclui patrocínios)
+                          </span>
+                        )}
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          )
+        })}
+      </div>
     </div>
   )
 }
