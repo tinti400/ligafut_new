@@ -274,11 +274,14 @@ export default function BIDPage() {
   const [nomeTimeLogado, setNomeTimeLogado] = useState<string | null>(null)
 
   // Auto-animate
-  const [listaDiasAnim] = useAutoAnimate<HTMLDivElement>()
-  const [commentsAnim] = useAutoAnimate<HTMLDivElement>()
+  const [listaDiasAnim] = useAutoanimate<HTMLDivElement>()
+  const [commentsAnim] = useAutoanimate<HTMLDivElement>()
 
   // Scroll anchor p/ paginação
   const topRef = useRef<HTMLDivElement | null>(null)
+
+  // Modo "filtro global" (sem paginação): quando há filtro de time ou tipo e NÃO está em busca textual
+  const filtroGlobalAtivo = !buscaAtiva && (filtroTime !== 'todos' || tipoFiltro !== 'todos')
 
   /** ====== Identidade do time (robusto) ====== */
   useEffect(() => {
@@ -320,9 +323,9 @@ export default function BIDPage() {
     })()
   }, [])
 
-  /** ====== Carrega eventos (paginado) ====== */
+  /** ====== Inicial ====== */
   useEffect(() => {
-    if (!buscaAtiva) {
+    if (!buscaAtiva && !filtroGlobalAtivo) {
       carregarDados(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -332,15 +335,28 @@ export default function BIDPage() {
   useEffect(() => {
     if (buscaAtiva) {
       buscarGlobal(debouncedBusca)
+    } else if (filtroGlobalAtivo) {
+      carregarFiltrado()
     } else {
       carregarDados(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedBusca])
 
+  /** ====== Filtro global reativo ====== */
+  useEffect(() => {
+    if (buscaAtiva) return
+    if (filtroGlobalAtivo) {
+      carregarFiltrado()
+    } else {
+      carregarDados(1)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroTime, tipoFiltro])
+
   /** ====== Ordenação reativa ====== */
   useEffect(() => {
-    // reordenar localmente, preservando conteúdo carregado
+    // reordena localmente o que já está carregado
     setEventos((prev) => {
       const arr = [...prev]
       if (sortOrder === 'valor') {
@@ -354,9 +370,9 @@ export default function BIDPage() {
     })
   }, [sortOrder])
 
-  /** ====== Dados: eventos paginados ====== */
+  /** ====== Dados: eventos paginados (modo normal) ====== */
   async function carregarDados(paginaAtual = 1) {
-    if (buscaAtiva) return // em modo busca, não usa paginação
+    if (buscaAtiva || filtroGlobalAtivo) return
     setLoading(true)
     setErro(null)
     const offset = (paginaAtual - 1) * limite
@@ -375,7 +391,6 @@ export default function BIDPage() {
       if (errorEventos) throw errorEventos
 
       const lista = (eventosData as EventoBID[] || [])
-      // aplica ordenação local
       lista.sort((a, b) =>
         sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
         : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
@@ -410,7 +425,73 @@ export default function BIDPage() {
     }
   }
 
-  /** ====== Busca global (passa por todas as páginas) ====== */
+  /** ====== Modo filtro global (time/tipo) — varre tudo ====== */
+  async function carregarFiltrado() {
+    setLoading(true)
+    setErro(null)
+    try {
+      let q = supabase.from('bid').select('*')
+
+      // Filtro por time: (id_time1 == X) OR (id_time2 == X)
+      if (filtroTime !== 'todos') {
+        q = q.or(`id_time1.eq.${filtroTime},id_time2.eq.${filtroTime}`)
+      }
+
+      // Filtro por tipo: padrões com e sem acento
+      if (tipoFiltro !== 'todos') {
+        const mapOr: Record<Exclude<TipoChipKey,'todos'>, string> = {
+          transfer: 'tipo_evento.ilike.*transfer*',
+          emprest: 'tipo_evento.ilike.*emprest*,tipo_evento.ilike.*emprést*',
+          rescis:   'tipo_evento.ilike.*rescis*',
+          compra:   'tipo_evento.ilike.*compra*',
+          salario:  'tipo_evento.ilike.*salario*',
+          bonus:    'tipo_evento.ilike.*bonus*,tipo_evento.ilike.*bônus*',
+        }
+        q = q.or(mapOr[tipoFiltro])
+      }
+
+      // Ordenação
+      if (sortOrder === 'valor') {
+        q = q.order('valor', { ascending: false, nullsFirst: false })
+      } else if (sortOrder === 'antigo') {
+        q = q.order('data_evento', { ascending: true })
+      } else {
+        q = q.order('data_evento', { ascending: false })
+      }
+
+      const { data, error } = await q
+      if (error) throw error
+
+      const lista = (data as EventoBID[] || [])
+      setEventos(lista)
+      await carregarJogadoresParaEventos(lista)
+
+      // sem paginação no modo filtro
+      setTotalPaginas(1)
+      setPagina(1)
+
+      const idsStr = lista.map((e) => String(e.id))
+      await Promise.all([
+        carregarComentariosParaEventos(idsStr),
+        carregarReacoesParaEventos(idsStr),
+      ])
+
+      if (topRef.current) {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    } catch (err: any) {
+      console.error(err)
+      setErro('Erro ao carregar com filtros.')
+      setEventos([])
+      setComentariosMap({})
+      setReacoesCount({})
+      setMinhasReacoes({})
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /** ====== Busca global (texto) — varre tudo ====== */
   async function buscarGlobal(termo: string) {
     const termoTrim = termo.trim()
     if (termoTrim.length < 2) return
@@ -482,6 +563,7 @@ export default function BIDPage() {
       setEventos(unicos)
       await carregarJogadoresParaEventos(unicos)
 
+      // sem paginação na busca
       setTotalPaginas(1)
       setPagina(1)
 
@@ -698,7 +780,7 @@ export default function BIDPage() {
   const eventosFiltrados = useMemo(() => {
     const termo = debouncedBusca.trim().toLowerCase()
 
-    // 1) sempre aplica filtros por time e tipo
+    // 1) aplica filtros por time e tipo SEMPRE (mas lembre: no modo filtro global já vem filtrado do servidor)
     const base = eventos.filter((evento) => {
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
       if (!timeOK) return false
@@ -707,7 +789,7 @@ export default function BIDPage() {
       const tipoOK = tipoFiltro === 'todos' || tipoKey === tipoFiltro
       if (!tipoOK) return false
 
-      // 2) só aplica filtro textual local quando NÃO estiver em modo de busca global
+      // 2) filtro textual local só quando NÃO estiver em busca global
       if (!buscaAtiva && termo) {
         const nome1 = timesMap[evento.id_time1]?.nome || ''
         const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
@@ -802,8 +884,8 @@ export default function BIDPage() {
                   value={buscaTexto}
                   onChange={(e) => setBuscaTexto(e.target.value)}
                 />
-                {/* paginação compacta (só quando NÃO estiver buscando) */}
-                {!buscaAtiva && totalPaginas > 1 && (
+                {/* paginação compacta (apenas quando NÃO estiver em busca e NÃO estiver em filtro global) */}
+                {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
                   <div className="hidden md:flex items-center gap-2">
                     <button
                       onClick={() => carregarDados(1)}
@@ -887,8 +969,8 @@ export default function BIDPage() {
           </div>
         </div>
 
-        {/* Paginação (mobile) */}
-        {!buscaAtiva && totalPaginas > 1 && (
+        {/* Paginação (mobile) — só no modo normal */}
+        {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
           <div className="md:hidden flex justify-center items-center gap-3 mb-4">
             <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
               className="px-4 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">⬅</button>
@@ -915,7 +997,7 @@ export default function BIDPage() {
         {erro && <p className="text-red-400 text-center">{erro}</p>}
         {!loading && Object.keys(eventosAgrupados).length === 0 && (
           <div className="text-center text-gray-300 py-8">
-            <p className="text-lg">Nenhum evento encontrado {buscaAtiva ? 'para a busca atual.' : 'para esse filtro.'}</p>
+            <p className="text-lg">Nenhum evento encontrado {buscaAtiva || filtroGlobalAtivo ? 'para os filtros atuais.' : 'para esse filtro.'}</p>
           </div>
         )}
 
@@ -1160,8 +1242,8 @@ export default function BIDPage() {
           })}
         </div>
 
-        {/* Rodapé paginação (somente sem busca) */}
-        {!buscaAtiva && totalPaginas > 1 && (
+        {/* Rodapé paginação (somente no modo normal) */}
+        {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
           <div className="mt-10 flex justify-center items-center gap-3">
             <button onClick={() => carregarDados(1)} disabled={pagina === 1}
               className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">«</button>
