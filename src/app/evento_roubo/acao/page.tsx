@@ -24,13 +24,18 @@ type ConfigEvento = {
   roubos: RoubosMap | null
   bloqueios: BloqueadosMap | null
   limite_perda?: number | null
-  // em alguns bancos o campo chama "limite_roubo"
   limite_roubo?: number | null
   limite_roubos_por_time?: number | null
   ativo?: boolean | null
   fase?: string | null
   roubo_evento_num?: number | null
   bloqueios_persistentes?: BloqPersistMap | null
+
+  // NOVO – cronômetro/pausa
+  vez_started_at?: string | null
+  pausado?: boolean | null
+  pausado_em?: string | null
+  pausa_acumulada?: number | null
 }
 
 /** ===== Regras/Constantes ===== */
@@ -60,28 +65,58 @@ const posColor: Record<string,string> = {
   CA: 'bg-red-500/20 text-red-200 border-red-400/30',
 }
 
-/** ===== Cronômetro ===== */
-function Cronometro({ ativo, isAdmin, onTimeout, start = TEMPO_POR_VEZ }:{
-  ativo:boolean; isAdmin:boolean; onTimeout:()=>void; start?:number
+/** ===== Cronômetro Persistente ===== */
+function Cronometro({
+  tempoPorVez,
+  vezStartedAt,
+  pausado,
+  pausadoEm,
+  pausaAcumulada,
+  isAdmin,
+  onTimeout,
+}: {
+  tempoPorVez: number
+  vezStartedAt: string | null
+  pausado: boolean
+  pausadoEm: string | null
+  pausaAcumulada: number
+  isAdmin: boolean
+  onTimeout: () => void
 }) {
-  const [s, setS] = useState(start)
+  const [now, setNow] = useState<number>(() => Date.now())
+  const firedRef = useRef(false)
+  const lastStartRef = useRef<string | null>(vezStartedAt)
+
+  // tick por segundo
   useEffect(() => {
-    if (!ativo) return
-    let alive = true
-    const id = setInterval(() => {
-      setS((prev) => {
-        if (!alive) return prev
-        if (prev <= 1) {
-          clearInterval(id)
-          if (isAdmin) onTimeout()
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-    return () => { alive = false; clearInterval(id) }
-  }, [ativo, isAdmin, onTimeout])
-  return <b>{s}s</b>
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // reset fire guard quando muda a vez/início
+  useEffect(() => {
+    if (lastStartRef.current !== vezStartedAt) {
+      firedRef.current = false
+      lastStartRef.current = vezStartedAt
+    }
+  }, [vezStartedAt])
+
+  const remaining = useMemo(() => {
+    if (!vezStartedAt) return tempoPorVez
+    const started = new Date(vezStartedAt).getTime()
+    const pausadoExtra = pausado && pausadoEm ? Math.max(0, Math.floor((now - new Date(pausadoEm).getTime()) / 1000)) : 0
+    const elapsed = Math.max(0, Math.floor((now - started) / 1000) - (pausaAcumulada || 0) - pausadoExtra)
+    return Math.max(0, tempoPorVez - elapsed)
+  }, [tempoPorVez, vezStartedAt, pausado, pausadoEm, pausaAcumulada, now])
+
+  useEffect(() => {
+    if (!pausado && remaining === 0 && !firedRef.current) {
+      firedRef.current = true
+      if (isAdmin) onTimeout()
+    }
+  }, [remaining, pausado, isAdmin, onTimeout])
+
+  return <b>{remaining}s</b>
 }
 
 /** ===== UI helpers ===== */
@@ -148,6 +183,12 @@ export default function EventoRouboPage() {
   const [loading, setLoading] = useState(true)
   const [bloqueioBotao, setBloqueioBotao] = useState(false)
 
+  // NOVO: cronômetro/pausa
+  const [vezStartedAt, setVezStartedAt] = useState<string | null>(null)
+  const [pausado, setPausado] = useState<boolean>(false)
+  const [pausadoEm, setPausadoEm] = useState<string | null>(null)
+  const [pausaAcumulada, setPausaAcumulada] = useState<number>(0)
+
   // banner pós-finalização
   const [eventoFinalizado, setEventoFinalizado] = useState(false)
 
@@ -175,7 +216,7 @@ export default function EventoRouboPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('configuracoes')
-      .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, roubo_evento_num, bloqueios_persistentes, fase')
+      .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, limite_roubos_por_time, roubo_evento_num, bloqueios_persistentes, fase, vez_started_at, pausado, pausado_em, pausa_acumulada, ativo')
       .eq('id', CONFIG_ID)
       .single<ConfigEvento>()
 
@@ -189,13 +230,17 @@ export default function EventoRouboPage() {
     setRoubos((data.roubos || {}) as RoubosMap)
     setBloqueados((data.bloqueios || {}) as BloqueadosMap)
     setLimitePerda(data.limite_perda ?? LIMITE_PERDA_DEFAULT)
-    // aceita limite_roubo/limite_roubos_por_time como fallback
     setLimiteRoubosPorTime(
       (data.limite_roubos_por_time as any) ?? (data.limite_roubo as any) ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
     )
     setEventoNum(Number(data.roubo_evento_num ?? 0))
     setBloqPersist((data.bloqueios_persistentes || {}) as BloqPersistMap)
     setEventoFinalizado((data.fase || '') === 'finalizado')
+
+    setVezStartedAt(data.vez_started_at ?? null)
+    setPausado(!!data.pausado)
+    setPausadoEm(data.pausado_em ?? null)
+    setPausaAcumulada(Number(data.pausa_acumulada || 0))
 
     if (data.ordem?.length) {
       const { data: times, error: errTimes } = await supabase
@@ -236,11 +281,12 @@ export default function EventoRouboPage() {
   , [roubos, idTime])
 
   const podeRoubar = useCallback((alvoId: string) => {
+    if (pausado) return false
     if (totalPerdasDoAlvo(alvoId) >= limitePerda) return false
     if (jaRoubouDesseAlvo(alvoId) >= LIMITE_POR_ALVO_POR_TIME) return false
     if (totalRoubosDoMeuTime() >= limiteRoubosPorTime) return false
     return true
-  }, [totalPerdasDoAlvo, jaRoubouDesseAlvo, totalRoubosDoMeuTime, limitePerda, limiteRoubosPorTime])
+  }, [pausado, totalPerdasDoAlvo, jaRoubouDesseAlvo, totalRoubosDoMeuTime, limitePerda, limiteRoubosPorTime])
 
   const idTimeDaVez = ordem[vez]?.id || ''
   const nomeTimeDaVez = ordem[vez]?.nome || ''
@@ -308,6 +354,11 @@ export default function EventoRouboPage() {
 
   /** ===== Modal confirmar ===== */
   function abrirConfirmacao(j: Jogador) {
+    // revalida localmente antes de abrir
+    if (!minhaVez) { toast.error('Não é a sua vez.'); return }
+    if (pausado) { toast('Evento está pausado.'); return }
+    if (!podeRoubar(j.id_time)) { toast.error('Limites atingidos para este alvo.'); return }
+
     const valor = Math.floor(Number(j.valor || 0) * PERCENTUAL_ROUBO)
     setConfirmJogador(j); setConfirmValor(valor)
   }
@@ -321,24 +372,26 @@ export default function EventoRouboPage() {
 
   async function roubarJogador(jogador: Jogador, valorPagoCalculado?: number) {
     if (bloqueioBotao || processandoRoubo) return
-    if (!idTime) { toast.error('Identidade do time não encontrada.'); return }
+    if (!idTime) { toast.error('Identidade do time não encontrada.'); fecharConfirmacao(); return }
     const timeDaVez = ordem[vez]?.id
-    if (!timeDaVez || timeDaVez !== idTime) { toast.error('Não é a sua vez.'); return }
+    if (!timeDaVez || timeDaVez !== idTime) { toast.error('Não é a sua vez.'); fecharConfirmacao(); return }
+    if (pausado) { toast('Evento está pausado.'); fecharConfirmacao(); return }
 
     setProcessandoRoubo(true); setBloqueioBotao(true)
     try {
       // lê config com colunas válidas
       const { data: cfg, error: cfgErr } = await supabase
         .from('configuracoes')
-        .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, roubo_evento_num, bloqueios_persistentes')
+        .select('ordem, vez, roubos, bloqueios, limite_perda, limite_roubo, limite_roubos_por_time, roubo_evento_num, bloqueios_persistentes, pausado')
         .eq('id', CONFIG_ID)
         .single<ConfigEvento>()
-      if (cfgErr) { toast.error('Falha ao ler configuração.'); return }
+      if (cfgErr) { toast.error('Falha ao ler configuração.'); fecharConfirmacao(); return }
+      if (cfg?.pausado) { toast('Evento está pausado.'); fecharConfirmacao(); return }
 
       const vezAtual = Number(cfg?.vez ?? 0)
       const ordemIds = cfg?.ordem || []
       const idDaVezServidor = ordemIds?.[vezAtual]
-      if (!idDaVezServidor || idDaVezServidor !== idTime) { toast.error('A vez mudou. Atualize a página.'); return }
+      if (!idDaVezServidor || idDaVezServidor !== idTime) { toast.error('A vez mudou. Atualize a página.'); fecharConfirmacao(); return }
 
       const roubosSrv = (cfg?.roubos || {}) as RoubosMap
       const totalPerdasSrv = Object.values(roubosSrv).map((r) => r[jogador.id_time] || 0).reduce((a, b) => a + b, 0)
@@ -347,11 +400,21 @@ export default function EventoRouboPage() {
         (cfg as any).limite_roubos_por_time ?? (cfg as any).limite_roubo ?? LIMITE_ROUBOS_POR_TIME_DEFAULT
       const jaRoubouDesseSrv = (roubosSrv[idTime]?.[jogador.id_time] || 0)
       const totalMeuSrv = Object.values(roubosSrv[idTime] || {}).reduce((a, b) => a + b, 0)
-      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); return }
-      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); return }
-      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); return }
+      if (totalPerdasSrv + 1 > limitePerdaSrv) { toast.error('Esse time não pode perder mais jogadores neste evento.'); fecharConfirmacao(); return }
+      if (jaRoubouDesseSrv + 1 > LIMITE_POR_ALVO_POR_TIME) { toast.error('Você já atingiu o limite contra esse alvo (2).'); fecharConfirmacao(); return }
+      if (totalMeuSrv + 1 > limiteRoubosPorTimeSrv) { toast.error('Você atingiu o limite total de roubos neste evento.'); fecharConfirmacao(); return }
 
       const valorPago = valorPagoCalculado != null ? valorPagoCalculado : Math.floor((jogador.valor || 0) * PERCENTUAL_ROUBO)
+
+      // LE nomes/saldos ANTES (também útil se quiser validar saldo)
+      const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
+        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', jogador.id_time).single(),
+        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTime).single()
+      ])
+      const nomeAlvo = alvoInfo?.nome || 'Time Alvo'
+      const nomeMeu = meuInfo?.nome || 'Seu Time'
+      const saldoAlvoAntes = Number(alvoInfo?.saldo || 0)
+      const saldoMeuAntes = Number(meuInfo?.saldo || 0)
 
       // ===== 1) Transferência de elenco (condicional ao id_time original)
       const { data: updJog, error: errJog } = await supabase
@@ -360,22 +423,11 @@ export default function EventoRouboPage() {
         .eq('id', jogador.id)
         .eq('id_time', jogador.id_time)
         .select('id')
-      if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro. Atualize a lista.'); return }
-
-      // Salvar nomes e saldos ANTES
-      const idTimeOriginal = jogador.id_time
-      const [{ data: alvoInfo }, { data: meuInfo }] = await Promise.all([
-        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTimeOriginal).single(),
-        supabase.from('times').select('saldo,nome,logo_url,id').eq('id', idTime).single()
-      ])
-      const nomeAlvo = alvoInfo?.nome || 'Time Alvo'
-      const nomeMeu = meuInfo?.nome || 'Seu Time'
-      const saldoAlvoAntes = Number(alvoInfo?.saldo || 0)
-      const saldoMeuAntes = Number(meuInfo?.saldo || 0)
+      if (errJog || !updJog || updJog.length === 0) { toast.error('Outro time levou esse jogador primeiro.'); fecharConfirmacao(); return }
 
       // ===== 2) Débito/Crédito
       const debitei = await ajustarSaldoCompareAndSwap(idTime, -valorPago, saldoMeuAntes)
-      const creditei = await ajustarSaldoCompareAndSwap(idTimeOriginal, +valorPago, saldoAlvoAntes)
+      const creditei = await ajustarSaldoCompareAndSwap(jogador.id_time, +valorPago, saldoAlvoAntes)
       if (!debitei || !creditei) {
         toast.error('Conflito ao atualizar saldos. Verifique o extrato e recarregue.')
       }
@@ -384,18 +436,18 @@ export default function EventoRouboPage() {
       const { data: timesFresh } = await supabase
         .from('times')
         .select('id,nome,logo_url,saldo')
-        .in('id', [idTime, idTimeOriginal])
+        .in('id', [idTime, jogador.id_time])
 
       const freshMeu = timesFresh?.find(t => t.id === idTime)
-      const freshAlvo = timesFresh?.find(t => t.id === idTimeOriginal)
+      const freshAlvo = timesFresh?.find(t => t.id === jogador.id_time)
       const saldoMeuDepois = Number(freshMeu?.saldo ?? (saldoMeuAntes - valorPago))
       const saldoAlvoDepois = Number(freshAlvo?.saldo ?? (saldoAlvoAntes + valorPago))
 
       // ===== 3) Atualiza contadores/bloqueios
       const atualizado: RoubosMap = { ...(cfg?.roubos || {}) }
       if (!atualizado[idTime]) atualizado[idTime] = {}
-      if (!atualizado[idTime][idTimeOriginal]) atualizado[idTime][idTimeOriginal] = 0
-      atualizado[idTime][idTimeOriginal]++
+      if (!atualizado[idTime][jogador.id_time]) atualizado[idTime][jogador.id_time] = 0
+      atualizado[idTime][jogador.id_time]++
 
       const bloqAtual: BloqueadosMap = { ...(cfg?.bloqueios || {}) }
       const listaNovo = Array.isArray(bloqAtual[idTime]) ? bloqAtual[idTime] : []
@@ -419,7 +471,7 @@ export default function EventoRouboPage() {
         tipo_evento: 'roubo',
         descricao: `${jogador.nome} foi roubado por ${nomeMeu} de ${nomeAlvo} por ${brl(valorPago)}`,
         id_time1: idTime,
-        id_time2: idTimeOriginal,
+        id_time2: jogador.id_time,
         valor: valorPago
       })
 
@@ -431,9 +483,9 @@ export default function EventoRouboPage() {
       setComparativo({
         jogador: { id: jogador.id, nome: jogador.nome, posicao: jogador.posicao, valor: jogador.valor },
         de: {
-          id: idTimeOriginal,
+          id: jogador.id_time,
           nome: nomeAlvo,
-          logo_url: freshAlvo?.logo_url ?? (ordem.find(t => t.id === idTimeOriginal)?.logo_url ?? null),
+          logo_url: freshAlvo?.logo_url ?? (ordem.find(t => t.id === jogador.id_time)?.logo_url ?? null),
           saldoAntes: saldoAlvoAntes,
           saldoDepois: saldoAlvoDepois
         },
@@ -459,13 +511,14 @@ export default function EventoRouboPage() {
     } catch (e) {
       console.error(e)
       toast.error('Erro ao processar roubo.')
+      fecharConfirmacao()
     } finally {
       setProcessandoRoubo(false)
       setBloqueioBotao(false)
     }
   }
 
-  /** ===== Admin: ordem/vez/limpar/finalizar ===== */
+  /** ===== Admin: ordem/vez/pausa/limpar/finalizar ===== */
   async function sortearOrdem() {
     const { data: times, error } = await supabase.from('times').select('id, nome, logo_url')
     if (error || !times) { toast.error('Erro ao buscar times.'); return }
@@ -479,9 +532,24 @@ export default function EventoRouboPage() {
       .map(({ r, ...rest }) => rest)
 
     const ids = embaralhado.map((t) => t.id)
+    const nowIso = new Date().toISOString()
     const { error: errUpd } = await supabase
       .from('configuracoes')
-      .update({ ordem: ids, vez: '0', roubo_evento_num: novoNum, ativo: true, fase: 'acao' })
+      .update({
+        ordem: ids,
+        vez: '0',
+        roubo_evento_num: novoNum,
+        ativo: true,
+        fase: 'acao',
+        // cronômetro/pausa
+        vez_started_at: nowIso,
+        pausado: false,
+        pausado_em: null,
+        pausa_acumulada: 0,
+        // limpeza de resíduos do evento anterior
+        roubos: {},
+        bloqueios: {}
+      })
       .eq('id', CONFIG_ID)
     if (errUpd) { toast.error('Erro ao sortear a ordem.'); return }
 
@@ -491,24 +559,88 @@ export default function EventoRouboPage() {
     setUltimoRoubo(null)
 
     setOrdem(embaralhado); setVez(0); setOrdemSorteada(true); setEventoNum(novoNum)
+    setVezStartedAt(nowIso); setPausado(false); setPausadoEm(null); setPausaAcumulada(0)
+    setRoubos({}); setBloqueados({})
     toast.success('🎲 Ordem sorteada! Boa sorte.')
   }
 
   async function passarVez() {
     const novaVez = vez + 1
-    await supabase.from('configuracoes').update({ vez: String(novaVez) }).eq('id', CONFIG_ID)
+    const nowIso = new Date().toISOString()
+    await supabase.from('configuracoes').update({
+      vez: String(novaVez),
+      // reinicia o relógio da nova vez
+      vez_started_at: nowIso,
+      pausado: false,
+      pausado_em: null,
+      pausa_acumulada: 0
+    }).eq('id', CONFIG_ID)
     setVez(novaVez)
+    setVezStartedAt(nowIso)
+    setPausado(false); setPausadoEm(null); setPausaAcumulada(0)
+
     setAlvoSelecionado('')
     setJogadoresAlvo([])
     setMostrarJogadores(false)
     setFiltroJogador('')
   }
 
+  async function togglePausa() {
+    // lê valores atuais para calcular pausa acumulada com precisão
+    const { data: cfg, error } = await supabase
+      .from('configuracoes')
+      .select('pausado, pausado_em, pausa_acumulada')
+      .eq('id', CONFIG_ID)
+      .single<ConfigEvento>()
+    if (error) { toast.error('Erro ao ler pausa.'); return }
+
+    const agora = Date.now()
+    if (cfg?.pausado) {
+      const pausadoEmMs = cfg.pausado_em ? new Date(cfg.pausado_em).getTime() : agora
+      const delta = Math.max(0, Math.floor((agora - pausadoEmMs) / 1000))
+      const novoAcum = Number(cfg.pausa_acumulada || 0) + delta
+      const { error: err } = await supabase.from('configuracoes').update({
+        pausado: false, pausado_em: null, pausa_acumulada: novoAcum
+      }).eq('id', CONFIG_ID)
+      if (err) { toast.error('Não foi possível retomar.'); return }
+      setPausado(false); setPausadoEm(null); setPausaAcumulada(novoAcum)
+      toast('▶ Evento retomado.')
+    } else {
+      const nowIso = new Date().toISOString()
+      const { error: err } = await supabase.from('configuracoes').update({
+        pausado: true, pausado_em: nowIso
+      }).eq('id', CONFIG_ID)
+      if (err) { toast.error('Não foi possível pausar.'); return }
+      setPausado(true); setPausadoEm(nowIso)
+      toast('⏸ Evento pausado.')
+    }
+  }
+
   async function limparSorteio() {
-    await supabase.from('configuracoes').update({ ordem: null, vez: '0' }).eq('id', CONFIG_ID)
+    // limpa ordem + histórico de perdas/roubos/bloqueios e cronômetro
+    const { error: err } = await supabase.from('configuracoes').update({
+      ordem: null,
+      vez: '0',
+      ativo: false,
+      fase: null,
+      roubos: {},
+      bloqueios: {},
+      // não mexemos nos bloqueios_persistentes (eles são por evento)
+      // cronômetro
+      vez_started_at: null,
+      pausado: false,
+      pausado_em: null,
+      pausa_acumulada: 0,
+      // opcional: volta limite_perda para default
+      limite_perda: LIMITE_PERDA_DEFAULT
+    }).eq('id', CONFIG_ID)
+    if (err) { toast.error('Erro ao limpar sorteio.'); return }
+
     setOrdem([]); setOrdemSorteada(false); setVez(0)
     setResumoFinal([]); setRoubosDaRodada([]); setUltimoRoubo(null)
-    toast('🧹 Sorteio limpo.')
+    setRoubos({}); setBloqueados({})
+    setVezStartedAt(null); setPausado(false); setPausadoEm(null); setPausaAcumulada(0)
+    toast('🧹 Sorteio e histórico limpos.')
   }
 
   async function finalizarEvento() {
@@ -527,7 +659,6 @@ export default function EventoRouboPage() {
     const novoPersist: BloqPersistMap = {}
     for (const [jid, ate] of Object.entries(persist)) if (ate >= ev) novoPersist[jid] = ate
 
-    // RESETA limite_perda para 3 ao finalizar o evento
     const { error: updErr } = await supabase
       .from('configuracoes')
       .update({
@@ -536,18 +667,23 @@ export default function EventoRouboPage() {
         roubos: {},
         bloqueios: {},
         bloqueios_persistentes: novoPersist,
-        limite_perda: LIMITE_PERDA_DEFAULT
+        limite_perda: LIMITE_PERDA_DEFAULT,
+        // cronômetro
+        vez_started_at: null,
+        pausado: false,
+        pausado_em: null,
+        pausa_acumulada: 0
       })
       .eq('id', CONFIG_ID)
     if (updErr) { toast.error('Erro ao finalizar evento.'); return }
 
-    // refletir imediatamente na UI
     setLimitePerda(LIMITE_PERDA_DEFAULT)
-
     setEventoFinalizado(true)
     setOrdem([]); setOrdemSorteada(false); setVez(0)
     setAlvoSelecionado(''); setJogadoresAlvo([]); setMostrarJogadores(false); setFiltroJogador('')
     setRoubosDaRodada([]); setUltimoRoubo(null)
+    setRoubos({}); setBloqueados({})
+    setVezStartedAt(null); setPausado(false); setPausadoEm(null); setPausaAcumulada(0)
 
     toast.success('✅ Evento finalizado! Resumo abaixo.')
   }
@@ -603,16 +739,18 @@ export default function EventoRouboPage() {
       setOpen(false)
     }
 
+    const disabled = (!minhaVez || !ordemSorteada || pausado)
+
     return (
       <div className="relative" ref={ref}>
         <button
           type="button"
-          onClick={() => ordemSorteada && minhaVez && setOpen(!open)}
+          onClick={() => !disabled && setOpen(!open)}
           className={cls(
             'w-full p-3 rounded-xl bg-white/10 border border-white/10 focus:outline-none flex items-center justify-between gap-3',
-            (!minhaVez || !ordemSorteada) && 'opacity-60 cursor-not-allowed'
+            disabled && 'opacity-60 cursor-not-allowed'
           )}
-          disabled={!minhaVez || !ordemSorteada}
+          disabled={disabled}
         >
           <div className="flex items-center gap-3">
             {selecionado?.logo_url
@@ -675,6 +813,10 @@ export default function EventoRouboPage() {
   }
 
   /** ===== Render ===== */
+  const pausadoBadge = pausado ? (
+    <Chip className="bg-yellow-500/20 text-yellow-200 border-yellow-400/30 animate-pulse">⏸ Evento pausado</Chip>
+  ) : null
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0b1220] to-[#0a0f1a] text-white">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
@@ -691,7 +833,20 @@ export default function EventoRouboPage() {
                   : <div className="h-7 w-7 rounded-full bg-white/10 grid place-items-center text-xs">{ordem[vez]?.nome ? initials(ordem[vez]!.nome) : ''}</div>}
                 <p className="text-lg font-semibold text-green-300">{nomeTimeDaVez || '—'}</p>
               </div>
-              <p className="text-sm mt-1">⏳ Tempo restante: <Cronometro key={vez} ativo={ordemSorteada} isAdmin={!!isAdmin} onTimeout={passarVez} /></p>
+              <div className="flex items-center gap-2 mt-1 justify-end">
+                {pausadoBadge}
+                <span className="text-sm">⏳ Tempo restante:{' '}
+                  <Cronometro
+                    tempoPorVez={TEMPO_POR_VEZ}
+                    vezStartedAt={vezStartedAt}
+                    pausado={pausado}
+                    pausadoEm={pausadoEm}
+                    pausaAcumulada={pausaAcumulada}
+                    isAdmin={!!isAdmin}
+                    onTimeout={passarVez}
+                  />
+                </span>
+              </div>
             </div>
           )}
         </div>
@@ -746,13 +901,16 @@ export default function EventoRouboPage() {
         <Card>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-bold">🎯 Escolha o time-alvo</h3>
-            <Chip>Seu limite total: {limiteRoubosPorTime} • Já roubou: {totalRoubosDoMeuTime()}</Chip>
+            <div className="flex items-center gap-2">
+              <Chip>Seu limite total: {limiteRoubosPorTime} • Já roubou: {totalRoubosDoMeuTime()}</Chip>
+              {pausadoBadge}
+            </div>
           </div>
           <TeamSelect />
           <div className="mt-3">
             <button
               onClick={carregarJogadoresDoAlvo}
-              disabled={!minhaVez || !alvoSelecionado}
+              disabled={!minhaVez || !alvoSelecionado || pausado}
               className="w-full rounded-xl py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed transition font-semibold"
             >
               🔎 Ver jogadores do {nomeAlvoSelecionado || 'time selecionado'}
@@ -762,17 +920,20 @@ export default function EventoRouboPage() {
 
         {/* Ações do Admin / Jogador */}
         {!loading && !loadingAdmin && (
-          <div className="grid md:grid-cols-4 gap-3">
+          <div className="grid md:grid-cols-5 gap-3">
             {isAdmin ? (
               <>
                 <button onClick={sortearOrdem} className="rounded-xl py-3 bg-yellow-500 hover:bg-yellow-600 transition font-semibold shadow">🎲 Sortear Ordem</button>
                 <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Passar Vez</button>
+                <button onClick={togglePausa} className={cls('rounded-xl py-3 transition font-semibold shadow', pausado ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-700 hover:bg-yellow-800')}>
+                  {pausado ? '▶ Retomar' : '⏸ Pausar'}
+                </button>
                 <button onClick={finalizarEvento} className="rounded-xl py-3 bg-red-700 hover:bg-red-800 transition font-semibold shadow">🛑 Finalizar Evento</button>
                 <button onClick={limparSorteio} className="rounded-xl py-3 bg-gray-600 hover:bg-gray-700 transition font-semibold shadow">🧹 Limpar Sorteio</button>
               </>
             ) : (
               <>
-                <div className="md:col-span-3" />
+                <div className="md:col-span-4" />
                 {minhaVez && <button onClick={passarVez} className="rounded-xl py-3 bg-red-600 hover:bg-red-700 transition font-semibold shadow">⏭ Encerrar Minha Vez</button>}
               </>
             )}
@@ -878,6 +1039,8 @@ export default function EventoRouboPage() {
               O valor será <b>{brl(confirmValor)}</b>, descontado do seu caixa.
             </p>
 
+            {pausado && <p className="text-xs mt-2 text-yellow-300">⏸ O evento está pausado. Retome para confirmar.</p>}
+
             <div className="flex items-center justify-between mt-4 text-sm">
               <Chip>Preço do jogador: {brl(confirmJogador.valor)}</Chip>
               <Chip>Você paga: {brl(confirmValor)}</Chip>
@@ -885,7 +1048,11 @@ export default function EventoRouboPage() {
 
             <div className="grid grid-cols-2 gap-3 mt-5">
               <button onClick={fecharConfirmacao} className="rounded-xl py-2 bg-gray-700 hover:bg-gray-600 transition font-semibold">Cancelar</button>
-              <button onClick={confirmarRoubo} disabled={processandoRoubo} className="rounded-xl py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold">
+              <button
+                onClick={confirmarRoubo}
+                disabled={processandoRoubo || pausado || !minhaVez}
+                className="rounded-xl py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed transition font-semibold"
+              >
                 {processandoRoubo ? 'Processando...' : 'Confirmar Roubo'}
               </button>
             </div>
