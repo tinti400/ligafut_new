@@ -40,6 +40,15 @@ interface BidRowDB {
   id_time2: string | null
 }
 
+interface WeeklyFlows {
+  entradas_premiacao: number
+  entradas_gols: number
+  entradas_vendas: number
+  entradas_outras: number
+  entradas_total: number
+  saidas_total: number
+}
+
 interface TimeInfo {
   id: string
   nome: string
@@ -52,6 +61,7 @@ interface TimeInfo {
   salario_total: number
   saldo_anterior: number
   nacionalidades: Record<string, number>
+  weekly: WeeklyFlows
 }
 
 /** ================== Flags ================== */
@@ -94,7 +104,6 @@ function getThursdayWindow(base = new Date()) {
   start.setHours(0, 0, 0, 0)
   const end = new Date(start)
   end.setDate(start.getDate() + 7) // próxima quinta 00:00 local
-  // ISO (UTC) — tudo bem ter offset; a janela permanece correta
   const startISO = start.toISOString()
   const endISO = end.toISOString()
   return { start, end, startISO, endISO }
@@ -108,26 +117,40 @@ const fmtPeriodo = (start: Date, end: Date) => {
 
 /** ================== Classificação de eventos do BID ================== */
 // Ajuste os dicionários abaixo se você tiver mais rótulos.
-const CREDIT_KEYWORDS = [
-  'venda','bonus','bônus','receita','renda','premio','prêmio','patrocinio','patrocínio',
-  'participação','participacao','premiação','premiacao','entrada','deposito','depósito'
+const INCOME_VENDAS = ['venda','revenda','mais_valia','sell-on']
+const INCOME_PREMIACAO = [
+  'premiacao','premiação','premio','prêmio','titulo','título','classificacao','classificação',
+  'copa','campeonato','fase','oitavas','quartas','semifinal','semi','final'
 ]
-const DEBIT_KEYWORDS_ID1 = [
-  'salario','salário','despesa','juros','multa','saída','saida'
+const INCOME_GOLS = [
+  'gol','gols','bonus_gol','bônus_gol','bonus_gols','artilharia','gol_marcado'
 ]
-const DEBIT_KEYWORDS_ID2 = [
-  'compra','leilao','leilão','aquisição','contratação'
+const INCOME_OUTRAS = [
+  'receita','renda','bilheteria','patrocinio','patrocínio','tv','cota','participação','participacao',
+  'entrada','deposito','depósito'
 ]
+
+const DEBIT_KEYWORDS_ID1 = ['salario','salário','despesa','juros','multa','saída','saida']
+const DEBIT_KEYWORDS_ID2 = ['compra','leilao','leilão','aquisição','contratação']
 
 function includesAny(hay: string, words: string[]) {
   return words.some(w => hay.includes(w))
+}
+
+type IncomeCategory = 'vendas' | 'premiacao' | 'gols' | 'outras' | null
+function classifyIncome(tipoLower: string): IncomeCategory {
+  if (includesAny(tipoLower, INCOME_GOLS)) return 'gols'
+  if (includesAny(tipoLower, INCOME_PREMIACAO)) return 'premiacao'
+  if (includesAny(tipoLower, INCOME_VENDAS)) return 'vendas'
+  if (includesAny(tipoLower, INCOME_OUTRAS)) return 'outras'
+  return null
 }
 
 /** ================== Skeleton e UI ================== */
 function RowSkeleton() {
   return (
     <tr className="animate-pulse">
-      {Array.from({ length: 10 }).map((_, i) => (
+      {Array.from({ length: 11 }).map((_, i) => (
         <td key={i} className="border border-slate-700 p-2">
           <div className="h-4 bg-slate-700 rounded" />
         </td>
@@ -242,24 +265,46 @@ export default function PainelTimesAdmin() {
         else if (String(m.tipo).toLowerCase() === 'venda') bucket.recebido += (m.valor || 0)
       }
 
-      // Efeito líquido da semana (quinta→quinta) a partir do BID
+      // Flows e efeito líquido da semana (quinta→quinta) a partir do BID
       const netSemanaByTime: Record<string, number> = {}
+      const flowsByTime: Record<string, WeeklyFlows> = {}
+      const ensureFlows = (id: string): WeeklyFlows =>
+        (flowsByTime[id] ||= {
+          entradas_premiacao: 0,
+          entradas_gols: 0,
+          entradas_vendas: 0,
+          entradas_outras: 0,
+          entradas_total: 0,
+          saidas_total: 0,
+        })
+
       for (const ev of (bidSemana ?? [])) {
         const tipo = (ev.tipo_evento || '').toLowerCase()
         const valor = ev.valor || 0
 
-        // id_time1: geralmente o "beneficiário" do texto do BID
+        // id_time1: créditos e débitos próprios
         if (ev.id_time1) {
-          if (includesAny(tipo, CREDIT_KEYWORDS)) {
+          const f = ensureFlows(ev.id_time1)
+          const cat = classifyIncome(tipo)
+          if (cat) {
+            if (cat === 'premiacao') f.entradas_premiacao += valor
+            else if (cat === 'gols') f.entradas_gols += valor
+            else if (cat === 'vendas') f.entradas_vendas += valor
+            else f.entradas_outras += valor
+            f.entradas_total += valor
             netSemanaByTime[ev.id_time1] = (netSemanaByTime[ev.id_time1] || 0) + valor
           }
           if (includesAny(tipo, DEBIT_KEYWORDS_ID1)) {
+            f.saidas_total += valor
             netSemanaByTime[ev.id_time1] = (netSemanaByTime[ev.id_time1] || 0) - valor
           }
         }
-        // id_time2: geralmente o contraparte (ex: comprador em compra/leilão)
+
+        // id_time2: débitos como comprador/participante
         if (ev.id_time2) {
+          const f2 = ensureFlows(ev.id_time2)
           if (includesAny(tipo, DEBIT_KEYWORDS_ID2)) {
+            f2.saidas_total += valor
             netSemanaByTime[ev.id_time2] = (netSemanaByTime[ev.id_time2] || 0) - valor
           }
         }
@@ -282,6 +327,9 @@ export default function PainelTimesAdmin() {
 
         const movAgg = movByTime[t.id] || { gasto: 0, recebido: 0 }
         const netSemana = netSemanaByTime[t.id] || 0
+        const weekly = flowsByTime[t.id] || {
+          entradas_premiacao: 0, entradas_gols: 0, entradas_vendas: 0, entradas_outras: 0, entradas_total: 0, saidas_total: 0
+        }
 
         // Saldo Antes = saldo atual - variação líquida na janela qui→qui
         const saldoAnterior = (t.saldo ?? 0) - netSemana
@@ -298,6 +346,7 @@ export default function PainelTimesAdmin() {
           salario_total: salarioTotal,
           saldo_anterior: saldoAnterior,
           nacionalidades,
+          weekly,
         }
       })
 
@@ -323,6 +372,7 @@ export default function PainelTimesAdmin() {
 
     const header = [
       'ID','Nome','Saldo Antes (qui→qui)','Saldo Atual','Variação (semana)',
+      'Entradas Semana (total)','Premiação Semana','Gols Semana','Vendas Semana','Outras Entradas Semana',
       'Gasto (all-time)','Recebido (all-time)','Média OVR','# Jogadores','Salário Total','Top Nacionalidades'
     ]
 
@@ -335,6 +385,11 @@ export default function PainelTimesAdmin() {
         brl(t.saldo_anterior),
         brl(t.saldo),
         brl(delta),
+        brl(t.weekly.entradas_total),
+        brl(t.weekly.entradas_premiacao),
+        brl(t.weekly.entradas_gols),
+        brl(t.weekly.entradas_vendas),
+        brl(t.weekly.entradas_outras),
         t.gasto ? brl(t.gasto) : brl(0),
         t.recebido ? brl(t.recebido) : brl(0),
         t.media_overall,
@@ -373,14 +428,19 @@ export default function PainelTimesAdmin() {
 
   const totais = useMemo(() => {
     const src = timesFiltradosOrdenados
-    const soma = (k: keyof TimeInfo) => src.reduce((acc, t) => acc + (t[k] as number), 0)
+    const soma = (fn: (t: TimeInfo) => number) => src.reduce((acc, t) => acc + fn(t), 0)
     return {
-      saldo: soma('saldo'),
-      saldo_anterior: soma('saldo_anterior'),
-      gasto: soma('gasto'),
-      recebido: soma('recebido'),
-      salario_total: soma('salario_total'),
-      qtd_jogadores: src.reduce((a,t)=>a+t.qtd_jogadores,0)
+      saldo: soma(t => t.saldo),
+      saldo_anterior: soma(t => t.saldo_anterior),
+      gasto: soma(t => t.gasto),
+      recebido: soma(t => t.recebido),
+      salario_total: soma(t => t.salario_total),
+      qtd_jogadores: src.reduce((a,t)=>a+t.qtd_jogadores,0),
+      entradas_total: soma(t => t.weekly.entradas_total),
+      entradas_premiacao: soma(t => t.weekly.entradas_premiacao),
+      entradas_gols: soma(t => t.weekly.entradas_gols),
+      entradas_vendas: soma(t => t.weekly.entradas_vendas),
+      entradas_outras: soma(t => t.weekly.entradas_outras),
     }
   }, [timesFiltradosOrdenados])
 
@@ -460,7 +520,7 @@ export default function PainelTimesAdmin() {
         </div>
 
         {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-3 pt-0">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 p-3 pt-0">
           <div className="rounded-xl border border-slate-700 bg-slate-800 p-3">
             <div className="text-xs text-slate-300">Saldo Atual (soma)</div>
             <div className="text-lg font-semibold text-white">{brl(totais.saldo)}</div>
@@ -473,6 +533,13 @@ export default function PainelTimesAdmin() {
             <div className="text-xs text-slate-300">Variação no Período</div>
             <div className={`text-lg font-semibold ${totais.saldo - totais.saldo_anterior >= 0 ? 'text-green-400' : 'text-red-400'}`}>
               {brl(totais.saldo - totais.saldo_anterior)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-800 p-3">
+            <div className="text-xs text-slate-300">Entradas (semana)</div>
+            <div className="text-lg font-semibold text-white">{brl(totais.entradas_total)}</div>
+            <div className="mt-1 text-[10px] text-slate-300">
+              Prem.: {brl(totais.entradas_premiacao)} • Gols: {brl(totais.entradas_gols)}
             </div>
           </div>
           <div className="rounded-xl border border-slate-700 bg-slate-800 p-3">
@@ -489,13 +556,14 @@ export default function PainelTimesAdmin() {
       {/* Tabela */}
       <div className="overflow-auto rounded-2xl border border-slate-700 shadow bg-slate-800">
         <table className="w-full text-sm">
-          {/* ✅ Cabeçalho sem sticky (como no código anterior) */}
+          {/* Cabeçalho sem sticky (como você pediu) */}
           <thead>
             <tr className="bg-slate-700 text-slate-200 text-center">
               <th className="border border-slate-700 p-3 sticky left-0 bg-slate-700">Time</th>
               <th className="border border-slate-700 p-3">Saldo Antes</th>
               <th className="border border-slate-700 p-3">Saldo Agora</th>
               <th className="border border-slate-700 p-3">Variação</th>
+              <th className="border border-slate-700 p-3">Entradas (semana)</th>
               <th className="border border-slate-700 p-3">Gasto</th>
               <th className="border border-slate-700 p-3">Recebido</th>
               <th className="border border-slate-700 p-3">Média OVR</th>
@@ -542,6 +610,27 @@ export default function PainelTimesAdmin() {
                     </div>
                   </td>
 
+                  {/* Entradas (semana) */}
+                  <td className="border border-slate-700 p-3">
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="font-medium text-slate-100">{brl(time.weekly.entradas_total)}</span>
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {time.weekly.entradas_premiacao > 0 && (
+                          <Pill tone="green">Prem.: {brl(time.weekly.entradas_premiacao)}</Pill>
+                        )}
+                        {time.weekly.entradas_gols > 0 && (
+                          <Pill tone="green">Gols: {brl(time.weekly.entradas_gols)}</Pill>
+                        )}
+                        {time.weekly.entradas_vendas > 0 && (
+                          <Pill tone="green">Vendas: {brl(time.weekly.entradas_vendas)}</Pill>
+                        )}
+                        {time.weekly.entradas_outras > 0 && (
+                          <Pill tone="green">Outras: {brl(time.weekly.entradas_outras)}</Pill>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
                   <td className="border border-slate-700 p-3 text-slate-200">{brl(time.gasto)}</td>
                   <td className="border border-slate-700 p-3 text-slate-200">{brl(time.recebido)}</td>
                   <td className="border border-slate-700 p-3 text-slate-200">{numberFmt(time.media_overall)}</td>
@@ -567,7 +656,7 @@ export default function PainelTimesAdmin() {
 
             {!loading && pageData.length === 0 && (
               <tr>
-                <td className="p-6 text-center text-slate-400" colSpan={10}>
+                <td className="p-6 text-center text-slate-400" colSpan={11}>
                   {erro ?? 'Nenhum time encontrado.'}
                 </td>
               </tr>
@@ -586,6 +675,7 @@ export default function PainelTimesAdmin() {
                     {brl(totais.saldo - totais.saldo_anterior)}
                   </span>
                 </td>
+                <td className="border border-slate-700 p-3 text-center">{brl(totais.entradas_total)}</td>
                 <td className="border border-slate-700 p-3 text-center">{brl(totais.gasto)}</td>
                 <td className="border border-slate-700 p-3 text-center">{brl(totais.recebido)}</td>
                 <td className="border border-slate-700 p-3 text-center">—</td>
@@ -646,4 +736,3 @@ export default function PainelTimesAdmin() {
     </div>
   )
 }
-
