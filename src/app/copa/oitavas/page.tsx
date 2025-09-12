@@ -130,7 +130,7 @@ export default function OitavasPage() {
   const [confirming, setConfirming] = useState(false)
 
   // animação das bolinhas
-  const [animA, setAnimA] = useState<TimeRow | null>(null)
+  the const [animA, setAnimA] = useState<TimeRow | null>(null)
   const [animB, setAnimB] = useState<TimeRow | null>(null)
 
   // realtime
@@ -379,27 +379,118 @@ export default function OitavasPage() {
     }
   }
 
-  /** ====== Salvar placar (pega os valores atuais do card) ====== */
+  /** ===== Helper de pagamento (RPC com fallback) ===== */
+  async function pagarSaldo(timeId: string, valor: number) {
+    // tenta atualizar_saldo(id_time, valor)
+    const try1 = await supabase.rpc('atualizar_saldo', { id_time: timeId, valor })
+    if (!try1.error) return true
+    // fallback para incrementar_saldo(p_id_time, p_valor)
+    const try2 = await supabase.rpc('incrementar_saldo', { p_id_time: timeId, p_valor: valor })
+    return !try2.error
+  }
+
+  /** ====== Salvar placar + premiação (gol 750k; vitória 25mi) ====== */
   async function salvarPlacar(jogo: JogoOitavas) {
-    const update: any = {
-      gols_time1: jogo.gols_time1,
-      gols_time2: jogo.gols_time2,
-    }
-    if (supportsVolta) {
-      update.gols_time1_volta = (jogo as any).gols_time1_volta ?? null
-      update.gols_time2_volta = (jogo as any).gols_time2_volta ?? null
-    }
+    try {
+      // snapshot anterior (para calcular deltas e evitar pagar em duplicidade)
+      const { data: antes, error: errAntes } = await supabase
+        .from('copa_oitavas')
+        .select('*')
+        .eq('id', jogo.id)
+        .single()
+      if (errAntes) throw errAntes
 
-    const { error } = await supabase
-      .from('copa_oitavas')
-      .update(update)
-      .eq('id', jogo.id)
+      // (1) Atualiza o placar no BD
+      const update: any = {
+        gols_time1: jogo.gols_time1,
+        gols_time2: jogo.gols_time2,
+      }
+      if (supportsVolta) {
+        update.gols_time1_volta = (jogo as any).gols_time1_volta ?? null
+        update.gols_time2_volta = (jogo as any).gols_time2_volta ?? null
+      }
+      const { error: errUp } = await supabase
+        .from('copa_oitavas')
+        .update(update)
+        .eq('id', jogo.id)
+      if (errUp) throw errUp
 
-    if (error) toast.error('Erro ao salvar')
-    else {
-      toast.success('Placar salvo!')
-      // mantém o estado em sincronia
+      // (2) Premiação por GOL — 750 mil por gol (apenas incremento)
+      const GOAL_PRIZE = 750_000
+      const getNum = (v: any) => (v == null ? 0 : Number(v) || 0)
+      const addPos = (now: number, prev: number) => Math.max(0, now - prev)
+
+      // IDA (time1 x time2)
+      const ida1_now = getNum(jogo.gols_time1)
+      const ida2_now = getNum(jogo.gols_time2)
+      const ida1_prev = getNum(antes?.gols_time1)
+      const ida2_prev = getNum(antes?.gols_time2)
+      const add_ida1 = addPos(ida1_now, ida1_prev)
+      const add_ida2 = addPos(ida2_now, ida2_prev)
+
+      let pagos = 0
+      if (add_ida1 > 0) {
+        const ok = await pagarSaldo(jogo.id_time1, add_ida1 * GOAL_PRIZE)
+        if (ok) pagos += add_ida1
+      }
+      if (add_ida2 > 0) {
+        const ok = await pagarSaldo(jogo.id_time2, add_ida2 * GOAL_PRIZE)
+        if (ok) pagos += add_ida2
+      }
+
+      // VOLTA (se houver colunas *_volta)
+      if (supportsVolta) {
+        const vol1_now = getNum((jogo as any).gols_time1_volta)
+        const vol2_now = getNum((jogo as any).gols_time2_volta)
+        const vol1_prev = getNum((antes as any)?.gols_time1_volta)
+        const vol2_prev = getNum((antes as any)?.gols_time2_volta)
+        const add_vol1 = addPos(vol1_now, vol1_prev) // gols do time1 na volta (como visitante)
+        const add_vol2 = addPos(vol2_now, vol2_prev) // gols do time2 na volta (mandante)
+
+        if (add_vol1 > 0) {
+          const ok = await pagarSaldo(jogo.id_time1, add_vol1 * GOAL_PRIZE)
+          if (ok) pagos += add_vol1
+        }
+        if (add_vol2 > 0) {
+          const ok = await pagarSaldo(jogo.id_time2, add_vol2 * GOAL_PRIZE)
+          if (ok) pagos += add_vol2
+        }
+      }
+
+      // (3) Premiação por VITÓRIA NO CONFRONTO — 25 mi (somatório; sem gol fora)
+      // Paga apenas quando *passa a estar decidido* (antes não decidido -> agora decidido e total1 != total2)
+      const VICTORY_PRIZE = 25_000_000
+
+      const antesTemIda = antes?.gols_time1 != null && antes?.gols_time2 != null
+      const antesTemVolta = supportsVolta ? ((antes as any)?.gols_time1_volta != null && (antes as any)?.gols_time2_volta != null) : true
+      const beforeDecided = (antesTemIda && antesTemVolta) && (
+        (getNum(antes?.gols_time1) + getNum((antes as any)?.gols_time1_volta)) !==
+        (getNum(antes?.gols_time2) + getNum((antes as any)?.gols_time2_volta))
+      )
+
+      const nowTemIda = jogo.gols_time1 != null && jogo.gols_time2 != null
+      const nowTemVolta = supportsVolta ? ((jogo as any).gols_time1_volta != null && (jogo as any).gols_time2_volta != null) : true
+      const total1 = getNum(jogo.gols_time1) + getNum((jogo as any).gols_time1_volta)
+      const total2 = getNum(jogo.gols_time2) + getNum((jogo as any).gols_time2_volta)
+      const nowDecided = (nowTemIda && nowTemVolta) && total1 !== total2
+
+      if (!beforeDecided && nowDecided) {
+        const vencedor = total1 > total2 ? jogo.id_time1 : jogo.id_time2
+        const ok = await pagarSaldo(vencedor, VICTORY_PRIZE)
+        if (!ok) toast.error('Falha ao pagar vitória (25M)')
+        else toast.success('Vitória paga: R$ 25.000.000')
+      }
+
+      // (4) feedback + sincroniza estado
+      if (pagos > 0) {
+        toast.success(`Premiação por gols: ${pagos} ${pagos === 1 ? 'gol' : 'gols'} pagos (R$ ${(pagos*GOAL_PRIZE).toLocaleString('pt-BR')})`)
+      } else {
+        toast.success('Placar salvo!')
+      }
       setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, ...update } : j))
+    } catch (e:any) {
+      console.error(e)
+      toast.error(`Erro ao salvar/bonificar: ${e?.message || e}`)
     }
   }
 
@@ -429,10 +520,10 @@ export default function OitavasPage() {
     const classificados: string[] = []
 
     for (const j of jogosAtual) {
-      const ida1 = j.gols_time1 || 0
-      const ida2 = j.gols_time2 || 0
-      const vol1 = (supportsVolta ? (j as any).gols_time1_volta : 0) || 0
-      const vol2 = (supportsVolta ? (j as any).gols_time2_volta : 0) || 0
+      const ida1 = Number(j.gols_time1 || 0)
+      const ida2 = Number(j.gols_time2 || 0)
+      const vol1 = supportsVolta ? Number((j as any).gols_time1_volta || 0) : 0
+      const vol2 = supportsVolta ? Number((j as any).gols_time2_volta || 0) : 0
       const total1 = ida1 + vol1
       const total2 = ida2 + vol2
       classificados.push(total1 >= total2 ? j.id_time1 : j.id_time2) // empate -> time1
@@ -529,10 +620,10 @@ export default function OitavasPage() {
     // determinar vencedores (empate -> time1)
     const vencedoresIds: string[] = []
     for (const j of jogosAtual) {
-      const ida1 = j.gols_time1 || 0
-      const ida2 = j.gols_time2 || 0
-      const vol1 = hasVolta ? ((j as any).gols_time1_volta || 0) : 0
-      const vol2 = hasVolta ? ((j as any).gols_time2_volta || 0) : 0
+      const ida1 = Number(j.gols_time1 || 0)
+      const ida2 = Number(j.gols_time2 || 0)
+      const vol1 = hasVolta ? Number((j as any).gols_time1_volta || 0) : 0
+      const vol2 = hasVolta ? Number((j as any).gols_time2_volta || 0) : 0
       const total1 = ida1 + vol1
       const total2 = ida2 + vol2
       vencedoresIds.push(total1 >= total2 ? j.id_time1 : j.id_time2)
