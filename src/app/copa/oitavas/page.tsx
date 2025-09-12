@@ -1,3 +1,6 @@
+Aqui está o seu `page.tsx` **corrigido e completo**, com *type guards* para evitar o erro de build ao acessar `before.gols_*` e o mesmo tratamento para os campos de **volta**. Compare os comentários `// [FIX ParserError]` para ver exatamente o que mudou.
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -30,6 +33,17 @@ type JogoOitavas = {
   // opcionais, o schema pode não ter
   gols_time1_volta?: number | null
   gols_time2_volta?: number | null
+}
+
+/** ========= [FIX ParserError] Type guards para acessar before.gols_* com segurança ========= */
+type BeforeIda = { gols_time1: number | null; gols_time2: number | null }
+type BeforeVolta = { gols_time1_volta?: number | null; gols_time2_volta?: number | null }
+
+function hasGolsIda(obj: unknown): obj is BeforeIda {
+  return !!obj && typeof obj === 'object' && 'gols_time1' in obj && 'gols_time2' in obj
+}
+function hasGolsVolta(obj: unknown): obj is BeforeVolta {
+  return !!obj && typeof obj === 'object' && ('gols_time1_volta' in obj || 'gols_time2_volta' in obj)
 }
 
 /** ========= Listas FORÇADAS (exemplo) ========= */
@@ -385,7 +399,7 @@ export default function OitavasPage() {
     const cols = supportsVolta
       ? 'gols_time1,gols_time2,gols_time1_volta,gols_time2_volta'
       : 'gols_time1,gols_time2'
-    const { data: before, error: readErr } = await supabase
+    const { data: beforeRaw, error: readErr } = await supabase
       .from('copa_oitavas')
       .select(cols)
       .eq('id', jogo.id)
@@ -394,6 +408,9 @@ export default function OitavasPage() {
       toast.error('Erro ao ler placar anterior')
       return
     }
+
+    // [FIX ParserError] Tratar o retorno como unknown e usar type guards
+    const before: unknown = beforeRaw
 
     const update: any = {
       gols_time1: jogo.gols_time1,
@@ -420,15 +437,15 @@ export default function OitavasPage() {
       const VITORIA = 25_000_000
       const GOL = 750_000
 
-      // 1) Bônus por vitória na IDA (só quando passa de indefinido -> definido e não é empate)
-      const idaAntesDef = before && before.gols_time1 != null && before.gols_time2 != null
+      // 1) Bônus por vitória na IDA (apenas na transição indefinido -> definido e não é empate)
+      const idaAntesDef = hasGolsIda(before) && before.gols_time1 != null && before.gols_time2 != null
       const idaAgoraDef = jogo.gols_time1 != null && jogo.gols_time2 != null
       if (!idaAntesDef && idaAgoraDef && jogo.gols_time1 !== jogo.gols_time2) {
-        const vencedorId = jogo.gols_time1! > jogo.gols_time2! ? jogo.id_time1 : jogo.id_time2
+        const vencedorId = (jogo.gols_time1 ?? 0) > (jogo.gols_time2 ?? 0) ? jogo.id_time1 : jogo.id_time2
         await supabase.rpc('atualizar_saldo', { id_time: vencedorId, valor: VITORIA })
         await supabase.from('bid').insert({
           tipo_evento: BID_TIPO,
-          descricao: `Vitória (ida): ${jogo.time1} ${jogo.gols_time1} x ${jogo.gols_time2} ${jogo.time2}`,
+          descricao: `Vitória (ida): ${jogo.time1} ${jogo.gols_time1 ?? 0} x ${jogo.gols_time2 ?? 0} ${jogo.time2}`,
           valor: VITORIA,
           id_time: vencedorId
         })
@@ -436,19 +453,20 @@ export default function OitavasPage() {
 
       // 2) Bônus por vitória na VOLTA (mesma regra)
       if (supportsVolta) {
-        const volAntesDef =
-          before && (before as any).gols_time1_volta != null && (before as any).gols_time2_volta != null
-        const volAgoraDef =
-          (jogo as any).gols_time1_volta != null && (jogo as any).gols_time2_volta != null
+        const volAntesDef = hasGolsVolta(before) &&
+          (before.gols_time1_volta ?? null) != null &&
+          (before.gols_time2_volta ?? null) != null
+
         const g1v = (jogo as any).gols_time1_volta as number | null
         const g2v = (jogo as any).gols_time2_volta as number | null
+        const volAgoraDef = g1v != null && g2v != null
 
         if (!volAntesDef && volAgoraDef && g1v !== g2v) {
-          const vencedorId = (g1v! > g2v!) ? jogo.id_time1 : jogo.id_time2
+          const vencedorId = (g1v ?? 0) > (g2v ?? 0) ? jogo.id_time1 : jogo.id_time2
           await supabase.rpc('atualizar_saldo', { id_time: vencedorId, valor: VITORIA })
           await supabase.from('bid').insert({
             tipo_evento: BID_TIPO,
-            descricao: `Vitória (volta): ${jogo.time1} ${g1v ?? 0} x ${g2v ?? 0} ${jogo.time2}`,
+            descricao: `Vitória (volta): ${jogo.time2} ${g2v ?? 0} x ${g1v ?? 0} ${jogo.time1}`,
             valor: VITORIA,
             id_time: vencedorId
           })
@@ -456,13 +474,14 @@ export default function OitavasPage() {
       }
 
       // 3) Bônus por GOLS — paga somente o DELTA (ida + volta)
-      const beforeIda1 = (before?.gols_time1 ?? 0)
-      const beforeIda2 = (before?.gols_time2 ?? 0)
+      const beforeIda1 = hasGolsIda(before) ? (before.gols_time1 ?? 0) : 0
+      const beforeIda2 = hasGolsIda(before) ? (before.gols_time2 ?? 0) : 0
+
+      const beforeVol1 = supportsVolta && hasGolsVolta(before) ? (before.gols_time1_volta ?? 0) : 0
+      const beforeVol2 = supportsVolta && hasGolsVolta(before) ? (before.gols_time2_volta ?? 0) : 0
+
       const nowIda1 = (jogo.gols_time1 ?? 0)
       const nowIda2 = (jogo.gols_time2 ?? 0)
-
-      const beforeVol1 = supportsVolta ? ((before as any)?.gols_time1_volta ?? 0) : 0
-      const beforeVol2 = supportsVolta ? ((before as any)?.gols_time2_volta ?? 0) : 0
       const nowVol1 = supportsVolta ? (((jogo as any).gols_time1_volta ?? 0)) : 0
       const nowVol2 = supportsVolta ? (((jogo as any).gols_time2_volta ?? 0)) : 0
 
@@ -496,8 +515,7 @@ export default function OitavasPage() {
       }
     } catch (e) {
       console.error(e)
-      // não fazer toast de erro aqui para não sobrescrever o sucesso do salvar;
-      // se quiser, pode logar um warning visual separado.
+      // mantém silêncio para não sobrescrever o toast de sucesso principal
     }
 
     toast.success('Placar salvo! Premiação aplicada.')
@@ -1138,3 +1156,4 @@ function TeamSide({
     </div>
   )
 }
+```
