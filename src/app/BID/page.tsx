@@ -275,7 +275,7 @@ export default function BIDPage() {
 
   // Auto-animate
   const [listaDiasAnim] = useAutoanimate<HTMLDivElement>()
-  const [commentsAnim] = useAutoanimate<HTMLDivElement>()
+  const [commentsAnim] = useAutoAnimate<HTMLDivElement>()
 
   // Scroll anchor p/ paginação
   const topRef = useRef<HTMLDivElement | null>(null)
