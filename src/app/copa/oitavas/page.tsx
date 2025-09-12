@@ -1,4 +1,3 @@
-
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -951,7 +950,7 @@ function MatchCard({
 
       {/* cabeçalho */}
       <div className="flex items-center justify-between mb-4">
-        <div className="text-[13px] text-white/60">Jogo {jogo.ordem ?? '-'} · Oitavas</div>
+        <div className="text-[13px] text-white/60">Jogo {jogo.ordem ?? '-' } · Oitavas</div>
         <div
           title={`Ida ${ida1 ?? 0}-${ida2 ?? 0}${supportsVolta ? ` · Volta ${vol1 ?? 0}-${vol2 ?? 0}` : ''}`}
           className={[
