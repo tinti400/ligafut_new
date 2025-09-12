@@ -80,7 +80,7 @@ type TipoChipKey = typeof TIPOS_CHIP[number]['key']
 
 type SortOrder = 'recente' | 'antigo' | 'valor'
 
-/** ========= Helpers ========= */
+/** ========= Helpers visuais ========= */
 function tipoToStyle(tipo: string) {
   const t = tipo.toLowerCase()
   if (t.includes('transfer')) return { ring: 'ring-purple-500/60', chip: 'bg-purple-500/15 text-purple-300', dot: 'bg-purple-400' }
@@ -91,6 +91,7 @@ function tipoToStyle(tipo: string) {
   if (t.includes('bonus') || t.includes('bônus')) return { ring: 'ring-lime-500/60', chip: 'bg-lime-500/15 text-lime-300', dot: 'bg-lime-400' }
   return { ring: 'ring-gray-500/50', chip: 'bg-gray-500/15 text-gray-300', dot: 'bg-gray-400' }
 }
+
 function iconeTipo(tipo: string) {
   const t = tipo.toLowerCase()
   if (t.includes('transfer')) return '💸'
@@ -101,10 +102,24 @@ function iconeTipo(tipo: string) {
   if (t.includes('bonus') || t.includes('bônus')) return '🎁'
   return '📝'
 }
-function capitalizar(str: string) { return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : '' }
-function diaSemanaPt(date: Date) { return new Intl.DateTimeFormat('pt-BR', { weekday: 'long' }).format(date) }
-function horaPt(date: Date) { return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date) }
-function calcEstrelas(valor: number | null | undefined) { if (!valor || valor <= 0) return 0; return Math.min(Math.ceil(valor / 50_000_000), 10) }
+
+function capitalizar(str: string) {
+  return str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : ''
+}
+
+function diaSemanaPt(date: Date) {
+  return new Intl.DateTimeFormat('pt-BR', { weekday: 'long' }).format(date)
+}
+
+function horaPt(date: Date) {
+  return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+function calcEstrelas(valor: number | null | undefined) {
+  if (!valor || valor <= 0) return 0
+  return Math.min(Math.ceil(valor / 50_000_000), 10)
+}
+
 function Estrelas({ valor }: { valor: number }) {
   const qtd = calcEstrelas(valor)
   const total = 10
@@ -118,23 +133,46 @@ function Estrelas({ valor }: { valor: number }) {
   return <span className={`font-bold ${cor}`} title={`Valor: R$${valor.toLocaleString('pt-BR')}`}>{estrelas}</span>
 }
 
-/** ========= Utils: busca ========= */
-function removeAcentosESinais(s: string) {
-  return s
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')   // acentos
-    .replace(/[^a-zA-Z0-9]+/g, ' ')    // pontuação/símbolos -> espaço
-    .trim()
+function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
+  if (logo) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={logo}
+        alt={nome}
+        className="size-8 rounded-full object-cover ring-1 ring-white/10"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+      />
+    )
+  }
+  const iniciais = nome.split(' ').slice(0, 2).map(s => s[0]).join('').toUpperCase()
+  return (
+    <div className="size-8 rounded-full bg-gray-700 text-gray-200 grid place-items-center ring-1 ring-white/10">
+      <span className="text-xs font-bold">{iniciais || '?'}</span>
+    </div>
+  )
 }
-function tokenize(q: string) {
-  const norm = removeAcentosESinais(q.toLowerCase())
-  if (!norm) return []
-  return norm.split(/\s+/).filter(Boolean)
+
+/** ========= Utils de busca ========= */
+function escapeRegExp(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
-function escapeRegExp(str: string) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+function getTipoKey(tipo: string): TipoChipKey {
+  const t = tipo.toLowerCase()
+  if (t.includes('transfer')) return 'transfer'
+  if (t.includes('emprést') || t.includes('emprest')) return 'emprest'
+  if (t.includes('rescis')) return 'rescis'
+  if (t.includes('compra')) return 'compra'
+  if (t.includes('salario')) return 'salario'
+  if (t.includes('bonus') || t.includes('bônus')) return 'bonus'
+  return 'todos'
+}
 function useDebounce<T>(value: T, delay = 350) {
   const [debounced, setDebounced] = useState(value)
-  useEffect(() => { const id = setTimeout(() => setDebounced(value), delay); return () => clearTimeout(id) }, [value, delay])
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id)
+  }, [value, delay])
   return debounced
 }
 
@@ -154,24 +192,13 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 /** ========= Player Card ========= */
-function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
-  if (logo) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={logo} alt={nome} className="size-8 rounded-full object-cover ring-1 ring-white/10"
-           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-    )
-  }
-  const iniciais = nome.split(' ').slice(0, 2).map(s => s[0]).join('').toUpperCase()
-  return (
-    <div className="size-8 rounded-full bg-gray-700 text-gray-200 grid place-items-center ring-1 ring-white/10">
-      <span className="text-xs font-bold">{iniciais || '?'}</span>
-    </div>
-  )
-}
 function CardJogador({ j, highlight }: { j: Partial<Jogador>, highlight?: string }) {
   if (!j?.nome && !j?.foto_url) return null
-  const nomeNode = highlight ? <Highlight text={j.nome || ''} query={highlight} /> : <>{j.nome}</>
+
+  const nomeNode = highlight
+    ? <Highlight text={j.nome || ''} query={highlight} />
+    : <>{j.nome}</>
+
   return (
     <div className="rounded-lg bg-black/30 border border-white/10 p-3 flex gap-3 items-center">
       {j.foto_url ? (
@@ -193,7 +220,9 @@ function CardJogador({ j, highlight }: { j: Partial<Jogador>, highlight?: string
         <p className="text-xs text-gray-300">
           {[j.posicao, j.nacionalidade].filter(Boolean).join(' • ') || 'Jogador'}
         </p>
-        {typeof j.idade === 'number' && <p className="text-xs text-gray-400 mt-0.5">{j.idade} anos</p>}
+        {typeof j.idade === 'number' && (
+          <p className="text-xs text-gray-400 mt-0.5">{j.idade} anos</p>
+        )}
       </div>
     </div>
   )
@@ -259,6 +288,7 @@ export default function BIDPage() {
     if (typeof window === 'undefined') return
     let id = localStorage.getItem('id_time') || localStorage.getItem('idTime') || null
     let nome = localStorage.getItem('nome_time') || localStorage.getItem('nomeTime') || null
+
     const tentar = (key: string) => {
       try {
         const raw = localStorage.getItem(key)
@@ -269,6 +299,7 @@ export default function BIDPage() {
       } catch {}
     }
     ;['user','usuario','usuario_atual','perfil','account'].forEach(tentar)
+
     if (id) setIdTimeLogado(String(id))
     if (nome) setNomeTimeLogado(String(nome))
   }, [])
@@ -276,8 +307,15 @@ export default function BIDPage() {
   /** ====== Carrega times uma vez ====== */
   useEffect(() => {
     (async () => {
-      const { data: timesData, error: errorTimes } = await supabase.from('times').select('id, nome, logo_url')
-      if (errorTimes) { console.error(errorTimes); setTimesLista([]); setTimesMap({}); return }
+      const { data: timesData, error: errorTimes } = await supabase
+        .from('times')
+        .select('id, nome, logo_url')
+      if (errorTimes) {
+        console.error(errorTimes)
+        setTimesLista([])
+        setTimesMap({})
+        return
+      }
       const map: Record<string, Time> = {}
       ;(timesData || []).forEach((t) => (map[t.id] = t))
       setTimesLista(timesData || [])
@@ -287,32 +325,47 @@ export default function BIDPage() {
 
   /** ====== Inicial ====== */
   useEffect(() => {
-    if (!buscaAtiva && !filtroGlobalAtivo) { carregarDados(1) }
+    if (!buscaAtiva && !filtroGlobalAtivo) {
+      carregarDados(1)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** ====== Busca / Filtro reativos ====== */
+  /** ====== Busca global reativa ====== */
   useEffect(() => {
-    if (buscaAtiva)      buscarGlobal(debouncedBusca)
-    else if (filtroGlobalAtivo) carregarFiltrado()
-    else                 carregarDados(1)
+    if (buscaAtiva) {
+      buscarGlobal(debouncedBusca)
+    } else if (filtroGlobalAtivo) {
+      carregarFiltrado()
+    } else {
+      carregarDados(1)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedBusca])
 
+  /** ====== Filtro global reativo ====== */
   useEffect(() => {
     if (buscaAtiva) return
-    if (filtroGlobalAtivo) carregarFiltrado()
-    else carregarDados(1)
+    if (filtroGlobalAtivo) {
+      carregarFiltrado()
+    } else {
+      carregarDados(1)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroTime, tipoFiltro])
 
   /** ====== Ordenação reativa ====== */
   useEffect(() => {
+    // reordena localmente o que já está carregado
     setEventos((prev) => {
       const arr = [...prev]
-      if (sortOrder === 'valor')      arr.sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
-      else if (sortOrder === 'antigo')arr.sort((a, b) => +new Date(a.data_evento) - +new Date(b.data_evento))
-      else                            arr.sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
+      if (sortOrder === 'valor') {
+        arr.sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
+      } else if (sortOrder === 'antigo') {
+        arr.sort((a, b) => +new Date(a.data_evento) - +new Date(b.data_evento))
+      } else {
+        arr.sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
+      }
       return arr
     })
   }, [sortOrder])
@@ -320,14 +373,19 @@ export default function BIDPage() {
   /** ====== Dados: eventos paginados (modo normal) ====== */
   async function carregarDados(paginaAtual = 1) {
     if (buscaAtiva || filtroGlobalAtivo) return
-    setLoading(true); setErro(null)
+    setLoading(true)
+    setErro(null)
     const offset = (paginaAtual - 1) * limite
+
     try {
-      const { count, error: errorCount } = await supabase.from('bid').select('*', { count: 'exact', head: true })
+      const { count, error: errorCount } = await supabase
+        .from('bid')
+        .select('*', { count: 'exact', head: true })
       if (errorCount) throw errorCount
 
       const { data: eventosData, error: errorEventos } = await supabase
-        .from('bid').select('*')
+        .from('bid')
+        .select('*')
         .order('data_evento', { ascending: false })
         .range(offset, offset + limite - 1)
       if (errorEventos) throw errorEventos
@@ -338,6 +396,7 @@ export default function BIDPage() {
         : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
         : (+new Date(b.data_evento) - +new Date(a.data_evento))
       )
+
       setEventos(lista)
       await carregarJogadoresParaEventos(lista)
 
@@ -346,25 +405,39 @@ export default function BIDPage() {
       setPagina(paginaAtual)
 
       const idsStr = lista.map((e: any) => String(e.id))
-      await Promise.all([carregarComentariosParaEventos(idsStr), carregarReacoesParaEventos(idsStr)])
+      await Promise.all([
+        carregarComentariosParaEventos(idsStr),
+        carregarReacoesParaEventos(idsStr),
+      ])
 
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (topRef.current) {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar os eventos.')
-      setEventos([]); setComentariosMap({}); setReacoesCount({}); setMinhasReacoes({})
-    } finally { setLoading(false) }
+      setEventos([])
+      setComentariosMap({})
+      setReacoesCount({})
+      setMinhasReacoes({})
+    } finally {
+      setLoading(false)
+    }
   }
 
   /** ====== Modo filtro global (time/tipo) — varre tudo ====== */
   async function carregarFiltrado() {
-    setLoading(true); setErro(null)
+    setLoading(true)
+    setErro(null)
     try {
       let q = supabase.from('bid').select('*')
 
+      // Filtro por time: (id_time1 == X) OR (id_time2 == X)
       if (filtroTime !== 'todos') {
         q = q.or(`id_time1.eq.${filtroTime},id_time2.eq.${filtroTime}`)
       }
+
+      // Filtro por tipo: padrões com e sem acento
       if (tipoFiltro !== 'todos') {
         const mapOr: Record<Exclude<TipoChipKey,'todos'>, string> = {
           transfer: 'tipo_evento.ilike.*transfer*',
@@ -377,9 +450,14 @@ export default function BIDPage() {
         q = q.or(mapOr[tipoFiltro])
       }
 
-      if (sortOrder === 'valor')      q = q.order('valor', { ascending: false, nullsFirst: false })
-      else if (sortOrder === 'antigo')q = q.order('data_evento', { ascending: true })
-      else                            q = q.order('data_evento', { ascending: false })
+      // Ordenação
+      if (sortOrder === 'valor') {
+        q = q.order('valor', { ascending: false, nullsFirst: false })
+      } else if (sortOrder === 'antigo') {
+        q = q.order('data_evento', { ascending: true })
+      } else {
+        q = q.order('data_evento', { ascending: false })
+      }
 
       const { data, error } = await q
       if (error) throw error
@@ -387,72 +465,95 @@ export default function BIDPage() {
       const lista = (data as EventoBID[] || [])
       setEventos(lista)
       await carregarJogadoresParaEventos(lista)
-      setTotalPaginas(1); setPagina(1)
+
+      // sem paginação no modo filtro
+      setTotalPaginas(1)
+      setPagina(1)
 
       const idsStr = lista.map((e) => String(e.id))
-      await Promise.all([carregarComentariosParaEventos(idsStr), carregarReacoesParaEventos(idsStr)])
+      await Promise.all([
+        carregarComentariosParaEventos(idsStr),
+        carregarReacoesParaEventos(idsStr),
+      ])
 
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (topRef.current) {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar com filtros.')
-      setEventos([]); setComentariosMap({}); setReacoesCount({}); setMinhasReacoes({})
-    } finally { setLoading(false) }
+      setEventos([])
+      setComentariosMap({})
+      setReacoesCount({})
+      setMinhasReacoes({})
+    } finally {
+      setLoading(false)
+    }
   }
 
-  /** ====== Busca global (texto) — tolerante a pontuação/acentos e com tokens AND ====== */
+  /** ====== Busca global (texto) — varre tudo ====== */
   async function buscarGlobal(termo: string) {
     const termoTrim = termo.trim()
     if (termoTrim.length < 2) return
-    setLoading(true); setErro(null)
+    setLoading(true)
+    setErro(null)
 
-    const tokens = tokenize(termoTrim)
     try {
-      // --- 1) Descrição (todas as palavras)
-      let qDesc = supabase.from('bid').select('*')
-      tokens.forEach(t => { qDesc = qDesc.ilike('descricao', `%${t}%`) })
-      qDesc = qDesc.order('data_evento', { ascending: false })
-      const { data: porDesc, error: errDesc } = await qDesc
-      if (errDesc) throw errDesc
-
-      // --- 2) Nome do jogador (todas as palavras)
-      let qJog = supabase.from('bid').select('*')
-      tokens.forEach(t => { qJog = qJog.ilike('nome_jogador', `%${t}%`) })
-      qJog = qJog.order('data_evento', { ascending: false })
-      const { data: porJogador, error: errJog } = await qJog
-      if (errJog) throw errJog
-
-      // --- 3) Times que batem com TODAS as palavras
-      let qTimes = supabase.from('times').select('id')
-      tokens.forEach(t => { qTimes = qTimes.ilike('nome', `%${t}%`) })
-      const { data: timesLike, error: errTimesLike } = await qTimes
+      // Encontrar times cujo nome bate com o termo
+      const { data: timesLike, error: errTimesLike } = await supabase
+        .from('times')
+        .select('id')
+        .ilike('nome', `%${termoTrim}%`)
       if (errTimesLike) throw errTimesLike
       const timeIds = (timesLike || []).map((t: any) => t.id)
 
-      // Eventos onde time1/time2 está na lista
+      // Descrição
+      const { data: porDesc, error: errDesc } = await supabase
+        .from('bid')
+        .select('*')
+        .ilike('descricao', `%${termoTrim}%`)
+        .order('data_evento', { ascending: false })
+      if (errDesc) throw errDesc
+
+      // Jogador
+      const { data: porJogador, error: errJog } = await supabase
+        .from('bid')
+        .select('*')
+        .ilike('nome_jogador', `%${termoTrim}%`)
+        .order('data_evento', { ascending: false })
+      if (errJog) throw errJog
+
+      // time1
       let porTime1: EventoBID[] = []
+      if (timeIds.length) {
+        const { data, error } = await supabase
+          .from('bid')
+          .select('*')
+          .in('id_time1', timeIds)
+          .order('data_evento', { ascending: false })
+        if (error) throw error
+        porTime1 = data as EventoBID[] || []
+      }
+
+      // time2
       let porTime2: EventoBID[] = []
       if (timeIds.length) {
-        const { data: d1, error: e1 } = await supabase.from('bid').select('*').in('id_time1', timeIds).order('data_evento', { ascending: false })
-        if (e1) throw e1
-        porTime1 = d1 as EventoBID[] || []
-
-        const { data: d2, error: e2 } = await supabase.from('bid').select('*').in('id_time2', timeIds).order('data_evento', { ascending: false })
-        if (e2) throw e2
-        porTime2 = d2 as EventoBID[] || []
+        const { data, error } = await supabase
+          .from('bid')
+          .select('*')
+          .in('id_time2', timeIds)
+          .order('data_evento', { ascending: false })
+        if (error) throw error
+        porTime2 = data as EventoBID[] || []
       }
 
       // Merge único
       const mapa: Record<string, EventoBID> = {}
-      ;[
-        ...(porDesc as EventoBID[] || []),
-        ...(porJogador as EventoBID[] || []),
-        ...porTime1,
-        ...porTime2
-      ].forEach((ev) => { mapa[String(ev.id)] = ev })
+      ;[...(porDesc as EventoBID[] || []), ...porJogador as EventoBID[] || [], ...porTime1, ...porTime2]
+        .forEach((ev) => { mapa[String(ev.id)] = ev })
       let unicos = Object.values(mapa)
 
-      // Ordenar local
+      // Ordenar
       unicos.sort((a, b) =>
         sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
         : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
@@ -462,36 +563,55 @@ export default function BIDPage() {
       setEventos(unicos)
       await carregarJogadoresParaEventos(unicos)
 
-      setTotalPaginas(1); setPagina(1)
+      // sem paginação na busca
+      setTotalPaginas(1)
+      setPagina(1)
 
       const idsStr = unicos.map((e) => String(e.id))
-      await Promise.all([carregarComentariosParaEventos(idsStr), carregarReacoesParaEventos(idsStr)])
+      await Promise.all([
+        carregarComentariosParaEventos(idsStr),
+        carregarReacoesParaEventos(idsStr),
+      ])
 
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (topRef.current) {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     } catch (err: any) {
       console.error(err)
       setErro('Erro na busca.')
-      setEventos([]); setComentariosMap({}); setReacoesCount({}); setMinhasReacoes({})
-    } finally { setLoading(false) }
+      setEventos([])
+      setComentariosMap({})
+      setReacoesCount({})
+      setMinhasReacoes({})
+    } finally {
+      setLoading(false)
+    }
   }
 
   /** ====== Jogadores ====== */
   async function carregarJogadoresParaEventos(lista: EventoBID[]) {
     try {
-      const ids = Array.from(new Set(lista.map(ev => ev.id_jogador || '').filter(Boolean)))
-        .filter((id) => !jogadoresMap[id as string])
+      const ids = Array.from(
+        new Set(
+          lista.map(ev => ev.id_jogador || '').filter(Boolean)
+        )
+      ).filter((id) => !jogadoresMap[id as string])
+
       if (!ids.length) return
 
       const { data, error } = await supabase
         .from('jogadores')
         .select('id, nome, foto_url, posicao, idade, nacionalidade')
         .in('id', ids as string[])
+
       if (error) { console.error(error); return }
 
       const novoMap = { ...jogadoresMap }
       ;(data || []).forEach((j: any) => { novoMap[j.id] = j })
       setJogadoresMap(novoMap)
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   /** ====== EXCLUIR EVENTO (ADMIN) ====== */
@@ -501,12 +621,17 @@ export default function BIDPage() {
     try {
       const { error } = await supabase.from('bid').delete().eq('id', idEvento)
       if (error) throw error
+
       setEventos((prev) => prev.filter((ev) => String(ev.id) !== idEvento))
       setComentariosMap((prev) => { const n = { ...prev }; delete n[idEvento]; return n })
       setReacoesCount((prev) => { const n = { ...prev }; delete n[idEvento]; return n })
       setMinhasReacoes((prev) => { const n = { ...prev }; delete n[idEvento]; return n })
+
       toast.success('Evento excluído com sucesso!')
-    } catch (err: any) { console.error(err); toast.error(`Erro ao excluir evento: ${err?.message || 'desconhecido'}`) }
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Erro ao excluir evento: ${err?.message || 'desconhecido'}`)
+    }
   }
 
   /** ====== Comentários ====== */
@@ -527,14 +652,19 @@ export default function BIDPage() {
     }
     setComentariosMap(agrupado)
   }
+
   const MAX_CHARS = 400
   function onChangeComentario(idEvento: string, texto: string) {
     if (texto.length > MAX_CHARS) return
     setNovoComentario((prev) => ({ ...prev, [idEvento]: texto }))
   }
+
   async function enviarComentario(idEventoRaw: IDEvt) {
     const idEvento = String(idEventoRaw)
-    if (!idTimeLogado || !nomeTimeLogado) { toast.error('Faça login no seu time para comentar.'); return }
+    if (!idTimeLogado || !nomeTimeLogado) {
+      toast.error('Faça login no seu time para comentar.')
+      return
+    }
     const texto = (novoComentario[idEvento] || '').trim()
     if (!texto) { toast('Digite um comentário.', { icon: '💬' }); return }
 
@@ -543,7 +673,8 @@ export default function BIDPage() {
       const { data, error } = await supabase
         .from('bid_comentarios')
         .insert({ id_evento: idEvento, id_time: idTimeLogado, nome_time: nomeTimeLogado, comentario: texto })
-        .select('*').single()
+        .select('*')
+        .single()
       if (error) throw error
 
       const coment: Comentario = { ...(data as any), id_evento: String((data as any).id_evento) }
@@ -554,9 +685,14 @@ export default function BIDPage() {
       })
       setNovoComentario((prev) => ({ ...prev, [idEvento]: '' }))
       setComentarioAberto((p)=>({ ...p, [idEvento]: true }))
-    } catch (err: any) { console.error(err); toast.error(`Não foi possível publicar: ${err?.message || 'erro desconhecido'}`) }
-    finally { setComentando((prev) => ({ ...prev, [idEvento]: false })) }
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Não foi possível publicar: ${err?.message || 'erro desconhecido'}`)
+    } finally {
+      setComentando((prev) => ({ ...prev, [idEvento]: false }))
+    }
   }
+
   async function excluirComentario(idEvento: string, idComentario: string) {
     setExcluindoComentario((p) => ({ ...p, [idComentario]: true }))
     try {
@@ -566,25 +702,43 @@ export default function BIDPage() {
         const arr = prev[idEvento]?.filter((c) => c.id !== idComentario) || []
         return { ...prev, [idEvento]: arr }
       })
-    } catch (err: any) { console.error(err); toast.error(`Erro ao excluir: ${err?.message || 'desconhecido'}`) }
-    finally { setExcluindoComentario((p) => ({ ...p, [idComentario]: false })) }
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Erro ao excluir: ${err?.message || 'desconhecido'}`)
+    } finally {
+      setExcluindoComentario((p) => ({ ...p, [idComentario]: false }))
+    }
   }
-  function podeExcluirComentario(c: Comentario) { return isAdmin || (idTimeLogado && c.id_time === idTimeLogado) }
+
+  function podeExcluirComentario(c: Comentario) {
+    return isAdmin || (idTimeLogado && c.id_time === idTimeLogado)
+  }
 
   /** ====== Reações ====== */
   async function carregarReacoesParaEventos(idsEventoStr: string[]) {
     if (!idsEventoStr.length) { setReacoesCount({}); setMinhasReacoes({}); return }
-    const { data, error } = await supabase.from('bid_reacoes').select('*').in('id_evento', idsEventoStr)
+    const { data, error } = await supabase
+      .from('bid_reacoes')
+      .select('*')
+      .in('id_evento', idsEventoStr)
     if (error) { console.error(error); return }
 
     const countMap: Record<string, Record<Emoji, number>> = {}
     const mineMap: Record<string, Record<Emoji, boolean>> = {}
+
     for (const r of (data as any[])) {
-      const ev = String(r.id_evento); const em: Emoji = r.emoji
-      countMap[ev] = countMap[ev] || {}; countMap[ev][em] = (countMap[ev][em] || 0) + 1
-      if (idTimeLogado && r.id_time === idTimeLogado) { mineMap[ev] = mineMap[ev] || {}; mineMap[ev][em] = true }
+      const ev = String(r.id_evento)
+      const em: Emoji = r.emoji
+      countMap[ev] = countMap[ev] || {}
+      countMap[ev][em] = (countMap[ev][em] || 0) + 1
+
+      if (idTimeLogado && r.id_time === idTimeLogado) {
+        mineMap[ev] = mineMap[ev] || {}
+        mineMap[ev][em] = true
+      }
     }
-    setReacoesCount(countMap); setMinhasReacoes(mineMap)
+    setReacoesCount(countMap)
+    setMinhasReacoes(mineMap)
   }
 
   async function toggleReacao(idEventoRaw: IDEvt, emoji: Emoji) {
@@ -595,34 +749,47 @@ export default function BIDPage() {
     setReagindo((p) => ({ ...p, [idEvento]: true }))
     try {
       const { data: existente, error: selErr } = await supabase
-        .from('bid_reacoes').select('id')
-        .eq('id_evento', idEvento).eq('id_time', idTimeLogado).eq('emoji', emoji).maybeSingle()
+        .from('bid_reacoes')
+        .select('id')
+        .eq('id_evento', idEvento)
+        .eq('id_time', idTimeLogado)
+        .eq('emoji', emoji)
+        .maybeSingle()
       if (selErr) throw selErr
 
       if (existente) {
         const { error: delErr } = await supabase.from('bid_reacoes').delete().eq('id', existente.id)
         if (delErr) throw delErr
       } else {
-        const { error: insErr } = await supabase.from('bid_reacoes')
+        const { error: insErr } = await supabase
+          .from('bid_reacoes')
           .insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
         if (insErr) throw insErr
       }
+
       await carregarReacoesParaEventos([idEvento])
-    } catch (err: any) { console.error(err); toast.error(`Não foi possível reagir: ${err?.message || 'erro'}`) }
-    finally { setReagindo((p) => ({ ...p, [idEvento]: false })) }
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Não foi possível reagir: ${err?.message || 'erro'}`)
+    } finally {
+      setReagindo((p) => ({ ...p, [idEvento]: false }))
+    }
   }
 
   /** ====== Filtros / Agrupamento ====== */
   const eventosFiltrados = useMemo(() => {
     const termo = debouncedBusca.trim().toLowerCase()
+
+    // 1) aplica filtros por time e tipo SEMPRE (mas lembre: no modo filtro global já vem filtrado do servidor)
     const base = eventos.filter((evento) => {
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
       if (!timeOK) return false
+
       const tipoKey = getTipoKey(evento.tipo_evento)
       const tipoOK = tipoFiltro === 'todos' || tipoKey === tipoFiltro
       if (!tipoOK) return false
 
-      // filtro textual local só quando NÃO estiver em busca global
+      // 2) filtro textual local só quando NÃO estiver em busca global
       if (!buscaAtiva && termo) {
         const nome1 = timesMap[evento.id_time1]?.nome || ''
         const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
@@ -631,11 +798,14 @@ export default function BIDPage() {
       }
       return true
     })
+
+    // 3) ordenação local
     base.sort((a, b) =>
       sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
       : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
       : (+new Date(b.data_evento) - +new Date(a.data_evento))
     )
+
     return base
   }, [eventos, filtroTime, tipoFiltro, debouncedBusca, buscaAtiva, timesMap, sortOrder])
 
@@ -653,6 +823,7 @@ export default function BIDPage() {
   /** ====== Render ====== */
   return (
     <main className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,rgba(16,185,129,0.10),transparent),linear-gradient(to_bottom,#0b0f14,#000000)] text-white">
+      {/* topo/anchor */}
       <div ref={topRef} />
 
       <div className="max-w-6xl mx-auto px-4 py-6">
@@ -668,8 +839,13 @@ export default function BIDPage() {
           {buscaAtiva && (
             <div className="mt-3 text-sm text-gray-300">
               🔎 Resultados para <span className="text-yellow-300 font-semibold">“{debouncedBusca}”</span>
-              <button className="ml-3 text-emerald-300 underline hover:text-emerald-200"
-                      onClick={() => setBuscaTexto('')} title="Limpar busca">Limpar</button>
+              <button
+                className="ml-3 text-emerald-300 underline hover:text-emerald-200"
+                onClick={() => setBuscaTexto('')}
+                title="Limpar busca"
+              >
+                Limpar
+              </button>
             </div>
           )}
         </header>
@@ -685,13 +861,17 @@ export default function BIDPage() {
                   onChange={(e) => setFiltroTime(e.target.value)}
                 >
                   <option value="todos">🔍 Todos os times</option>
-                  {timesLista.map((time) => <option key={time.id} value={time.id}>{time.nome}</option>)}
+                  {timesLista.map((time) => (
+                    <option key={time.id} value={time.id}>{time.nome}</option>
+                  ))}
                 </select>
 
                 <button
                   onClick={() => setFiltroTime(idTimeLogado || 'todos')}
                   className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-700 hover:bg-emerald-600/30 disabled:opacity-50"
-                  disabled={!idTimeLogado} title="Filtrar pelo meu time">
+                  disabled={!idTimeLogado}
+                  title="Filtrar pelo meu time"
+                >
                   Meu time
                 </button>
               </div>
@@ -704,25 +884,42 @@ export default function BIDPage() {
                   value={buscaTexto}
                   onChange={(e) => setBuscaTexto(e.target.value)}
                 />
-
-                {/* paginação compacta (somente no modo normal) */}
+                {/* paginação compacta (apenas quando NÃO estiver em busca e NÃO estiver em filtro global) */}
                 {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
                   <div className="hidden md:flex items-center gap-2">
-                    <button onClick={() => carregarDados(1)} disabled={pagina === 1}
-                            className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40" title="Primeira">«</button>
-                    <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
-                            className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40" title="Anterior">‹</button>
-                    <span className="text-xs text-gray-300 select-none">pág. <strong>{pagina}</strong>/<strong>{totalPaginas}</strong></span>
-                    <button onClick={() => carregarDados(pagina + 1)} disabled={pagina === totalPaginas}
-                            className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40" title="Próxima">›</button>
-                    <button onClick={() => carregarDados(totalPaginas)} disabled={pagina === totalPaginas}
-                            className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40" title="Última">»</button>
+                    <button
+                      onClick={() => carregarDados(1)}
+                      disabled={pagina === 1}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Primeira"
+                    >«</button>
+                    <button
+                      onClick={() => carregarDados(pagina - 1)}
+                      disabled={pagina === 1}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Anterior"
+                    >‹</button>
+                    <span className="text-xs text-gray-300 select-none">
+                      pág. <strong>{pagina}</strong>/<strong>{totalPaginas}</strong>
+                    </span>
+                    <button
+                      onClick={() => carregarDados(pagina + 1)}
+                      disabled={pagina === totalPaginas}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Próxima"
+                    >›</button>
+                    <button
+                      onClick={() => carregarDados(totalPaginas)}
+                      disabled={pagina === totalPaginas}
+                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
+                      title="Última"
+                    >»</button>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Chips + ordenar */}
+            {/* Chips segmentados + ordenar */}
             <div className="flex flex-wrap items-center gap-3">
               <div className="inline-flex rounded-full border border-gray-700 bg-gray-900/60 p-1">
                 {TIPOS_CHIP.map(({ key, label }) => {
@@ -733,8 +930,9 @@ export default function BIDPage() {
                       onClick={() => setTipoFiltro(key)}
                       className={classNames(
                         'whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition',
-                        ativo ? 'bg-emerald-600/25 text-emerald-200 ring-1 ring-emerald-400/30'
-                              : 'text-gray-300 hover:bg-gray-800'
+                        ativo
+                          ? 'bg-emerald-600/25 text-emerald-200 ring-1 ring-emerald-400/30'
+                          : 'text-gray-300 hover:bg-gray-800'
                       )}
                       aria-pressed={ativo}
                     >
@@ -771,7 +969,7 @@ export default function BIDPage() {
           </div>
         </div>
 
-        {/* Paginação (mobile) — somente no modo normal */}
+        {/* Paginação (mobile) — só no modo normal */}
         {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
           <div className="md:hidden flex justify-center items-center gap-3 mb-4">
             <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
@@ -987,7 +1185,10 @@ export default function BIDPage() {
                                     <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
                                       <div className="flex items-center justify-between">
                                         <div className="text-sm flex items-center gap-2">
-                                          <AvatarTime nome={c.nome_time} logo={timesMap[c.id_time]?.logo_url} />
+                                          <AvatarTime
+                                            nome={c.nome_time}
+                                            logo={timesMap[c.id_time]?.logo_url}
+                                          />
                                           <span className="font-semibold text-emerald-300">{c.nome_time}</span>
                                           <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
                                         </div>
@@ -1092,7 +1293,9 @@ function ComentarioForm({
   return (
     <div className="mt-3">
       <textarea
-        placeholder={podeComentar ? 'Escreva um comentário…' : 'Você precisa estar logado no seu time para comentar.'}
+        placeholder={
+          podeComentar ? 'Escreva um comentário…' : 'Você precisa estar logado no seu time para comentar.'
+        }
         disabled={!podeComentar || enviando}
         className="w-full rounded-md bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
         value={comentarioAtual}
