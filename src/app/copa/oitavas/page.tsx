@@ -1,6 +1,4 @@
-Aqui está o seu `page.tsx` **corrigido e completo**, com *type guards* para evitar o erro de build ao acessar `before.gols_*` e o mesmo tratamento para os campos de **volta**. Compare os comentários `// [FIX ParserError]` para ver exatamente o que mudou.
 
-```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1156,4 +1154,3 @@ function TeamSide({
     </div>
   )
 }
-```
