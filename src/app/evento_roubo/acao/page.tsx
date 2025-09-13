@@ -1,6 +1,4 @@
-segue o arquivo **completo** já com a lista de jogadores aparecendo logo **acima** do Status/ordem de clubes. Pode substituir seu arquivo por este:
 
-```tsx
 'use client'
 
 import { useEffect, useMemo, useState, ReactNode, useCallback, useRef } from 'react'
@@ -1121,4 +1119,4 @@ export default function EventoRouboPage() {
     </div>
   )
 }
-```
+
