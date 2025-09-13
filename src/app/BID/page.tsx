@@ -1,3 +1,6 @@
+Aqui está o **arquivo completo** com o valor de “Movimentação” ajustado para **sempre caber no card** (fonte responsiva com `clamp`, sem selo “Valor”, sem impacto/estrelas). É só colar no seu `BIDPage.tsx`:
+
+```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -310,7 +313,7 @@ export default function BIDPage() {
     if (!buscaAtiva && !filtroGlobalAtivo) {
       carregarDados(1)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** ====== Busca global reativa ====== */
@@ -322,7 +325,7 @@ export default function BIDPage() {
     } else {
       carregarDados(1)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedBusca])
 
   /** ====== Filtro global reativo ====== */
@@ -333,7 +336,7 @@ export default function BIDPage() {
     } else {
       carregarDados(1)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroTime, tipoFiltro])
 
   /** ====== Ordenação reativa ====== */
@@ -1055,18 +1058,17 @@ export default function BIDPage() {
                                 ) : null
                               })()}
 
-                              {/* Movimentação (SEM impacto) */}
+                              {/* Movimentação (valor sempre cabendo no card) */}
                               {evento.valor != null && (
                                 <div className="rounded-xl bg-black/30 border border-white/10 p-3">
-                                  <p className="text-xs text-gray-400">Movimentação</p>
-                                  <div className="mt-1 flex items-center justify-between">
-                                    <p className="text-lg font-bold text-yellow-300">
-                                      {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                    </p>
-                                    <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full bg-yellow-500/15 text-yellow-300 border border-yellow-500/30">
-                                      Valor
-                                    </span>
-                                  </div>
+                                  <p className="text-xs text-gray-400 mb-0.5">Movimentação</p>
+                                  <p
+                                    className="font-extrabold text-yellow-300 leading-tight whitespace-nowrap overflow-hidden text-ellipsis tracking-tight"
+                                    style={{ fontSize: 'clamp(0.95rem, 2.4vw, 1.35rem)' }}
+                                    title={evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  >
+                                    {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </p>
                                 </div>
                               )}
                             </div>
@@ -1258,3 +1260,4 @@ function ComentarioForm({
     </div>
   )
 }
+```
