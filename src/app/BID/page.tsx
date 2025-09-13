@@ -83,13 +83,13 @@ type SortOrder = 'recente' | 'antigo' | 'valor'
 /** ========= Helpers visuais ========= */
 function tipoToStyle(tipo: string) {
   const t = tipo.toLowerCase()
-  if (t.includes('transfer')) return { ring: 'ring-purple-500/60', chip: 'bg-purple-500/15 text-purple-300', dot: 'bg-purple-400' }
-  if (t.includes('emprést') || t.includes('emprest')) return { ring: 'ring-blue-500/60', chip: 'bg-blue-500/15 text-blue-300', dot: 'bg-blue-400' }
-  if (t.includes('rescis')) return { ring: 'ring-red-500/60', chip: 'bg-red-500/15 text-red-300', dot: 'bg-red-400' }
-  if (t.includes('compra')) return { ring: 'ring-emerald-500/60', chip: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400' }
-  if (t.includes('salario')) return { ring: 'ring-orange-500/60', chip: 'bg-orange-500/15 text-orange-300', dot: 'bg-orange-400' }
-  if (t.includes('bonus') || t.includes('bônus')) return { ring: 'ring-lime-500/60', chip: 'bg-lime-500/15 text-lime-300', dot: 'bg-lime-400' }
-  return { ring: 'ring-gray-500/50', chip: 'bg-gray-500/15 text-gray-300', dot: 'bg-gray-400' }
+  if (t.includes('transfer')) return { ring: 'ring-purple-500/40', chip: 'bg-purple-500/15 text-purple-300', dot: 'bg-purple-400' }
+  if (t.includes('emprést') || t.includes('emprest')) return { ring: 'ring-blue-500/40', chip: 'bg-blue-500/15 text-blue-300', dot: 'bg-blue-400' }
+  if (t.includes('rescis')) return { ring: 'ring-red-500/40', chip: 'bg-red-500/15 text-red-300', dot: 'bg-red-400' }
+  if (t.includes('compra')) return { ring: 'ring-emerald-500/40', chip: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400' }
+  if (t.includes('salario')) return { ring: 'ring-orange-500/40', chip: 'bg-orange-500/15 text-orange-300', dot: 'bg-orange-400' }
+  if (t.includes('bonus') || t.includes('bônus')) return { ring: 'ring-lime-500/40', chip: 'bg-lime-500/15 text-lime-300', dot: 'bg-lime-400' }
+  return { ring: 'ring-gray-500/30', chip: 'bg-gray-500/15 text-gray-300', dot: 'bg-gray-400' }
 }
 
 function iconeTipo(tipo: string) {
@@ -113,24 +113,6 @@ function diaSemanaPt(date: Date) {
 
 function horaPt(date: Date) {
   return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date)
-}
-
-function calcEstrelas(valor: number | null | undefined) {
-  if (!valor || valor <= 0) return 0
-  return Math.min(Math.ceil(valor / 50_000_000), 10)
-}
-
-function Estrelas({ valor }: { valor: number }) {
-  const qtd = calcEstrelas(valor)
-  const total = 10
-  const estrelas = '★'.repeat(qtd) + '☆'.repeat(total - qtd)
-  let cor = 'text-gray-400'
-  if (qtd <= 2) cor = 'text-red-400'
-  else if (qtd <= 4) cor = 'text-yellow-400'
-  else if (qtd <= 7) cor = 'text-blue-400'
-  else if (qtd <= 9) cor = 'text-purple-400'
-  else cor = 'text-emerald-400'
-  return <span className={`font-bold ${cor}`} title={`Valor: R$${valor.toLocaleString('pt-BR')}`}>{estrelas}</span>
 }
 
 function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
@@ -200,18 +182,18 @@ function CardJogador({ j, highlight }: { j: Partial<Jogador>, highlight?: string
     : <>{j.nome}</>
 
   return (
-    <div className="rounded-lg bg-black/30 border border-white/10 p-3 flex gap-3 items-center">
+    <div className="rounded-xl bg-black/30 border border-white/10 p-3 flex gap-3 items-center">
       {j.foto_url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={j.foto_url}
           alt={j.nome || 'Jogador'}
           loading="lazy"
-          className="size-14 rounded-xl object-cover ring-1 ring-white/10"
+          className="size-14 rounded-lg object-cover ring-1 ring-white/10"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
         />
       ) : (
-        <div className="size-14 rounded-xl bg-gray-800 text-gray-300 grid place-items-center ring-1 ring-white/10">
+        <div className="size-14 rounded-lg bg-gray-800 text-gray-300 grid place-items-center ring-1 ring-white/10">
           <span className="text-lg">👤</span>
         </div>
       )}
@@ -280,7 +262,7 @@ export default function BIDPage() {
   // Scroll anchor p/ paginação
   const topRef = useRef<HTMLDivElement | null>(null)
 
-  // Modo "filtro global" (sem paginação): quando há filtro de time ou tipo e NÃO está em busca textual
+  // Modo "filtro global" (sem paginação)
   const filtroGlobalAtivo = !buscaAtiva && (filtroTime !== 'todos' || tipoFiltro !== 'todos')
 
   /** ====== Identidade do time (robusto) ====== */
@@ -356,7 +338,6 @@ export default function BIDPage() {
 
   /** ====== Ordenação reativa ====== */
   useEffect(() => {
-    // reordena localmente o que já está carregado
     setEventos((prev) => {
       const arr = [...prev]
       if (sortOrder === 'valor') {
@@ -370,7 +351,7 @@ export default function BIDPage() {
     })
   }, [sortOrder])
 
-  /** ====== Dados: eventos paginados (modo normal) ====== */
+  /** ====== Dados: eventos paginados ====== */
   async function carregarDados(paginaAtual = 1) {
     if (buscaAtiva || filtroGlobalAtivo) return
     setLoading(true)
@@ -425,19 +406,17 @@ export default function BIDPage() {
     }
   }
 
-  /** ====== Modo filtro global (time/tipo) — varre tudo ====== */
+  /** ====== Modo filtro global ====== */
   async function carregarFiltrado() {
     setLoading(true)
     setErro(null)
     try {
       let q = supabase.from('bid').select('*')
 
-      // Filtro por time: (id_time1 == X) OR (id_time2 == X)
       if (filtroTime !== 'todos') {
         q = q.or(`id_time1.eq.${filtroTime},id_time2.eq.${filtroTime}`)
       }
 
-      // Filtro por tipo: padrões com e sem acento
       if (tipoFiltro !== 'todos') {
         const mapOr: Record<Exclude<TipoChipKey,'todos'>, string> = {
           transfer: 'tipo_evento.ilike.*transfer*',
@@ -450,7 +429,6 @@ export default function BIDPage() {
         q = q.or(mapOr[tipoFiltro])
       }
 
-      // Ordenação
       if (sortOrder === 'valor') {
         q = q.order('valor', { ascending: false, nullsFirst: false })
       } else if (sortOrder === 'antigo') {
@@ -466,7 +444,6 @@ export default function BIDPage() {
       setEventos(lista)
       await carregarJogadoresParaEventos(lista)
 
-      // sem paginação no modo filtro
       setTotalPaginas(1)
       setPagina(1)
 
@@ -491,7 +468,7 @@ export default function BIDPage() {
     }
   }
 
-  /** ====== Busca global (texto) — varre tudo ====== */
+  /** ====== Busca global ====== */
   async function buscarGlobal(termo: string) {
     const termoTrim = termo.trim()
     if (termoTrim.length < 2) return
@@ -499,7 +476,6 @@ export default function BIDPage() {
     setErro(null)
 
     try {
-      // Encontrar times cujo nome bate com o termo
       const { data: timesLike, error: errTimesLike } = await supabase
         .from('times')
         .select('id')
@@ -507,7 +483,6 @@ export default function BIDPage() {
       if (errTimesLike) throw errTimesLike
       const timeIds = (timesLike || []).map((t: any) => t.id)
 
-      // Descrição
       const { data: porDesc, error: errDesc } = await supabase
         .from('bid')
         .select('*')
@@ -515,7 +490,6 @@ export default function BIDPage() {
         .order('data_evento', { ascending: false })
       if (errDesc) throw errDesc
 
-      // Jogador
       const { data: porJogador, error: errJog } = await supabase
         .from('bid')
         .select('*')
@@ -523,7 +497,6 @@ export default function BIDPage() {
         .order('data_evento', { ascending: false })
       if (errJog) throw errJog
 
-      // time1
       let porTime1: EventoBID[] = []
       if (timeIds.length) {
         const { data, error } = await supabase
@@ -535,7 +508,6 @@ export default function BIDPage() {
         porTime1 = data as EventoBID[] || []
       }
 
-      // time2
       let porTime2: EventoBID[] = []
       if (timeIds.length) {
         const { data, error } = await supabase
@@ -547,13 +519,11 @@ export default function BIDPage() {
         porTime2 = data as EventoBID[] || []
       }
 
-      // Merge único
       const mapa: Record<string, EventoBID> = {}
       ;[...(porDesc as EventoBID[] || []), ...porJogador as EventoBID[] || [], ...porTime1, ...porTime2]
         .forEach((ev) => { mapa[String(ev.id)] = ev })
       let unicos = Object.values(mapa)
 
-      // Ordenar
       unicos.sort((a, b) =>
         sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
         : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
@@ -563,7 +533,6 @@ export default function BIDPage() {
       setEventos(unicos)
       await carregarJogadoresParaEventos(unicos)
 
-      // sem paginação na busca
       setTotalPaginas(1)
       setPagina(1)
 
@@ -780,7 +749,6 @@ export default function BIDPage() {
   const eventosFiltrados = useMemo(() => {
     const termo = debouncedBusca.trim().toLowerCase()
 
-    // 1) aplica filtros por time e tipo SEMPRE (mas lembre: no modo filtro global já vem filtrado do servidor)
     const base = eventos.filter((evento) => {
       const timeOK = filtroTime === 'todos' || evento.id_time1 === filtroTime || evento.id_time2 === filtroTime
       if (!timeOK) return false
@@ -789,7 +757,6 @@ export default function BIDPage() {
       const tipoOK = tipoFiltro === 'todos' || tipoKey === tipoFiltro
       if (!tipoOK) return false
 
-      // 2) filtro textual local só quando NÃO estiver em busca global
       if (!buscaAtiva && termo) {
         const nome1 = timesMap[evento.id_time1]?.nome || ''
         const nome2 = evento.id_time2 ? (timesMap[evento.id_time2]?.nome || '') : ''
@@ -799,7 +766,6 @@ export default function BIDPage() {
       return true
     })
 
-    // 3) ordenação local
     base.sort((a, b) =>
       sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
       : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
@@ -823,10 +789,9 @@ export default function BIDPage() {
   /** ====== Render ====== */
   return (
     <main className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,rgba(16,185,129,0.10),transparent),linear-gradient(to_bottom,#0b0f14,#000000)] text-white">
-      {/* topo/anchor */}
       <div ref={topRef} />
-
       <div className="max-w-6xl mx-auto px-4 py-6">
+        {/* Cabeçalho */}
         <header className="mb-6 text-center">
           <div className="inline-block rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-5 py-3 shadow-sm">
             <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
@@ -856,7 +821,7 @@ export default function BIDPage() {
             <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
               <div className="flex gap-3 w-full md:w-auto">
                 <select
-                  className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-72 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="bg-gray-900/80 text-white border border-gray-700 rounded-xl px-4 py-2.5 w-full md:w-72 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   value={filtroTime}
                   onChange={(e) => setFiltroTime(e.target.value)}
                 >
@@ -868,7 +833,7 @@ export default function BIDPage() {
 
                 <button
                   onClick={() => setFiltroTime(idTimeLogado || 'todos')}
-                  className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-700 hover:bg-emerald-600/30 disabled:opacity-50"
+                  className="px-3 py-2 rounded-xl bg-emerald-600/20 text-emerald-300 border border-emerald-700 hover:bg-emerald-600/30 disabled:opacity-50"
                   disabled={!idTimeLogado}
                   title="Filtrar pelo meu time"
                 >
@@ -880,48 +845,30 @@ export default function BIDPage() {
                 <input
                   type="text"
                   placeholder="Buscar por jogador, time ou termo… (2+ letras)"
-                  className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-4 py-2.5 w-full md:w-80 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="bg-gray-900/80 text-white border border-gray-700 rounded-xl px-4 py-2.5 w-full md:w-80 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   value={buscaTexto}
                   onChange={(e) => setBuscaTexto(e.target.value)}
                 />
-                {/* paginação compacta (apenas quando NÃO estiver em busca e NÃO estiver em filtro global) */}
                 {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
                   <div className="hidden md:flex items-center gap-2">
-                    <button
-                      onClick={() => carregarDados(1)}
-                      disabled={pagina === 1}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Primeira"
-                    >«</button>
-                    <button
-                      onClick={() => carregarDados(pagina - 1)}
-                      disabled={pagina === 1}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Anterior"
-                    >‹</button>
+                    <button onClick={() => carregarDados(1)} disabled={pagina === 1}
+                      className="px-2 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40" title="Primeira">«</button>
+                    <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
+                      className="px-2 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40" title="Anterior">‹</button>
                     <span className="text-xs text-gray-300 select-none">
                       pág. <strong>{pagina}</strong>/<strong>{totalPaginas}</strong>
                     </span>
-                    <button
-                      onClick={() => carregarDados(pagina + 1)}
-                      disabled={pagina === totalPaginas}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Próxima"
-                    >›</button>
-                    <button
-                      onClick={() => carregarDados(totalPaginas)}
-                      disabled={pagina === totalPaginas}
-                      className="px-2 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40"
-                      title="Última"
-                    >»</button>
+                    <button onClick={() => carregarDados(pagina + 1)} disabled={pagina === totalPaginas}
+                      className="px-2 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40" title="Próxima">›</button>
+                    <button onClick={() => carregarDados(totalPaginas)} disabled={pagina === totalPaginas}
+                      className="px-2 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40" title="Última">»</button>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Chips segmentados + ordenar */}
             <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-full border border-gray-700 bg-gray-900/60 p-1">
+              <div className="inline-flex rounded-full border border-gray-700 bg-gray-950/70 p-1">
                 {TIPOS_CHIP.map(({ key, label }) => {
                   const ativo = tipoFiltro === key
                   return (
@@ -932,7 +879,7 @@ export default function BIDPage() {
                         'whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition',
                         ativo
                           ? 'bg-emerald-600/25 text-emerald-200 ring-1 ring-emerald-400/30'
-                          : 'text-gray-300 hover:bg-gray-800'
+                          : 'text-gray-300 hover:bg-gray-800/60'
                       )}
                       aria-pressed={ativo}
                     >
@@ -946,7 +893,7 @@ export default function BIDPage() {
                 <label htmlFor="ordem" className="text-xs text-gray-400">Ordenar</label>
                 <select
                   id="ordem"
-                  className="bg-gray-800/80 text-white border border-gray-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="bg-gray-900/80 text-white border border-gray-700 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   value={sortOrder}
                   onChange={(e) => setSortOrder(e.target.value as SortOrder)}
                 >
@@ -969,14 +916,14 @@ export default function BIDPage() {
           </div>
         </div>
 
-        {/* Paginação (mobile) — só no modo normal */}
+        {/* Paginação (mobile) */}
         {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
           <div className="md:hidden flex justify-center items-center gap-3 mb-4">
             <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
-              className="px-4 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">⬅</button>
+              className="px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40">⬅</button>
             <span className="text-xs text-gray-300">pág. {pagina}/{totalPaginas}</span>
             <button onClick={() => carregarDados(pagina + 1)} disabled={pagina === totalPaginas}
-              className="px-4 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">➡</button>
+              className="px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40">➡</button>
           </div>
         )}
 
@@ -1001,8 +948,8 @@ export default function BIDPage() {
           </div>
         )}
 
-        {/* Timeline de eventos */}
-        <div className="space-y-12" ref={listaDiasAnim}>
+        {/* Timeline */}
+        <div className="space-y-10" ref={listaDiasAnim}>
           {Object.entries(eventosAgrupados).map(([data, eventosDoDia]) => {
             const d0 = eventosDoDia[0]?.data_evento ? new Date(eventosDoDia[0].data_evento) : new Date()
             return (
@@ -1019,11 +966,11 @@ export default function BIDPage() {
                   <div className="h-px flex-1 bg-gradient-to-r from-transparent via-yellow-500/30 to-transparent" />
                 </div>
 
-                {/* Espinha da timeline */}
+                {/* Espinha */}
                 <div className="relative pl-4 md:pl-6">
                   <div className="absolute left-1 md:left-2 top-0 bottom-0 w-px bg-gradient-to-b from-white/10 via-white/15 to-transparent" />
 
-                  {/* Lista do dia em grid 2 colunas (≥ md) */}
+                  {/* Grid do dia */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
                     {eventosDoDia.map((evento) => {
                       const idEvento = String(evento.id)
@@ -1039,11 +986,11 @@ export default function BIDPage() {
                         <article
                           key={idEvento}
                           className={classNames(
-                            'relative rounded-2xl bg-gray-900/70 border border-white/10 p-4 md:p-5 shadow-md',
-                            'ring-1', estilo.ring, 'hover:shadow-emerald-600/10 hover:scale-[1.002] transition'
+                            'relative rounded-2xl bg-gray-950/70 border border-white/10 p-4 md:p-5 shadow-md',
+                            'ring-1', estilo.ring, 'hover:shadow-emerald-600/10 transition'
                           )}
                         >
-                          {/* Timeline dot conectado à espinha */}
+                          {/* Ponto da espinha */}
                           <span className={classNames('absolute -left-3 md:-left-4 top-6 size-2 rounded-full', estilo.dot)} />
 
                           {/* Header */}
@@ -1058,7 +1005,7 @@ export default function BIDPage() {
                           </div>
 
                           {/* Conteúdo */}
-                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">
                             <div className="md:col-span-2">
                               <p className="text-gray-100 leading-relaxed">
                                 {buscaAtiva ? (
@@ -1078,7 +1025,6 @@ export default function BIDPage() {
                                   </div>
                                 </div>
 
-                                {/* separador */}
                                 {time2 && <span className="text-gray-500">•</span>}
 
                                 {/* time 2 */}
@@ -1094,9 +1040,8 @@ export default function BIDPage() {
                               </div>
                             </div>
 
-                            {/* Lado direito: Jogador + valor/estrelas */}
+                            {/* Lateral: Jogador + Valor */}
                             <div className="md:col-span-1 space-y-3">
-                              {/* Player Card */}
                               {(() => {
                                 const jEv: Partial<Jogador> = {
                                   id: evento.id_jogador || undefined,
@@ -1110,24 +1055,25 @@ export default function BIDPage() {
                                 ) : null
                               })()}
 
-                              {/* Movimentação */}
+                              {/* Movimentação (SEM impacto) */}
                               {evento.valor != null && (
-                                <div className="rounded-lg bg-black/30 border border-white/10 p-3">
-                                  <p className="text-xs text-gray-400 mb-1">Movimentação</p>
-                                  <p className="text-lg font-bold text-yellow-300">
-                                    {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  </p>
-                                  <div className="mt-1 text-sm">
-                                    <span className="text-gray-400 mr-2">Impacto</span>
-                                    <Estrelas valor={evento.valor} />
+                                <div className="rounded-xl bg-black/30 border border-white/10 p-3">
+                                  <p className="text-xs text-gray-400">Movimentação</p>
+                                  <div className="mt-1 flex items-center justify-between">
+                                    <p className="text-lg font-bold text-yellow-300">
+                                      {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    </p>
+                                    <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full bg-yellow-500/15 text-yellow-300 border border-yellow-500/30">
+                                      Valor
+                                    </span>
                                   </div>
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Reações (compactas) */}
-                          <div className="mt-4 rounded-md bg-black/25 border border-white/10 p-2.5">
+                          {/* Reações */}
+                          <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-2.5">
                             <div className="flex flex-wrap items-center gap-2">
                               {EMOJIS.map((e) => {
                                 const qtd = (counts[e] || 0)
@@ -1143,7 +1089,7 @@ export default function BIDPage() {
                                       'px-2 py-1 rounded-full text-sm border transition',
                                       ativo
                                         ? 'bg-emerald-600/25 border-emerald-500 ring-2 ring-emerald-400/40'
-                                        : 'bg-gray-800/60 border-gray-600 hover:bg-gray-700'
+                                        : 'bg-gray-900/60 border-gray-700 hover:bg-gray-800'
                                     )}
                                     title={ativo ? 'Remover reação' : 'Reagir'}
                                   >
@@ -1158,8 +1104,8 @@ export default function BIDPage() {
                             </div>
                           </div>
 
-                          {/* Comentários (colapsável) */}
-                          <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-3">
+                          {/* Comentários */}
+                          <div className="mt-4 rounded-xl bg-black/25 border border-white/10 p-3">
                             <div className="flex items-center justify-between mb-2">
                               <h3 className="font-semibold text-white" aria-live="polite">
                                 💬 Comentários ({comentarios.length})
@@ -1182,13 +1128,10 @@ export default function BIDPage() {
                                     <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
                                   )}
                                   {comentarios.map((c) => (
-                                    <div key={c.id} className="bg-gray-800/70 border border-gray-700 rounded-md p-2">
+                                    <div key={c.id} className="bg-gray-900/70 border border-gray-700 rounded-md p-2">
                                       <div className="flex items-center justify-between">
                                         <div className="text-sm flex items-center gap-2">
-                                          <AvatarTime
-                                            nome={c.nome_time}
-                                            logo={timesMap[c.id_time]?.logo_url}
-                                          />
+                                          <AvatarTime nome={c.nome_time} logo={timesMap[c.id_time]?.logo_url} />
                                           <span className="font-semibold text-emerald-300">{c.nome_time}</span>
                                           <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
                                         </div>
@@ -1207,7 +1150,6 @@ export default function BIDPage() {
                                   ))}
                                 </div>
 
-                                {/* Form */}
                                 <ComentarioForm
                                   idEvento={idEvento}
                                   comentarioAtual={novoComentario[idEvento] || ''}
@@ -1242,22 +1184,22 @@ export default function BIDPage() {
           })}
         </div>
 
-        {/* Rodapé paginação (somente no modo normal) */}
+        {/* Rodapé paginação (somente modo normal) */}
         {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
           <div className="mt-10 flex justify-center items-center gap-3">
             <button onClick={() => carregarDados(1)} disabled={pagina === 1}
-              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">«</button>
+              className="px-3 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40">«</button>
             <button onClick={() => carregarDados(pagina - 1)} disabled={pagina === 1}
-              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">Anterior</button>
+              className="px-3 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40">Anterior</button>
             <span className="text-sm text-gray-300">Página <strong>{pagina}</strong> de <strong>{totalPaginas}</strong></span>
             <button onClick={() => carregarDados(pagina + 1)} disabled={pagina === totalPaginas}
-              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">Próxima</button>
+              className="px-3 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40">Próxima</button>
             <button onClick={() => carregarDados(totalPaginas)} disabled={pagina === totalPaginas}
-              className="px-3 py-2 rounded-lg bg-gray-800/70 border border-gray-700 disabled:opacity-40">»</button>
+              className="px-3 py-2 rounded-lg bg-gray-900/70 border border-gray-700 disabled:opacity-40">»</button>
           </div>
         )}
 
-        {/* Botão flutuante voltar ao topo */}
+        {/* Topo */}
         <button
           onClick={() => topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           className="fixed bottom-6 right-6 rounded-full border border-white/10 bg-gray-900/80 backdrop-blur px-3 py-2 text-sm text-gray-200 shadow-lg hover:bg-gray-800"
