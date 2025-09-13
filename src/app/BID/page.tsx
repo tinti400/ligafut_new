@@ -1,6 +1,3 @@
-Aqui está o **arquivo completo** com o valor de “Movimentação” ajustado para **sempre caber no card** (fonte responsiva com `clamp`, sem selo “Valor”, sem impacto/estrelas). É só colar no seu `BIDPage.tsx`:
-
-```tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1260,4 +1257,4 @@ function ComentarioForm({
     </div>
   )
 }
-```
+
