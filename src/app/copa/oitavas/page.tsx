@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
@@ -32,7 +32,7 @@ type JogoOitavas = {
   gols_time2_volta?: number | null
 }
 
-/** ========= [FIX ParserError] Type guards para acessar before.gols_* com segurança ========= */
+/** ========= [FIX ParserError] Type guards ========= */
 type BeforeIda = { gols_time1: number | null; gols_time2: number | null }
 type BeforeVolta = { gols_time1_volta?: number | null; gols_time2_volta?: number | null }
 
@@ -91,14 +91,12 @@ const mentionsVolta = (msg?: string) => {
 const toDBId = (v: string) => (/^[0-9]+$/.test(v) ? Number(v) : v)
 
 async function findTeamByAliases(aliases: string[]): Promise<TimeRow | null> {
-  // exato
   for (const alias of aliases) {
     const { data } = await supabase
       .from('times').select('id, nome, logo_url').eq('nome', alias)
       .limit(1).maybeSingle()
     if (data) return { id: data.id, nome: data.nome, logo_url: data.logo_url ?? null }
   }
-  // ilike
   for (const alias of aliases) {
     const { data } = await supabase
       .from('times').select('id, nome, logo_url').ilike('nome', `%${alias}%`)
@@ -146,13 +144,13 @@ export default function OitavasPage() {
 
   // realtime
   const channelRef = useRef<any>(null)
-  const stateRef = useRef({ sorteioAberto, filaA, filaB, parAtual, pares, animA, animB })
-  useEffect(() => { stateRef.current = { sorteioAberto, filaA, filaB, parAtual, pares, animA, animB } },
-    [sorteioAberto, filaA, filaB, parAtual, pares, animA, animB])
+  const readyRef = useRef(false)
 
   useEffect(() => {
-    const ch = supabase.channel('oitavas-sorteio', { config: { broadcast: { self: true } } })
+    // 🚫 sem eco para não sobrescrever o estado local após o clique
+    const ch = supabase.channel('oitavas-sorteio', { config: { broadcast: { self: false } } })
     ch.on('broadcast', { event: 'state' }, ({ payload }) => {
+      // aplicamos apenas o que veio no payload (deltas)
       const p = payload || {}
       if ('sorteioAberto' in p) setSorteioAberto(!!p.sorteioAberto)
       if ('filaA' in p) setFilaA(p.filaA || [])
@@ -161,16 +159,23 @@ export default function OitavasPage() {
       if ('pares' in p) setPares(p.pares || [])
       if ('animA' in p) setAnimA(p.animA || null)
       if ('animB' in p) setAnimB(p.animB || null)
+      if ('poteA' in p) setPoteA(p.poteA || [])
+      if ('poteB' in p) setPoteB(p.poteB || [])
+      if ('logosById' in p) setLogosById(p.logosById || {})
     })
-    ch.subscribe()
+    ch.subscribe(status => {
+      if (status === 'SUBSCRIBED') {
+        readyRef.current = true
+      }
+    })
     channelRef.current = ch
-    return () => { ch.unsubscribe() }
+    return () => { ch.unsubscribe(); readyRef.current = false }
   }, [])
 
-  const broadcast = (partial: any) => {
-    const base = stateRef.current
-    channelRef.current?.send({ type: 'broadcast', event: 'state', payload: { ...base, ...partial } })
-  }
+  const broadcast = useCallback((partial: any) => {
+    if (!channelRef.current || !readyRef.current) return
+    channelRef.current.send({ type: 'broadcast', event: 'state', payload: partial })
+  }, [])
 
   useEffect(() => { buscarJogos() }, [])
 
@@ -227,7 +232,7 @@ export default function OitavasPage() {
 
   /** ====== Abrir Sorteio (POTES FORÇADOS) ====== */
   async function abrirSorteio() {
-    if (!isAdmin) return
+    if (!isAdmin) { toast.error('Apenas admin pode abrir o sorteio.'); return }
     try {
       const { count, error: cErr } = await supabase
         .from('copa_oitavas')
@@ -254,8 +259,10 @@ export default function OitavasPage() {
       setSorteioAberto(true)
       setAnimA(null); setAnimB(null)
 
+      // broadcast deltas
       broadcast({
         sorteioAberto: true,
+        poteA: a, poteB: b,
         filaA: [...a],
         filaB: shuffledB,
         parAtual: { A: null, B: null },
@@ -271,7 +278,7 @@ export default function OitavasPage() {
 
   /** ====== Apagar sorteio (reset) ====== */
   async function apagarSorteio() {
-    if (!isAdmin) return
+    if (!isAdmin) { toast.error('Apenas admin pode apagar o sorteio.'); return }
     const ok = confirm('Apagar TODOS os confrontos das Oitavas e resetar o sorteio?')
     if (!ok) return
     try {
@@ -290,6 +297,7 @@ export default function OitavasPage() {
         filaA: [], filaB: [],
         parAtual: { A: null, B: null },
         pares: [], animA: null, animB: null,
+        poteA: [], poteB: [],
       })
       await buscarJogos()
     } catch (e: any) {
@@ -299,44 +307,60 @@ export default function OitavasPage() {
   }
 
   /** ====== Controles de sorteio ====== */
-  function sortearDoPoteA() {
-    if (!isAdmin || parAtual.A || filaA.length === 0) return
+  const sortearDoPoteA = useCallback(() => {
+    if (!isAdmin) { toast.error('Apenas admin pode sortear.'); return }
+    if (parAtual.A || filaA.length === 0) { toast('Pote A vazio ou confronto atual já tem A.'); return }
     const idx = Math.floor(Math.random() * filaA.length)
     const escolhido = filaA[idx]
     const nova = [...filaA]; nova.splice(idx, 1)
     setFilaA(nova)
-    setAnimA(escolhido); broadcast({ animA: escolhido, filaA: nova })
-    setTimeout(() => {
-      setParAtual(prev => ({ ...prev, A: escolhido }))
-      setTimeout(() => setAnimA(null), 400)
-      broadcast({ parAtual: { ...stateRef.current.parAtual, A: escolhido }, animA: null })
-    }, 900)
-  }
+    setAnimA(escolhido)
+    broadcast({ animA: escolhido, filaA: nova })
 
-  function sortearDoPoteB() {
-    if (!isAdmin || !parAtual.A || parAtual.B || filaB.length === 0) return
+    setTimeout(() => {
+      setParAtual(prev => {
+        const next = { ...prev, A: escolhido }
+        broadcast({ parAtual: next, animA: null })
+        return next
+      })
+      setTimeout(() => setAnimA(null), 20)
+      toast.success(`Sorteado do Pote A: ${escolhido.nome}`)
+    }, 250)
+  }, [isAdmin, filaA, parAtual.A, broadcast])
+
+  const sortearDoPoteB = useCallback(() => {
+    if (!isAdmin) { toast.error('Apenas admin pode sortear.'); return }
+    if (!parAtual.A || parAtual.B || filaB.length === 0) { toast('Sorteie primeiro do Pote A ou Pote B vazio.'); return }
     const escolhido = filaB[0]
     const nova = filaB.slice(1)
     setFilaB(nova)
-    setAnimB(escolhido); broadcast({ animB: escolhido, filaB: nova })
+    setAnimB(escolhido)
+    broadcast({ animB: escolhido, filaB: nova })
+
     setTimeout(() => {
-      setParAtual(prev => ({ ...prev, B: escolhido }))
-      setTimeout(() => setAnimB(null), 400)
-      broadcast({ parAtual: { ...stateRef.current.parAtual, B: escolhido }, animB: null })
-    }, 900)
-  }
+      setParAtual(prev => {
+        const next = { ...prev, B: escolhido }
+        broadcast({ parAtual: next, animB: null })
+        return next
+      })
+      setTimeout(() => setAnimB(null), 20)
+      toast.success(`Sorteado do Pote B: ${escolhido.nome}`)
+    }, 250)
+  }, [isAdmin, filaB, parAtual.A, parAtual.B, broadcast])
 
   function confirmarConfronto() {
-    if (!isAdmin || !parAtual.A || !parAtual.B) return
-    const novos = [...pares, [parAtual.A!, parAtual.B!] as [TimeRow, TimeRow]]
+    if (!isAdmin) { toast.error('Apenas admin pode confirmar.'); return }
+    if (!parAtual.A || !parAtual.B) return
+    const novos = [...pares, [parAtual.A, parAtual.B] as [TimeRow, TimeRow]]
     setPares(novos)
-    setParAtual({ A: null, B: null })
-    broadcast({ pares: novos, parAtual: { A: null, B: null } })
+    const cleared = { A: null, B: null }
+    setParAtual(cleared)
+    broadcast({ pares: novos, parAtual: cleared })
   }
 
-  /** ====== Gravar confrontos das Oitavas ====== */
+  /** ====== Gravar confrontos ====== */
   async function gravarConfrontos() {
-    if (!isAdmin) return
+    if (!isAdmin) { toast.error('Apenas admin pode gravar.'); return }
     if (pares.length !== 8) { toast.error('Finalize os 8 confrontos.'); return }
 
     try {
@@ -390,9 +414,8 @@ export default function OitavasPage() {
     }
   }
 
-  /** ====== Salvar placar com PREMIAÇÃO (delta de gols + vitória por jogo) ====== */
+  /** ===== Premiação ao salvar placar ===== */
   async function salvarPlacar(jogo: JogoOitavas) {
-    // Buscar antes (para calcular delta e transição "indefinido -> definido")
     const cols = supportsVolta
       ? 'gols_time1,gols_time2,gols_time1_volta,gols_time2_volta'
       : 'gols_time1,gols_time2'
@@ -406,7 +429,6 @@ export default function OitavasPage() {
       return
     }
 
-    // [FIX ParserError] Tratar o retorno como unknown e usar type guards
     const before: unknown = beforeRaw
 
     const update: any = {
@@ -434,7 +456,7 @@ export default function OitavasPage() {
       const VITORIA = 25_000_000
       const GOL = 750_000
 
-      // 1) Bônus por vitória na IDA (apenas na transição indefinido -> definido e não é empate)
+      // IDA: transição indefinido -> definido e não é empate
       const idaAntesDef = hasGolsIda(before) && before.gols_time1 != null && before.gols_time2 != null
       const idaAgoraDef = jogo.gols_time1 != null && jogo.gols_time2 != null
       if (!idaAntesDef && idaAgoraDef && jogo.gols_time1 !== jogo.gols_time2) {
@@ -448,7 +470,7 @@ export default function OitavasPage() {
         })
       }
 
-      // 2) Bônus por vitória na VOLTA (mesma regra)
+      // VOLTA: mesma regra
       if (supportsVolta) {
         const volAntesDef = hasGolsVolta(before) &&
           (before.gols_time1_volta ?? null) != null &&
@@ -470,7 +492,7 @@ export default function OitavasPage() {
         }
       }
 
-      // 3) Bônus por GOLS — paga somente o DELTA (ida + volta)
+      // GOLS — paga apenas o DELTA (ida + volta)
       const beforeIda1 = hasGolsIda(before) ? (before.gols_time1 ?? 0) : 0
       const beforeIda2 = hasGolsIda(before) ? (before.gols_time2 ?? 0) : 0
 
@@ -512,15 +534,13 @@ export default function OitavasPage() {
       }
     } catch (e) {
       console.error(e)
-      // mantém silêncio para não sobrescrever o toast de sucesso principal
     }
 
     toast.success('Placar salvo! Premiação aplicada.')
-    // mantém o estado em sincronia
     setJogos(prev => prev.map(j => j.id === jogo.id ? { ...j, ...update } : j))
   }
 
-  /** ===== Helper: checar se todos os jogos têm placar preenchido ===== */
+  /** ===== Helper ===== */
   const oitavasCompletas = useMemo(() => {
     if (jogos.length !== 8) return false
     return jogos.every(j =>
@@ -530,7 +550,7 @@ export default function OitavasPage() {
     )
   }, [jogos, supportsVolta])
 
-  /** ====== FINALIZAR OITAVAS (sequencial) — opcional ====== */
+  /** ====== FINALIZAR OITAVAS (sequencial) ====== */
   async function finalizarOitavas() {
     const { data: dataJogos, error: errJ } = await supabase
       .from('copa_oitavas')
@@ -601,9 +621,8 @@ export default function OitavasPage() {
 
   /** ====== Sortear Quartas com POTE ÚNICO ====== */
   async function sortearQuartasPoteUnico() {
-    if (!isAdmin) return
+    if (!isAdmin) { toast.error('Apenas admin pode sortear.'); return }
 
-    // buscar confrontos das oitavas (com/sem volta)
     let hasVolta = true
     let data: any[] | null = null
     {
@@ -633,7 +652,6 @@ export default function OitavasPage() {
       return
     }
 
-    // validar completos
     const incompletos = jogosAtual.some(j =>
       j.gols_time1 === null || j.gols_time2 === null ||
       (hasVolta && (((j as any).gols_time1_volta ?? null) === null || ((j as any).gols_time2_volta ?? null) === null))
@@ -643,7 +661,6 @@ export default function OitavasPage() {
       return
     }
 
-    // determinar vencedores (empate -> time1)
     const vencedoresIds: string[] = []
     for (const j of jogosAtual) {
       const ida1 = j.gols_time1 || 0
@@ -655,7 +672,6 @@ export default function OitavasPage() {
       vencedoresIds.push(total1 >= total2 ? j.id_time1 : j.id_time2)
     }
 
-    // buscar nomes
     const { data: timesData, error: tErr } = await supabase
       .from('times')
       .select('id, nome')
@@ -664,10 +680,8 @@ export default function OitavasPage() {
     const nomePorId = new Map<string, string>()
     ;(timesData || []).forEach(t => nomePorId.set(t.id, t.nome))
 
-    // embaralhar pote único
     const poteUnico = shuffle([...vencedoresIds])
 
-    // formar 4 confrontos
     const quartas: any[] = []
     for (let i = 0; i < 8; i += 2) {
       const id1 = poteUnico[i]
@@ -685,10 +699,7 @@ export default function OitavasPage() {
     }
 
     try {
-      // limpar quartas anteriores
       await supabase.from('copa_quartas').delete().neq('id', 0).throwOnError()
-
-      // tentar inserir com colunas de volta, senão sem volta
       const ins1 = await supabase
         .from('copa_quartas')
         .insert(quartas.map(q => ({ ...q, gols_time1_volta: null, gols_time2_volta: null })))
@@ -734,7 +745,7 @@ export default function OitavasPage() {
         )}
       </header>
 
-      {/* Lista de jogos com gap maior */}
+      {/* Lista de jogos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {jogos.map((jogo, idx) => (
           <MatchCard
@@ -779,7 +790,7 @@ export default function OitavasPage() {
               </button>
             </div>
 
-            {/* prévia dos potes forçados (com logos) */}
+            {/* prévia dos potes (com logos) */}
             <div className="grid grid-cols-2 gap-4 mb-6">
               <PotePreview title="Pote A (forçado)" teams={poteA} />
               <PotePreview title="Pote B (forçado)" teams={poteB} />
@@ -868,7 +879,7 @@ export default function OitavasPage() {
                   initial={{ x: -260, y: 80, scale: 0.6, opacity: 0 }}
                   animate={{ x: 0, y: -10, scale: 1, opacity: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ type: 'spring', stiffness: 200, damping: 20, duration: 0.9 }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 20, duration: 0.4 }}
                   className="pointer-events-none fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
                 >
                   <BallLogo team={animA} size={72} shiny />
@@ -881,7 +892,7 @@ export default function OitavasPage() {
                   initial={{ x: 260, y: 80, scale: 0.6, opacity: 0 }}
                   animate={{ x: 0, y: -10, scale: 1, opacity: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ type: 'spring', stiffness: 200, damping: 20, duration: 0.9 }}
+                  transition={{ type: 'spring', stiffness: 200, damping: 20, duration: 0.4 }}
                   className="pointer-events-none fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
                 >
                   <BallLogo team={animB} size={72} shiny />
@@ -896,7 +907,7 @@ export default function OitavasPage() {
   )
 }
 
-/** ====== Cartão de Jogo com estado local (Salvar funciona) ====== */
+/** ====== Cartão de Jogo ====== */
 function MatchCard({
   jogo, supportsVolta, logosById, onChange, onSave
 }:{
@@ -906,13 +917,11 @@ function MatchCard({
   onChange: (next: JogoOitavas) => void
   onSave: (j: JogoOitavas) => void
 }) {
-  // estado local para não salvar valores antigos
   const [ida1, setIda1] = useState<number | null>(jogo.gols_time1)
   const [ida2, setIda2] = useState<number | null>(jogo.gols_time2)
   const [vol1, setVol1] = useState<number | null>(jogo.gols_time1_volta ?? null)
   const [vol2, setVol2] = useState<number | null>(jogo.gols_time2_volta ?? null)
 
-  // ressincroniza quando o jogo mudar (ex.: depois do fetch)
   useEffect(() => {
     setIda1(jogo.gols_time1)
     setIda2(jogo.gols_time2)
@@ -920,7 +929,6 @@ function MatchCard({
     setVol2(jogo.gols_time2_volta ?? null)
   }, [jogo.id, jogo.gols_time1, jogo.gols_time2, jogo.gols_time1_volta, jogo.gols_time2_volta])
 
-  // propaga para o pai (para "oitavasCompletas" e afins)
   useEffect(() => {
     onChange({
       ...jogo,
@@ -929,8 +937,6 @@ function MatchCard({
       ...(supportsVolta ? { gols_time1_volta: vol1, gols_time2_volta: vol2 } : {})
     })
   }, [ida1, ida2, vol1, vol2]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const norm = (val: string): number | null => val === '' ? null : Math.max(0, parseInt(val))
 
   const agg1 = (ida1 ?? 0) + (supportsVolta ? (vol1 ?? 0) : 0)
   const agg2 = (ida2 ?? 0) + (supportsVolta ? (vol2 ?? 0) : 0)
@@ -945,10 +951,7 @@ function MatchCard({
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-xl">
-      {/* glow decorativo */}
       <div className="pointer-events-none absolute -top-20 -right-16 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
-
-      {/* cabeçalho */}
       <div className="flex items-center justify-between mb-4">
         <div className="text-[13px] text-white/60">Jogo {jogo.ordem ?? '-' } · Oitavas</div>
         <div
@@ -964,33 +967,32 @@ function MatchCard({
         </div>
       </div>
 
-      {/* Jogo de IDA — time1 (mandante) x time2 (visitante) */}
+      {/* IDA */}
       <LegRow
         label="Ida"
         left={{ id:jogo.id_time1, name:jogo.time1, logo:logosById[jogo.id_time1], role:'Mandante' }}
         right={{ id:jogo.id_time2, name:jogo.time2, logo:logosById[jogo.id_time2], role:'Visitante' }}
         a={ida1}
         b={ida2}
-        onA={(v)=>setIda1(v)}
-        onB={(v)=>setIda2(v)}
+        onA={v=>setIda1(v)}
+        onB={v=>setIda2(v)}
       />
 
-      {/* Jogo de VOLTA — invertido: time2 (mandante) x time1 (visitante) */}
+      {/* VOLTA */}
       {supportsVolta && (
         <div className="mt-3">
           <LegRow
             label="Volta"
             left={{ id:jogo.id_time2, name:jogo.time2, logo:logosById[jogo.id_time2], role:'Mandante' }}
             right={{ id:jogo.id_time1, name:jogo.time1, logo:logosById[jogo.id_time1], role:'Visitante' }}
-            a={vol2}   // esquerda é do time2 (mandante na volta)
-            b={vol1}   // direita é do time1
-            onA={(v)=>setVol2(v)}
-            onB={(v)=>setVol1(v)}
+            a={vol2}  // esquerda é do time2 (mandante na volta)
+            b={vol1}  // direita é do time1
+            onA={v=>setVol2(v)}
+            onB={v=>setVol1(v)}
           />
         </div>
       )}
 
-      {/* ação */}
       <div className="mt-4 flex justify-end">
         <button
           onClick={()=>onSave(buildNext())}
@@ -1002,7 +1004,7 @@ function MatchCard({
   )
 }
 
-/** Linha de um jogo (lado-esquerdo mandante, lado-direito visitante) */
+/** Linha de um jogo */
 function LegRow({
   label,
   left, right,
@@ -1017,43 +1019,31 @@ function LegRow({
   onA: (n: number | null)=>void
   onB: (n: number | null)=>void
 }) {
+  const norm = (val: string): number | null => val === '' ? null : Math.max(0, parseInt(val))
   return (
     <div className="grid grid-cols-12 items-center gap-x-4">
       <TeamSide name={left.name} logo={left.logo} align="right" role={left.role} />
-      <ScoreRail label={label} a={a} b={b} onA={onA} onB={onB} className="col-span-12 md:col-span-4" />
-      <TeamSide name={right.name} logo={right.logo} align="left" role={right.role} />
-    </div>
-  )
-}
-
-/** Trilho de placar (selo flutuante + inputs centralizados) */
-function ScoreRail({
-  label, a, b, onA, onB, className=''
-}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void, className?: string }) {
-  const norm = (val: string): number | null => val === '' ? null : Math.max(0, parseInt(val))
-  return (
-    <div className={`col-span-12 md:col-span-4 ${className}`}>
-      <div className="relative">
-        {/* selo */}
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
-          {label}
-        </span>
-
-        {/* trilho */}
-        <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
-          <input
-            type="number"
-            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-            value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
-          />
-          <span className="text-white/60">x</span>
-          <input
-            type="number"
-            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-            value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
-          />
+      <div className="col-span-12 md:col-span-4">
+        <div className="relative">
+          <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
+            {label}
+          </span>
+          <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
+            <input
+              type="number"
+              className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+              value={a ?? ''} onChange={(e)=>onA(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+            />
+            <span className="text-white/60">x</span>
+            <input
+              type="number"
+              className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+              value={b ?? ''} onChange={(e)=>onB(Number.isNaN(norm(e.target.value) as any) ? null : norm(e.target.value))}
+            />
+          </div>
         </div>
       </div>
+      <TeamSide name={right.name} logo={right.logo} align="left" role={right.role} />
     </div>
   )
 }
@@ -1078,7 +1068,7 @@ function HostCard({ nome, lado }:{ nome: string; lado: 'left'|'right' }) {
   )
 }
 
-function PoteGlass({ title, teams, side }:{ title: string; teams: TimeRow[]; side: 'left'|'right' }) {
+function PoteGlass({ title, teams }:{ title: string; teams: TimeRow[]; side: 'left'|'right' }) {
   return (
     <div className="w-full flex flex-col items-center">
       <div className="mb-2 text-sm text-white/80">{title}</div>
@@ -1138,7 +1128,6 @@ function BallLogo({ team, size=56, shiny=false }:{ team: TimeRow | null; size?: 
   )
 }
 
-/** Lado do time com logo + papel (Mandante/Visitante) */
 function TeamSide({
   name, logo, align, role
 }:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
