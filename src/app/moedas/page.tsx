@@ -14,14 +14,16 @@ import {
   Copy as CopyIcon,
   Loader2,
   LogIn,
+  MessageCircle,
 } from 'lucide-react';
 
 // 👉 use um client ÚNICO do supabase no browser.
-// se você criou o arquivo sugerido, mantenha este import:
 import { supabase } from '@/lib/supabase-browser';
-// se NÃO usa alias "@", troque por:  "../../lib/supabase-browser"
 
 const COINS_PER_BRL = Number(process.env.NEXT_PUBLIC_COINS_PER_BRL ?? '5000000');
+const WHATSAPP_NUMBER_RAW = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || ''; // ex: 55DDDNUMERO (apenas dígitos)
+const WHATSAPP_NUMBER = WHATSAPP_NUMBER_RAW.replace(/\D/g, '');
+const HAS_WHATSAPP = WHATSAPP_NUMBER.length >= 10;
 
 type PixCreateResponse = {
   pedidoId: string;
@@ -51,6 +53,7 @@ export default function ComprarMoedasPage() {
 
   // pix atual
   const [pedidoId, setPedidoId] = useState<string | null>(null);
+  const [txid, setTxid] = useState<string | null>(null);
   const [qrImg, setQrImg] = useState<string | null>(null);
   const [copiaCola, setCopiaCola] = useState<string | null>(null);
   const [ticketUrl, setTicketUrl] = useState<string | null>(null);
@@ -139,6 +142,7 @@ export default function ComprarMoedasPage() {
 
       setStatus('waiting');
       setPedidoId(null);
+      setTxid(null);
       setQrImg(null);
       setCopiaCola(null);
       setTicketUrl(null);
@@ -154,6 +158,7 @@ export default function ComprarMoedasPage() {
       if (!res.ok || !('pedidoId' in j)) throw new Error((j as any)?.error || 'Falha ao criar Pix.');
 
       setPedidoId((j as PixCreateResponse).pedidoId);
+      setTxid((j as PixCreateResponse).txid ?? null);
       setQrImg((j as PixCreateResponse).qrImageUrl || null);
       setCopiaCola((j as PixCreateResponse).copiaCola || null);
       setExpiresAt((j as PixCreateResponse).expiresAt || null);
@@ -171,6 +176,7 @@ export default function ComprarMoedasPage() {
 
   const limparPix = () => {
     setPedidoId(null);
+    setTxid(null);
     setQrImg(null);
     setCopiaCola(null);
     setTicketUrl(null);
@@ -178,6 +184,29 @@ export default function ComprarMoedasPage() {
     setSecondsLeft(null);
     setStatus('idle');
   };
+
+  // ===== WhatsApp (fallback/manual) =====
+  function buildWhatsAppText() {
+    const linhas = [
+      '🧾 *Comprovante de Compra de Moedas*',
+      '—',
+      `👤 Usuário: ${user?.email ?? user?.id ?? 'N/D'}`,
+      pedidoId ? `🆔 Pedido: ${pedidoId}` : '',
+      txid ? `🔗 TXID: ${txid}` : '',
+      `💰 Valor: R$ ${Number(valorBRL).toFixed(2)}`,
+      `🪙 Moedas: ${fmtCoins(moedas)}`,
+      '',
+      'Anexei o *comprovante Pix*.',
+    ].filter(Boolean);
+    return linhas.join('\n');
+  }
+
+  function abrirWhatsApp() {
+    if (!HAS_WHATSAPP) return;
+    const msg = buildWhatsAppText();
+    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 
   // UI
   return (
@@ -329,6 +358,37 @@ export default function ComprarMoedasPage() {
                     Gerar outro Pix
                   </button>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ====== Suporte / Fallback via WhatsApp ====== */}
+          {HAS_WHATSAPP && (
+            <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4">
+              <div className="flex items-center gap-2 text-emerald-200 font-medium">
+                <MessageCircle className="size-4" />
+                Precisa de ajuda? Envie o comprovante via WhatsApp
+              </div>
+              <p className="mt-1 text-sm text-neutral-300">
+                Após pagar, abra o WhatsApp abaixo e <b>anexe o print do comprovante</b>.
+                Informe também o <b>ID do pedido</b> e o <b>TXID</b> (já vão no texto).
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={abrirWhatsApp}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 hover:bg-white/10"
+                >
+                  <MessageCircle className="size-4" /> Abrir conversa no WhatsApp
+                </button>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(buildWhatsAppText()); toast('Mensagem copiada ✅'); }}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 hover:bg-white/10"
+                >
+                  <CopyIcon className="size-4" /> Copiar mensagem
+                </button>
+              </div>
+              <div className="mt-2 text-xs text-neutral-400">
+                Número configurado: +{WHATSAPP_NUMBER}
               </div>
             </div>
           )}
