@@ -16,7 +16,7 @@ export const supabase =
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        storageKey: 'ligafut_auth_v1',
+        detectSessionInUrl: true, // pega sessão ao voltar de OAuth
       },
     }
   );
