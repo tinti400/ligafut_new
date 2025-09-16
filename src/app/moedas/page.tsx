@@ -16,12 +16,11 @@ import {
   LogIn,
   MessageCircle,
 } from 'lucide-react';
-
-// 👉 use um client ÚNICO do supabase no browser.
 import { supabase } from '@/lib/supabase-browser';
+import { useAuth } from '@/components/AuthProvider';
 
 const COINS_PER_BRL = Number(process.env.NEXT_PUBLIC_COINS_PER_BRL ?? '5000000');
-const WHATSAPP_NUMBER_RAW = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || ''; // ex: 55DDDNUMERO (apenas dígitos)
+const WHATSAPP_NUMBER_RAW = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || ''; // ex.: 5511999999999
 const WHATSAPP_NUMBER = WHATSAPP_NUMBER_RAW.replace(/\D/g, '');
 const HAS_WHATSAPP = WHATSAPP_NUMBER.length >= 10;
 
@@ -42,10 +41,31 @@ function cn(...cls: Array<string | false | undefined>) {
 }
 
 export default function ComprarMoedasPage() {
-  // auth + saldo
-  const [user, setUser] = useState<any>(null);
+  const { user, loading } = useAuth();
+
+  // saldo
   const [saldo, setSaldo] = useState<number | null>(null);
   const carregandoSaldo = useRef(false);
+
+  async function carregarSaldo(idUsuario: string) {
+    if (carregandoSaldo.current) return;
+    try {
+      carregandoSaldo.current = true;
+      const { data, error } = await supabase
+        .from('carteiras')
+        .select('saldo')
+        .eq('id_usuario', idUsuario)
+        .maybeSingle();
+      if (error) console.error(error);
+      setSaldo(data?.saldo ?? 0);
+    } finally {
+      carregandoSaldo.current = false;
+    }
+  }
+
+  useEffect(() => {
+    if (!loading && user?.id) carregarSaldo(user.id);
+  }, [loading, user?.id]);
 
   // compra
   const [valorBRL, setValorBRL] = useState<number>(10);
@@ -60,44 +80,6 @@ export default function ComprarMoedasPage() {
   const [status, setStatus] = useState<PixStatus>('idle');
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-
-  // utils
-  const fmtCoins = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR');
-  const fmtCountdown = (s: number) =>
-    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-
-  async function carregarSaldo(idUsuario: string) {
-    if (carregandoSaldo.current) return;
-    try {
-      carregandoSaldo.current = true;
-      const { data } = await supabase
-        .from('carteiras')
-        .select('saldo')
-        .eq('id_usuario', idUsuario)
-        .maybeSingle();
-      setSaldo(data?.saldo ?? 0);
-    } finally {
-      carregandoSaldo.current = false;
-    }
-  }
-
-  // Auth: sessão atual + reatividade
-  useEffect(() => {
-    let unsub: (() => void) | undefined;
-    (async () => {
-      const { data: s } = await supabase.auth.getSession();
-      const u = s?.session?.user ?? null;
-      setUser(u);
-      if (u) await carregarSaldo(u.id);
-      const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
-        const uu = session?.user ?? null;
-        setUser(uu);
-        if (uu) carregarSaldo(uu.id);
-      });
-      unsub = () => sub.subscription.unsubscribe();
-    })();
-    return () => { unsub?.(); };
-  }, []);
 
   // Realtime: ouvir mudança de status do pedido
   useEffect(() => {
@@ -185,7 +167,7 @@ export default function ComprarMoedasPage() {
     setStatus('idle');
   };
 
-  // ===== WhatsApp (fallback/manual) =====
+  // WhatsApp (fallback/manual)
   function buildWhatsAppText() {
     const linhas = [
       '🧾 *Comprovante de Compra de Moedas*',
@@ -194,7 +176,7 @@ export default function ComprarMoedasPage() {
       pedidoId ? `🆔 Pedido: ${pedidoId}` : '',
       txid ? `🔗 TXID: ${txid}` : '',
       `💰 Valor: R$ ${Number(valorBRL).toFixed(2)}`,
-      `🪙 Moedas: ${fmtCoins(moedas)}`,
+      `🪙 Moedas: ${moedas.toLocaleString('pt-BR')}`,
       '',
       'Anexei o *comprovante Pix*.',
     ].filter(Boolean);
@@ -209,6 +191,10 @@ export default function ComprarMoedasPage() {
   }
 
   // UI
+  const fmtCoins = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR');
+  const fmtCountdown = (s: number) =>
+    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
   return (
     <div className="max-w-3xl mx-auto p-6 md:p-8 space-y-8 text-white">
       <Toaster position="top-right" />
@@ -274,7 +260,7 @@ export default function ComprarMoedasPage() {
 
         <button
           onClick={criarPix}
-          disabled={status === 'waiting' || !user}
+          disabled={loading || status === 'waiting' || !user}
           className={cn(
             'w-full inline-flex items-center justify-center gap-2 rounded-2xl py-3.5 font-semibold',
             'bg-white text-black hover:opacity-90 disabled:opacity-50'
@@ -284,7 +270,7 @@ export default function ComprarMoedasPage() {
           {status === 'waiting' ? 'Gerando Pix…' : 'Gerar Pix'}
         </button>
 
-        {!user && (
+        {!loading && !user && (
           <div className="flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-200 px-3 py-2 text-sm">
             <LogIn className="size-4" /> Você precisa estar logado para comprar moedas.
           </div>
@@ -362,7 +348,7 @@ export default function ComprarMoedasPage() {
             </div>
           )}
 
-          {/* ====== Suporte / Fallback via WhatsApp ====== */}
+          {/* Suporte / Fallback via WhatsApp */}
           {HAS_WHATSAPP && (
             <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4">
               <div className="flex items-center gap-2 text-emerald-200 font-medium">
@@ -371,7 +357,7 @@ export default function ComprarMoedasPage() {
               </div>
               <p className="mt-1 text-sm text-neutral-300">
                 Após pagar, abra o WhatsApp abaixo e <b>anexe o print do comprovante</b>.
-                Informe também o <b>ID do pedido</b> e o <b>TXID</b> (já vão no texto).
+                O texto já vai com seu <b>ID do pedido</b> e <b>TXID</b>.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
