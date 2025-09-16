@@ -137,7 +137,7 @@ export default function Sidebar() {
   useEffect(() => {
     if (!idTime) return
     ;(async () => {
-      // ---- TIMES (saldo, moedas, nome, logo)
+      // ---- TIMES (saldo, moedas, nome, logo) — saldo vem da Supabase
       const { data: t, error: eT } = await supabase
         .from('times')
         .select('nome, saldo, moedas, logo, logo_url')
@@ -146,8 +146,8 @@ export default function Sidebar() {
 
       if (!eT && t) {
         setNomeTime(t.nome ?? '')
-        setSaldoTime(safe(t.saldo))
-        if (t.moedas != null) setMoedas(safe(t.moedas))
+        setSaldoTime(Number(t.saldo) || 0) // ← saldo direto da tabela times
+        if (t.moedas != null) setMoedas(Number(t.moedas) || 0)
         setLogoUrl(t.logo || t.logo_url || null)
       }
 
@@ -163,7 +163,7 @@ export default function Sidebar() {
             'salario',
             'salario_mensal',
             'salario_total',
-            'salários', // se existir
+            'salários',
           ])
           return acc + v
         }, 0)
@@ -176,7 +176,7 @@ export default function Sidebar() {
         .select('*')
         .eq('id_time', idTime)
         .in('status', ['aberto', 'ativo', 'pendente'])
-        .limit(1) // se houver 1 ativo por time
+        .limit(1)
         .maybeSingle()
 
       if (!eD && emp) {
@@ -191,12 +191,12 @@ export default function Sidebar() {
           getFirstNumber(emp, ['parcelas_totais', 'total_parcelas', 'qtd_parcelas', 'numero_parcelas']) || 1
 
         const pagas = getFirstNumber(emp, ['parcelas_pagas'])
-        const atual = getFirstNumber(emp, ['parcela_atual']) // 1..N
+        const atual = getFirstNumber(emp, ['parcela_atual'])
         let restantes = getFirstNumber(emp, ['restantes', 'parcelas_restantes'])
         if (!restantes) {
           if (pagas) restantes = Math.max(totParcelas - pagas, 0)
           else if (atual) restantes = Math.max(totParcelas - (atual - 1), 0)
-          else restantes = totParcelas // se não souber, assume todas
+          else restantes = totParcelas
         }
 
         let vParcela = getFirstNumber(emp, [
@@ -207,7 +207,6 @@ export default function Sidebar() {
         ])
         if (!vParcela) vParcela = Math.ceil(total / Math.max(totParcelas, 1))
 
-        // dívida “em aberto” (se não houver saldo_devedor, usa vParcela * restantes)
         const devedor = getFirstNumber(emp, [
           'saldo_devedor',
           'valor_devido',
@@ -221,7 +220,6 @@ export default function Sidebar() {
         setValorParcela(vParcela)
         setParcelasRestantes(restantes)
       } else {
-        // sem empréstimo ativo
         setDividaEmprestimos(0)
         setValorParcela(0)
         setParcelasRestantes(0)
@@ -237,15 +235,14 @@ export default function Sidebar() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'times', filter: `id=eq.${idTime}` },
         (p: any) => {
-          setSaldoTime(safe(p.new?.saldo))
-          if (p.new?.moedas != null) setMoedas(safe(p.new.moedas))
+          setSaldoTime(Number(p.new?.saldo) || 0) // ← mantém o saldo do Supabase em sincronia
+          if (p.new?.moedas != null) setMoedas(Number(p.new.moedas) || 0)
           if (p.new?.nome) setNomeTime(p.new.nome)
           if (p.new?.logo || p.new?.logo_url) setLogoUrl(p.new.logo || p.new.logo_url)
         })
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'elenco', filter: `id_time=eq.${idTime}` },
         () => {
-          // reconsulta leve de salários
           supabase.from('elenco').select('*').eq('id_time', idTime).then(({ data }) => {
             if (!data) return
             const soma = data.reduce((acc: number, r: any) => {
@@ -258,16 +255,13 @@ export default function Sidebar() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'emprestimos', filter: `id_time=eq.${idTime}` },
         () => {
-          // reconsulta leve de empréstimo ativo
           supabase.from('emprestimos')
             .select('*')
             .eq('id_time', idTime)
             .in('status', ['aberto','ativo','pendente'])
             .limit(1).maybeSingle()
             .then(({ data }) => {
-              if (!data) {
-                setDividaEmprestimos(0); setValorParcela(0); setParcelasRestantes(0); return
-              }
+              if (!data) { setDividaEmprestimos(0); setValorParcela(0); setParcelasRestantes(0); return }
               const total = getFirstNumber(data, ['valor_total','valor','montante','principal','total'])
               const totParcelas =
                 getFirstNumber(data, ['parcelas_totais','total_parcelas','qtd_parcelas','numero_parcelas']) || 1
