@@ -421,8 +421,8 @@ export default function QuartasPage() {
     // === Pagamentos === (mesma lógica das Oitavas)
     try {
       const BID_TIPO = 'Premiação fase quartas'
-      const VITORIA = 25_000_000
-      const GOL = 750_000
+      const VITORIA = 80_000_000
+      const GOL = 1_000_000
 
       // IDA: indefinido -> definido e não empate
       const idaAntesDef = hasGolsIda(before) && before.gols_time1 != null && before.gols_time2 != null
