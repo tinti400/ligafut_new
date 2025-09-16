@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
       return errJson('Env faltando: NEXT_PUBLIC_SITE_URL', undefined, 500);
     }
     if (!MP_TOKEN) {
+      // mesmo que o adapter leia do env, validamos aqui para dar erro claro
       return errJson('Env faltando: MP_ACCESS_TOKEN (ou MERCADOPAGO_ACCESS_TOKEN)', undefined, 500);
     }
 
@@ -82,7 +83,6 @@ export async function POST(req: NextRequest) {
     try {
       pedido = await tryInsert(fields);
     } catch (eA: any) {
-      // coluna inexistente?
       const msgA = String(eA?.message ?? '');
       if (eA?.code === '42703' && msgA.includes('moedas_credito')) {
         // remove moedas_credito e tenta de novo
@@ -98,8 +98,7 @@ export async function POST(req: NextRequest) {
             try {
               pedido = await tryInsert(fields);
             } catch (eC: any) {
-              // constraint de status?
-              if (eC?.code === '23514' /* check_violation */) {
+              if (eC?.code === '23514') {
                 fields.status = 'pending';
                 try {
                   pedido = await tryInsert(fields);
@@ -111,7 +110,6 @@ export async function POST(req: NextRequest) {
               }
             }
           } else if (eB?.code === '23514') {
-            // constraint de status → tenta 'pending'
             fields.status = 'pending';
             try {
               pedido = await tryInsert(fields);
@@ -123,7 +121,6 @@ export async function POST(req: NextRequest) {
           }
         }
       } else if (eA?.code === '23514') {
-        // check constraint status
         fields.status = 'pending';
         try {
           pedido = await tryInsert(fields);
@@ -145,14 +142,8 @@ export async function POST(req: NextRequest) {
     const notificationUrl = `${SITE_URL}/api/pix/webhook`;
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
 
-    let charge: {
-      txid: string;
-      copiaCola: string | null;
-      qrImageDataUrl: string | null;
-      expiresAt: string | null;
-      raw: any;
-    };
-
+    // ⚠️ NÃO tipamos manualmente: deixamos o tipo vir do adapter
+    let charge;
     try {
       charge = await createPixCharge({
         valorBRL,
@@ -165,6 +156,11 @@ export async function POST(req: NextRequest) {
       return errJson('Erro ao criar cobrança Pix no PSP', e, 500);
     }
 
+    // Normalização para null (adapter pode retornar undefined)
+    const copiaCola = charge.copiaCola ?? null;
+    const qrImageUrl = charge.qrImageDataUrl ?? null;
+    const chargeExpiresAt = charge.expiresAt ?? null;
+
     // =====================================================================
     // 3) UPDATE do pedido com dados do PSP (com fallback de colunas)
     // =====================================================================
@@ -172,12 +168,12 @@ export async function POST(req: NextRequest) {
       return await supabase
         .from('pix_pedidos')
         .update({
-          txid: charge.txid,
-          qr_code: charge.copiaCola,
-          qr_image_url: charge.qrImageDataUrl,
+          txid: String(charge.txid ?? ''),
+          qr_code: copiaCola,
+          qr_image_url: qrImageUrl,
           ticket_url: charge.raw?.point_of_interaction?.transaction_data?.ticket_url ?? null,
-          raw: charge.raw,             // pode não existir; veremos no fallback
-          expires_at: charge.expiresAt // idem
+          raw: charge.raw,              // se a coluna "raw" não existir, cairemos no fallback
+          expires_at: chargeExpiresAt,  // idem para expires_at
         })
         .eq('id', pedido!.id);
     }
@@ -186,16 +182,15 @@ export async function POST(req: NextRequest) {
       return await supabase
         .from('pix_pedidos')
         .update({
-          txid: charge.txid,
-          qr_code: charge.copiaCola,
-          qr_image_url: charge.qrImageDataUrl,
+          txid: String(charge.txid ?? ''),
+          qr_code: copiaCola,
+          qr_image_url: qrImageUrl,
         })
         .eq('id', pedido!.id);
     }
 
     let upd = await updateFull();
     if (upd.error) {
-      // se for undefined_column, tenta update mínimo
       if (upd.error.code === '42703') {
         upd = await updateMinimal();
         if (upd.error) return errJson('Falha ao atualizar dados do Pix (mínimo)', upd.error, 500);
@@ -209,12 +204,12 @@ export async function POST(req: NextRequest) {
     // =====================================================================
     return NextResponse.json({
       pedidoId: pedido.id,
-      txid: charge.txid,
-      copiaCola: charge.copiaCola,
-      qrImageUrl: charge.qrImageDataUrl,
-      expiresAt: charge.expiresAt,
+      txid: String(charge.txid ?? ''),
+      copiaCola,
+      qrImageUrl,
+      expiresAt: chargeExpiresAt,
       moedas,
-      raw: charge.raw,
+      raw: charge.raw ?? null,
     });
   } catch (err: any) {
     return errJson('Erro inesperado ao criar Pix', err, 500);
