@@ -431,7 +431,7 @@ export default function SemiPage() {
     // === Premiação ===
     try {
       const BID_TIPO = 'Premiação fase semi'
-      const VITORIA = 125_000_000
+      const VITORIA = 150_000_000
       const GOL = 1_250_000
 
       const hasGolsIda = (o: any) => o && o.gols_time1 != null && o.gols_time2 != null
