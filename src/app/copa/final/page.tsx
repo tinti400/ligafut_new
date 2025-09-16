@@ -377,6 +377,23 @@ export default function FinalPage() {
     }
   }
 
+  /** ========= Sincroniza a Final com os vencedores da Semi ========= */
+  async function sincronizarComSemi() {
+    try {
+      const res = await fetch('/api/copa/definir-final', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ temporada: temporadaSelecionada, divisao: divisaoSelecionada })
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.erro || 'Falha ao sincronizar')
+      toast.success('Final atualizada com os vencedores da Semi!')
+      await buscarTudo()
+    } catch (e:any) {
+      toast.error(e?.message || 'Erro ao sincronizar com a Semi')
+    }
+  }
+
   const pontos = (id?: UUID) => (id ? (classificacao.find(c => c.id_time === id)?.pontos ?? 0) : 0)
   const desempateTexto = useMemo(() => {
     if (!jogo) return '*Em caso de empate, campeão = melhor campanha (Time 1)'
@@ -398,7 +415,14 @@ export default function FinalPage() {
         </h1>
 
         {isAdmin && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl shadow"
+              onClick={sincronizarComSemi}
+              title="Forçar atualização da Final a partir dos vencedores da Semi"
+            >
+              🔁 Sincronizar com a Semi
+            </button>
             <button
               className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl shadow"
               onClick={buscarTudo}
