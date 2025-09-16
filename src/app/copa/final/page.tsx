@@ -25,91 +25,157 @@ interface JogoFinal {
   logo_time1?: string | null
   logo_time2?: string | null
 }
-
-interface Time {
+interface TimeRow {
   id: UUID
   nome: string
   logo_url?: string | null
 }
+interface Classificacao { id_time: UUID; pontos: number }
 
-/** ============ Helpers de UI ============ */
-function TeamBadge({
-  nome,
-  logo
-}: {
-  nome: string
-  logo?: string | null
-}) {
-  // fallback: bolinha com a primeira letra
-  const abbr = useMemo(() => (nome?.trim()?.[0] || 'T').toUpperCase(), [nome])
+/** ========= Config da competição (ajuste se precisar) ========= */
+const TEMPORADA_PADRAO = 1
+const DIVISAO_PADRAO = 1
+
+/** ========= Prêmios da FINAL ========= */
+const CAMPEAO_PREMIO = 320_000_000
+const VICE_PREMIO = 100_000_000
+const GOL_PREMIO = 1_500_000
+const BID_TIPO = 'Premiação final'
+
+/** ========= Utils ========= */
+const normInt = (val: string): number | null => {
+  if (val === '') return null
+  const n = parseInt(val, 10)
+  if (Number.isNaN(n) || n < 0) return null
+  return n
+}
+
+/** ========= UI helpers (iguais às outras fases) ========= */
+function TeamLogo({ url, alt, size=40 }:{ url?: string | null; alt: string; size?: number }) {
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt={alt} style={{ width: size, height: size }} className="object-cover rounded-full" />
+  ) : (
+    <div className="rounded-full bg-white/10 text-white/80 grid place-items-center"
+         style={{ width: size, height: size, fontSize: Math.max(10, size/3) }}>
+      {alt.slice(0,3).toUpperCase()}
+    </div>
+  )
+}
+function TeamSide({
+  name, logo, align, role
+}:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
   return (
-    <div className="flex items-center gap-3">
-      {logo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={logo}
-          alt={nome}
-          className="h-10 w-10 rounded-full object-cover ring-2 ring-white/10"
-          onError={(e) => {
-            const el = e.currentTarget
-            el.onerror = null
-            el.src =
-              'data:image/svg+xml;utf8,' +
-              encodeURIComponent(
-                `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="100%" height="100%" fill="#111827"/><text x="50%" y="56%" font-family="Arial, Helvetica, sans-serif" font-size="40" fill="#9CA3AF" text-anchor="middle" dominant-baseline="middle">${abbr}</text></svg>`
-              )
-          }}
-        />
-      ) : (
-        <div className="h-10 w-10 rounded-full grid place-items-center bg-gray-800 ring-2 ring-white/10">
-          <span className="text-gray-300 font-semibold">{abbr}</span>
+    <div className={`col-span-6 md:col-span-4 flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3`}>
+      {align==='left' && <TeamLogo url={logo || null} alt={name} size={40} />}
+      <div className={`${align==='left'?'text-left':'text-right'}`}>
+        <div className="font-semibold leading-5">{name}</div>
+        <div className="text-[11px] text-white/60">{role}</div>
+      </div>
+      {align==='right' && <TeamLogo url={logo || null} alt={name} size={40} />}
+    </div>
+  )
+}
+function ScoreRail({
+  label, a, b, onA, onB, className=''
+}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void, className?: string }) {
+  return (
+    <div className={`col-span-12 md:col-span-4 ${className}`}>
+      <div className="relative">
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
+          {label}
+        </span>
+
+        <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={a ?? ''}
+            onChange={(e)=>onA(normInt(e.target.value))}
+            placeholder="0"
+          />
+          <span className="text-white/60">x</span>
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={b ?? ''}
+            onChange={(e)=>onB(normInt(e.target.value))}
+            placeholder="0"
+          />
         </div>
-      )}
-      <span className="font-semibold">{nome}</span>
+      </div>
     </div>
   )
 }
 
+/** ========= Página ========= */
 export default function FinalPage() {
   const { isAdmin } = useAdmin()
+
   const [jogo, setJogo] = useState<JogoFinal | null>(null)
   const [loading, setLoading] = useState(true)
-  const [campeao, setCampeao] = useState<Time | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [campeao, setCampeao] = useState<TimeRow | null>(null)
+  const [classificacao, setClassificacao] = useState<Classificacao[]>([])
+
+  // inputs controlados
+  const [g1, setG1] = useState<number | null>(null)
+  const [g2, setG2] = useState<number | null>(null)
+
+  // meta (temporada/divisão) — ajuste se usar multi-temporada real
+  const [temporadaSelecionada] = useState<number>(TEMPORADA_PADRAO)
+  const [divisaoSelecionada] = useState<number>(DIVISAO_PADRAO)
+
+  const podeSalvar = (g1 != null && g2 != null)
 
   useEffect(() => {
-    buscarFinal()
+    buscarTudo()
+    // revalida quando volta o foco (pode ter mudado algo via admin)
+    const onFocus = () => buscarTudo()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     if (campeao) {
-      // Confetti + “repiques”
       confetti({ particleCount: 240, spread: 120, angle: 75, origin: { y: 0.6 } })
       setTimeout(() => confetti({ particleCount: 200, spread: 110, angle: 105, origin: { y: 0.55 } }), 350)
       setTimeout(() => confetti({ particleCount: 180, spread: 100, origin: { y: 0.38 } }), 700)
     }
   }, [campeao])
 
-  async function buscarFinal() {
+  async function buscarTudo() {
     setLoading(true)
+    await Promise.all([buscarFinal(), buscarClassificacao()]).finally(() => setLoading(false))
+  }
 
+  async function buscarClassificacao() {
+    const { data, error } = await supabase.from('classificacao').select('id_time,pontos')
+    if (!error && data) setClassificacao(data as any)
+  }
+
+  async function buscarFinal() {
     const { data: finalRow, error } = await supabase
       .from('copa_final')
       .select('id, id_time1, id_time2, gols_time1, gols_time2, created_at')
       .order('created_at', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
 
     if (error || !finalRow) {
       toast.error('⚠️ Final não encontrada.')
       setJogo(null)
       setCampeao(null)
-      setLoading(false)
+      setG1(null); setG2(null)
       return
     }
 
-    // Busca nomes + logos
+    // Nomes + logos
     const { data: times, error: errTimes } = await supabase
       .from('times')
       .select('id, nome, logo_url')
@@ -117,8 +183,9 @@ export default function FinalPage() {
 
     if (errTimes || !times) {
       toast.error('Erro ao buscar times')
-      setLoading(false)
       setJogo({ ...finalRow })
+      setG1(finalRow.gols_time1 ?? null)
+      setG2(finalRow.gols_time2 ?? null)
       return
     }
 
@@ -132,284 +199,347 @@ export default function FinalPage() {
     }
 
     setJogo(jogoComNomes)
-    setLoading(false)
+    setG1(finalRow.gols_time1 ?? null)
+    setG2(finalRow.gols_time2 ?? null)
 
-    // Define campeão (se já houver placar)
-    if (finalRow.gols_time1 !== null && finalRow.gols_time2 !== null) {
+    // Campeão (se já houver placar)
+    if (finalRow.gols_time1 != null && finalRow.gols_time2 != null) {
       const vencedorId =
         finalRow.gols_time1 > finalRow.gols_time2
           ? finalRow.id_time1
           : finalRow.gols_time2 > finalRow.gols_time1
             ? finalRow.id_time2
-            : finalRow.id_time1 // desempate (melhor campanha = time1)
-
+            : finalRow.id_time1 // empate -> time1 (melhor campanha)
       const vencedor = mapa.get(vencedorId)
-      if (vencedor) setCampeao(vencedor)
+      setCampeao(vencedor ? { id: vencedor.id, nome: vencedor.nome, logo_url: vencedor.logo_url ?? null } : null)
     } else {
       setCampeao(null)
     }
   }
 
+  /** ========= Histórico de campeões =========
+   * Ajuste a tabela/colunas conforme seu schema.
+   * Aqui usamos 'copa_historico_campeoes' com upsert por (temporada,divisao).
+   */
+  async function registrarHistoricoCampeoes(params: {
+    idFinal: UUID
+    campeaoId: UUID
+    viceId: UUID
+    placarStr: string
+    temporada: number
+    divisao: number
+  }) {
+    try {
+      await supabase
+        .from('copa_historico_campeoes')
+        .upsert(
+          [{
+            temporada: params.temporada,
+            divisao: params.divisao,
+            id_final: params.idFinal,
+            id_campeao: params.campeaoId,
+            id_vice: params.viceId,
+            placar: params.placarStr,
+          }],
+          { onConflict: 'temporada,divisao' }
+        )
+    } catch (e) {
+      // Se a tabela/colunas não existirem, apenas loga. Ajuste conforme seu schema.
+      console.warn('Não foi possível registrar histórico de campeões:', e)
+    }
+  }
+
+  /** ========= Premiação + salvar ========= */
   async function salvarPlacar() {
     if (!jogo) return
+    if (!podeSalvar) {
+      toast.error('Preencha os dois placares antes de salvar.')
+      return
+    }
+
+    // Lê placar anterior para calcular deltas e detectar transição
+    const { data: beforeRaw, error: readErr } = await supabase
+      .from('copa_final')
+      .select('gols_time1,gols_time2')
+      .eq('id', jogo.id)
+      .maybeSingle()
+    if (readErr) {
+      toast.error('Erro ao ler placar anterior')
+      return
+    }
 
     try {
       setSalvando(true)
-      const { error } = await supabase
+
+      // Atualiza placar
+      const { error: upErr } = await supabase
         .from('copa_final')
-        .update({
-          gols_time1: jogo.gols_time1,
-          gols_time2: jogo.gols_time2
-        })
+        .update({ gols_time1: g1, gols_time2: g2 })
         .eq('id', jogo.id)
+      if (upErr) throw upErr
 
-      if (error) throw new Error(error.message)
+      // ===== Bonificações =====
+      const before1 = beforeRaw?.gols_time1 ?? 0
+      const before2 = beforeRaw?.gols_time2 ?? 0
+      const beforeDefined = (beforeRaw?.gols_time1 ?? null) != null && (beforeRaw?.gols_time2 ?? null) != null
+      const nowDefined = (g1 ?? null) != null && (g2 ?? null) != null
 
-      toast.success('Placar salvo!')
+      // Gols: paga só o delta positivo
+      const delta1 = Math.max(0, (g1 ?? 0) - before1)
+      const delta2 = Math.max(0, (g2 ?? 0) - before2)
+
+      if (delta1 > 0) {
+        const valor = delta1 * GOL_PREMIO
+        await supabase.rpc('atualizar_saldo', { id_time: jogo.id_time1, valor })
+        await supabase.from('bid').insert({
+          tipo_evento: BID_TIPO,
+          descricao: `Gols marcados (${delta1}) — ${jogo.nome_time1}`,
+          valor,
+          id_time: jogo.id_time1
+        })
+      }
+      if (delta2 > 0) {
+        const valor = delta2 * GOL_PREMIO
+        await supabase.rpc('atualizar_saldo', { id_time: jogo.id_time2, valor })
+        await supabase.from('bid').insert({
+          tipo_evento: BID_TIPO,
+          descricao: `Gols marcados (${delta2}) — ${jogo.nome_time2}`,
+          valor,
+          id_time: jogo.id_time2
+        })
+      }
+
+      // Campeão/Vice: só na primeira vez que os dois placares ficam definidos
+      if (!beforeDefined && nowDefined) {
+        const placarStr = `${jogo.nome_time1} ${g1 ?? 0} x ${g2 ?? 0} ${jogo.nome_time2}`
+        const champId = (g1 ?? 0) >= (g2 ?? 0) ? jogo.id_time1 : jogo.id_time2 // empate -> time1
+        const viceId  = champId === jogo.id_time1 ? jogo.id_time2 : jogo.id_time1
+
+        // Anti-duplicação: verifica se já existe lançamento de CAMPEÃO neste jogo
+        const { count: jaPagouCampeao } = await supabase
+          .from('bid')
+          .select('id', { head: true, count: 'exact' })
+          .eq('tipo_evento', BID_TIPO)
+          .ilike('descricao', 'Campeão - Final:%')
+          .eq('id_time', champId)
+
+        if (!jaPagouCampeao) {
+          await supabase.rpc('atualizar_saldo', { id_time: champId, valor: CAMPEAO_PREMIO })
+          await supabase.from('bid').insert({
+            tipo_evento: BID_TIPO,
+            descricao: `Campeão - Final: ${placarStr}`,
+            valor: CAMPEAO_PREMIO,
+            id_time: champId
+          })
+
+          await supabase.rpc('atualizar_saldo', { id_time: viceId, valor: VICE_PREMIO })
+          await supabase.from('bid').insert({
+            tipo_evento: BID_TIPO,
+            descricao: `Vice-campeão - Final: ${placarStr}`,
+            valor: VICE_PREMIO,
+            id_time: viceId
+          })
+
+          // histórico de campeões
+          await registrarHistoricoCampeoes({
+            idFinal: jogo.id,
+            campeaoId: champId,
+            viceId,
+            placarStr,
+            temporada: temporadaSelecionada,
+            divisao: divisaoSelecionada
+          })
+        }
+      }
+
+      toast.success('Placar salvo! Premiação aplicada.')
       await buscarFinal()
     } catch (e: any) {
-      toast.error('Erro ao salvar placar: ' + (e?.message ?? 'desconhecido'))
+      console.error(e)
+      toast.error('Erro ao salvar/bonificar: ' + (e?.message ?? 'desconhecido'))
     } finally {
       setSalvando(false)
     }
   }
 
-  const handleInput = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    campo: 'gols_time1' | 'gols_time2'
-  ) => {
-    const raw = e.target.value
-    const valor = raw === '' ? null : Math.max(0, parseInt(raw))
-    if (!jogo) return
-    setJogo({ ...jogo, [campo]: Number.isNaN(valor as any) ? null : valor })
+  async function limparPlacar() {
+    if (!isAdmin || !jogo) return
+    try {
+      const { error } = await supabase
+        .from('copa_final')
+        .update({ gols_time1: null, gols_time2: null })
+        .eq('id', jogo.id)
+      if (error) throw error
+      toast.success('Placar limpo.')
+      await buscarFinal()
+    } catch (e:any) {
+      toast.error('Falha ao limpar placar.')
+    }
   }
 
-  if (loading) {
-    return (
-      <div className="p-6">
-        <div className="mx-auto max-w-3xl">
-          <div className="h-40 rounded-2xl bg-gradient-to-br from-gray-800 to-gray-900 animate-pulse" />
-        </div>
-      </div>
-    )
-  }
-
-  const titulo = jogo ? `${jogo.nome_time1 ?? 'Time 1'} vs ${jogo.nome_time2 ?? 'Time 2'}` : ''
+  const pontos = (id?: UUID) => (id ? (classificacao.find(c => c.id_time === id)?.pontos ?? 0) : 0)
+  const desempateTexto = useMemo(() => {
+    if (!jogo) return '*Em caso de empate, campeão = melhor campanha (Time 1)'
+    const p1 = pontos(jogo.id_time1)
+    const p2 = pontos(jogo.id_time2)
+    const melhor = p1 === p2 ? 'Time 1 (empate técnico na campanha)' : (p1 > p2 ? jogo.nome_time1 : jogo.nome_time2)
+    return `*Em caso de empate, campeão = melhor campanha (${melhor})`
+  }, [jogo, classificacao])
 
   return (
-    <div className="p-4 text-white">
-      <h1 className="text-3xl font-extrabold mb-6 text-center">
-        <span className="bg-gradient-to-r from-emerald-400 via-white to-emerald-400 bg-clip-text text-transparent">
-          🏅 Final da Copa
-        </span>
-      </h1>
+    <div className="relative p-4 sm:p-6 max-w-5xl mx-auto">
+      {/* brilhos suaves */}
+      <div className="pointer-events-none absolute -top-40 -right-40 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
 
-      {jogo ? (
-        <div className="mx-auto max-w-3xl">
-          {/* Card principal */}
-          <div className="relative overflow-hidden rounded-2xl bg-[#0B1220] ring-1 ring-white/10 shadow-2xl">
-            {/* brilho diagonal */}
-            <div className="pointer-events-none absolute -inset-1 opacity-20 [mask-image:radial-gradient(60%_60%_at_50%_20%,black,transparent)]">
-              <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-emerald-500 blur-3xl" />
-              <div className="absolute -bottom-24 -left-24 h-64 w-64 rounded-full bg-sky-500 blur-3xl" />
-            </div>
+      <header className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+          Final da Copa
+        </h1>
 
-            <div className="relative p-6 md:p-8">
-              <div className="mb-6 text-center text-sm uppercase tracking-widest text-white/60">
-                {new Date(jogo.created_at ?? Date.now()).toLocaleString()}
-              </div>
+        {isAdmin && (
+          <div className="flex gap-2">
+            <button
+              className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl shadow"
+              onClick={buscarTudo}
+              title="Recarregar"
+            >
+              🔄 Recarregar
+            </button>
+            <button
+              className="bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded-xl shadow"
+              onClick={limparPlacar}
+              title="Limpar placar"
+            >
+              🗑️ Limpar placar
+            </button>
+          </div>
+        )}
+      </header>
 
-              {/* Placar */}
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-6">
-                {/* Mandante */}
-                <div className="justify-self-end md:justify-self-auto">
-                  <TeamBadge nome={jogo.nome_time1 ?? 'Time 1'} logo={jogo.logo_time1} />
-                </div>
+      {loading ? (
+        <div className="p-4">🔄 Carregando final...</div>
+      ) : !jogo ? (
+        <p className="text-center text-red-400">⚠️ Jogo da final ainda não foi definido.</p>
+      ) : (
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-950 p-5 md:p-6 shadow-xl">
+          <div className="pointer-events-none absolute -top-20 -right-16 h-40 w-40 rounded-full bg-white/5 blur-2xl" />
 
-                {/* Centro */}
-                <div className="grid place-items-center gap-3">
-                  <div className="text-xs tracking-widest text-white/50 uppercase">Placar</div>
-                  <div className="flex items-center gap-4 text-4xl font-black">
-                    <input
-                      type="number"
-                      min={0}
-                      inputMode="numeric"
-                      className="score-input"
-                      value={jogo.gols_time1 ?? ''}
-                      onChange={(e) => handleInput(e, 'gols_time1')}
-                    />
-                    <span className="text-white/70">x</span>
-                    <input
-                      type="number"
-                      min={0}
-                      inputMode="numeric"
-                      className="score-input"
-                      value={jogo.gols_time2 ?? ''}
-                      onChange={(e) => handleInput(e, 'gols_time2')}
-                    />
-                  </div>
-                </div>
-
-                {/* Visitante */}
-                <div className="justify-self-start md:justify-self-auto">
-                  <TeamBadge nome={jogo.nome_time2 ?? 'Time 2'} logo={jogo.logo_time2} />
-                </div>
-              </div>
-
-              {/* Ações */}
-              <div className="mt-8 flex items-center justify-center gap-3">
-                {isAdmin && (
-                  <button
-                    className="btn-primary"
-                    onClick={salvarPlacar}
-                    disabled={salvando}
-                    title="Salvar placar"
-                  >
-                    {salvando ? 'Salvando…' : '💾 Salvar placar'}
-                  </button>
-                )}
-                <span className="text-xs text-white/50">
-                  *Em caso de empate, campeão = melhor campanha (Time 1)
-                </span>
-              </div>
-
-              {/* Campeão */}
-              {campeao && (
-                <div className="relative mt-10 grid place-items-center">
-                  {/* fogos CSS */}
-                  <div className="fireworks fireworks-1" />
-                  <div className="fireworks fireworks-2" />
-                  <div className="fireworks fireworks-3" />
-
-                  <div className="champion-badge">
-                    <div className="pulse-ring" />
-                    <div className="trophy">🏆</div>
-                  </div>
-
-                  <h2 className="mt-4 text-center text-3xl md:text-4xl font-extrabold champion-text">
-                    {campeao.nome} é o grande campeão!
-                  </h2>
-
-                  <a
-                    href={`https://wa.me/?text=${encodeURIComponent(`🏆 ${campeao.nome} é o grande campeão da LigaFut!\n\nParabéns ao time que brilhou na final e levantou a taça! 🥇⚽`)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 inline-block rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold shadow hover:bg-emerald-700"
-                  >
-                    📤 Compartilhar no WhatsApp
-                  </a>
-                </div>
-              )}
+          {/* cabeçalho do card */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-[13px] text-white/60">Jogo único · Final</div>
+            <div className="text-xs text-white/60">
+              {new Date(jogo.created_at ?? Date.now()).toLocaleString()}
             </div>
           </div>
+
+          {/* Linha: times + placar */}
+          <div className="grid grid-cols-12 items-center gap-x-4">
+            <TeamSide name={jogo.nome_time1 ?? 'Time 1'} logo={jogo.logo_time1} align="right" role="Mandante" />
+            <ScoreRail label="Placar" a={g1} b={g2} onA={setG1} onB={setG2} />
+            <TeamSide name={jogo.nome_time2 ?? 'Time 2'} logo={jogo.logo_time2} align="left" role="Visitante" />
+          </div>
+
+          {/* Ações */}
+          <div className="mt-6 flex flex-col items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={salvarPlacar}
+                disabled={!podeSalvar || salvando}
+                className={`px-4 py-2 rounded-xl ${podeSalvar && !salvando ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600/50 text-white/70 cursor-not-allowed'} shadow focus:outline-none focus:ring-2 focus:ring-emerald-400/50`}
+              >
+                {salvando ? 'Salvando…' : '💾 Salvar placar'}
+              </button>
+            )}
+            <span className="text-xs text-white/50">{desempateTexto}</span>
+          </div>
+
+          {/* Campeão */}
+          {campeao && (
+            <div className="relative mt-10 grid place-items-center">
+              {/* fogos CSS */}
+              <div className="fireworks fireworks-1" />
+              <div className="fireworks fireworks-2" />
+              <div className="fireworks fireworks-3" />
+
+              <div className="champion-badge">
+                <div className="pulse-ring" />
+                <div className="trophy">🏆</div>
+              </div>
+
+              <h2 className="mt-4 text-center text-3xl md:text-4xl font-extrabold champion-text">
+                {campeao.nome} é o grande campeão!
+              </h2>
+
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`🏆 ${campeao.nome} é o grande campeão da LigaFut!\n\nParabéns ao time que brilhou na final e levantou a taça! 🥇⚽`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-block rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold shadow hover:bg-emerald-700"
+              >
+                📤 Compartilhar no WhatsApp
+              </a>
+            </div>
+          )}
+
+          {/* ====== Estilos locais para o campeão ====== */}
+          <style jsx>{`
+            .champion-badge {
+              position: relative;
+              width: 110px;
+              height: 110px;
+              border-radius: 9999px;
+              background: radial-gradient(60% 60% at 50% 40%, #ffd54a, #c28e00 70%, #543a00 100%);
+              box-shadow: 0 10px 30px rgba(255, 214, 74, 0.3), inset 0 0 20px rgba(255, 255, 255, 0.15);
+              display: grid;
+              place-items: center;
+              animation: float 4.5s ease-in-out infinite;
+            }
+            .trophy {
+              font-size: 46px;
+              transform-origin: bottom center;
+              animation: bounce 1.8s ease-in-out infinite;
+              filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25));
+            }
+            .pulse-ring {
+              position: absolute;
+              inset: -10px;
+              border-radius: 9999px;
+              background: conic-gradient(from 0deg, rgba(255, 215, 0, 0.12), transparent 55%);
+              animation: spin 8s linear infinite;
+              filter: blur(2px);
+            }
+            .champion-text {
+              background: linear-gradient(90deg, #ffd54a, #ffffff, #ffd54a);
+              background-size: 200% 100%;
+              -webkit-background-clip: text;
+              background-clip: text;
+              color: transparent;
+              animation: shine 2.2s linear infinite;
+              text-shadow: 0 2px 18px rgba(255, 215, 64, 0.15);
+            }
+            .fireworks {
+              position: absolute;
+              width: 6px;
+              height: 6px;
+              background: radial-gradient(circle, #fff, rgba(255, 255, 255, 0) 60%);
+              border-radius: 50%;
+              opacity: 0.9;
+              animation: explode 1.7s ease-out infinite;
+              filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+            }
+            .fireworks-1 { top: -10px; left: 12%; animation-delay: 0.1s; }
+            .fireworks-2 { top: 5px; right: 14%; animation-delay: 0.5s; }
+            .fireworks-3 { top: -6px; left: 50%; transform: translateX(-50%); animation-delay: 0.9s; }
+
+            @keyframes explode { 0% { transform: scale(0.3); opacity: 0.8; } 50% { transform: scale(1.8); opacity: 1; } 100% { transform: scale(0.2) translateY(12px); opacity: 0; } }
+            @keyframes shine { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
+            @keyframes spin { to { transform: rotate(360deg); } }
+            @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-6px); } }
+            @keyframes bounce { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-6px) scale(1.02); } }
+          `}</style>
         </div>
-      ) : (
-        <p className="text-center text-red-400">⚠️ Jogo da final ainda não foi definido.</p>
       )}
-
-      {/* ====== Estilos locais ====== */}
-      <style jsx>{`
-        .score-input {
-          width: 4.5rem;
-          text-align: center;
-          border-radius: 0.75rem;
-          background: #0f172a;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          padding: 0.25rem 0.5rem;
-          outline: none;
-          font-weight: 800;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-        }
-        .score-input:focus {
-          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.35);
-          border-color: rgba(16, 185, 129, 0.6);
-        }
-        .btn-primary {
-          background: linear-gradient(180deg, #10b981, #059669);
-          color: white;
-          padding: 0.6rem 1rem;
-          border-radius: 0.75rem;
-          font-weight: 700;
-          box-shadow: 0 10px 20px rgba(16, 185, 129, 0.2);
-        }
-        .btn-primary:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        /* ====== Campeão: badge + animações ====== */
-        .champion-badge {
-          position: relative;
-          width: 110px;
-          height: 110px;
-          border-radius: 9999px;
-          background: radial-gradient(60% 60% at 50% 40%, #ffd54a, #c28e00 70%, #543a00 100%);
-          box-shadow: 0 10px 30px rgba(255, 214, 74, 0.3), inset 0 0 20px rgba(255, 255, 255, 0.15);
-          display: grid;
-          place-items: center;
-          animation: float 4.5s ease-in-out infinite;
-        }
-        .trophy {
-          font-size: 46px;
-          transform-origin: bottom center;
-          animation: bounce 1.8s ease-in-out infinite;
-          filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25));
-        }
-        .pulse-ring {
-          position: absolute;
-          inset: -10px;
-          border-radius: 9999px;
-          background: conic-gradient(from 0deg, rgba(255, 215, 0, 0.12), transparent 55%);
-          animation: spin 8s linear infinite;
-          filter: blur(2px);
-        }
-
-        .champion-text {
-          background: linear-gradient(90deg, #ffd54a, #ffffff, #ffd54a);
-          background-size: 200% 100%;
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-          animation: shine 2.2s linear infinite;
-          text-shadow: 0 2px 18px rgba(255, 215, 64, 0.15);
-        }
-
-        /* Fogos de artifício simples (CSS only) */
-        .fireworks {
-          position: absolute;
-          width: 6px;
-          height: 6px;
-          background: radial-gradient(circle, #fff, rgba(255, 255, 255, 0) 60%);
-          border-radius: 50%;
-          opacity: 0.9;
-          animation: explode 1.7s ease-out infinite;
-          filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
-        }
-        .fireworks-1 { top: -10px; left: 12%; animation-delay: 0.1s; }
-        .fireworks-2 { top: 5px; right: 14%; animation-delay: 0.5s; }
-        .fireworks-3 { top: -6px; left: 50%; transform: translateX(-50%); animation-delay: 0.9s; }
-
-        @keyframes explode {
-          0% { transform: scale(0.3); opacity: 0.8; }
-          50% { transform: scale(1.8); opacity: 1; }
-          100% { transform: scale(0.2) translateY(12px); opacity: 0; }
-        }
-        @keyframes shine {
-          0% { background-position: 0% 0; }
-          100% { background-position: 200% 0; }
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-6px); }
-        }
-        @keyframes bounce {
-          0%, 100% { transform: translateY(0) scale(1); }
-          50% { transform: translateY(-6px) scale(1.02); }
-        }
-      `}</style>
     </div>
   )
 }
