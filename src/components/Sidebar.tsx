@@ -133,99 +133,125 @@ export default function Sidebar() {
     return 0
   }
 
-  // ========= Carregar do Supabase: times, elenco, emprestimos
+  // ========= Carregar do Supabase: times, elenco, emprestimos (com fallbacks id/tecnico/nome)
   useEffect(() => {
-    if (!idTime) return
+    // pode rodar mesmo sem idTime (usa fallbacks)
     ;(async () => {
-      // ---- TIMES (saldo, moedas, nome, logo) — saldo vem da Supabase
-      const { data: t, error: eT } = await supabase
-        .from('times')
-        .select('nome, saldo, moedas, logo, logo_url')
-        .eq('id', idTime)
-        .maybeSingle()
+      // ---- descobrir o time na tabela `times`
+      let timeRow: any = null
 
-      if (!eT && t) {
-        setNomeTime(t.nome ?? '')
-        setSaldoTime(Number(t.saldo) || 0) // ← saldo direto da tabela times
-        if (t.moedas != null) setMoedas(Number(t.moedas) || 0)
-        setLogoUrl(t.logo || t.logo_url || null)
+      // 1) tenta por id (uuid salvo em localStorage)
+      if (idTime) {
+        const r1 = await supabase
+          .from('times')
+          .select('id, nome, tecnico, saldo, logo, logo_url')
+          .eq('id', idTime)
+          .maybeSingle()
+        if (!r1.error && r1.data) timeRow = r1.data
       }
 
-      // ---- ELENCO (salários) — soma dinâmica
-      const { data: elenc, error: eE } = await supabase
-        .from('elenco')
-        .select('*')
-        .eq('id_time', idTime)
-
-      if (!eE && elenc) {
-        const soma = elenc.reduce((acc: number, r: any) => {
-          const v = getFirstNumber(r, [
-            'salario',
-            'salario_mensal',
-            'salario_total',
-            'salários',
-          ])
-          return acc + v
-        }, 0)
-        setTotalSalarios(soma)
+      // 2) fallback por tecnico (pega do localStorage)
+      if (!timeRow) {
+        let tecnicoLS: string | null = null
+        try {
+          const s = localStorage.getItem('user') || localStorage.getItem('usuario')
+          if (s) {
+            const j = JSON.parse(s)
+            tecnicoLS = j?.tecnico || j?.nome || null
+          }
+        } catch {}
+        if (tecnicoLS) {
+          const r2 = await supabase
+            .from('times')
+            .select('id, nome, tecnico, saldo, logo, logo_url')
+            .eq('tecnico', tecnicoLS)
+            .limit(1)
+            .maybeSingle()
+          if (!r2.error && r2.data) timeRow = r2.data
+        }
       }
 
-      // ---- EMPRESTIMOS (ativo) — calcula parcela e restantes
-      const { data: emp, error: eD } = await supabase
-        .from('emprestimos')
-        .select('*')
-        .eq('id_time', idTime)
-        .in('status', ['aberto', 'ativo', 'pendente'])
-        .limit(1)
-        .maybeSingle()
+      // 3) fallback por nome do time (se já tivermos)
+      if (!timeRow && nomeTime) {
+        const r3 = await supabase
+          .from('times')
+          .select('id, nome, tecnico, saldo, logo, logo_url')
+          .eq('nome', nomeTime)
+          .limit(1)
+          .maybeSingle()
+        if (!r3.error && r3.data) timeRow = r3.data
+      }
 
-      if (!eD && emp) {
-        const total = getFirstNumber(emp, [
-          'valor_total',
-          'valor',
-          'montante',
-          'principal',
-          'total',
-        ])
-        const totParcelas =
-          getFirstNumber(emp, ['parcelas_totais', 'total_parcelas', 'qtd_parcelas', 'numero_parcelas']) || 1
+      // Se encontrou o time, atualiza estados e garante que idTime fique correto
+      if (timeRow) {
+        setNomeTime(timeRow.nome ?? nomeTime)
+        setSaldoTime(Number(timeRow.saldo) || 0)           // ← saldo direto da tabela
+        setLogoUrl(timeRow.logo || timeRow.logo_url || null)
+        if (!idTime || idTime !== timeRow.id) setIdTime(timeRow.id) // fixa o id real para realtime
 
-        const pagas = getFirstNumber(emp, ['parcelas_pagas'])
-        const atual = getFirstNumber(emp, ['parcela_atual'])
-        let restantes = getFirstNumber(emp, ['restantes', 'parcelas_restantes'])
-        if (!restantes) {
-          if (pagas) restantes = Math.max(totParcelas - pagas, 0)
-          else if (atual) restantes = Math.max(totParcelas - (atual - 1), 0)
-          else restantes = totParcelas
+        // ---- ELENCO (salários) — soma dinâmica
+        const targetId = timeRow.id
+        const { data: elenc } = await supabase
+          .from('elenco')
+          .select('*')
+          .eq('id_time', targetId)
+
+        if (elenc) {
+          const soma = elenc.reduce((acc: number, r: any) => {
+            const v = getFirstNumber(r, ['salario', 'salario_mensal', 'salario_total', 'salários'])
+            return acc + v
+          }, 0)
+          setTotalSalarios(soma)
         }
 
-        let vParcela = getFirstNumber(emp, [
-          'valor_parcela',
-          'parcela_valor',
-          'valor_por_turno',
-          'por_turno',
-        ])
-        if (!vParcela) vParcela = Math.ceil(total / Math.max(totParcelas, 1))
+        // ---- EMPRESTIMOS (ativo) — calcula parcela e restantes
+        const { data: emp } = await supabase
+          .from('emprestimos')
+          .select('*')
+          .eq('id_time', targetId)
+          .in('status', ['aberto', 'ativo', 'pendente'])
+          .limit(1)
+          .maybeSingle()
 
-        const devedor = getFirstNumber(emp, [
-          'saldo_devedor',
-          'valor_devido',
-          'saldo_atual',
-          'valor_a_pagar',
-          'restante',
-          'total_devido',
-        ]) || vParcela * restantes
+        if (emp) {
+          const total = getFirstNumber(emp, ['valor_total','valor','montante','principal','total'])
+          const totParcelas =
+            getFirstNumber(emp, ['parcelas_totais','total_parcelas','qtd_parcelas','numero_parcelas']) || 1
 
-        setDividaEmprestimos(devedor)
-        setValorParcela(vParcela)
-        setParcelasRestantes(restantes)
+          const pagas = getFirstNumber(emp, ['parcelas_pagas'])
+          const atual = getFirstNumber(emp, ['parcela_atual'])
+          let restantes = getFirstNumber(emp, ['restantes','parcelas_restantes'])
+          if (!restantes) {
+            if (pagas) restantes = Math.max(totParcelas - pagas, 0)
+            else if (atual) restantes = Math.max(totParcelas - (atual - 1), 0)
+            else restantes = totParcelas
+          }
+
+          let vParcela = getFirstNumber(emp, ['valor_parcela','parcela_valor','valor_por_turno','por_turno'])
+          if (!vParcela) vParcela = Math.ceil(total / Math.max(totParcelas, 1))
+
+          const devedor = getFirstNumber(emp, [
+            'saldo_devedor','valor_devido','saldo_atual','valor_a_pagar','restante','total_devido',
+          ]) || vParcela * restantes
+
+          setDividaEmprestimos(devedor)
+          setValorParcela(vParcela)
+          setParcelasRestantes(restantes)
+        } else {
+          setDividaEmprestimos(0)
+          setValorParcela(0)
+          setParcelasRestantes(0)
+        }
       } else {
+        // Não encontrou o time: zera para não exibir lixo
+        setSaldoTime(0)
+        setTotalSalarios(0)
         setDividaEmprestimos(0)
         setValorParcela(0)
         setParcelasRestantes(0)
       }
     })()
-  }, [idTime])
+  }, [idTime, nomeTime])
 
   // ========= Realtime opcional (atualiza Top KPIs automaticamente)
   useEffect(() => {
@@ -300,7 +326,7 @@ export default function Sidebar() {
   const dividaFmt = useMemo(() => fmtBRL0(safe(dividaEmprestimos)), [dividaEmprestimos])
   const parcelaFmt = useMemo(() => fmtBRL0(safe(valorParcela)), [valorParcela])
 
-  // ========= UI helpers
+  // ========= UI helpers (iguais ao seu)
   const ToggleBtn = ({ open, onClick, label, icon }:{
     open: boolean; onClick: () => void; label: string; icon?: React.ReactNode
   }) => (
