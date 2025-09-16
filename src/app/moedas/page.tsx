@@ -17,12 +17,22 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase-browser';
-import { useAuth } from '@/components/AuthProvider';
 
 const COINS_PER_BRL = Number(process.env.NEXT_PUBLIC_COINS_PER_BRL ?? '5000000');
 const WHATSAPP_NUMBER_RAW = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || ''; // ex.: 5511999999999
 const WHATSAPP_NUMBER = WHATSAPP_NUMBER_RAW.replace(/\D/g, '');
 const HAS_WHATSAPP = WHATSAPP_NUMBER.length >= 10;
+
+/** ========= Tipos ========= */
+type LocalUser = {
+  usuario_id: string | number;
+  id_time: string;
+  usuario: string;
+  nome_time?: string;
+  nome?: string;
+  email?: string;
+  isAdmin?: boolean;
+};
 
 type PixCreateResponse = {
   pedidoId: string;
@@ -41,22 +51,48 @@ function cn(...cls: Array<string | false | undefined>) {
 }
 
 export default function ComprarMoedasPage() {
-  const { user, loading } = useAuth();
+  /** ======== "Sessão" baseada no LOGIN da sua app (localStorage.user) ======== */
+  const [localUser, setLocalUser] = useState<LocalUser | null>(null);
 
-  // saldo
+  useEffect(() => {
+    // carrega no primeiro render
+    try {
+      const raw = localStorage.getItem('user');
+      if (raw) setLocalUser(JSON.parse(raw));
+    } catch (e) {
+      console.warn('Não foi possível ler localStorage.user', e);
+    }
+
+    // se o user mudar em outra aba, sincroniza aqui
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key === 'user') {
+        try {
+          setLocalUser(ev.newValue ? JSON.parse(ev.newValue) : null);
+        } catch {
+          setLocalUser(null);
+        }
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const isLogged = !!localUser?.usuario_id;
+
+  /** ======== Saldo ======== */
   const [saldo, setSaldo] = useState<number | null>(null);
   const carregandoSaldo = useRef(false);
 
-  async function carregarSaldo(idUsuario: string) {
+  async function carregarSaldo(idUsuario: string | number) {
     if (carregandoSaldo.current) return;
     try {
       carregandoSaldo.current = true;
       const { data, error } = await supabase
         .from('carteiras')
         .select('saldo')
-        .eq('id_usuario', idUsuario)
+        .eq('id_usuario', String(idUsuario))
         .maybeSingle();
-      if (error) console.error(error);
+      if (error) console.error('Erro ao carregar saldo', error);
       setSaldo(data?.saldo ?? 0);
     } finally {
       carregandoSaldo.current = false;
@@ -64,14 +100,21 @@ export default function ComprarMoedasPage() {
   }
 
   useEffect(() => {
-    if (!loading && user?.id) carregarSaldo(user.id);
-  }, [loading, user?.id]);
+    if (isLogged && localUser?.usuario_id) {
+      carregarSaldo(localUser.usuario_id);
+    } else {
+      setSaldo(0);
+    }
+  }, [isLogged, localUser?.usuario_id]);
 
-  // compra
+  /** ======== Compra ======== */
   const [valorBRL, setValorBRL] = useState<number>(10);
-  const moedas = useMemo(() => Math.max(0, Math.round((valorBRL || 0) * COINS_PER_BRL)), [valorBRL]);
+  const moedas = useMemo(
+    () => Math.max(0, Math.round((valorBRL || 0) * COINS_PER_BRL)),
+    [valorBRL]
+  );
 
-  // pix atual
+  /** ======== Pix atual ======== */
   const [pedidoId, setPedidoId] = useState<string | null>(null);
   const [txid, setTxid] = useState<string | null>(null);
   const [qrImg, setQrImg] = useState<string | null>(null);
@@ -81,7 +124,7 @@ export default function ComprarMoedasPage() {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
-  // Realtime: ouvir mudança de status do pedido
+  /** ======== Realtime: status do pedido ======== */
   useEffect(() => {
     if (!pedidoId) return;
     const ch = supabase
@@ -95,32 +138,44 @@ export default function ComprarMoedasPage() {
             setStatus('paid');
             setSecondsLeft(null);
             toast.success('Pagamento confirmado! Moedas creditadas 👏');
-            if (user?.id) await carregarSaldo(user.id);
+            if (localUser?.usuario_id) await carregarSaldo(localUser.usuario_id);
           }
         }
       )
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [pedidoId, user?.id]);
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [pedidoId, localUser?.usuario_id]);
 
-  // Countdown até expirar
+  /** ======== Countdown ======== */
   useEffect(() => {
     if (!expiresAt || status !== 'waiting') return;
     const target = new Date(expiresAt).getTime();
     const t = setInterval(() => {
       const left = Math.max(0, Math.floor((target - Date.now()) / 1000));
       setSecondsLeft(left);
-      if (left <= 0) { clearInterval(t); setStatus('expired'); toast('Pix expirou. Gere outro.', { icon: '⏱️' }); }
+      if (left <= 0) {
+        clearInterval(t);
+        setStatus('expired');
+        toast('Pix expirou. Gere outro.', { icon: '⏱️' });
+      }
     }, 1000);
     return () => clearInterval(t);
   }, [expiresAt, status]);
 
-  // Ações
+  /** ======== Ações ======== */
   const criarPix = async () => {
     try {
-      if (!user?.id) { toast.error('Faça login para continuar.'); return; }
+      if (!isLogged || !localUser?.usuario_id) {
+        toast.error('Faça login para continuar.');
+        return;
+      }
       const valor = Number(valorBRL);
-      if (!Number.isFinite(valor) || valor < 1) { toast.error('Informe um valor (mínimo R$1).'); return; }
+      if (!Number.isFinite(valor) || valor < 1) {
+        toast.error('Informe um valor (mínimo R$1).');
+        return;
+      }
 
       setStatus('waiting');
       setPedidoId(null);
@@ -134,8 +189,12 @@ export default function ComprarMoedasPage() {
       const res = await fetch('/api/pix/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_usuario: user.id, valorBRL: valor }),
+        body: JSON.stringify({
+          id_usuario: String(localUser.usuario_id), // <-- usa o mesmo ID do login
+          valorBRL: valor,
+        }),
       });
+
       const j: PixCreateResponse | { error?: string } = await res.json();
       if (!res.ok || !('pedidoId' in j)) throw new Error((j as any)?.error || 'Falha ao criar Pix.');
 
@@ -145,7 +204,9 @@ export default function ComprarMoedasPage() {
       setCopiaCola((j as PixCreateResponse).copiaCola || null);
       setExpiresAt((j as PixCreateResponse).expiresAt || null);
 
-      const tk = ((j as PixCreateResponse).raw?.point_of_interaction?.transaction_data?.ticket_url as string) || null;
+      const tk =
+        ((j as PixCreateResponse).raw?.point_of_interaction?.transaction_data?.ticket_url as string) ||
+        null;
       setTicketUrl(tk);
 
       toast('Pix gerado. Pague e aguarde a confirmação.');
@@ -167,12 +228,12 @@ export default function ComprarMoedasPage() {
     setStatus('idle');
   };
 
-  // WhatsApp (fallback/manual)
+  /** ======== WhatsApp (fallback/manual) ======== */
   function buildWhatsAppText() {
     const linhas = [
       '🧾 *Comprovante de Compra de Moedas*',
       '—',
-      `👤 Usuário: ${user?.email ?? user?.id ?? 'N/D'}`,
+      `👤 Usuário: ${localUser?.usuario ?? 'N/D'}`,
       pedidoId ? `🆔 Pedido: ${pedidoId}` : '',
       txid ? `🔗 TXID: ${txid}` : '',
       `💰 Valor: R$ ${Number(valorBRL).toFixed(2)}`,
@@ -190,11 +251,12 @@ export default function ComprarMoedasPage() {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  // UI
+  /** ======== UI helpers ======== */
   const fmtCoins = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR');
   const fmtCountdown = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+  /** ======== Render ======== */
   return (
     <div className="max-w-3xl mx-auto p-6 md:p-8 space-y-8 text-white">
       <Toaster position="top-right" />
@@ -260,7 +322,7 @@ export default function ComprarMoedasPage() {
 
         <button
           onClick={criarPix}
-          disabled={loading || status === 'waiting' || !user}
+          disabled={status === 'waiting' || !isLogged}
           className={cn(
             'w-full inline-flex items-center justify-center gap-2 rounded-2xl py-3.5 font-semibold',
             'bg-white text-black hover:opacity-90 disabled:opacity-50'
@@ -270,7 +332,7 @@ export default function ComprarMoedasPage() {
           {status === 'waiting' ? 'Gerando Pix…' : 'Gerar Pix'}
         </button>
 
-        {!loading && !user && (
+        {!isLogged && (
           <div className="flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 text-amber-200 px-3 py-2 text-sm">
             <LogIn className="size-4" /> Você precisa estar logado para comprar moedas.
           </div>
@@ -331,7 +393,10 @@ export default function ComprarMoedasPage() {
               />
               <div className="flex gap-2">
                 <button
-                  onClick={() => { navigator.clipboard.writeText(copiaCola); toast('Código copiado 👍'); }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(copiaCola);
+                    toast('Código copiado 👍');
+                  }}
                   className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 hover:bg-white/10"
                 >
                   <CopyIcon className="size-4" /> Copiar
@@ -367,15 +432,16 @@ export default function ComprarMoedasPage() {
                   <MessageCircle className="size-4" /> Abrir conversa no WhatsApp
                 </button>
                 <button
-                  onClick={() => { navigator.clipboard.writeText(buildWhatsAppText()); toast('Mensagem copiada ✅'); }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(buildWhatsAppText());
+                    toast('Mensagem copiada ✅');
+                  }}
                   className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 hover:bg-white/10"
                 >
                   <CopyIcon className="size-4" /> Copiar mensagem
                 </button>
               </div>
-              <div className="mt-2 text-xs text-neutral-400">
-                Número configurado: +{WHATSAPP_NUMBER}
-              </div>
+              <div className="mt-2 text-xs text-neutral-400">Número configurado: +{WHATSAPP_NUMBER}</div>
             </div>
           )}
         </div>
