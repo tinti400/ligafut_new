@@ -54,66 +54,53 @@ const mentionsVolta = (msg?: string) => {
   return s.includes('gols_time1_volta') || s.includes('gols_time2_volta') || s.includes('_volta')
 }
 
-/** ========= UI helpers ========= */
-function TeamLogo({ url, alt, size=40 }:{ url?: string | null; alt: string; size?: number }) {
-  return url ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={url} alt={alt} style={{ width: size, height: size }} className="object-cover rounded-full" />
-  ) : (
-    <div className="rounded-full bg-white/10 text-white/80 grid place-items-center"
-         style={{ width: size, height: size, fontSize: Math.max(10, size/3) }}>
-      {alt.slice(0,3).toUpperCase()}
-    </div>
-  )
-}
-function TeamSide({
-  name, logo, align, role
-}:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
-  return (
-    <div className={`col-span-6 md:col-span-4 flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3`}>
-      {align==='left' && <TeamLogo url={logo || null} alt={name} size={40} />}
-      <div className={`${align==='left'?'text-left':'text-right'}`}>
-        <div className="font-semibold leading-5">{name}</div>
-        <div className="text-[11px] text-white/60">{role}</div>
-      </div>
-      {align==='right' && <TeamLogo url={logo || null} alt={name} size={40} />}
-    </div>
-  )
-}
-function ScoreRail({
-  label, a, b, onA, onB, className=''
-}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void, className?: string }) {
-  return (
-    <div className={`col-span-12 md:col-span-4 ${className}`}>
-      <div className="relative">
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
-          {label}
-        </span>
+/** ===== Helpers para gerar Final direto no cliente ===== */
+async function carregarSemis() {
+  // tenta com *_volta
+  const q1 = await supabase
+    .from('copa_semi')
+    .select('id_time1,id_time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta,ordem')
+    .order('ordem', { ascending: true })
 
-        <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
-          <input
-            type="number"
-            min={0}
-            inputMode="numeric"
-            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-            value={a ?? ''}
-            onChange={(e)=>onA(normInt(e.target.value))}
-            placeholder="0"
-          />
-          <span className="text-white/60">x</span>
-          <input
-            type="number"
-            min={0}
-            inputMode="numeric"
-            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
-            value={b ?? ''}
-            onChange={(e)=>onB(normInt(e.target.value))}
-            placeholder="0"
-          />
-        </div>
-      </div>
-    </div>
-  )
+  if (q1.error && mentionsVolta(q1.error.message)) {
+    // tabela não tem colunas da volta
+    const q2 = await supabase
+      .from('copa_semi')
+      .select('id_time1,id_time2,gols_time1,gols_time2,ordem')
+      .order('ordem', { ascending: true })
+    if (q2.error) throw q2.error
+    return { jogos: (q2.data || []).slice(0, 2), temVolta: false }
+  }
+  if (q1.error) throw q1.error
+  return { jogos: (q1.data || []).slice(0, 2), temVolta: true }
+}
+function semiCompleta(j: any, temVolta: boolean) {
+  const idaOk = j.gols_time1 != null && j.gols_time2 != null
+  const voltaOk = !temVolta || (j.gols_time1_volta != null && j.gols_time2_volta != null)
+  return idaOk && voltaOk
+}
+async function mapaPontos() {
+  const { data, error } = await supabase.from('classificacao').select('id_time,pontos')
+  if (error) throw error
+  const map = new Map<string, number>()
+  ;(data || []).forEach((r: any) => map.set(r.id_time, r.pontos ?? 0))
+  return map
+}
+function vencedorDaChave(j: any, temVolta: boolean, pts: Map<string, number>) {
+  const ida1 = j.gols_time1 ?? 0
+  const ida2 = j.gols_time2 ?? 0
+  const vol1 = temVolta ? (j.gols_time1_volta ?? 0) : 0
+  const vol2 = temVolta ? (j.gols_time2_volta ?? 0) : 0
+  const tot1 = ida1 + vol1
+  const tot2 = ida2 + vol2
+
+  if (tot1 > tot2) return j.id_time1
+  if (tot2 > tot1) return j.id_time2
+  const p1 = pts.get(j.id_time1) ?? 0
+  const p2 = pts.get(j.id_time2) ?? 0
+  if (p1 > p2) return j.id_time1
+  if (p2 > p1) return j.id_time2
+  return j.id_time1 // persistindo empate
 }
 
 /** ========= Página ========= */
@@ -156,34 +143,13 @@ export default function FinalPage() {
 
   /** Checa se as semis estão completas (ida e volta, se houver) */
   async function checarSemisCompletas(): Promise<boolean> {
-    let hasVolta = true
-    const q1 = await supabase
-      .from('copa_semi')
-      .select('gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
-      .order('ordem', { ascending: true })
-
-    let data: any[] | null = q1.data as any
-    let error = q1.error
-
-    if (error && mentionsVolta(error.message)) {
-      hasVolta = false
-      const q2 = await supabase
-        .from('copa_semi')
-        .select('gols_time1,gols_time2')
-        .order('ordem', { ascending: true })
-      data = q2.data as any
-      error = q2.error
+    try {
+      const { jogos, temVolta } = await carregarSemis()
+      if (jogos.length !== 2) return false
+      return jogos.every(j => semiCompleta(j, temVolta))
+    } catch {
+      return false
     }
-
-    if (error) return false
-    const arr = data || []
-    if (arr.length !== 2) return false
-
-    return arr.every(j =>
-      j.gols_time1 !== null &&
-      j.gols_time2 !== null &&
-      (!hasVolta || (j.gols_time1_volta !== null && j.gols_time2_volta !== null))
-    )
   }
 
   async function buscarTudo() {
@@ -406,23 +372,66 @@ export default function FinalPage() {
     }
   }
 
-  /** Sincroniza a Final com os vencedores da Semi (só quando semis completas) */
+  /** ====== Gera/atualiza a Final direto no cliente (sem API) ====== */
   async function sincronizarComSemi() {
     if (!semisCompletas) {
       toast.error('Finalize a Semifinal para liberar a Final.')
       return
     }
     try {
-      const res = await fetch('/api/copa/definir-final', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ temporada: TEMPORADA_PADRAO, divisao: DIVISAO_PADRAO })
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.erro || 'Falha ao sincronizar')
+      // 1) Carrega semis e valida placares
+      const { jogos, temVolta } = await carregarSemis()
+      if (jogos.length !== 2) {
+        toast.error('Semifinal incompleta (é preciso 2 confrontos).')
+        return
+      }
+      if (!jogos.every(j => semiCompleta(j, temVolta))) {
+        toast.error('Preencha todos os placares da Semifinal.')
+        return
+      }
+
+      // 2) Desempate por pontos
+      const pts = await mapaPontos()
+      const finalista1 = vencedorDaChave(jogos[0], temVolta, pts)
+      const finalista2 = vencedorDaChave(jogos[1], temVolta, pts)
+
+      // 3) Atualiza a Final mais recente OU insere nova
+      const { data: finalRow } = await supabase
+        .from('copa_final')
+        .select('id')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (finalRow?.id) {
+        const { error: upErr } = await supabase
+          .from('copa_final')
+          .update({
+            id_time1: finalista1,
+            id_time2: finalista2,
+            gols_time1: null,
+            gols_time2: null,
+            temporada: TEMPORADA_PADRAO,
+            divisao: DIVISAO_PADRAO
+          })
+          .eq('id', finalRow.id)
+        if (upErr) throw upErr
+      } else {
+        const { error: insErr } = await supabase.from('copa_final').insert([{
+          id_time1: finalista1,
+          id_time2: finalista2,
+          gols_time1: null,
+          gols_time2: null,
+          temporada: TEMPORADA_PADRAO,
+          divisao: DIVISAO_PADRAO
+        }])
+        if (insErr) throw insErr
+      }
+
       toast.success('Final atualizada com os vencedores da Semi!')
       await buscarTudo()
     } catch (e:any) {
+      console.error(e)
       toast.error(e?.message || 'Erro ao sincronizar com a Semi')
     }
   }
