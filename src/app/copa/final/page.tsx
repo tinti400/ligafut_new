@@ -54,7 +54,69 @@ const mentionsVolta = (msg?: string) => {
   return s.includes('gols_time1_volta') || s.includes('gols_time2_volta') || s.includes('_volta')
 }
 
-/** ===== Helpers para gerar Final direto no cliente ===== */
+/** ========= UI helpers ========= */
+function TeamLogo({ url, alt, size=40 }:{ url?: string | null; alt: string; size?: number }) {
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt={alt} style={{ width: size, height: size }} className="object-cover rounded-full" />
+  ) : (
+    <div className="rounded-full bg-white/10 text-white/80 grid place-items-center"
+         style={{ width: size, height: size, fontSize: Math.max(10, size/3) }}>
+      {alt.slice(0,3).toUpperCase()}
+    </div>
+  )
+}
+function TeamSide({
+  name, logo, align, role
+}:{ name: string, logo?: string | null, align: 'left'|'right', role: 'Mandante'|'Visitante' }) {
+  return (
+    <div className={`col-span-6 md:col-span-4 flex items-center ${align==='left'?'justify-start':'justify-end'} gap-3`}>
+      {align==='left' && <TeamLogo url={logo || null} alt={name} size={40} />}
+      <div className={`${align==='left'?'text-left':'text-right'}`}>
+        <div className="font-semibold leading-5">{name}</div>
+        <div className="text-[11px] text-white/60">{role}</div>
+      </div>
+      {align==='right' && <TeamLogo url={logo || null} alt={name} size={40} />}
+    </div>
+  )
+}
+function ScoreRail({
+  label, a, b, onA, onB, className=''
+}:{ label: string, a: number | null | undefined, b: number | null | undefined, onA: (n: number | null)=>void, onB: (n: number | null)=>void, className?: string }) {
+  return (
+    <div className={`col-span-12 md:col-span-4 ${className}`}>
+      <div className="relative">
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
+          {label}
+        </span>
+
+        <div className="w-full max-w-[360px] mx-auto rounded-2xl border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-center gap-3">
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={a ?? ''}
+            onChange={(e)=>onA(normInt(e.target.value))}
+            placeholder="0"
+          />
+          <span className="text-white/60">x</span>
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            className="w-16 md:w-20 rounded-lg border border-white/10 bg-slate-900/70 px-3 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-white/20"
+            value={b ?? ''}
+            onChange={(e)=>onB(normInt(e.target.value))}
+            placeholder="0"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** ===== Helpers para gerar Final direto no cliente (sem API) ===== */
 async function carregarSemis() {
   // tenta com *_volta
   const q1 = await supabase
@@ -63,7 +125,7 @@ async function carregarSemis() {
     .order('ordem', { ascending: true })
 
   if (q1.error && mentionsVolta(q1.error.message)) {
-    // tabela não tem colunas da volta
+    // tabela não tem colunas da volta -> faz select sem elas
     const q2 = await supabase
       .from('copa_semi')
       .select('id_time1,id_time2,gols_time1,gols_time2,ordem')
@@ -441,7 +503,7 @@ export default function FinalPage() {
     if (!jogo) return '*Em caso de empate, campeão = melhor campanha (Time 1)'
     const p1 = pontos(jogo.id_time1)
     const p2 = pontos(jogo.id_time2)
-    const melhor = p1 === p2 ? 'Time 1 (empate técnico na campanha)' : (p1 > p2 ? jogo.nome_time1 : jogo.nome_time2)
+    const melhor = p1 === p2 ? 'Time 1 (empate técnico na campanha)' : (p1 > p2 ? jogo.nome_time1! : jogo.nome_time2!)
     return `*Em caso de empate, campeão = melhor campanha (${melhor})`
   }, [jogo, classificacao])
 
@@ -608,3 +670,4 @@ export default function FinalPage() {
     </div>
   )
 }
+
