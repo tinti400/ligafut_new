@@ -30,7 +30,6 @@ interface TimeRow {
   nome: string
   logo_url?: string | null
 }
-interface Classificacao { id_time: UUID; pontos: number }
 
 /** ========= Config ========= */
 const TEMPORADA_PADRAO = 1
@@ -116,19 +115,18 @@ function ScoreRail({
   )
 }
 
-/** ===== Helpers para gerar Final direto no cliente (sem API) ===== */
+/** ===== Helpers: ler Semis (igual às Quartas) e decidir vencedores ===== */
 async function carregarSemis() {
   // tenta com *_volta
   const q1 = await supabase
-    .from('copa_semi')
-    .select('id_time1,id_time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta,ordem')
+    .from('copa_semis') // <<< usa tabela no plural, igual ao teu código das Quartas
+    .select('ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
     .order('ordem', { ascending: true })
 
   if (q1.error && mentionsVolta(q1.error.message)) {
-    // tabela não tem colunas da volta -> faz select sem elas
     const q2 = await supabase
-      .from('copa_semi')
-      .select('id_time1,id_time2,gols_time1,gols_time2,ordem')
+      .from('copa_semis')
+      .select('ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2')
       .order('ordem', { ascending: true })
     if (q2.error) throw q2.error
     return { jogos: (q2.data || []).slice(0, 2), temVolta: false }
@@ -141,28 +139,17 @@ function semiCompleta(j: any, temVolta: boolean) {
   const voltaOk = !temVolta || (j.gols_time1_volta != null && j.gols_time2_volta != null)
   return idaOk && voltaOk
 }
-async function mapaPontos() {
-  const { data, error } = await supabase.from('classificacao').select('id_time,pontos')
-  if (error) throw error
-  const map = new Map<string, number>()
-  ;(data || []).forEach((r: any) => map.set(r.id_time, r.pontos ?? 0))
-  return map
-}
-function vencedorDaChave(j: any, temVolta: boolean, pts: Map<string, number>) {
+function vencedorDaChave(j: any, temVolta: boolean) {
   const ida1 = j.gols_time1 ?? 0
   const ida2 = j.gols_time2 ?? 0
   const vol1 = temVolta ? (j.gols_time1_volta ?? 0) : 0
   const vol2 = temVolta ? (j.gols_time2_volta ?? 0) : 0
   const tot1 = ida1 + vol1
   const tot2 = ida2 + vol2
-
   if (tot1 > tot2) return j.id_time1
   if (tot2 > tot1) return j.id_time2
-  const p1 = pts.get(j.id_time1) ?? 0
-  const p2 = pts.get(j.id_time2) ?? 0
-  if (p1 > p2) return j.id_time1
-  if (p2 > p1) return j.id_time2
-  return j.id_time1 // persistindo empate
+  // empate -> time1 (igual às Quartas)
+  return j.id_time1
 }
 
 /** ========= Página ========= */
@@ -173,17 +160,12 @@ export default function FinalPage() {
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [campeao, setCampeao] = useState<TimeRow | null>(null)
-  const [classificacao, setClassificacao] = useState<Classificacao[]>([])
 
   // inputs controlados
   const [g1, setG1] = useState<number | null>(null)
   const [g2, setG2] = useState<number | null>(null)
 
   const [semisCompletas, setSemisCompletas] = useState(false)
-
-  // meta (temporada/divisão) — ajuste se usar multi-temporada real
-  const [temporadaSelecionada] = useState<number>(TEMPORADA_PADRAO)
-  const [divisaoSelecionada] = useState<number>(DIVISAO_PADRAO)
 
   const podeSalvar = (g1 != null && g2 != null) && semisCompletas
 
@@ -221,11 +203,7 @@ export default function FinalPage() {
     const completas = await checarSemisCompletas()
     setSemisCompletas(completas)
 
-    // 2) sempre carrega classificação (para texto de desempate)
-    const cls = await supabase.from('classificacao').select('id_time,pontos')
-    if (!cls.error && cls.data) setClassificacao(cls.data as any)
-
-    // 3) só carrega/exibe a Final se as Semis estiverem completas
+    // 2) só carrega/exibe a Final se as Semis estiverem completas
     if (completas) {
       await buscarFinal()
     } else {
@@ -283,39 +261,11 @@ export default function FinalPage() {
           ? finalRow.id_time1
           : finalRow.gols_time2 > finalRow.gols_time1
             ? finalRow.id_time2
-            : finalRow.id_time1 // empate -> time1
+            : finalRow.id_time1 // empate -> time1 (igual às Quartas)
       const vencedor = mapa.get(vencedorId)
       setCampeao(vencedor ? { id: vencedor.id, nome: vencedor.nome, logo_url: vencedor.logo_url ?? null } : null)
     } else {
       setCampeao(null)
-    }
-  }
-
-  /** ========= Histórico de campeões ========= */
-  async function registrarHistoricoCampeoes(params: {
-    idFinal: UUID
-    campeaoId: UUID
-    viceId: UUID
-    placarStr: string
-    temporada: number
-    divisao: number
-  }) {
-    try {
-      await supabase
-        .from('copa_historico_campeoes')
-        .upsert(
-          [{
-            temporada: params.temporada,
-            divisao: params.divisao,
-            id_final: params.idFinal,
-            id_campeao: params.campeaoId,
-            id_vice: params.viceId,
-            placar: params.placarStr,
-          }],
-          { onConflict: 'temporada,divisao' }
-        )
-    } catch (e) {
-      console.warn('Não foi possível registrar histórico de campeões:', e)
     }
   }
 
@@ -413,14 +363,22 @@ export default function FinalPage() {
             id_time: viceId
           })
 
-          await registrarHistoricoCampeoes({
-            idFinal: jogo.id,
-            campeaoId: champId,
-            viceId,
-            placarStr,
-            temporada: TEMPORADA_PADRAO,
-            divisao: DIVISAO_PADRAO
-          })
+          // histórico opcional (se tiver a tabela)
+          try {
+            await supabase
+              .from('copa_historico_campeoes')
+              .upsert(
+                [{
+                  temporada: TEMPORADA_PADRAO,
+                  divisao: DIVISAO_PADRAO,
+                  id_final: jogo.id,
+                  id_campeao: champId,
+                  id_vice: viceId,
+                  placar: placarStr,
+                }],
+                { onConflict: 'temporada,divisao' }
+              )
+          } catch {}
         }
       }
 
@@ -434,14 +392,14 @@ export default function FinalPage() {
     }
   }
 
-  /** ====== Gera/atualiza a Final direto no cliente (sem API) ====== */
+  /** ====== Gera/atualiza a Final direto do resultado das Semis (sem API) ====== */
   async function sincronizarComSemi() {
     if (!semisCompletas) {
       toast.error('Finalize a Semifinal para liberar a Final.')
       return
     }
     try {
-      // 1) Carrega semis e valida placares
+      // 1) Lê semis e valida placares (igual às Quartas)
       const { jogos, temVolta } = await carregarSemis()
       if (jogos.length !== 2) {
         toast.error('Semifinal incompleta (é preciso 2 confrontos).')
@@ -452,10 +410,9 @@ export default function FinalPage() {
         return
       }
 
-      // 2) Desempate por pontos
-      const pts = await mapaPontos()
-      const finalista1 = vencedorDaChave(jogos[0], temVolta, pts)
-      const finalista2 = vencedorDaChave(jogos[1], temVolta, pts)
+      // 2) Decide os finalistas (agregado; empate -> time1)
+      const finalista1 = vencedorDaChave(jogos[0], temVolta)
+      const finalista2 = vencedorDaChave(jogos[1], temVolta)
 
       // 3) Atualiza a Final mais recente OU insere nova
       const { data: finalRow } = await supabase
@@ -498,14 +455,10 @@ export default function FinalPage() {
     }
   }
 
-  const pontos = (id?: UUID) => (id ? (classificacao.find(c => c.id_time === id)?.pontos ?? 0) : 0)
   const desempateTexto = useMemo(() => {
-    if (!jogo) return '*Em caso de empate, campeão = melhor campanha (Time 1)'
-    const p1 = pontos(jogo.id_time1)
-    const p2 = pontos(jogo.id_time2)
-    const melhor = p1 === p2 ? 'Time 1 (empate técnico na campanha)' : (p1 > p2 ? jogo.nome_time1! : jogo.nome_time2!)
-    return `*Em caso de empate, campeão = melhor campanha (${melhor})`
-  }, [jogo, classificacao])
+    // igual às Quartas: em caso de empate, vale o time1
+    return '*Em caso de empate, campeão = Time 1 (critério padrão)'
+  }, [])
 
   return (
     <div className="relative p-4 sm:p-6 max-w-5xl mx-auto">
