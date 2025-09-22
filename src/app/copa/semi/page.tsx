@@ -28,7 +28,7 @@ type JogoSemi = {
   time2: string
   gols_time1: number | null
   gols_time2: number | null
-  gols_time1_volta?: number | null // opcionais (schema pode não ter)
+  gols_time1_volta?: number | null
   gols_time2_volta?: number | null
 }
 type Classificacao = { id_time: string; pontos: number }
@@ -65,9 +65,9 @@ export default function SemiPage() {
 
   // pote único / sorteio
   const [sorteioAberto, setSorteioAberto] = useState(false)
-  const [poteUnico, setPoteUnico] = useState<TimeRow[]>([]) // fila de 4 times
+  const [poteUnico, setPoteUnico] = useState<TimeRow[]>([])
   const [parAtual, setParAtual] = useState<{A: TimeRow | null; B: TimeRow | null}>({A:null, B:null})
-  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([]) // 2 confrontos
+  const [pares, setPares] = useState<Array<[TimeRow, TimeRow]>>([])
   const [confirming, setConfirming] = useState(false)
   const [anim, setAnim] = useState<TimeRow | null>(null)
 
@@ -107,7 +107,6 @@ export default function SemiPage() {
 
   async function buscarJogos() {
     setLoading(true)
-    // tenta ler com colunas *_volta
     const q1 = await supabase
       .from('copa_semi')
       .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
@@ -390,7 +389,7 @@ export default function SemiPage() {
     }
   }
 
-  /** ====== Salvar placar + premiação (mesma lógica das fases anteriores) ====== */
+  /** ====== Salvar placar + premiação ====== */
   async function salvarPlacar(jogo: JogoSemi) {
     if (!isPlacarPreenchido(jogo, supportsVolta)) {
       toast.error('Preencha os dois campos da Ida e os dois da Volta antes de salvar.')
@@ -439,7 +438,7 @@ export default function SemiPage() {
       const hasGolsIda = (o: any) => o && o.gols_time1 != null && o.gols_time2 != null
       const hasGolsVolta = (o: any) => o && ('gols_time1_volta' in o || 'gols_time2_volta' in o)
 
-      // vitória na ida (transição indefinido->definido e não empate)
+      // vitória na ida
       const idaAntesDef = hasGolsIda(before)
       const idaAgoraDef = jogo.gols_time1 != null && jogo.gols_time2 != null
       if (!idaAntesDef && idaAgoraDef && jogo.gols_time1 !== jogo.gols_time2) {
@@ -530,7 +529,7 @@ export default function SemiPage() {
     [jogos, supportsVolta]
   )
 
-  /** ====== Botão 1: via API (mantém seu fluxo) ====== */
+  /** ====== Botão 1: via API ====== */
   async function finalizarSemi() {
     if (!semiCompleta) {
       toast.error('Preencha todos os placares (ida e volta, se houver) antes de finalizar.')
@@ -546,18 +545,18 @@ export default function SemiPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.erro || 'Falha ao definir Final')
 
-      toast.success('Final definida!')
-      router.push('/copa/final') // ✅ navega já com a final gravada
+      toast.success('final gerada')
+      router.push('/copa/final')
     } catch (e: any) {
+      console.error('ERRO DEFINIR FINAL (API):', e)
       toast.error(e?.message || 'Erro ao definir a Final')
     }
   }
 
-  /** ====== Botão 2: grava direto no Supabase e redireciona ====== */
+  /** ====== Botão 2: direto no Supabase ====== */
   async function definirFinalSupabase() {
     if (!isAdmin) { toast.error('Apenas admin pode definir a Final.'); return }
 
-    // Recarrega do banco para garantir dados mais recentes e detectar *_volta
     let hasVolta = true
     let semis: any[] = []
     {
@@ -571,10 +570,10 @@ export default function SemiPage() {
           .from('copa_semi')
           .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2')
           .order('ordem', { ascending: true })
-        if (q2.error) { toast.error('Erro ao ler Semifinal'); return }
+        if (q2.error) { toast.error(q2.error.message); return }
         semis = q2.data || []
       } else if (q1.error) {
-        toast.error('Erro ao ler Semifinal'); return
+        toast.error(q1.error.message); return
       } else {
         semis = q1.data || []
       }
@@ -585,7 +584,6 @@ export default function SemiPage() {
       return
     }
 
-    // Valida placares preenchidos
     const incompleto = semis.some(j =>
       j.gols_time1 == null || j.gols_time2 == null ||
       (hasVolta && ((j.gols_time1_volta ?? null) == null || (j.gols_time2_volta ?? null) == null))
@@ -595,16 +593,12 @@ export default function SemiPage() {
       return
     }
 
-    // Helper desempate por pontos da classificação
     const pontosDe = (id: string) => pontosCampanha(id)
-
-    // Decide vencedor de um confronto
     const vencedorDe = (j: any) => {
       const soma1 = (j.gols_time1 ?? 0) + (hasVolta ? (j.gols_time1_volta ?? 0) : 0)
       const soma2 = (j.gols_time2 ?? 0) + (hasVolta ? (j.gols_time2_volta ?? 0) : 0)
       if (soma1 > soma2) return { id: j.id_time1, nome: j.time1 }
       if (soma2 > soma1) return { id: j.id_time2, nome: j.time2 }
-      // empate no agregado -> desempate por pontos; persistindo empate, vence time1
       const p1 = pontosDe(j.id_time1)
       const p2 = pontosDe(j.id_time2)
       if (p1 > p2) return { id: j.id_time1, nome: j.time1 }
@@ -625,13 +619,9 @@ export default function SemiPage() {
     }
 
     try {
-      // Apaga Final anterior (se houver)
       const del = await supabase.from('copa_final').delete().neq('id', 0)
-      if (del.error && del.error.code !== '42P01') { // ignora "tabela não existe"
-        throw del.error
-      }
+      if (del.error && del.error.code !== '42P01') throw del.error
 
-      // Tenta inserir com campos *_volta (se a tabela tiver). Se der erro de coluna, insere sem *_volta.
       const base = {
         rodada: 1,
         ordem: 1,
@@ -640,24 +630,34 @@ export default function SemiPage() {
         time1: v1.nome,
         time2: v2.nome,
         gols_time1: null,
-        gols_time2: null
+        gols_time2: null,
+        vencedor: null as any // se a coluna existir e aceitar NULL
       }
 
       const ins1 = await supabase.from('copa_final')
         .insert({ ...base, gols_time1_volta: null, gols_time2_volta: null })
         .select('id')
 
-      if (ins1.error && mentionsVolta(ins1.error.message)) {
-        const ins2 = await supabase.from('copa_final').insert(base).select('id')
-        if (ins2.error) throw ins2.error
-      } else if (ins1.error) {
-        throw ins1.error
+      if (ins1.error) {
+        console.error('ERRO INSERT FINAL (com *_volta):', ins1.error)
       }
 
-      toast.success('Final definida com sucesso!')
-      router.push('/copa/final') // ✅ navega para a página da final já com o confronto salvo
+      if (ins1.error && mentionsVolta(ins1.error.message)) {
+        const ins2 = await supabase.from('copa_final').insert(base).select('id')
+        if (ins2.error) {
+          console.error('ERRO INSERT FINAL (sem *_volta):', ins2.error)
+          toast.error(ins2.error.message)
+          return
+        }
+      } else if (ins1.error) {
+        toast.error(ins1.error.message)
+        return
+      }
+
+      toast.success('final gerada')
+      router.push('/copa/final')
     } catch (e:any) {
-      console.error(e)
+      console.error('ERRO DEFINIR FINAL (SUPABASE):', e)
       toast.error(e?.message || 'Erro ao definir a Final')
     }
   }
@@ -747,10 +747,8 @@ export default function SemiPage() {
               </button>
             </div>
 
-            {/* prévia do pote único */}
             <PotePreview title="Pote Único (4 classificados das Quartas)" teams={poteUnico} />
 
-            {/* Palco */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start mt-4">
               <div className="md:col-span-1 flex flex-col items-center gap-3">
                 <PoteGlassUnique teams={poteUnico} />
@@ -784,7 +782,6 @@ export default function SemiPage() {
                   </div>
                 </div>
 
-                {/* Pares já formados */}
                 <div className="w-full mt-4 max-h-56 overflow-auto space-y-2">
                   {pares.map(([a,b], i) => (
                     <div key={a.id + b.id + i} className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -797,7 +794,6 @@ export default function SemiPage() {
                   ))}
                 </div>
 
-                {/* Gravar */}
                 <div className="w-full mt-4 flex justify-end">
                   <button
                     className={`px-4 py-2 rounded-lg ${podeGravar && !confirming ? 'bg-green-600 hover:bg-green-500' : 'bg-green-600/50 cursor-not-allowed'}`}
@@ -810,7 +806,6 @@ export default function SemiPage() {
               </div>
             </div>
 
-            {/* Bolinha animada */}
             <AnimatePresence>
               {anim && (
                 <motion.div
@@ -831,7 +826,7 @@ export default function SemiPage() {
   )
 }
 
-/** ====== Cartão de Jogo (Ida e Volta) ====== */
+/** ====== Cartão de Jogo ====== */
 function MatchCard({
   jogo, supportsVolta, logosById, onChange, onSave, faseLabel = 'Semifinal'
 }:{
