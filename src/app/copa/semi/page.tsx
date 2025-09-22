@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useRouter } from 'next/navigation'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,6 +54,7 @@ const toDBId = (v: string) => (/^[0-9]+$/.test(v) ? Number(v) : v)
 /** ========= Página ========= */
 export default function SemiPage() {
   const { isAdmin } = useAdmin()
+  const router = useRouter()
 
   // dados
   const [jogos, setJogos] = useState<JogoSemi[]>([])
@@ -528,21 +530,11 @@ export default function SemiPage() {
     [jogos, supportsVolta]
   )
 
+  /** ====== Botão 1: via API (mantém seu fluxo) ====== */
   async function finalizarSemi() {
     if (!semiCompleta) {
       toast.error('Preencha todos os placares (ida e volta, se houver) antes de finalizar.')
       return
-    }
-
-    // (Opcional) valida empates no agregado
-    const empates: number[] = []
-    jogos.forEach((j, i) => {
-      const g1 = (j.gols_time1 || 0) + (supportsVolta ? (j.gols_time1_volta || 0) : 0)
-      const g2 = (j.gols_time2 || 0) + (supportsVolta ? (j.gols_time2_volta || 0) : 0)
-      if (g1 === g2) empates.push(i + 1)
-    })
-    if (empates.length) {
-      console.warn('Semis empatadas no agregado:', empates)
     }
 
     try {
@@ -554,9 +546,118 @@ export default function SemiPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.erro || 'Falha ao definir Final')
 
-      toast.success('Semifinal finalizada e Final definida!')
-      window.location.href = '/copa/final'
+      toast.success('Final definida!')
+      router.push('/copa/final') // ✅ navega já com a final gravada
     } catch (e: any) {
+      toast.error(e?.message || 'Erro ao definir a Final')
+    }
+  }
+
+  /** ====== Botão 2: grava direto no Supabase e redireciona ====== */
+  async function definirFinalSupabase() {
+    if (!isAdmin) { toast.error('Apenas admin pode definir a Final.'); return }
+
+    // Recarrega do banco para garantir dados mais recentes e detectar *_volta
+    let hasVolta = true
+    let semis: any[] = []
+    {
+      const q1 = await supabase
+        .from('copa_semi')
+        .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2,gols_time1_volta,gols_time2_volta')
+        .order('ordem', { ascending: true })
+      if (q1.error && mentionsVolta(q1.error.message)) {
+        hasVolta = false
+        const q2 = await supabase
+          .from('copa_semi')
+          .select('id,ordem,id_time1,id_time2,time1,time2,gols_time1,gols_time2')
+          .order('ordem', { ascending: true })
+        if (q2.error) { toast.error('Erro ao ler Semifinal'); return }
+        semis = q2.data || []
+      } else if (q1.error) {
+        toast.error('Erro ao ler Semifinal'); return
+      } else {
+        semis = q1.data || []
+      }
+    }
+
+    if (semis.length !== 2) {
+      toast.error('Devem existir exatamente 2 confrontos na Semifinal.')
+      return
+    }
+
+    // Valida placares preenchidos
+    const incompleto = semis.some(j =>
+      j.gols_time1 == null || j.gols_time2 == null ||
+      (hasVolta && ((j.gols_time1_volta ?? null) == null || (j.gols_time2_volta ?? null) == null))
+    )
+    if (incompleto) {
+      toast.error('Preencha todos os placares (ida e volta, se houver) antes de definir a Final.')
+      return
+    }
+
+    // Helper desempate por pontos da classificação
+    const pontosDe = (id: string) => pontosCampanha(id)
+
+    // Decide vencedor de um confronto
+    const vencedorDe = (j: any) => {
+      const soma1 = (j.gols_time1 ?? 0) + (hasVolta ? (j.gols_time1_volta ?? 0) : 0)
+      const soma2 = (j.gols_time2 ?? 0) + (hasVolta ? (j.gols_time2_volta ?? 0) : 0)
+      if (soma1 > soma2) return { id: j.id_time1, nome: j.time1 }
+      if (soma2 > soma1) return { id: j.id_time2, nome: j.time2 }
+      // empate no agregado -> desempate por pontos; persistindo empate, vence time1
+      const p1 = pontosDe(j.id_time1)
+      const p2 = pontosDe(j.id_time2)
+      if (p1 > p2) return { id: j.id_time1, nome: j.time1 }
+      if (p2 > p1) return { id: j.id_time2, nome: j.time2 }
+      return { id: j.id_time1, nome: j.time1 }
+    }
+
+    const v1 = vencedorDe(semis[0])
+    const v2 = vencedorDe(semis[1])
+
+    if (!v1?.id || !v2?.id) {
+      toast.error('Falha ao determinar vencedores da Semifinal.')
+      return
+    }
+    if (v1.id === v2.id) {
+      toast.error('Os dois vencedores não podem ser o mesmo time.')
+      return
+    }
+
+    try {
+      // Apaga Final anterior (se houver)
+      const del = await supabase.from('copa_final').delete().neq('id', 0)
+      if (del.error && del.error.code !== '42P01') { // ignora "tabela não existe"
+        throw del.error
+      }
+
+      // Tenta inserir com campos *_volta (se a tabela tiver). Se der erro de coluna, insere sem *_volta.
+      const base = {
+        rodada: 1,
+        ordem: 1,
+        id_time1: toDBId(v1.id),
+        id_time2: toDBId(v2.id),
+        time1: v1.nome,
+        time2: v2.nome,
+        gols_time1: null,
+        gols_time2: null
+      }
+
+      const ins1 = await supabase.from('copa_final')
+        .insert({ ...base, gols_time1_volta: null, gols_time2_volta: null })
+        .select('id')
+
+      if (ins1.error && mentionsVolta(ins1.error.message)) {
+        const ins2 = await supabase.from('copa_final').insert(base).select('id')
+        if (ins2.error) throw ins2.error
+      } else if (ins1.error) {
+        throw ins1.error
+      }
+
+      toast.success('Final definida com sucesso!')
+      router.push('/copa/final') // ✅ navega para a página da final já com o confronto salvo
+    } catch (e:any) {
+      console.error(e)
       toast.error(e?.message || 'Erro ao definir a Final')
     }
   }
@@ -577,7 +678,7 @@ export default function SemiPage() {
         </h1>
 
         {isAdmin && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl shadow"
               onClick={abrirSorteioPoteUnico}
@@ -590,13 +691,25 @@ export default function SemiPage() {
             >
               🗑️ Apagar sorteio
             </button>
+
+            {/* Botão 1 — via API */}
             <button
               className={`px-4 py-2 rounded-xl ${semiCompleta ? 'bg-blue-700 hover:bg-blue-600 text-white' : 'bg-blue-700/50 text-white/70 cursor-not-allowed'}`}
               disabled={!semiCompleta}
               onClick={finalizarSemi}
-              title={semiCompleta ? 'Definir Final' : 'Preencha todos os placares para habilitar'}
+              title="Definir Final (via API /api/copa/definir-final)"
             >
-              🏁 Finalizar Semifinal (definir Final)
+              Definir Final
+            </button>
+
+            {/* Botão 2 — direto no Supabase */}
+            <button
+              className={`px-4 py-2 rounded-xl ${semiCompleta ? 'bg-indigo-700 hover:bg-indigo-600 text-white' : 'bg-indigo-700/50 text-white/70 cursor-not-allowed'}`}
+              disabled={!semiCompleta}
+              onClick={definirFinalSupabase}
+              title="Definir Final (grava direto na tabela copa_final)"
+            >
+              Definir Final
             </button>
           </div>
         )}
