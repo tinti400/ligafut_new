@@ -383,34 +383,36 @@ export default function Jogos() {
 
   useEffect(() => { carregarDados() }, [temporada, divisao])
 
-  // gerar T3 (todas divisões, ida+volta) — visível só para admin
-  const gerarTemporada3 = async () => {
+  // ================== NOVO: gerar temporada genérico (inclui T4) ==================
+  const gerarTemporada = async (temp: number) => {
     if (!isAdmin) return
-    if (!confirm('Gerar jogos da Temporada 4 para as Divisões 1, 2 e 3?')) return
+    if (!confirm(`Gerar jogos da Temporada ${temp} para as Divisões 1, 2 e 3 (ida+volta)?`)) return
     try {
       setGerando(true)
-      toast.loading('Iniciando Temporada 3...', { id: 'gerar-t3' })
+      toast.loading(`Iniciando Temporada ${temp}...`, { id: 'gerar-t' })
 
+      // 1) cria/zera classificação da temporada
       const resA = await fetch('/api/iniciar-temporada', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ temporada: 3 })
+        body: JSON.stringify({ temporada: temp })
       })
       const a = await resA.json()
       if (!resA.ok || !a?.ok) throw new Error(a?.erro || 'Falha ao iniciar temporada')
 
-      toast.loading('Gerando rodadas/jogos da T3...', { id: 'gerar-t3' })
+      // 2) gera rodadas/jogos
+      toast.loading(`Gerando rodadas/jogos da T${temp}...`, { id: 'gerar-t' })
       const resB = await fetch('/api/gerar-jogos-temporada', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ temporada: 3, divisoes: [1,2,3], duploTurno: true })
+        body: JSON.stringify({ temporada: temp, divisoes: [1,2,3], duploTurno: true })
       })
       const b = await resB.json()
       if (!resB.ok || !b?.ok) throw new Error(b?.erro || 'Falha ao gerar jogos')
 
-      toast.success('✅ Temporada 3 gerada com sucesso!', { id: 'gerar-t3' })
-      setTemporada(3)
+      toast.success(`✅ Temporada ${temp} gerada! Rodadas: ${b.total_rodadas} | Jogos: ${b.total_jogos}`, { id: 'gerar-t' })
+      setTemporada(temp)
       await carregarDados()
     } catch (e: any) {
-      toast.error(`❌ ${e.message || e}`, { id: 'gerar-t3' })
+      toast.error(`❌ ${e.message || e}`, { id: 'gerar-t' })
     } finally {
       setGerando(false)
     }
@@ -520,10 +522,7 @@ export default function Jogos() {
     const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
     toast.success(
-      `✅ Placar salvo! ${feitos}/${total} jogos desta rodada com placar.
-🎟️ Público (do estádio): ${publico.toLocaleString()}  |  💰 Renda (do estádio): R$ ${renda.toLocaleString()}
-💵 ${mandanteNome}: R$ ${Math.round(receitaMandante).toLocaleString()} + bônus (liga) + patrocínios
-💵 ${visitanteNome}: R$ ${Math.round(receitaVisitante).toLocaleString()} + bônus (liga) + patrocínios`,
+      `✅ Placar salvo! ${feitos}/${total} jogos desta rodada com placar.\n🎟️ Público (do estádio): ${publico.toLocaleString()}  |  💰 Renda (do estádio): R$ ${renda.toLocaleString()}\n💵 ${mandanteNome}: R$ ${Math.round(receitaMandante).toLocaleString()} + bônus (liga) + patrocínios\n💵 ${visitanteNome}: R$ ${Math.round(receitaVisitante).toLocaleString()} + bônus (liga) + patrocínios`,
       { duration: 9000 }
     )
 
@@ -745,19 +744,35 @@ export default function Jogos() {
             {feitosGlobais}/{totalGlobais} jogos com placar (filtro atual)
           </span>
 
-          {/* Botão admin (oculto para não-admin) */}
+          {/* Botões admin */}
           {isAdmin && (
-            <button
-              onClick={gerarTemporada3}
-              disabled={gerando}
-              className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
-                gerando ? 'bg-gray-700 border-white/10 text-white/70'
-                        : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
-              }`}
-              title="Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada 3"
-            >
-              {gerando ? 'Processando…' : '⚙️ Gerar Temporada 3'}
-            </button>
+            <div className="flex gap-2">
+              {/* Gerar a temporada atualmente escolhida (1–4) */}
+              <button
+                onClick={() => gerarTemporada(temporada)}
+                disabled={gerando}
+                className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
+                  gerando ? 'bg-gray-700 border-white/10 text-white/70'
+                          : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
+                }`}
+                title={`Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada ${temporada}`}
+              >
+                {gerando ? 'Processando…' : `⚙️ Gerar Temporada ${temporada}`}
+              </button>
+
+              {/* Atalho direto para T4 */}
+              <button
+                onClick={() => gerarTemporada(4)}
+                disabled={gerando}
+                className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
+                  gerando ? 'bg-gray-700 border-white/10 text-white/70'
+                          : 'bg-sky-600 border-sky-500/50 text-black hover:bg-sky-500'
+                }`}
+                title="Gerar imediatamente a Temporada 4 (ida+volta nas divisões 1–3)"
+              >
+                {gerando ? 'Processando…' : '⚙️ Gerar Temporada 4'}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -780,9 +795,8 @@ export default function Jogos() {
                   const mandante = timesMap[jogo.mandante]
                   const visitante = timesMap[jogo.visitante]
                   const estaEditando = editandoRodada === rodada.id && editandoIndex === index
-                  const jaPago = !!jogo.bonus_pago
-                  const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
                   const temPlacar = isPlacarPreenchido(jogo)
+                  const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
 
                   return (
                     <article
