@@ -3,52 +3,65 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
+import { useAdmin } from '@/hooks/useAdmin'
 
-/** === Supabase (client) === */
+/** ========== Supabase client (anon) ========== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
-/** === Tipos === */
+/** ========== Tipos ========== */
 type UUID = string
 
-type TimeRow = {
+type Time = {
   id: UUID
   nome: string
   logo_url?: string | null
-  divisao?: number | null
 }
 
-type Jogo = {
-  mandante_id: UUID
-  visitante_id: UUID
-  mandante: string
-  visitante: string
-  gols_mandante: number | null
-  gols_visitante: number | null
+type JogoLC = {
+  // Suporta ambos formatos: (mandante|visitante) ou (mandante_id|visitante_id)
+  mandante?: UUID
+  visitante?: UUID
+  mandante_id?: UUID
+  visitante_id?: UUID
+
+  gols_mandante?: number
+  gols_visitante?: number
+
+  // Controle de “primeiro lançamento” (apenas flag, sem finanças na Liga-Copa)
+  bonus_pago?: boolean
+
+  // opcional: data exibida
   data_iso?: string | null
 }
 
-type RodadaRow = {
+type RodadaLC = {
   id: UUID
   numero: number
-  jogos: Jogo[] | null
+  jogos: JogoLC[]
   created_at?: string
 }
 
-/** === Utils === */
-const clampInt = (v: any) => {
-  if (v === '' || v === null || v === undefined) return null
-  const n = Number(v)
-  if (!Number.isFinite(n)) return null
-  return Math.max(0, Math.floor(n))
+/** ========== Helpers ========== */
+const getMandanteId = (j: JogoLC) => (j.mandante ?? j.mandante_id) as UUID
+const getVisitanteId = (j: JogoLC) => (j.visitante ?? j.visitante_id) as UUID
+const isPlacar = (j: JogoLC) =>
+  j.gols_mandante !== undefined && j.gols_mandante !== null &&
+  j.gols_visitante !== undefined && j.gols_visitante !== null
+
+const resumoRodada = (r: RodadaLC) => {
+  const total = r.jogos.length
+  const feitos = r.jogos.filter(isPlacar).length
+  return { feitos, total }
 }
 
-/** === Classificação === */
+/** ========== Classificação (turno único) ========== */
 type RowClass = {
   id_time: UUID
   nome: string
+  logo_url?: string | null
   jogos: number
   v: number
   e: number
@@ -57,51 +70,47 @@ type RowClass = {
   gc: number
   sg: number
   pontos: number
-  logo_url?: string | null
-  divisao?: number | null
 }
 
-function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[] {
+function computeClassificacao(rodadas: RodadaLC[], timesMap: Record<string, Time>): RowClass[] {
   const map = new Map<UUID, RowClass>()
-  for (const t of times) {
-    map.set(t.id, {
-      id_time: t.id,
-      nome: t.nome,
-      logo_url: t.logo_url,
-      divisao: t.divisao,
-      jogos: 0,
-      v: 0,
-      e: 0,
-      d: 0,
-      gp: 0,
-      gc: 0,
-      sg: 0,
-      pontos: 0,
-    })
+
+  const ensure = (id: UUID) => {
+    if (!map.has(id)) {
+      const t = timesMap[id]
+      map.set(id, {
+        id_time: id,
+        nome: t?.nome || '—',
+        logo_url: t?.logo_url || null,
+        jogos: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0, pontos: 0
+      })
+    }
+    return map.get(id)!
   }
+
   for (const r of rodadas) {
-    for (const j of r.jogos ?? []) {
+    for (const j of r.jogos) {
+      const mid = getMandanteId(j)
+      const vid = getVisitanteId(j)
+      if (!mid || !vid) continue
       if (j.gols_mandante == null || j.gols_visitante == null) continue
-      const m = map.get(j.mandante_id)
-      const v = map.get(j.visitante_id)
-      if (!m || !v) continue
 
-      m.jogos += 1
-      v.jogos += 1
-      m.gp += j.gols_mandante
-      m.gc += j.gols_visitante
-      v.gp += j.gols_visitante
-      v.gc += j.gols_mandante
+      const M = ensure(mid)
+      const V = ensure(vid)
 
-      if (j.gols_mandante > j.gols_visitante) {
-        m.v += 1; m.pontos += 3; v.d += 1
-      } else if (j.gols_mandante < j.gols_visitante) {
-        v.v += 1; v.pontos += 3; m.d += 1
-      } else {
-        m.e += 1; v.e += 1; m.pontos += 1; v.pontos += 1
-      }
+      M.jogos += 1
+      V.jogos += 1
+      M.gp += j.gols_mandante
+      M.gc += j.gols_visitante
+      V.gp += j.gols_visitante
+      V.gc += j.gols_mandante
+
+      if (j.gols_mandante > j.gols_visitante) { M.v++; M.pontos += 3; V.d++ }
+      else if (j.gols_mandante < j.gols_visitante) { V.v++; V.pontos += 3; M.d++ }
+      else { M.e++; V.e++; M.pontos++; V.pontos++ }
     }
   }
+
   for (const r of map.values()) r.sg = r.gp - r.gc
 
   return Array.from(map.values()).sort((a, b) => {
@@ -113,327 +122,283 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
   })
 }
 
-/** === Descobrir Admin (via localStorage) === */
-function descobrirAdmin(): boolean {
-  try {
-    const ls = (k: string) => (typeof window !== 'undefined' ? localStorage.getItem(k) : null)
+/** ========== Página ========== */
+export default function LigaCopa() {
+  const { isAdmin, loading: loadingAdmin } = useAdmin()
 
-    // flags diretas
-    if (ls('is_admin') === '1') return true
-    if (ls('admin') === '1' || ls('admin') === 'true') return true
+  const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
+  const [rodadas, setRodadas] = useState<RodadaLC[]>([])
+  const [filtroRodada, setFiltroRodada] = useState<number | ''>('')
+  const [mostrarClassificacao, setMostrarClassificacao] = useState(false)
 
-    // role/perfil
-    const role = (ls('role') || '').toLowerCase()
-    if (role === 'admin' || role === 'super' || role === 'owner') return true
+  // edição inline (igual ao Jogos)
+  const [editRodadaId, setEditRodadaId] = useState<UUID | null>(null)
+  const [editIndex, setEditIndex] = useState<number | null>(null)
+  const [gM, setGM] = useState<number>(0)
+  const [gV, setGV] = useState<number>(0)
+  const [salvando, setSalvando] = useState(false)
+  const [gerando, setGerando] = useState(false)
 
-    const perfil = (ls('perfil') || '').toLowerCase()
-    if (perfil.includes('admin')) return true
-
-    // user JSON
-    const userStr = ls('user') || ls('usuario')
-    if (userStr) {
-      try {
-        const u = JSON.parse(userStr)
-        if (u?.admin === true) return true
-        const r = (u?.role || u?.papel || '').toLowerCase()
-        if (['admin', 'super', 'owner'].includes(r)) return true
-      } catch {}
-    }
-  } catch {}
-  return false
-}
-
-/** === Page === */
-export default function LigaCopaPage() {
-  const [times, setTimes] = useState<TimeRow[]>([])
-  const [rodadas, setRodadas] = useState<RodadaRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [savingRodada, setSavingRodada] = useState<number | null>(null)
-
-  // preferências UI
-  const [showClass, setShowClass] = useState<boolean>(true)
-  const [isAdmin, setIsAdmin] = useState<boolean>(false)
-  const [filtroRodada, setFiltroRodada] = useState<number | 'all'>('all')
-
-  // carregar SOMENTE divisões 1 a 3
+  /** Carregar Times (para nomes/logos) */
   const loadTimes = async () => {
     const { data, error } = await supabase
       .from('times')
-      .select('id, nome, logo_url, divisao')
-      .in('divisao', [1, 2, 3])
-      .order('divisao', { ascending: true })
-      .order('nome', { ascending: true })
-
+      .select('id, nome, logo_url')
     if (error) {
-      toast.error('Erro ao carregar times das divisões 1 a 3')
       console.error(error)
-      setTimes([])
       return
     }
-    setTimes((data as TimeRow[]) || [])
+    const map: Record<string, Time> = {}
+    for (const t of (data || [])) map[t.id] = t as Time
+    setTimesMap(map)
   }
 
+  /** Carregar Rodadas Liga-Copa */
   const loadRodadas = async () => {
     const { data, error } = await supabase
       .from('liga_copa_rodadas')
       .select('id, numero, jogos, created_at')
       .order('numero', { ascending: true })
+
     if (error) {
-      console.warn('liga_copa_rodadas não encontrada ou erro ao buscar', error)
+      console.warn('Erro ao buscar liga_copa_rodadas', error)
       setRodadas([])
       return
     }
-    setRodadas((data as RodadaRow[]) || [])
+    setRodadas((data as any as RodadaLC[]) || [])
   }
 
-  // init
   useEffect(() => {
-    // prefs
-    try {
-      const pref = localStorage.getItem('lc_show_class')
-      if (pref !== null) setShowClass(pref === '1')
-    } catch {}
-    setIsAdmin(descobrirAdmin())
-
     loadTimes()
     loadRodadas()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // persistir toggle classificação
-  useEffect(() => {
+  /** Gerar/Resetar via API (admin) */
+  const gerarViaAPI = async () => {
+    if (!isAdmin) return
+    setGerando(true)
+    const id = 'gera-lc'
     try {
-      localStorage.setItem('lc_show_class', showClass ? '1' : '0')
-    } catch {}
-  }, [showClass])
+      toast.loading('Gerando confrontos da Liga-Copa…', { id })
+      const res = await fetch('/api/liga-copa/gerar', { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json?.ok) throw new Error(json?.error || `Erro ${res.status}`)
+      await loadRodadas()
+      toast.success(`✅ Rodadas geradas (${json.rodadas})`, { id })
+    } catch (e: any) {
+      console.error(e)
+      toast.error(`❌ ${e?.message || 'Falha ao gerar rodadas'}`, { id })
+    } finally {
+      setGerando(false)
+    }
+  }
 
-  const classificacao = useMemo(() => computeClassificacao(rodadas, times), [rodadas, times])
+  /** Salvar PRIMEIRO lançamento (Liga-Copa: só grava placar e marca flag) */
+  const salvarPrimeiroLancamento = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
+    if (salvando) return
+    setSalvando(true)
+    try {
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
 
-  // lista de rodadas para filtro
-  const numerosRodadas = useMemo(
-    () => Array.from(new Set(rodadas.map(r => r.numero))).sort((a, b) => a - b),
-    [rodadas]
-  )
+      if (error || !data) throw new Error('Rodada não encontrada')
 
+      const lista: JogoLC[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
+
+      // grava placar e marca “bonus_pago” como feito (apenas semântica de 1º lançamento)
+      jogo.gols_mandante = Number.isFinite(gm) ? Number(gm) : 0
+      jogo.gols_visitante = Number.isFinite(gv) ? Number(gv) : 0
+      jogo.bonus_pago = true
+
+      lista[index] = jogo
+      const { error: updErr } = await supabase
+        .from('liga_copa_rodadas')
+        .update({ jogos: lista })
+        .eq('id', rodadaId)
+
+      if (updErr) throw updErr
+
+      setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: lista } : r))
+      toast.success('✅ Placar salvo!')
+      setEditRodadaId(null); setEditIndex(null)
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao salvar placar')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  /** Salvar AJUSTE (sem “repetir bônus”) */
+  const salvarAjuste = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
+    if (salvando) return
+    setSalvando(true)
+    try {
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+
+      if (error || !data) throw new Error('Rodada não encontrada')
+
+      const lista: JogoLC[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
+      jogo.gols_mandante = Number.isFinite(gm) ? Number(gm) : 0
+      jogo.gols_visitante = Number.isFinite(gv) ? Number(gv) : 0
+      jogo.bonus_pago = true // mantém true
+
+      lista[index] = jogo
+      const { error: updErr } = await supabase
+        .from('liga_copa_rodadas')
+        .update({ jogos: lista })
+        .eq('id', rodadaId)
+
+      if (updErr) throw updErr
+
+      setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: lista } : r))
+      toast.success('✏️ Resultado ajustado!')
+      setEditRodadaId(null); setEditIndex(null)
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao ajustar placar')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  /** Excluir resultado (apenas limpar campos) */
+  const excluirResultado = async (rodadaId: UUID, index: number) => {
+    if (!confirm('Deseja excluir o resultado deste jogo?')) return
+    try {
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+
+      if (error || !data) throw new Error('Rodada não encontrada')
+
+      const lista: JogoLC[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
+      delete jogo.gols_mandante
+      delete jogo.gols_visitante
+      jogo.bonus_pago = false
+      lista[index] = jogo
+
+      const { error: updErr } = await supabase
+        .from('liga_copa_rodadas')
+        .update({ jogos: lista })
+        .eq('id', rodadaId)
+      if (updErr) throw updErr
+
+      setRodadas(prev => prev.map(r => r.id === rodadaId ? { ...r, jogos: lista } : r))
+      toast.success('🗑️ Resultado removido.')
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao remover resultado')
+    }
+  }
+
+  /** Filtro por rodada */
   const rodadasFiltradas = useMemo(() => {
-    if (filtroRodada === 'all') return rodadas
+    if (filtroRodada === '') return rodadas
     return rodadas.filter(r => r.numero === filtroRodada)
   }, [rodadas, filtroRodada])
 
-  /** === GERAR/RESETAR CONFRONTOS (via API) === */
-  const gerarLigaCopa = async () => {
-    if (times.length < 2) {
-      toast.error('Cadastre ao menos 2 times (divisões 1 a 3).')
-      return
-    }
-    setLoading(true)
-    const idLoading = 'gera-lc-api'
-    try {
-      toast.loading('Gerando confrontos da Liga-Copa…', { id: idLoading })
+  /** Contagem global (do filtro atual) */
+  const feitosGlobais = useMemo(
+    () => rodadasFiltradas.reduce((acc, r) => acc + resumoRodada(r).feitos, 0),
+    [rodadasFiltradas]
+  )
+  const totalGlobais = useMemo(
+    () => rodadasFiltradas.reduce((acc, r) => acc + r.jogos.length, 0),
+    [rodadasFiltradas]
+  )
 
-      const res = await fetch('/api/liga-copa/gerar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const json = await res.json()
+  const classificacao = useMemo(
+    () => computeClassificacao(rodadas, timesMap),
+    [rodadas, timesMap]
+  )
 
-      if (!res.ok || !json?.ok) {
-        console.error(json)
-        toast.error(json?.error || 'Erro ao gerar rodadas.', { id: idLoading })
-        return
-      }
+  if (loadingAdmin) return <p className="text-center text-white mt-6">🔄 Verificando permissões…</p>
 
-      await loadRodadas()
-      toast.success(`✅ Liga-Copa gerada: ${json.rodadas} rodadas`, { id: idLoading })
-    } catch (e) {
-      console.error(e)
-      toast.error('Erro inesperado ao chamar a API.', { id: idLoading })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const salvarRodada = async (numero: number, jogosAtualizados: Jogo[]) => {
-    if (!isAdmin) {
-      toast.error('Apenas administradores podem salvar resultados.')
-      return
-    }
-    setSavingRodada(numero)
-    try {
-      const { error: updErr } = await supabase
-        .from('liga_copa_rodadas')
-        .update({ jogos: jogosAtualizados })
-        .eq('numero', numero)
-
-      if (updErr) {
-        toast.error(`Erro ao salvar a rodada ${numero}`)
-        console.error(updErr)
-        return
-      }
-
-      await loadRodadas()
-      toast.success(`Rodada ${numero} salva!`)
-    } finally {
-      setSavingRodada(null)
-    }
-  }
-
-  const setGol = (
-    rnum: number,
-    idx: number,
-    field: 'gols_mandante' | 'gols_visitante',
-    val: number | null
-  ) => {
-    if (!isAdmin) return // bloqueia edição no estado para não-admin
-    setRodadas(prev =>
-      prev.map(r => {
-        if (r.numero !== rnum) return r
-        const jogos = [...(r.jogos || [])]
-        const j = { ...(jogos[idx] || {}) } as Jogo
-        ;(j as any)[field] = val
-        jogos[idx] = j
-        return { ...r, jogos }
-      })
-    )
-  }
-
-  /** === UI helpers === */
-  const aproveitamento = (row: RowClass) =>
-    row.jogos > 0 ? Math.round((row.pontos / (row.jogos * 3)) * 100) : 0
-
-  // mapeia a faixa por posição (1-10 → D1, 11-20 → D2, 21-último → D3)
-  const faixaPorPosicao = (pos: number) => {
-    if (pos >= 1 && pos <= 10) return { rotulo: '1ª Divisão', cor: 'bg-emerald-500 text-black', chip: 'bg-emerald-600/20 ring-emerald-500/40' }
-    if (pos >= 11 && pos <= 20) return { rotulo: '2ª Divisão', cor: 'bg-sky-400 text-black', chip: 'bg-sky-600/20 ring-sky-400/40' }
-    return { rotulo: '3ª Divisão', cor: 'bg-amber-400 text-black', chip: 'bg-amber-600/20 ring-amber-400/40' }
-  }
-
-  /** === Render === */
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-black text-white">
-      {/* Título */}
-      <div className="max-w-6xl mx-auto px-4 pt-10">
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-center mb-6">
-          <span className="bg-gradient-to-r from-yellow-400 via-emerald-400 to-lime-300 bg-clip-text text-transparent">
-            🏟️ Liga-Copa (D1–D3) • Turno Único
-          </span>
+    <div className="relative min-h-screen pb-12">
+      {/* glows de fundo */}
+      <div className="pointer-events-none absolute -top-40 -right-40 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
+
+      {/* Cabeçalho */}
+      <header className="max-w-7xl mx-auto px-6 pt-6">
+        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
+          🏟️ Liga-Copa • Turno Único (D1–D3)
         </h1>
-      </div>
+        <p className="text-sm text-white/60 mt-1">
+          Confrontos em turno único entre todos os times das Divisões 1, 2 e 3.
+        </p>
+      </header>
 
-      {/* Barra de Ações */}
-      <div className="max-w-6xl mx-auto px-4">
-        <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* Botão gerar */}
-          <div className="flex items-center justify-center">
-            <button
-              onClick={gerarLigaCopa}
-              disabled={loading || times.length < 2}
-              className={`px-4 py-2 rounded-full text-sm border transition ${
-                loading
-                  ? 'bg-gray-700 text-gray-300 cursor-not-allowed border-white/10'
-                  : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-500/50'
-              }`}
-              title="Gera/Reseta todas as rodadas da Liga-Copa via API"
-            >
-              {loading ? 'Gerando…' : '🚀 Gerar/Resetar Rodadas'}
-            </button>
-          </div>
-
+      {/* Painel de filtros (sticky) */}
+      <div className="sticky top-0 z-10 mt-4 bg-gradient-to-b from-black/60 to-transparent backdrop-blur px-6 py-3 border-b border-white/10">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-2">
           {/* Filtro por rodada */}
-          <div className="flex items-center justify-center gap-2">
-            <label className="text-sm text-gray-300">Rodada:</label>
+          <div className="inline-flex items-center gap-2">
+            <label className="text-white/70 text-sm">Rodada:</label>
             <select
-              value={filtroRodada === 'all' ? 'all' : String(filtroRodada)}
-              onChange={(e) =>
-                setFiltroRodada(e.target.value === 'all' ? 'all' : Number(e.target.value))
-              }
-              className="rounded-lg bg-gray-800 text-white text-sm px-3 py-2 border border-white/10"
-              title="Filtrar por rodada"
+              value={filtroRodada}
+              onChange={(e) => setFiltroRodada(e.target.value === '' ? '' : Number(e.target.value))}
+              className="p-2 bg-white/5 border border-white/10 text-white rounded-lg"
             >
-              <option value="all">Todas</option>
-              {numerosRodadas.map(n => (
-                <option key={n} value={n}>{n}</option>
+              <option value="">Todas</option>
+              {rodadas.map(r => (
+                <option key={r.id} value={r.numero}>Rodada {r.numero}</option>
               ))}
             </select>
           </div>
 
           {/* Toggle classificação */}
-          <div className="flex items-center justify-center gap-3">
-            <span className="text-sm text-gray-300">Classificação</span>
-            <button
-              onClick={() => setShowClass(v => !v)}
-              className={[
-                'relative inline-flex h-8 w-16 items-center rounded-full border transition',
-                showClass ? 'bg-emerald-600 border-emerald-500' : 'bg-gray-700 border-white/10'
-              ].join(' ')}
-              aria-pressed={showClass}
-              title={showClass ? 'Ocultar classificação' : 'Mostrar classificação'}
-            >
-              <span
-                className={[
-                  'inline-block h-6 w-6 transform rounded-full bg-white transition',
-                  showClass ? 'translate-x-9' : 'translate-x-1'
-                ].join(' ')}
-              />
-            </button>
-          </div>
-        </div>
+          <button
+            onClick={() => setMostrarClassificacao(v => !v)}
+            className="px-3 py-2 rounded-xl text-sm font-semibold bg-white/5 border border-white/10 text-white/80 hover:bg-white/10"
+            title={mostrarClassificacao ? 'Ocultar classificação' : 'Mostrar classificação'}
+          >
+            {mostrarClassificacao ? 'Ocultar Classificação' : 'Mostrar Classificação'}
+          </button>
 
-        <div className="mb-1 text-center text-xs text-emerald-300">
-          Participantes (D1–D3): <b>{times.length}</b>
-          {!isAdmin && (
-            <span className="ml-2 text-amber-300">• edição de resultados bloqueada (somente admin)</span>
+          {/* Resumo */}
+          <span className="ml-auto text-xs md:text-sm px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/80">
+            {feitosGlobais}/{totalGlobais} jogos com placar {filtroRodada ? `(Rodada ${filtroRodada})` : ''}
+          </span>
+
+          {/* Botão de gerar (admin) */}
+          {isAdmin && (
+            <button
+              onClick={gerarViaAPI}
+              disabled={gerando}
+              className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
+                gerando ? 'bg-gray-700 border-white/10 text-white/70'
+                        : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
+              }`}
+              title="Gera/Reseta todas as rodadas da Liga-Copa via API"
+            >
+              {gerando ? 'Processando…' : '⚙️ Gerar Rodadas'}
+            </button>
           )}
         </div>
       </div>
 
-      {/* Legenda (faixas por posição) */}
-      <div className="max-w-6xl mx-auto px-4 mt-2 mb-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-2 bg-emerald-600/20 ring-1 ring-emerald-500/40 px-2.5 py-1 rounded-full">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> 1º – 10º • 1ª Divisão
-          </span>
-          <span className="inline-flex items-center gap-2 bg-sky-600/20 ring-1 ring-sky-400/40 px-2.5 py-1 rounded-full">
-            <span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> 11º – 20º • 2ª Divisão
-          </span>
-          <span className="inline-flex items-center gap-2 bg-amber-600/20 ring-1 ring-amber-400/40 px-2.5 py-1 rounded-full">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> 21º – Último • 3ª Divisão
-          </span>
-        </div>
-      </div>
-
-      {/* Classificação (ocultável) */}
-      {showClass && (
-        <div className="max-w-6xl mx-auto px-4 pb-10">
-          {/* Compartilhar */}
-          <div className="mb-3 flex justify-end">
-            <a
-              href={`https://wa.me/?text=${encodeURIComponent(
-                `📊 Liga-Copa (Turno Único • D1–D3):\n\n` +
-                  classificacao
-                    .map(
-                      (item, i) =>
-                        `${i + 1}º ${item.nome} - ${item.pontos} pts (${item.v}V ${item.e}E ${item.d}D)`
-                    )
-                    .join('\n')
-              )}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm px-3 py-1.5 rounded-lg font-semibold"
-            >
-              📤 Compartilhar
-            </a>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-white/10 bg-gray-900/60 shadow-2xl shadow-black/30">
+      {/* Classificação (opcional) */}
+      {mostrarClassificacao && (
+        <div className="max-w-7xl mx-auto px-6 mt-6">
+          <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5">
             <table className="min-w-full text-sm">
-              <thead className="bg-black/70 text-yellow-300 border-b border-white/10">
+              <thead className="bg-black/60 text-emerald-300">
                 <tr>
-                  <th className="py-3 px-4 text-left">Pos</th>
-                  <th className="py-3 px-4 text-left">Time</th>
-                  <th className="py-3 px-2 text-center">Faixa</th>
+                  <th className="py-3 px-3 text-left">#</th>
+                  <th className="py-3 px-3 text-left">Time</th>
                   <th className="py-3 px-2 text-center">Pts</th>
-                  <th className="py-3 px-2 text-center">Aprove.</th>
                   <th className="py-3 px-2 text-center">J</th>
                   <th className="py-3 px-2 text-center">V</th>
                   <th className="py-3 px-2 text-center">E</th>
@@ -443,85 +408,35 @@ export default function LigaCopaPage() {
                   <th className="py-3 px-2 text-center">SG</th>
                 </tr>
               </thead>
-
-              <tbody className="divide-y divide-white/5">
-                {classificacao.map((item, index) => {
-                  const pos = index + 1
-                  const ap = aproveitamento(item)
-                  const faixa = faixaPorPosicao(pos)
-
-                  const linhaCor =
-                    pos <= 10
-                      ? 'bg-emerald-950/30 hover:bg-emerald-900/30'
-                      : pos <= 20
-                      ? 'bg-sky-950/30 hover:bg-sky-900/30'
-                      : 'bg-amber-950/30 hover:bg-amber-900/30'
-
-                  return (
-                    <tr key={item.id_time} className={`${linhaCor} transition-colors`}>
-                      <td className="py-2.5 px-4">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ring-1 ring-white/10 bg-gray-700 text-gray-200">
-                          {pos}
-                        </span>
-                      </td>
-
-                      <td className="py-2.5 px-4">
-                        <div className="flex items-center gap-3">
-                          {item.logo_url ? (
-                            <img
-                              src={item.logo_url}
-                              alt={item.nome}
-                              className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover"
-                            />
-                          ) : (
-                            <span className="w-7 h-7 grid place-items-center rounded-full bg-gray-700 text-[10px] text-gray-200 ring-1 ring-white/10">
-                              {item.nome.slice(0, 2).toUpperCase()}
-                            </span>
-                          )}
-                          <span className="font-medium">{item.nome}</span>
-                          {typeof item.divisao === 'number' && (
-                            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 ring-1 ring-white/10 text-gray-300">
-                              D{item.divisao}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Faixa da próxima divisão */}
-                      <td className="py-2.5 px-2 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
-                          <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
-                          {faixa.rotulo}
-                        </span>
-                      </td>
-
-                      <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{item.pontos}</td>
-
-                      <td className="py-2.5 px-2">
-                        <div className="flex flex-col items-center gap-1">
-                          <div className="w-24 md:w-32 h-2 rounded-full bg-gray-700 overflow-hidden">
-                            <div className="h-2 bg-emerald-500" style={{ width: `${ap}%` }} />
-                          </div>
-                          <span className="text-xs text-gray-300">{ap}%</span>
-                        </div>
-                      </td>
-
-                      <td className="py-2.5 px-2 text-center">{item.jogos}</td>
-                      <td className="py-2.5 px-2 text-center">{item.v}</td>
-                      <td className="py-2.5 px-2 text-center">{item.e}</td>
-                      <td className="py-2.5 px-2 text-center">{item.d}</td>
-                      <td className="py-2.5 px-2 text-center">{item.gp}</td>
-                      <td className="py-2.5 px-2 text-center">{item.gc}</td>
-                      <td className="py-2.5 px-2 text-center">{item.sg}</td>
-                    </tr>
-                  )
-                })}
-                {classificacao.length === 0 && (
-                  <tr>
-                    <td colSpan={12} className="px-3 py-8 text-center text-gray-400">
-                      Sem jogos finalizados ainda.
+              <tbody className="divide-y divide-white/10">
+                {classificacao.map((row, i) => (
+                  <tr key={row.id_time} className="hover:bg-white/5 transition">
+                    <td className="py-2.5 px-3">{i + 1}</td>
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-2">
+                        {row.logo_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={row.logo_url} alt="" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                        ) : (
+                          <span className="h-6 w-6 grid place-items-center rounded-full bg-gray-700 text-[10px] ring-1 ring-white/10">
+                            {row.nome.slice(0, 2).toUpperCase()}
+                          </span>
+                        )}
+                        <span className="font-medium">{row.nome}</span>
+                      </div>
                     </td>
+                    <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{row.pontos}</td>
+                    <td className="py-2.5 px-2 text-center">{row.jogos}</td>
+                    <td className="py-2.5 px-2 text-center">{row.v}</td>
+                    <td className="py-2.5 px-2 text-center">{row.e}</td>
+                    <td className="py-2.5 px-2 text-center">{row.d}</td>
+                    <td className="py-2.5 px-2 text-center">{row.gp}</td>
+                    <td className="py-2.5 px-2 text-center">{row.gc}</td>
+                    <td className="py-2.5 px-2 text-center">{row.sg}</td>
                   </tr>
+                ))}
+                {classificacao.length === 0 && (
+                  <tr><td colSpan={10} className="py-8 text-center text-white/60">Sem jogos finalizados ainda.</td></tr>
                 )}
               </tbody>
             </table>
@@ -529,91 +444,168 @@ export default function LigaCopaPage() {
         </div>
       )}
 
-      {/* Rodadas — filtro aplicado, apenas admin pode editar */}
-      <div className="max-w-6xl mx-auto px-4 pb-12">
-        <h2 className="text-base font-semibold text-gray-200 mb-3">Rodadas</h2>
-
-        {rodadasFiltradas.map(r => (
-          <div key={r.id ?? r.numero} className="rounded-xl border border-white/10 bg-gray-900/50 mb-4">
-            <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-white/10">
-              <h3 className="font-semibold">Rodada {r.numero}</h3>
-              <button
-                onClick={() => salvarRodada(r.numero, r.jogos || [])}
-                disabled={savingRodada === r.numero || !isAdmin}
-                className={`rounded-lg px-3 py-1.5 text-sm ${
-                  isAdmin
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-black'
-                    : 'bg-gray-700 text-gray-300 cursor-not-allowed'
-                }`}
-                title={isAdmin ? 'Salvar resultados' : 'Somente administradores podem salvar'}
-              >
-                {savingRodada === r.numero ? 'Salvando…' : 'Salvar resultados'}
-              </button>
-            </div>
-
-            {/* data da rodada (mostra a do 1º jogo, se houver) */}
-            <div className="px-4 md:px-6 py-2 text-xs text-gray-300">
-              {r?.jogos?.[0]?.data_iso && (
-                <span className="inline-flex items-center gap-2 px-2 py-0.5 rounded bg-white/5 ring-1 ring-white/10">
-                  🗓️ {new Date(r.jogos[0].data_iso as string).toLocaleString('pt-BR', {
-                    weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                  })}
+      {/* Lista de rodadas (layout igual “Jogos”) */}
+      <div className="max-w-7xl mx-auto px-6 mt-6">
+        {rodadasFiltradas.map((rodada) => {
+          const { feitos, total } = resumoRodada(rodada)
+          return (
+            <section key={rodada.id} className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xl font-semibold text-white">🏁 Rodada {rodada.numero}</h2>
+                <span className="text-xs px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-white/70">
+                  {feitos}/{total} com placar
                 </span>
-              )}
-            </div>
+              </div>
 
-            <div className="divide-y divide-white/10">
-              {(r.jogos || []).map((jogo, idx) => (
-                <div key={idx} className="px-4 md:px-6 py-3 grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-5 md:col-span-5 text-right truncate">{jogo.mandante}</div>
-                  <div className="col-span-1 text-center">
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
-                      value={jogo.gols_mandante ?? ''}
-                      onChange={(e) => setGol(r.numero, idx, 'gols_mandante', clampInt(e.target.value))}
-                      disabled={!isAdmin}
-                      readOnly={!isAdmin}
-                      title={isAdmin ? 'Editar gols do mandante' : 'Somente administradores podem editar'}
-                    />
-                  </div>
-                  <div className="col-span-0 text-center font-semibold">x</div>
-                  <div className="col-span-1 text-center">
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
-                      value={jogo.gols_visitante ?? ''}
-                      onChange={(e) => setGol(r.numero, idx, 'gols_visitante', clampInt(e.target.value))}
-                      disabled={!isAdmin}
-                      readOnly={!isAdmin}
-                      title={isAdmin ? 'Editar gols do visitante' : 'Somente administradores podem editar'}
-                    />
-                  </div>
-                  <div className="col-span-5 md:col-span-5 text-left truncate">{jogo.visitante}</div>
+              <div className="space-y-2">
+                {rodada.jogos.map((jogo, idx) => {
+                  const mId = getMandanteId(jogo)
+                  const vId = getVisitanteId(jogo)
+                  const mand = timesMap[mId || '']
+                  const vist = timesMap[vId || '']
 
-                  {jogo?.data_iso && (
-                    <div className="col-span-12 text-center text-xs text-gray-400 mt-1">
-                      {new Date(jogo.data_iso).toLocaleString('pt-BR', {
-                        weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                      })}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {(r.jogos || []).length === 0 && (
-                <div className="px-4 md:px-6 py-8 text-center text-sm text-gray-400">
-                  Nenhum jogo nesta rodada.
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+                  const editando = editRodadaId === rodada.id && editIndex === idx
+                  const temPlacar = isPlacar(jogo)
+                  const gm = jogo.gols_mandante ?? 0
+                  const gv = jogo.gols_visitante ?? 0
+
+                  return (
+                    <article
+                      key={idx}
+                      className={`rounded-2xl border px-4 py-3 transition
+                        ${temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]'
+                                     : 'border-white/10 bg-white/5 hover:bg-white/7'}
+                      `}
+                    >
+                      <div className="grid grid-cols-12 items-center gap-2">
+                        {/* Mandante */}
+                        <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
+                          {mand?.logo_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={mand.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                          )}
+                          <span className="font-medium text-right truncate">{mand?.nome || '—'}</span>
+                        </div>
+
+                        {/* Placar */}
+                        <div className="col-span-2 md:col-span-4 text-center">
+                          {editando ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <input
+                                type="number"
+                                defaultValue={gm}
+                                onChange={(e) => setGM(Number(e.target.value))}
+                                className="w-12 text-black text-center rounded-lg px-2 py-1"
+                                placeholder="0" min={0}
+                              />
+                              <span className="text-white/70 font-semibold">x</span>
+                              <input
+                                type="number"
+                                defaultValue={gv}
+                                onChange={(e) => setGV(Number(e.target.value))}
+                                className="w-12 text-black text-center rounded-lg px-2 py-1"
+                                placeholder="0" min={0}
+                              />
+                            </div>
+                          ) : temPlacar ? (
+                            <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
+                              {gm} <span className="text-white/60">x</span> {gv}
+                            </span>
+                          ) : (
+                            <span className="text-white/50">🆚</span>
+                          )}
+                        </div>
+
+                        {/* Visitante + ações */}
+                        <div className="col-span-5 md:col-span-4 flex items-center justify-start gap-2">
+                          <span className="font-medium text-left truncate">{vist?.nome || '—'}</span>
+                          {vist?.logo_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={vist.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                          )}
+
+                          {/* Ações (somente admin) */}
+                          {isAdmin && !editando && (
+                            <div className="flex gap-2 ml-2">
+                              <button
+                                onClick={() => {
+                                  setEditRodadaId(rodada.id)
+                                  setEditIndex(idx)
+                                  setGM(gm); setGV(gv)
+                                  if (jogo.bonus_pago) {
+                                    toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
+                                  }
+                                }}
+                                className="text-sm text-yellow-300 hover:text-yellow-200"
+                                title={jogo.bonus_pago ? 'Editar (ajuste, sem repetir bônus)' : 'Editar (primeiro lançamento)'}
+                              >
+                                📝
+                              </button>
+
+                              {temPlacar && (
+                                <button
+                                  onClick={() => excluirResultado(rodada.id, idx)}
+                                  className="text-sm text-red-400 hover:text-red-300"
+                                  title="Remover resultado"
+                                >
+                                  🗑️
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {isAdmin && editando && (
+                            <div className="flex gap-2 ml-2">
+                              {!jogo.bonus_pago ? (
+                                <button
+                                  onClick={() => salvarPrimeiroLancamento(rodada.id, idx, Number(gM), Number(gV))}
+                                  disabled={salvando}
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  title="Salvar (primeiro lançamento)"
+                                >
+                                  💾
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => salvarAjuste(rodada.id, idx, Number(gM), Number(gV))}
+                                  disabled={salvando}
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  title="Salvar ajuste (sem repetir bônus)"
+                                >
+                                  ✅
+                                </button>
+                              )}
+                              <button
+                                onClick={() => { setEditRodadaId(null); setEditIndex(null) }}
+                                className="text-sm text-red-400 font-semibold hover:text-red-300"
+                                title="Cancelar edição"
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Rodapé do jogo (data) */}
+                      {jogo?.data_iso && (
+                        <div className="mt-1 text-right text-[11px] text-white/60">
+                          {new Date(jogo.data_iso).toLocaleString('pt-BR', {
+                            weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                          })}
+                        </div>
+                      )}
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          )
+        })}
 
         {rodadasFiltradas.length === 0 && (
-          <div className="rounded-xl border border-dashed border-white/15 px-4 md:px-6 py-10 text-center text-gray-400">
-            Nenhuma rodada para o filtro selecionado.
+          <div className="rounded-2xl border border-dashed border-white/15 px-4 md:px-6 py-10 text-center text-gray-400 mt-6">
+            Nenhuma rodada encontrada. {isAdmin ? 'Use "Gerar Rodadas".' : 'Aguarde a geração pelos administradores.'}
           </div>
         )}
       </div>
