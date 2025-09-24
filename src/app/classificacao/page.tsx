@@ -81,7 +81,7 @@ export default function ClassificacaoPage() {
   const [pagandoTudo, setPagandoTudo] = useState(false)
 
   // começa na Temporada 3
-  const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(3)
+  const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(4)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
 
   const [jaPagoDivisao, setJaPagoDivisao] = useState<boolean>(false)
