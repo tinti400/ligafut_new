@@ -412,7 +412,7 @@ export default function ClassificacaoPage() {
       {/* Controles */}
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-          {[1, 2, 3].map((temp) => (
+          {[1, 2, 3, 4].map((temp) => (
             <button
               key={temp}
               onClick={() => setTemporadaSelecionada(temp)}
