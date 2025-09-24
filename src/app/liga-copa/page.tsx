@@ -1,3 +1,4 @@
+
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -115,23 +116,77 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
   })
 }
 
-/** === Descobrir Admin (via localStorage) === */
-function descobrirAdmin(): boolean {
+/** === Descobrir Admin (igual ao page Jogos: LS -> RPC -> tabelas) === */
+async function descobrirAdminLikeJogos(): Promise<boolean> {
   try {
     const ls = (k: string) => (typeof window !== 'undefined' ? localStorage.getItem(k) : null)
-    if (ls('is_admin') === '1') return true
-    if (ls('admin') === '1' || ls('admin') === 'true') return true
+
+    // 1) Sinais diretos no LocalStorage
+    const direto = [
+      ls('is_admin'),
+      ls('admin'),
+      ls('isAdmin'),
+      ls('usuario_admin'),
+      ls('usuario_is_admin'),
+      ls('moderador'),
+      ls('is_moderator'),
+      ls('staff'),
+    ]
+    if (direto.some(v => v === '1' || v === 'true')) return true
+
     const role = (ls('role') || '').toLowerCase()
-    if (role === 'admin' || role === 'super' || role === 'owner') return true
+    if (['admin', 'super', 'owner', 'moderador', 'staff'].includes(role)) return true
+
     const perfil = (ls('perfil') || '').toLowerCase()
-    if (perfil.includes('admin')) return true
+    if (perfil.includes('admin') || perfil.includes('moderador') || perfil.includes('staff')) return true
+
+    // user / usuario (JSON)
+    let usuarioId: string | null = ls('usuario_id') || null
     const userStr = ls('user') || ls('usuario')
     if (userStr) {
       try {
         const u = JSON.parse(userStr)
-        if (u?.admin === true) return true
+        if (u?.admin === true || u?.is_admin === true || u?.isAdmin === true) return true
         const r = (u?.role || u?.papel || '').toLowerCase()
-        if (['admin', 'super', 'owner'].includes(r)) return true
+        if (['admin', 'super', 'owner', 'moderador', 'staff'].includes(r)) return true
+        const perms: any[] = Array.isArray(u?.permissoes) ? u.permissoes : Array.isArray(u?.permissions) ? u.permissions : []
+        if (perms.some(p => String(p).toLowerCase().includes('admin'))) return true
+        const grupos: any[] = Array.isArray(u?.grupos) ? u.grupos : []
+        if (grupos.some(g => String(g).toLowerCase().includes('admin'))) return true
+        if (!usuarioId) usuarioId = u?.id || u?.usuario_id || u?.user_id || null
+      } catch {}
+    }
+
+    // 2) RPC (se existir)
+    try {
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('is_admin')
+      if (!rpcErr && (rpcData === true || rpcData === 'true' || rpcData === 1)) return true
+    } catch {}
+
+    // 3) Tabelas (se existirem)
+    if (usuarioId) {
+      try {
+        const { data: adm, error } = await supabase
+          .from('admins')
+          .select('id, ativo')
+          .eq('usuario_id', usuarioId)
+          .limit(1)
+          .maybeSingle()
+        if (!error && adm && (adm.ativo === true || adm.ativo === 1)) return true
+      } catch {}
+
+      try {
+        const { data: usr, error } = await supabase
+          .from('usuarios')
+          .select('id, admin, is_admin, role, perfil')
+          .eq('id', usuarioId)
+          .limit(1)
+          .maybeSingle()
+        if (!error && usr) {
+          if (usr.admin === true || usr.is_admin === true) return true
+          const r = String(usr.role || usr.perfil || '').toLowerCase()
+          if (['admin', 'super', 'owner', 'moderador', 'staff'].includes(r)) return true
+        }
       } catch {}
     }
   } catch {}
@@ -151,7 +206,7 @@ export default function LigaCopaPage() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false)
   const [filtroRodada, setFiltroRodada] = useState<number | 'all'>('all')
 
-  // ===== estados de edição (layout Jogos)
+  // estados de edição (layout Jogos)
   const [editRodadaId, setEditRodadaId] = useState<UUID | null>(null)
   const [editIndex, setEditIndex] = useState<number | null>(null)
   const [gM, setGM] = useState<number>(0)
@@ -191,20 +246,22 @@ export default function LigaCopaPage() {
       setRodadas([])
       return
     }
-    // garante que lista exista
     setRodadas(((data as RodadaRow[]) || []).map(r => ({ ...r, jogos: r.jogos ?? [] })))
   }
 
-  // init
+  // init (igual page Jogos: admin via função async)
   useEffect(() => {
-    try {
-      const pref = localStorage.getItem('lc_show_class')
-      if (pref !== null) setShowClass(pref === '1')
-    } catch {}
-    setIsAdmin(descobrirAdmin())
+    (async () => {
+      try {
+        const pref = localStorage.getItem('lc_show_class')
+        if (pref !== null) setShowClass(pref === '1')
+      } catch {}
 
-    loadTimes()
-    loadRodadas()
+      const admin = await descobrirAdminLikeJogos()
+      setIsAdmin(admin)
+
+      await Promise.all([loadTimes(), loadRodadas()])
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -261,7 +318,7 @@ export default function LigaCopaPage() {
     }
   }
 
-  /** === Salvar por RODADA (continua disponível; opcional) === */
+  /** === Salvar por RODADA (batch; opcional) === */
   const salvarRodada = async (numero: number, jogosAtualizados: Jogo[]) => {
     if (!isAdmin) {
       toast.error('Apenas administradores podem salvar resultados.')
@@ -564,6 +621,7 @@ export default function LigaCopaPage() {
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-3">
                           {item.logo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={item.logo_url}
                               alt={item.nome}
