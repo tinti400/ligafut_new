@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 
+/** === Supabase (client) === */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
-/** ===== Tipos ===== */
+/** === Tipos === */
 type UUID = string
 
 type TimeRow = {
@@ -35,7 +36,7 @@ type RodadaRow = {
   created_at?: string
 }
 
-/** ===== Utils ===== */
+/** === Utils === */
 const clampInt = (v: any) => {
   if (v === '' || v === null || v === undefined) return null
   const n = Number(v)
@@ -52,7 +53,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-/** ===== Round-robin (turno único) ===== */
+/** === Round-robin (turno único) === */
 function gerarRodadasTurnoUnico(times: TimeRow[]): { numero: number; jogos: Jogo[] }[] {
   if (times.length < 2) return []
 
@@ -60,7 +61,6 @@ function gerarRodadasTurnoUnico(times: TimeRow[]): { numero: number; jogos: Jogo
   const lista = times.length % 2 === 1 ? [...times, ghost] : [...times]
 
   const arr = shuffle(lista)
-
   const n = arr.length
   const rounds = n - 1
   const half = n / 2
@@ -102,7 +102,7 @@ function gerarRodadasTurnoUnico(times: TimeRow[]): { numero: number; jogos: Jogo
   return result
 }
 
-/** ===== Classificação ===== */
+/** === Classificação === */
 type RowClass = {
   id_time: UUID
   nome: string
@@ -114,14 +114,26 @@ type RowClass = {
   gc: number
   sg: number
   pontos: number
+  logo_url?: string | null
+  divisao?: number | null
 }
 
 function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[] {
   const map = new Map<UUID, RowClass>()
   for (const t of times) {
     map.set(t.id, {
-      id_time: t.id, nome: t.nome,
-      jogos: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0, pontos: 0
+      id_time: t.id,
+      nome: t.nome,
+      logo_url: t.logo_url,
+      divisao: t.divisao,
+      jogos: 0,
+      v: 0,
+      e: 0,
+      d: 0,
+      gp: 0,
+      gc: 0,
+      sg: 0,
+      pontos: 0,
     })
   }
   for (const r of rodadas) {
@@ -139,14 +151,18 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
       v.gc += j.gols_mandante
 
       if (j.gols_mandante > j.gols_visitante) {
-        m.v += 1; m.pontos += 3
+        m.v += 1
+        m.pontos += 3
         v.d += 1
       } else if (j.gols_mandante < j.gols_visitante) {
-        v.v += 1; v.pontos += 3
+        v.v += 1
+        v.pontos += 3
         m.d += 1
       } else {
-        m.e += 1; v.e += 1
-        m.pontos += 1; v.pontos += 1
+        m.e += 1
+        v.e += 1
+        m.pontos += 1
+        v.pontos += 1
       }
     }
   }
@@ -161,14 +177,14 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
   })
 }
 
-/** ===== Page ===== */
+/** === Page === */
 export default function LigaCopaPage() {
   const [times, setTimes] = useState<TimeRow[]>([])
   const [rodadas, setRodadas] = useState<RodadaRow[]>([])
   const [loading, setLoading] = useState(false)
   const [savingRodada, setSavingRodada] = useState<number | null>(null)
 
-  // >>>>>>>>>>>>>>>>> ALTERADO: carregar SOMENTE divisões 1 a 3
+  // carregar SOMENTE divisões 1 a 3
   const loadTimes = async () => {
     const { data, error } = await supabase
       .from('times')
@@ -229,7 +245,7 @@ export default function LigaCopaPage() {
         return
       }
 
-      const payload = listas.map(r => ({ numero: r.numero, jogos: r.jogos }))
+      const payload = listas.map((r) => ({ numero: r.numero, jogos: r.jogos }))
       const { error: insErr } = await supabase.from('liga_copa_rodadas').insert(payload)
       if (insErr) {
         toast.error('Erro ao salvar as rodadas.')
@@ -259,109 +275,205 @@ export default function LigaCopaPage() {
 
       await loadRodadas()
       toast.success(`Rodada ${numero} salva!`)
-
-      try {
-        const clas = computeClassificacao(
-          rodadas.map(r => (r.numero === numero ? { ...r, jogos: jogosAtualizados } : r)),
-          times
-        )
-        if (clas.length > 0) {
-          const { error: delC } = await supabase
-            .from('liga_copa_classificacao')
-            .delete()
-            .neq('id_time', '00000000-0000-0000-0000-000000000000')
-          if (delC) console.warn('Aviso ao limpar liga_copa_classificacao:', delC?.message)
-
-          const { error: insC } = await supabase.from('liga_copa_classificacao').insert(
-            clas.map(r => ({
-              id_time: r.id_time, nome: r.nome, pontos: r.pontos, jogos: r.jogos,
-              v: r.v, e: r.e, d: r.d, gp: r.gp, gc: r.gc, sg: r.sg
-            }))
-          )
-          if (insC) console.warn('Aviso ao inserir classificação:', insC?.message)
-        }
-      } catch (e) {
-        console.warn('Não foi possível persistir a classificação (opcional):', e)
-      }
     } finally {
       setSavingRodada(null)
     }
   }
 
-  const setGol = (rnum: number, idx: number, field: 'gols_mandante' | 'gols_visitante', val: number | null) => {
-    setRodadas(prev => prev.map(r => {
-      if (r.numero !== rnum) return r
-      const jogos = [...(r.jogos || [])]
-      const j = { ...(jogos[idx] || {}) } as Jogo
-      ;(j as any)[field] = val
-      jogos[idx] = j
-      return { ...r, jogos }
-    }))
+  const setGol = (
+    rnum: number,
+    idx: number,
+    field: 'gols_mandante' | 'gols_visitante',
+    val: number | null
+  ) => {
+    setRodadas((prev) =>
+      prev.map((r) => {
+        if (r.numero !== rnum) return r
+        const jogos = [...(r.jogos || [])]
+        const j = { ...(jogos[idx] || {}) } as Jogo
+        ;(j as any)[field] = val
+        jogos[idx] = j
+        return { ...r, jogos }
+      })
+    )
   }
 
+  /** === UI helpers === */
+  const aproveitamento = (row: RowClass) =>
+    row.jogos > 0 ? Math.round((row.pontos / (row.jogos * 3)) * 100) : 0
+
+  // mapeia a faixa por posição (1-10 → D1, 11-20 → D2, 21-último → D3)
+  const faixaPorPosicao = (pos: number) => {
+    if (pos >= 1 && pos <= 10) return { rotulo: '1ª Divisão', cor: 'bg-emerald-500 text-black', chip: 'bg-emerald-600/20 ring-emerald-500/40' }
+    if (pos >= 11 && pos <= 20) return { rotulo: '2ª Divisão', cor: 'bg-sky-400 text-black', chip: 'bg-sky-600/20 ring-sky-400/40' }
+    return { rotulo: '3ª Divisão', cor: 'bg-amber-400 text-black', chip: 'bg-amber-600/20 ring-amber-400/40' }
+  }
+
+  /** === Render === */
   return (
-    <div className="mx-auto max-w-6xl p-4 md:p-6">
-      <header className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold">Liga-Copa (Divisões 1 a 3 • Turno Único)</h1>
-        <button
-          onClick={gerarLigaCopa}
-          disabled={loading || times.length < 2}
-          className="rounded-2xl px-4 py-2 bg-black text-white disabled:opacity-50"
-        >
-          {loading ? 'Gerando…' : 'Gerar Liga-Copa'}
-        </button>
-      </header>
+    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-black text-white">
+      {/* Título */}
+      <div className="max-w-6xl mx-auto px-4 pt-10">
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-center mb-6">
+          <span className="bg-gradient-to-r from-yellow-400 via-emerald-400 to-lime-300 bg-clip-text text-transparent">
+            🏟️ Liga-Copa (D1–D3) • Turno Único
+          </span>
+        </h1>
+      </div>
 
-      {/* Participantes */}
-      <section className="mb-8">
-        <h2 className="text-lg font-semibold mb-2">Participantes ({times.length})</h2>
-        <div className="flex flex-wrap gap-2">
-          {times.map(t => (
-            <span key={t.id} className="rounded-full border px-3 py-1 text-sm">
-              {t.nome}{typeof t.divisao === 'number' ? ` • D${t.divisao}` : ''}
-            </span>
-          ))}
-          {times.length === 0 && <p className="text-sm text-gray-500">Nenhum time das divisões 1, 2 e 3 encontrado.</p>}
+      {/* Ações */}
+      <div className="max-w-6xl mx-auto px-4">
+        <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
+          <button
+            onClick={gerarLigaCopa}
+            disabled={loading || times.length < 2}
+            className={`px-4 py-2 rounded-full text-sm border transition ${
+              loading
+                ? 'bg-gray-700 text-gray-300 cursor-not-allowed border-white/10'
+                : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-500/50'
+            }`}
+          >
+            {loading ? 'Gerando…' : '🚀 Gerar/Resetar Rodadas'}
+          </button>
         </div>
-      </section>
 
-      {/* Classificação */}
-      <section className="mb-10">
-        <h2 className="text-lg font-semibold mb-3">Classificação</h2>
-        <div className="overflow-x-auto rounded-2xl border">
+        <div className="mb-1 text-center text-xs text-emerald-300">
+          Participantes (D1–D3): <b>{times.length}</b>
+        </div>
+      </div>
+
+      {/* Legenda (faixas por posição) */}
+      <div className="max-w-6xl mx-auto px-4 mt-2 mb-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-2 bg-emerald-600/20 ring-1 ring-emerald-500/40 px-2.5 py-1 rounded-full">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> 1º – 10º • 1ª Divisão
+          </span>
+          <span className="inline-flex items-center gap-2 bg-sky-600/20 ring-1 ring-sky-400/40 px-2.5 py-1 rounded-full">
+            <span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> 11º – 20º • 2ª Divisão
+          </span>
+          <span className="inline-flex items-center gap-2 bg-amber-600/20 ring-1 ring-amber-400/40 px-2.5 py-1 rounded-full">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> 21º – Último • 3ª Divisão
+          </span>
+        </div>
+      </div>
+
+      {/* Tabela principal */}
+      <div className="max-w-6xl mx-auto px-4 pb-10">
+        {/* Compartilhar */}
+        <div className="mb-3 flex justify-end">
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent(
+              `📊 Liga-Copa (Turno Único • D1–D3):\n\n` +
+                classificacao
+                  .map(
+                    (item, i) =>
+                      `${i + 1}º ${item.nome} - ${item.pontos} pts (${item.v}V ${item.e}E ${item.d}D)`
+                  )
+                  .join('\n')
+            )}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm px-3 py-1.5 rounded-lg font-semibold"
+          >
+            📤 Compartilhar
+          </a>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-white/10 bg-gray-900/60 shadow-2xl shadow-black/30">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-black/70 text-yellow-300 border-b border-white/10">
               <tr>
-                <th className="px-3 py-2 text-left">#</th>
-                <th className="px-3 py-2 text-left">Time</th>
-                <th className="px-3 py-2">P</th>
-                <th className="px-3 py-2">J</th>
-                <th className="px-3 py-2">V</th>
-                <th className="px-3 py-2">E</th>
-                <th className="px-3 py-2">D</th>
-                <th className="px-3 py-2">GP</th>
-                <th className="px-3 py-2">GC</th>
-                <th className="px-3 py-2">SG</th>
+                <th className="py-3 px-4 text-left">Pos</th>
+                <th className="py-3 px-4 text-left">Time</th>
+                <th className="py-3 px-2 text-center">Faixa</th>
+                <th className="py-3 px-2 text-center">Pts</th>
+                <th className="py-3 px-2 text-center">Aprove.</th>
+                <th className="py-3 px-2 text-center">J</th>
+                <th className="py-3 px-2 text-center">V</th>
+                <th className="py-3 px-2 text-center">E</th>
+                <th className="py-3 px-2 text-center">D</th>
+                <th className="py-3 px-2 text-center">GP</th>
+                <th className="py-3 px-2 text-center">GC</th>
+                <th className="py-3 px-2 text-center">SG</th>
               </tr>
             </thead>
-            <tbody>
-              {computeClassificacao(rodadas, times).map((r, i) => (
-                <tr key={r.id_time} className="odd:bg-white even:bg-gray-50">
-                  <td className="px-3 py-2">{i + 1}</td>
-                  <td className="px-3 py-2 text-left">{r.nome}</td>
-                  <td className="px-3 py-2 text-center font-semibold">{r.pontos}</td>
-                  <td className="px-3 py-2 text-center">{r.jogos}</td>
-                  <td className="px-3 py-2 text-center">{r.v}</td>
-                  <td className="px-3 py-2 text-center">{r.e}</td>
-                  <td className="px-3 py-2 text-center">{r.d}</td>
-                  <td className="px-3 py-2 text-center">{r.gp}</td>
-                  <td className="px-3 py-2 text-center">{r.gc}</td>
-                  <td className="px-3 py-2 text-center">{r.sg}</td>
-                </tr>
-              ))}
+
+            <tbody className="divide-y divide-white/5">
+              {classificacao.map((item, index) => {
+                const pos = index + 1
+                const ap = aproveitamento(item)
+                const faixa = faixaPorPosicao(pos)
+
+                // realce suave por faixa (linha)
+                const linhaCor =
+                  pos <= 10
+                    ? 'bg-emerald-950/30 hover:bg-emerald-900/30'
+                    : pos <= 20
+                    ? 'bg-sky-950/30 hover:bg-sky-900/30'
+                    : 'bg-amber-950/30 hover:bg-amber-900/30'
+
+                return (
+                  <tr key={item.id_time} className={`${linhaCor} transition-colors`}>
+                    <td className="py-2.5 px-4">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ring-1 ring-white/10 bg-gray-700 text-gray-200">
+                        {pos}
+                      </span>
+                    </td>
+
+                    <td className="py-2.5 px-4">
+                      <div className="flex items-center gap-3">
+                        {item.logo_url ? (
+                          <img
+                            src={item.logo_url}
+                            alt={item.nome}
+                            className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover"
+                          />
+                        ) : (
+                          <span className="w-7 h-7 grid place-items-center rounded-full bg-gray-700 text-[10px] text-gray-200 ring-1 ring-white/10">
+                            {item.nome.slice(0, 2).toUpperCase()}
+                          </span>
+                        )}
+                        <span className="font-medium">{item.nome}</span>
+                        {typeof item.divisao === 'number' && (
+                          <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 ring-1 ring-white/10 text-gray-300">
+                            D{item.divisao}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Faixa da próxima divisão */}
+                    <td className="py-2.5 px-2 text-center">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
+                        <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
+                        {faixa.rotulo}
+                      </span>
+                    </td>
+
+                    <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{item.pontos}</td>
+
+                    <td className="py-2.5 px-2">
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="w-24 md:w-32 h-2 rounded-full bg-gray-700 overflow-hidden">
+                          <div className="h-2 bg-emerald-500" style={{ width: `${ap}%` }} />
+                        </div>
+                        <span className="text-xs text-gray-300">{ap}%</span>
+                      </div>
+                    </td>
+
+                    <td className="py-2.5 px-2 text-center">{item.jogos}</td>
+                    <td className="py-2.5 px-2 text-center">{item.v}</td>
+                    <td className="py-2.5 px-2 text-center">{item.e}</td>
+                    <td className="py-2.5 px-2 text-center">{item.d}</td>
+                    <td className="py-2.5 px-2 text-center">{item.gp}</td>
+                    <td className="py-2.5 px-2 text-center">{item.gc}</td>
+                    <td className="py-2.5 px-2 text-center">{item.sg}</td>
+                  </tr>
+                )
+              })}
               {classificacao.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-gray-500">
+                  <td colSpan={12} className="px-3 py-8 text-center text-gray-400">
                     Sem jogos finalizados ainda.
                   </td>
                 </tr>
@@ -369,53 +481,53 @@ export default function LigaCopaPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </div>
 
-      {/* Rodadas */}
-      <section className="space-y-8">
-        <h2 className="text-lg font-semibold">Rodadas</h2>
+      {/* Rodadas — cartões escuros no mesmo estilo */}
+      <div className="max-w-6xl mx-auto px-4 pb-12">
+        <h2 className="text-base font-semibold text-gray-200 mb-3">Rodadas</h2>
+
         {rodadas.map((r) => (
-          <div key={r.id ?? r.numero} className="rounded-2xl border">
-            <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+          <div key={r.id ?? r.numero} className="rounded-xl border border-white/10 bg-gray-900/50 mb-4">
+            <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-white/10">
               <h3 className="font-semibold">Rodada {r.numero}</h3>
               <button
                 onClick={() => salvarRodada(r.numero, r.jogos || [])}
                 disabled={savingRodada === r.numero}
-                className="rounded-xl px-3 py-1.5 bg-black text-white disabled:opacity-50"
+                className="rounded-lg px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-black text-sm disabled:opacity-50"
               >
-                {savingRodada === r.numero ? 'Salvando…' : 'Salvar Resultados e Atualizar Classificação'}
+                {savingRodada === r.numero ? 'Salvando…' : 'Salvar resultados'}
               </button>
             </div>
 
-            <div className="divide-y">
+            <div className="divide-y divide-white/10">
               {(r.jogos || []).map((jogo, idx) => (
-                <div key={idx} className="px-4 py-3 grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-4 md:col-span-5 text-right truncate">{jogo.mandante}</div>
+                <div key={idx} className="px-4 md:px-6 py-3 grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-5 md:col-span-5 text-right truncate">{jogo.mandante}</div>
                   <div className="col-span-1 text-center">
                     <input
                       type="number"
                       min={0}
-                      className="w-14 rounded-lg border px-2 py-1 text-center"
+                      className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
                       value={jogo.gols_mandante ?? ''}
                       onChange={(e) => setGol(r.numero, idx, 'gols_mandante', clampInt(e.target.value))}
                     />
                   </div>
-                  <div className="col-span-1 text-center font-semibold">x</div>
+                  <div className="col-span-0 text-center font-semibold">x</div>
                   <div className="col-span-1 text-center">
                     <input
                       type="number"
                       min={0}
-                      className="w-14 rounded-lg border px-2 py-1 text-center"
+                      className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
                       value={jogo.gols_visitante ?? ''}
                       onChange={(e) => setGol(r.numero, idx, 'gols_visitante', clampInt(e.target.value))}
                     />
                   </div>
-                  <div className="col-span-4 md:col-span-5 text-left truncate">{jogo.visitante}</div>
+                  <div className="col-span-5 md:col-span-5 text-left truncate">{jogo.visitante}</div>
                 </div>
               ))}
-
               {(r.jogos || []).length === 0 && (
-                <div className="px-4 py-6 text-center text-sm text-gray-500">
+                <div className="px-4 md:px-6 py-8 text-center text-sm text-gray-400">
                   Nenhum jogo nesta rodada.
                 </div>
               )}
@@ -424,11 +536,12 @@ export default function LigaCopaPage() {
         ))}
 
         {rodadas.length === 0 && (
-          <div className="rounded-2xl border px-4 py-10 text-center text-gray-500">
-            Nenhuma rodada gerada. Clique em <strong>Gerar Liga-Copa</strong>.
+          <div className="rounded-xl border border-dashed border-white/15 px-4 md:px-6 py-10 text-center text-gray-400">
+            Nenhuma rodada gerada. Use <strong>Gerar/Resetar Rodadas</strong> acima.
           </div>
         )}
-      </section>
+      </div>
     </div>
   )
 }
+
