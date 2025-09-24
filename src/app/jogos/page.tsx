@@ -696,7 +696,7 @@ export default function Jogos() {
         <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-2">
           {/* Temporadas */}
           <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
-            {[1,2,3].map((temp) => (
+            {[1,2,3,4].map((temp) => (
               <button
                 key={temp}
                 onClick={() => setTemporada(temp)}
