@@ -27,6 +27,7 @@ type Jogo = {
   visitante: string
   gols_mandante: number | null
   gols_visitante: number | null
+  data_iso?: string | null
 }
 
 type RodadaRow = {
@@ -44,29 +45,80 @@ const clampInt = (v: any) => {
   return Math.max(0, Math.floor(n))
 }
 
-function shuffle<T>(arr: T[]): T[] {
+/** ===== Seed/Hash simples (determinístico) ===== */
+function hashStr(s: string) {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return h
+}
+function shuffleDeterministico<T>(arr: T[], seed: string): T[] {
   const a = [...arr]
+  let x = hashStr(seed) || 1
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
+    x = (1664525 * x + 1013904223) >>> 0 // LCG
+    const j = x % (i + 1)
     ;[a[i], a[j]] = [a[j], a[i]]
   }
   return a
 }
 
-/** === Round-robin (turno único) === */
-function gerarRodadasTurnoUnico(times: TimeRow[]): { numero: number; jogos: Jogo[] }[] {
+/** ===== Datas: próximo sábado 16:00, semanal ===== */
+function proximoSabado16() {
+  const d = new Date()
+  const dia = d.getDay() // 0 dom .. 6 sáb
+  const delta = (6 - dia + 7) % 7 || 7 // se hoje for sábado, vai pro próximo
+  d.setDate(d.getDate() + delta)
+  d.setHours(16, 0, 0, 0)
+  return d
+}
+function gerarDatasRodadas(qtd: number, inicio?: Date): string[] {
+  const base = inicio ? new Date(inicio) : proximoSabado16()
+  const out: string[] = []
+  for (let i = 0; i < qtd; i++) {
+    const d = new Date(base)
+    d.setDate(base.getDate() + i * 7) // semanal
+    out.push(d.toISOString())
+  }
+  return out
+}
+
+/** ===== Round-robin (turno único) com seed e mandos mais balanceados ===== */
+function gerarRodadasTurnoUnico(
+  times: TimeRow[],
+  opts?: { seed?: string; datas?: string[] }
+): { numero: number; jogos: Jogo[] }[] {
   if (times.length < 2) return []
 
+  // ghost p/ número par
   const ghost: TimeRow = { id: 'ghost' as UUID, nome: 'BYE', logo_url: null }
   const lista = times.length % 2 === 1 ? [...times, ghost] : [...times]
 
-  const arr = shuffle(lista)
+  // seed default: concatenação estável dos IDs
+  const seed =
+    opts?.seed ??
+    times
+      .map(t => t.id)
+      .sort()
+      .join('|')
+
+  const arr = shuffleDeterministico(lista, seed)
+
   const n = arr.length
   const rounds = n - 1
   const half = n / 2
 
   const fixo = arr[0]
   let rotativos = arr.slice(1)
+
+  // contador de mandos para tentar equilibrar
+  const mandos = new Map<string, number>()
+  for (const t of times) mandos.set(t.id, 0)
+
+  // datas
+  const datas = opts?.datas ?? gerarDatasRodadas(rounds)
 
   const result: { numero: number; jogos: Jogo[] }[] = []
 
@@ -81,21 +133,33 @@ function gerarRodadasTurnoUnico(times: TimeRow[]): { numero: number; jogos: Jogo
       if (!A || !B) continue
       if (A.id === 'ghost' || B.id === 'ghost') continue
 
+      // orientação base + inversão
+      let mand = A
+      let vis = B
       const invert = (r + i) % 2 === 1
-      const mand = invert ? B : A
-      const vis = invert ? A : B
+      if (invert) [mand, vis] = [vis, mand]
+
+      // ajuste de mando se algum estiver desequilibrado
+      const mMand = mandos.get(mand.id) ?? 0
+      const mVis = mandos.get(vis.id) ?? 0
+      if (mMand > mVis + 1) [mand, vis] = [vis, mand]
+
+      // registra mando
+      if (mand.id !== 'ghost') mandos.set(mand.id, (mandos.get(mand.id) ?? 0) + 1)
 
       jogos.push({
-        mandante_id: mand.id,
-        visitante_id: vis.id,
+        mandante_id: mand.id as UUID,
+        visitante_id: vis.id as UUID,
         mandante: mand.nome,
         visitante: vis.nome,
         gols_mandante: null,
         gols_visitante: null,
+        data_iso: datas[r] ?? null
       })
     }
 
     result.push({ numero: r + 1, jogos })
+    // rotação circular
     rotativos = [rotativos[rotativos.length - 1], ...rotativos.slice(0, rotativos.length - 1)]
   }
 
@@ -151,18 +215,11 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
       v.gc += j.gols_mandante
 
       if (j.gols_mandante > j.gols_visitante) {
-        m.v += 1
-        m.pontos += 3
-        v.d += 1
+        m.v += 1; m.pontos += 3; v.d += 1
       } else if (j.gols_mandante < j.gols_visitante) {
-        v.v += 1
-        v.pontos += 3
-        m.d += 1
+        v.v += 1; v.pontos += 3; m.d += 1
       } else {
-        m.e += 1
-        v.e += 1
-        m.pontos += 1
-        v.pontos += 1
+        m.e += 1; v.e += 1; m.pontos += 1; v.pontos += 1
       }
     }
   }
@@ -223,13 +280,18 @@ export default function LigaCopaPage() {
 
   const classificacao = useMemo(() => computeClassificacao(rodadas, times), [rodadas, times])
 
+  /** === GERAR/RESETAR CONFRONTOS (no front, sem RPC) === */
   const gerarLigaCopa = async () => {
     if (times.length < 2) {
       toast.error('Cadastre ao menos 2 times (divisões 1 a 3).')
       return
     }
     setLoading(true)
+    const idLoading = 'gera-lc'
     try {
+      toast.loading('Gerando confrontos da Liga-Copa…', { id: idLoading })
+
+      // limpar tabela
       const { error: delErr } = await supabase
         .from('liga_copa_rodadas')
         .delete()
@@ -238,22 +300,31 @@ export default function LigaCopaPage() {
         console.warn('Erro ao limpar liga_copa_rodadas', delErr)
       }
 
-      const listas = gerarRodadasTurnoUnico(times)
+      // nº de rodadas = (qtd times com ghost ajustado) - 1
+      const qtdTimesPar = times.length % 2 === 0 ? times.length : times.length + 1
+      const qtdRodadas = qtdTimesPar - 1
+      const datas = gerarDatasRodadas(qtdRodadas)
+      const seed = 'liga-copa-D1-D3' // mude se quiser outra ordem determinística
+
+      // gera lista de rodadas e jogos
+      const listas = gerarRodadasTurnoUnico(times, { seed, datas })
       if (listas.length === 0) {
-        toast.error('Não foi possível gerar as rodadas.')
+        toast.error('Não foi possível gerar as rodadas.', { id: idLoading })
         setLoading(false)
         return
       }
 
-      const payload = listas.map((r) => ({ numero: r.numero, jogos: r.jogos }))
+      // salva em lote
+      const payload = listas.map(r => ({ numero: r.numero, jogos: r.jogos }))
       const { error: insErr } = await supabase.from('liga_copa_rodadas').insert(payload)
       if (insErr) {
-        toast.error('Erro ao salvar as rodadas.')
         console.error(insErr)
-      } else {
-        toast.success('Liga-Copa gerada com sucesso!')
-        await loadRodadas()
+        toast.error('Erro ao salvar as rodadas.', { id: idLoading })
+        return
       }
+
+      await loadRodadas()
+      toast.success('✅ Liga-Copa gerada com sucesso!', { id: idLoading })
     } finally {
       setLoading(false)
     }
@@ -332,6 +403,7 @@ export default function LigaCopaPage() {
                 ? 'bg-gray-700 text-gray-300 cursor-not-allowed border-white/10'
                 : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-500/50'
             }`}
+            title="Gera/Reseta todas as rodadas da Liga-Copa no front-end"
           >
             {loading ? 'Gerando…' : '🚀 Gerar/Resetar Rodadas'}
           </button>
@@ -404,7 +476,6 @@ export default function LigaCopaPage() {
                 const ap = aproveitamento(item)
                 const faixa = faixaPorPosicao(pos)
 
-                // realce suave por faixa (linha)
                 const linhaCor =
                   pos <= 10
                     ? 'bg-emerald-950/30 hover:bg-emerald-900/30'
@@ -500,6 +571,17 @@ export default function LigaCopaPage() {
               </button>
             </div>
 
+            {/* data da rodada (mostra a do 1º jogo, se houver) */}
+            <div className="px-4 md:px-6 py-2 text-xs text-gray-300">
+              {r?.jogos?.[0]?.data_iso && (
+                <span className="inline-flex items-center gap-2 px-2 py-0.5 rounded bg-white/5 ring-1 ring-white/10">
+                  🗓️ {new Date(r.jogos[0].data_iso as string).toLocaleString('pt-BR', {
+                    weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                  })}
+                </span>
+              )}
+            </div>
+
             <div className="divide-y divide-white/10">
               {(r.jogos || []).map((jogo, idx) => (
                 <div key={idx} className="px-4 md:px-6 py-3 grid grid-cols-12 gap-2 items-center">
@@ -524,6 +606,14 @@ export default function LigaCopaPage() {
                     />
                   </div>
                   <div className="col-span-5 md:col-span-5 text-left truncate">{jogo.visitante}</div>
+
+                  {jogo?.data_iso && (
+                    <div className="col-span-12 text-center text-xs text-gray-400 mt-1">
+                      {new Date(jogo.data_iso).toLocaleString('pt-BR', {
+                        weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
               {(r.jogos || []).length === 0 && (
@@ -544,4 +634,5 @@ export default function LigaCopaPage() {
     </div>
   )
 }
+
 
