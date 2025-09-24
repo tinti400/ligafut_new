@@ -593,7 +593,7 @@ export default function Sidebar() {
             </div>
           )}
 
-          {/* Navegação (igual ao seu) */}
+          {/* Navegação */}
           <nav className={`mt-4 ${isOpen ? 'space-y-2' : 'space-y-1'} overflow-y-auto pr-1`}>
             {!isOpen ? (
               <div className="grid grid-cols-1 gap-1">
@@ -601,13 +601,22 @@ export default function Sidebar() {
 
                 <CollapsedItem href="/" label="Home" emoji="🏠" />
                 <CollapsedItem href="/classificacao" label="Classificação" emoji="🏆" />
+                <CollapsedItem href="/liga-copa" label="Liga-Copa" emoji="🏟️" /> {/* ADICIONADO */}
                 <CollapsedItem href="/jogos" label="Jogos" emoji="📅" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/BID" label="BID" emoji="📰" />
-                <CollapsedItem href="/propostas_recebidas" label="Propostas Recebidas" emoji="📥"
-                  badge={<DotBadge n={countRecebidas} tone="amber" />} />
-                <CollapsedItem href="/propostas_enviadas" label="Propostas Enviadas" emoji="📤"
-                  badge={<DotBadge n={countEnviadas} tone="emerald" />} />
+                <CollapsedItem
+                  href="/propostas_recebidas"
+                  label="Propostas Recebidas"
+                  emoji="📥"
+                  badge={<DotBadge n={countRecebidas} tone="amber" />}
+                />
+                <CollapsedItem
+                  href="/propostas_enviadas"
+                  label="Propostas Enviadas"
+                  emoji="📤"
+                  badge={<DotBadge n={countEnviadas} tone="emerald" />}
+                />
                 <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
                 <CollapsedItem href="/copa/final" label="Final" emoji="🏅" />
                 <CollapsedItem href="/admin/leilao_sistema" label="Leilão Sistema" emoji="⚙️" />
@@ -619,6 +628,7 @@ export default function Sidebar() {
                 {!logado && <NavLink href="/login">🔑 Login</NavLink>}
                 <NavLink href="/">🏠 Home</NavLink>
                 <NavLink href="/classificacao">🏆 Classificação</NavLink>
+                <NavLink href="/liga-copa">🏟️ Liga-Copa</NavLink> {/* ADICIONADO */}
                 <NavLink href="/jogos">📅 Jogos</NavLink>
                 <NavLink href="/mercado">💸 Mercado</NavLink>
                 <NavLink href="/BID">📰 BID</NavLink>
