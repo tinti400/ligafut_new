@@ -205,6 +205,7 @@ export default function LigaCopaPage() {
   const [showClass, setShowClass] = useState<boolean>(true)
   const [isAdmin, setIsAdmin] = useState<boolean>(false)
   const [filtroRodada, setFiltroRodada] = useState<number | 'all'>('all')
+  const [filtroTime, setFiltroTime] = useState<'all' | UUID>('all')
 
   // estados de edição (layout Jogos)
   const [editRodadaId, setEditRodadaId] = useState<UUID | null>(null)
@@ -280,10 +281,19 @@ export default function LigaCopaPage() {
     [rodadas]
   )
 
+  // === filtro combinado (rodada + time) sobre as rodadas e os jogos ===
   const rodadasFiltradas = useMemo(() => {
-    if (filtroRodada === 'all') return rodadas
-    return rodadas.filter(r => r.numero === filtroRodada)
-  }, [rodadas, filtroRodada])
+    const base = filtroRodada === 'all' ? rodadas : rodadas.filter(r => r.numero === filtroRodada)
+    if (filtroTime === 'all') return base
+    return base
+      .map(r => ({
+        ...r,
+        jogos: (r.jogos || []).filter(
+          j => j.mandante_id === filtroTime || j.visitante_id === filtroTime
+        ),
+      }))
+      .filter(r => (r.jogos || []).length > 0)
+  }, [rodadas, filtroRodada, filtroTime])
 
   /** === GERAR/RESETAR CONFRONTOS (via API) === */
   const gerarLigaCopa = async () => {
@@ -475,7 +485,7 @@ export default function LigaCopaPage() {
 
       {/* Barra de Ações */}
       <div className="max-w-6xl mx-auto px-4">
-        <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
           {/* Botão gerar */}
           <div className="flex items-center justify-center">
             <button
@@ -508,6 +518,33 @@ export default function LigaCopaPage() {
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>
+          </div>
+
+          {/* Filtro por time */}
+          <div className="flex items-center justify-center gap-2">
+            <label className="text-sm text-gray-300">Time:</label>
+            <select
+              value={filtroTime === 'all' ? 'all' : filtroTime}
+              onChange={(e) => setFiltroTime(e.target.value === 'all' ? 'all' : (e.target.value as UUID))}
+              className="rounded-lg bg-gray-800 text-white text-sm px-3 py-2 border border-white/10"
+              title="Filtrar jogos por time"
+            >
+              <option value="all">Todos os times</option>
+              {times.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nome}{typeof t.divisao === 'number' ? ` • D${t.divisao}` : ''}
+                </option>
+              ))}
+            </select>
+            {filtroTime !== 'all' && (
+              <button
+                onClick={() => setFiltroTime('all')}
+                className="text-xs px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 border border-white/10"
+                title="Limpar filtro de time"
+              >
+                Limpar
+              </button>
+            )}
           </div>
 
           {/* Toggle classificação */}
@@ -873,6 +910,3 @@ export default function LigaCopaPage() {
     </div>
   )
 }
-
-
-
