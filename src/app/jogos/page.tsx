@@ -386,7 +386,7 @@ export default function Jogos() {
   // gerar T3 (todas divisões, ida+volta) — visível só para admin
   const gerarTemporada3 = async () => {
     if (!isAdmin) return
-    if (!confirm('Gerar jogos da Temporada 3 para as Divisões 1, 2 e 3?')) return
+    if (!confirm('Gerar jogos da Temporada 4 para as Divisões 1, 2 e 3?')) return
     try {
       setGerando(true)
       toast.loading('Iniciando Temporada 3...', { id: 'gerar-t3' })
