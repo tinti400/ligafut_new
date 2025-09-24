@@ -28,6 +28,8 @@ type Jogo = {
   gols_mandante: number | null
   gols_visitante: number | null
   data_iso?: string | null
+  /** flag usada apenas para modo "primeiro lançamento" vs "ajuste" */
+  bonus_pago?: boolean
 }
 
 type RodadaRow = {
@@ -117,19 +119,12 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
 function descobrirAdmin(): boolean {
   try {
     const ls = (k: string) => (typeof window !== 'undefined' ? localStorage.getItem(k) : null)
-
-    // flags diretas
     if (ls('is_admin') === '1') return true
     if (ls('admin') === '1' || ls('admin') === 'true') return true
-
-    // role/perfil
     const role = (ls('role') || '').toLowerCase()
     if (role === 'admin' || role === 'super' || role === 'owner') return true
-
     const perfil = (ls('perfil') || '').toLowerCase()
     if (perfil.includes('admin')) return true
-
-    // user JSON
     const userStr = ls('user') || ls('usuario')
     if (userStr) {
       try {
@@ -146,6 +141,7 @@ function descobrirAdmin(): boolean {
 /** === Page === */
 export default function LigaCopaPage() {
   const [times, setTimes] = useState<TimeRow[]>([])
+  const [timesMap, setTimesMap] = useState<Record<string, TimeRow>>({})
   const [rodadas, setRodadas] = useState<RodadaRow[]>([])
   const [loading, setLoading] = useState(false)
   const [savingRodada, setSavingRodada] = useState<number | null>(null)
@@ -154,6 +150,13 @@ export default function LigaCopaPage() {
   const [showClass, setShowClass] = useState<boolean>(true)
   const [isAdmin, setIsAdmin] = useState<boolean>(false)
   const [filtroRodada, setFiltroRodada] = useState<number | 'all'>('all')
+
+  // ===== estados de edição (layout Jogos)
+  const [editRodadaId, setEditRodadaId] = useState<UUID | null>(null)
+  const [editIndex, setEditIndex] = useState<number | null>(null)
+  const [gM, setGM] = useState<number>(0)
+  const [gV, setGV] = useState<number>(0)
+  const [salvandoJogo, setSalvandoJogo] = useState(false)
 
   // carregar SOMENTE divisões 1 a 3
   const loadTimes = async () => {
@@ -168,9 +171,14 @@ export default function LigaCopaPage() {
       toast.error('Erro ao carregar times das divisões 1 a 3')
       console.error(error)
       setTimes([])
+      setTimesMap({})
       return
     }
-    setTimes((data as TimeRow[]) || [])
+    const arr = (data as TimeRow[]) || []
+    const map: Record<string, TimeRow> = {}
+    for (const t of arr) map[t.id] = t
+    setTimes(arr)
+    setTimesMap(map)
   }
 
   const loadRodadas = async () => {
@@ -183,12 +191,12 @@ export default function LigaCopaPage() {
       setRodadas([])
       return
     }
-    setRodadas((data as RodadaRow[]) || [])
+    // garante que lista exista
+    setRodadas(((data as RodadaRow[]) || []).map(r => ({ ...r, jogos: r.jogos ?? [] })))
   }
 
   // init
   useEffect(() => {
-    // prefs
     try {
       const pref = localStorage.getItem('lc_show_class')
       if (pref !== null) setShowClass(pref === '1')
@@ -253,6 +261,7 @@ export default function LigaCopaPage() {
     }
   }
 
+  /** === Salvar por RODADA (continua disponível; opcional) === */
   const salvarRodada = async (numero: number, jogosAtualizados: Jogo[]) => {
     if (!isAdmin) {
       toast.error('Apenas administradores podem salvar resultados.')
@@ -278,23 +287,105 @@ export default function LigaCopaPage() {
     }
   }
 
-  const setGol = (
-    rnum: number,
-    idx: number,
-    field: 'gols_mandante' | 'gols_visitante',
-    val: number | null
-  ) => {
-    if (!isAdmin) return // bloqueia edição no estado para não-admin
-    setRodadas(prev =>
-      prev.map(r => {
-        if (r.numero !== rnum) return r
-        const jogos = [...(r.jogos || [])]
-        const j = { ...(jogos[idx] || {}) } as Jogo
-        ;(j as any)[field] = val
-        jogos[idx] = j
-        return { ...r, jogos }
-      })
-    )
+  /** === Salvar por JOGO (layout Jogos) === */
+  const salvarPrimeiroLancamento = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
+    if (!isAdmin || salvandoJogo) return
+    setSalvandoJogo(true)
+    try {
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+      if (error || !data) throw new Error('Rodada não encontrada')
+
+      const lista: Jogo[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
+
+      jogo.gols_mandante = Number.isFinite(gm) ? Number(gm) : 0
+      jogo.gols_visitante = Number.isFinite(gv) ? Number(gv) : 0
+      jogo.bonus_pago = true
+
+      lista[index] = jogo
+      const { error: updErr } = await supabase
+        .from('liga_copa_rodadas')
+        .update({ jogos: lista })
+        .eq('id', rodadaId)
+      if (updErr) throw updErr
+
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
+      toast.success('✅ Placar salvo!')
+      setEditRodadaId(null); setEditIndex(null)
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao salvar placar')
+    } finally {
+      setSalvandoJogo(false)
+    }
+  }
+
+  const salvarAjuste = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
+    if (!isAdmin || salvandoJogo) return
+    setSalvandoJogo(true)
+    try {
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+      if (error || !data) throw new Error('Rodada não encontrada')
+
+      const lista: Jogo[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
+      jogo.gols_mandante = Number.isFinite(gm) ? Number(gm) : 0
+      jogo.gols_visitante = Number.isFinite(gv) ? Number(gv) : 0
+      jogo.bonus_pago = true
+
+      lista[index] = jogo
+      const { error: updErr } = await supabase
+        .from('liga_copa_rodadas')
+        .update({ jogos: lista })
+        .eq('id', rodadaId)
+      if (updErr) throw updErr
+
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
+      toast.success('✏️ Resultado ajustado!')
+      setEditRodadaId(null); setEditIndex(null)
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao ajustar placar')
+    } finally {
+      setSalvandoJogo(false)
+    }
+  }
+
+  const excluirResultado = async (rodadaId: UUID, index: number) => {
+    if (!isAdmin) return
+    if (!confirm('Deseja excluir o resultado deste jogo?')) return
+    try {
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+      if (error || !data) throw new Error('Rodada não encontrada')
+
+      const lista: Jogo[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
+      jogo.gols_mandante = null
+      jogo.gols_visitante = null
+      jogo.bonus_pago = false
+      lista[index] = jogo
+
+      const { error: updErr } = await supabase
+        .from('liga_copa_rodadas')
+        .update({ jogos: lista })
+        .eq('id', rodadaId)
+      if (updErr) throw updErr
+
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
+      toast.success('🗑️ Resultado removido.')
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao remover resultado')
+    }
   }
 
   /** === UI helpers === */
@@ -306,6 +397,11 @@ export default function LigaCopaPage() {
     if (pos >= 1 && pos <= 10) return { rotulo: '1ª Divisão', cor: 'bg-emerald-500 text-black', chip: 'bg-emerald-600/20 ring-emerald-500/40' }
     if (pos >= 11 && pos <= 20) return { rotulo: '2ª Divisão', cor: 'bg-sky-400 text-black', chip: 'bg-sky-600/20 ring-sky-400/40' }
     return { rotulo: '3ª Divisão', cor: 'bg-amber-400 text-black', chip: 'bg-amber-600/20 ring-amber-400/40' }
+  }
+
+  const nomeLogo = (id: UUID) => {
+    const t = timesMap[id]
+    return { nome: t?.nome, logo: t?.logo_url }
   }
 
   /** === Render === */
@@ -529,87 +625,186 @@ export default function LigaCopaPage() {
         </div>
       )}
 
-      {/* Rodadas — filtro aplicado, apenas admin pode editar */}
+      {/* Rodadas — layout idêntico ao “Jogos” (admin edita inline) */}
       <div className="max-w-6xl mx-auto px-4 pb-12">
         <h2 className="text-base font-semibold text-gray-200 mb-3">Rodadas</h2>
 
-        {rodadasFiltradas.map(r => (
-          <div key={r.id ?? r.numero} className="rounded-xl border border-white/10 bg-gray-900/50 mb-4">
-            <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-white/10">
-              <h3 className="font-semibold">Rodada {r.numero}</h3>
-              <button
-                onClick={() => salvarRodada(r.numero, r.jogos || [])}
-                disabled={savingRodada === r.numero || !isAdmin}
-                className={`rounded-lg px-3 py-1.5 text-sm ${
-                  isAdmin
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-black'
-                    : 'bg-gray-700 text-gray-300 cursor-not-allowed'
-                }`}
-                title={isAdmin ? 'Salvar resultados' : 'Somente administradores podem salvar'}
-              >
-                {savingRodada === r.numero ? 'Salvando…' : 'Salvar resultados'}
-              </button>
-            </div>
-
-            {/* data da rodada (mostra a do 1º jogo, se houver) */}
-            <div className="px-4 md:px-6 py-2 text-xs text-gray-300">
-              {r?.jogos?.[0]?.data_iso && (
-                <span className="inline-flex items-center gap-2 px-2 py-0.5 rounded bg-white/5 ring-1 ring-white/10">
-                  🗓️ {new Date(r.jogos[0].data_iso as string).toLocaleString('pt-BR', {
-                    weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                  })}
-                </span>
-              )}
-            </div>
-
-            <div className="divide-y divide-white/10">
-              {(r.jogos || []).map((jogo, idx) => (
-                <div key={idx} className="px-4 md:px-6 py-3 grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-5 md:col-span-5 text-right truncate">{jogo.mandante}</div>
-                  <div className="col-span-1 text-center">
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
-                      value={jogo.gols_mandante ?? ''}
-                      onChange={(e) => setGol(r.numero, idx, 'gols_mandante', clampInt(e.target.value))}
-                      disabled={!isAdmin}
-                      readOnly={!isAdmin}
-                      title={isAdmin ? 'Editar gols do mandante' : 'Somente administradores podem editar'}
-                    />
-                  </div>
-                  <div className="col-span-0 text-center font-semibold">x</div>
-                  <div className="col-span-1 text-center">
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
-                      value={jogo.gols_visitante ?? ''}
-                      onChange={(e) => setGol(r.numero, idx, 'gols_visitante', clampInt(e.target.value))}
-                      disabled={!isAdmin}
-                      readOnly={!isAdmin}
-                      title={isAdmin ? 'Editar gols do visitante' : 'Somente administradores podem editar'}
-                    />
-                  </div>
-                  <div className="col-span-5 md:col-span-5 text-left truncate">{jogo.visitante}</div>
-
-                  {jogo?.data_iso && (
-                    <div className="col-span-12 text-center text-xs text-gray-400 mt-1">
-                      {new Date(jogo.data_iso).toLocaleString('pt-BR', {
-                        weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                      })}
-                    </div>
-                  )}
+        {rodadasFiltradas.map(r => {
+          const feitos = (r.jogos || []).filter(j => j.gols_mandante != null && j.gols_visitante != null).length
+          const total = (r.jogos || []).length
+          return (
+            <section key={r.id ?? r.numero} className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">🏁 Rodada {r.numero}</h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-white/70">
+                    {feitos}/{total} com placar
+                  </span>
+                  <button
+                    onClick={() => salvarRodada(r.numero, r.jogos || [])}
+                    disabled={savingRodada === r.numero || !isAdmin}
+                    className={`rounded-lg px-3 py-1.5 text-sm ${
+                      isAdmin
+                        ? 'bg-emerald-600 hover:bg-emerald-500 text-black'
+                        : 'bg-gray-700 text-gray-300 cursor-not-allowed'
+                    }`}
+                    title={isAdmin ? 'Salvar resultados da rodada' : 'Somente administradores podem salvar'}
+                  >
+                    {savingRodada === r.numero ? 'Salvando…' : 'Salvar rodada'}
+                  </button>
                 </div>
-              ))}
-              {(r.jogos || []).length === 0 && (
-                <div className="px-4 md:px-6 py-8 text-center text-sm text-gray-400">
-                  Nenhum jogo nesta rodada.
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+              </div>
+
+              <div className="space-y-2">
+                {(r.jogos || []).map((jogo, idx) => {
+                  const { nome: nM, logo: lM } = nomeLogo(jogo.mandante_id)
+                  const { nome: nV, logo: lV } = nomeLogo(jogo.visitante_id)
+                  const temPlacar = jogo.gols_mandante != null && jogo.gols_visitante != null
+                  const editando = editRodadaId === r.id && editIndex === idx
+                  const gm = jogo.gols_mandante ?? 0
+                  const gv = jogo.gols_visitante ?? 0
+
+                  return (
+                    <article
+                      key={idx}
+                      className={`rounded-2xl border px-4 py-3 transition
+                        ${temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]'
+                                     : 'border-white/10 bg-white/5 hover:bg-white/7'}
+                      `}
+                    >
+                      <div className="grid grid-cols-12 items-center gap-2">
+                        {/* Mandante */}
+                        <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
+                          {lM ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={lM} alt="" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                          ) : (
+                            <span className="h-6 w-6 grid place-items-center rounded-full bg-gray-700 text-[10px] ring-1 ring-white/10">
+                              {(nM || jogo.mandante || '').slice(0,2).toUpperCase()}
+                            </span>
+                          )}
+                          <span className="font-medium text-right truncate">{nM || jogo.mandante}</span>
+                        </div>
+
+                        {/* Placar */}
+                        <div className="col-span-2 md:col-span-4 text-center">
+                          {editando ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <input
+                                type="number"
+                                defaultValue={gm}
+                                onChange={(e) => setGM(Number(e.target.value))}
+                                className="w-12 text-black text-center rounded-lg px-2 py-1"
+                                placeholder="0" min={0}
+                              />
+                              <span className="text-white/70 font-semibold">x</span>
+                              <input
+                                type="number"
+                                defaultValue={gv}
+                                onChange={(e) => setGV(Number(e.target.value))}
+                                className="w-12 text-black text-center rounded-lg px-2 py-1"
+                                placeholder="0" min={0}
+                              />
+                            </div>
+                          ) : temPlacar ? (
+                            <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
+                              {gm} <span className="text-white/60">x</span> {gv}
+                            </span>
+                          ) : (
+                            <span className="text-white/50">🆚</span>
+                          )}
+                        </div>
+
+                        {/* Visitante + ações */}
+                        <div className="col-span-5 md:col-span-4 flex items-center justify-start gap-2">
+                          <span className="font-medium text-left truncate">{nV || jogo.visitante}</span>
+                          {lV ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={lV} alt="" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                          ) : (
+                            <span className="h-6 w-6 grid place-items-center rounded-full bg-gray-700 text-[10px] ring-1 ring-white/10">
+                              {(nV || jogo.visitante || '').slice(0,2).toUpperCase()}
+                            </span>
+                          )}
+
+                          {/* Ações (somente admin) */}
+                          {isAdmin && !editando && (
+                            <div className="flex gap-2 ml-2">
+                              <button
+                                onClick={() => {
+                                  setEditRodadaId(r.id)
+                                  setEditIndex(idx)
+                                  setGM(gm); setGV(gv)
+                                  if (jogo.bonus_pago) {
+                                    toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
+                                  }
+                                }}
+                                className="text-sm text-yellow-300 hover:text-yellow-200"
+                                title={jogo.bonus_pago ? 'Editar (ajuste, sem repetir bônus)' : 'Editar (primeiro lançamento)'}
+                              >
+                                📝
+                              </button>
+
+                              {temPlacar && (
+                                <button
+                                  onClick={() => excluirResultado(r.id, idx)}
+                                  className="text-sm text-red-400 hover:text-red-300"
+                                  title="Remover resultado"
+                                >
+                                  🗑️
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {isAdmin && editando && (
+                            <div className="flex gap-2 ml-2">
+                              {!jogo.bonus_pago ? (
+                                <button
+                                  onClick={() => salvarPrimeiroLancamento(r.id, idx, Number(gM), Number(gV))}
+                                  disabled={salvandoJogo}
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  title="Salvar (primeiro lançamento)"
+                                >
+                                  💾
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => salvarAjuste(r.id, idx, Number(gM), Number(gV))}
+                                  disabled={salvandoJogo}
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  title="Salvar ajuste (sem repetir bônus)"
+                                >
+                                  ✅
+                                </button>
+                              )}
+                              <button
+                                onClick={() => { setEditRodadaId(null); setEditIndex(null) }}
+                                className="text-sm text-red-400 font-semibold hover:text-red-300"
+                                title="Cancelar edição"
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* data do jogo (opcional) */}
+                      {jogo?.data_iso && (
+                        <div className="mt-1 text-right text-[11px] text-white/60">
+                          {new Date(jogo.data_iso).toLocaleString('pt-BR', {
+                            weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                          })}
+                        </div>
+                      )}
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          )
+        })}
 
         {rodadasFiltradas.length === 0 && (
           <div className="rounded-xl border border-dashed border-white/15 px-4 md:px-6 py-10 text-center text-gray-400">
@@ -620,5 +815,6 @@ export default function LigaCopaPage() {
     </div>
   )
 }
+
 
 
