@@ -42,31 +42,24 @@ interface ClassificacaoItem {
 }
 
 /** === Premiação ===
- * Base da 1ª divisão agora é 850mi e mantemos a MESMA proporção entre posições do seu modelo anterior.
- * (proporções relativas ao 1º: [1, 0.8, 0.7333, 0.6667, 0.6, 0.5667, 0.5333, 0.5, 0.4667, 0.4])
- * Divisões inferiores: multiplicador 0.7^(divisão-1).
+ * Regras novas:
+ * - 1ª divisão: campeão = 250mi; cada posição abaixo perde 8% (multiplicativo, 0.92^n).
+ * - Divisões inferiores: toda a divisão é 25% menor por divisão abaixo (0.75^(divisão-1)).
+ * - Pagamos até MAX_POSICOES posições.
  */
-const DIV1_FIRST = 850_000_000
-const DIV1_RATIOS = [
-  1,
-  0.8,
-  0.7333333333333333,
-  0.6666666666666666,
-  0.6,
-  0.5666666666666667,
-  0.5333333333333333,
-  0.5,
-  0.4666666666666667,
-  0.4,
-] as const
+const DIV1_CHAMPION = 250_000_000
+const POS_DROP_FACTOR = 0.92            // -8% por posição
+const DIV_DROP_FACTOR = 0.75            // -25% por divisão
 const MAX_POSICOES = 10
 
 function premioDaPosicao(pos: number, divisao: number) {
-  const idx = pos - 1
-  const baseDiv1 = idx >= 0 && idx < DIV1_RATIOS.length ? Math.round(DIV1_FIRST * DIV1_RATIOS[idx]) : 0
-  if (baseDiv1 <= 0) return 0
-  const fatorDivisao = Math.pow(0.7, Math.max(0, (divisao ?? 1) - 1))
-  return Math.round(baseDiv1 * fatorDivisao)
+  if (pos <= 0) return 0
+  // fator por posição (1º = 0.92^(0) = 1; 2º = 0.92; 3º = 0.92^2; ...)
+  const fatorPos = Math.pow(POS_DROP_FACTOR, pos - 1)
+  // fator por divisão (div1 = 0.75^(0) = 1; div2 = 0.75; div3 = 0.75^2; ...)
+  const fatorDivisao = Math.pow(DIV_DROP_FACTOR, Math.max(0, (divisao ?? 1) - 1))
+  const valor = Math.round(DIV1_CHAMPION * fatorPos * fatorDivisao)
+  return Math.max(0, valor)
 }
 
 const fmtBRL = (v: number) =>
@@ -80,7 +73,7 @@ export default function ClassificacaoPage() {
   const [pagando, setPagando] = useState(false)
   const [pagandoTudo, setPagandoTudo] = useState(false)
 
-  // começa na Temporada 3
+  // começa na Temporada 4
   const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(4)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
 
