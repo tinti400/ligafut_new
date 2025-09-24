@@ -41,22 +41,28 @@ interface ClassificacaoItem {
   pontos_ajustados?: number
 }
 
-/** === Premiação ===
- * Regras novas:
- * - 1ª divisão: campeão = 250mi; cada posição abaixo perde 8% (multiplicativo, 0.92^n).
- * - Divisões inferiores: toda a divisão é 25% menor por divisão abaixo (0.75^(divisão-1)).
- * - Pagamos até MAX_POSICOES posições.
+/** === Premiação (escalonada entre divisões) ===
+ * - 1ª divisão: campeão = 250 mi
+ * - Por posição: -8% a cada posição abaixo (0.92^(pos-1))
+ * - Entre divisões (auto): fator escolhido p/ garantir degrau:
+ *     último pago da Div N  >  campeão da Div N+1
+ *     último pago da Div N+1 > campeão da Div N+2
+ *
+ * Obs: usamos margem (0.98) para manter estritamente menor.
  */
 const DIV1_CHAMPION = 250_000_000
-const POS_DROP_FACTOR = 0.92            // -8% por posição
-const DIV_DROP_FACTOR = 0.75            // -25% por divisão
-const MAX_POSICOES = 10
+const POS_DROP_FACTOR = 0.92         // -8% por posição
+const MAX_POSICOES = 10              // pagamos até esta posição
+
+// Limite teórico entre divisões: campeão da div (d+1) < 10º da div d
+// => DIV_FACTOR < POS_DROP_FACTOR^(MAX_POSICOES-1)
+// Aplicamos margem de segurança (0.98) para garantir estrito:
+const SAFE_DIV_FACTOR = Math.pow(POS_DROP_FACTOR, Math.max(0, MAX_POSICOES - 1)) * 0.98
+const DIV_DROP_FACTOR = SAFE_DIV_FACTOR
 
 function premioDaPosicao(pos: number, divisao: number) {
   if (pos <= 0) return 0
-  // fator por posição (1º = 0.92^(0) = 1; 2º = 0.92; 3º = 0.92^2; ...)
   const fatorPos = Math.pow(POS_DROP_FACTOR, pos - 1)
-  // fator por divisão (div1 = 0.75^(0) = 1; div2 = 0.75; div3 = 0.75^2; ...)
   const fatorDivisao = Math.pow(DIV_DROP_FACTOR, Math.max(0, (divisao ?? 1) - 1))
   const valor = Math.round(DIV1_CHAMPION * fatorPos * fatorDivisao)
   return Math.max(0, valor)
@@ -481,7 +487,7 @@ export default function ClassificacaoPage() {
         </div>
       </div>
 
-      {/* Painel de premiação por posição — AGORA SÓ ADMIN VÊ */}
+      {/* Painel de premiação por posição — só admin vê */}
       {isAdmin && divisaoSelecionada && (
         <div className="max-w-6xl mx-auto px-4">
           <div className="rounded-xl border border-emerald-700/40 bg-emerald-900/20 p-4">
