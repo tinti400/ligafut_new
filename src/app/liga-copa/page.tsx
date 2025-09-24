@@ -45,127 +45,6 @@ const clampInt = (v: any) => {
   return Math.max(0, Math.floor(n))
 }
 
-/** ===== Seed/Hash simples (determinístico) ===== */
-function hashStr(s: string) {
-  let h = 2166136261 >>> 0
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619) >>> 0
-  }
-  return h
-}
-function shuffleDeterministico<T>(arr: T[], seed: string): T[] {
-  const a = [...arr]
-  let x = hashStr(seed) || 1
-  for (let i = a.length - 1; i > 0; i--) {
-    x = (1664525 * x + 1013904223) >>> 0 // LCG
-    const j = x % (i + 1)
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
-
-/** ===== Datas: próximo sábado 16:00, semanal ===== */
-function proximoSabado16() {
-  const d = new Date()
-  const dia = d.getDay() // 0 dom .. 6 sáb
-  const delta = (6 - dia + 7) % 7 || 7 // se hoje for sábado, vai pro próximo
-  d.setDate(d.getDate() + delta)
-  d.setHours(16, 0, 0, 0)
-  return d
-}
-function gerarDatasRodadas(qtd: number, inicio?: Date): string[] {
-  const base = inicio ? new Date(inicio) : proximoSabado16()
-  const out: string[] = []
-  for (let i = 0; i < qtd; i++) {
-    const d = new Date(base)
-    d.setDate(base.getDate() + i * 7) // semanal
-    out.push(d.toISOString())
-  }
-  return out
-}
-
-/** ===== Round-robin (turno único) com seed e mandos mais balanceados ===== */
-function gerarRodadasTurnoUnico(
-  times: TimeRow[],
-  opts?: { seed?: string; datas?: string[] }
-): { numero: number; jogos: Jogo[] }[] {
-  if (times.length < 2) return []
-
-  // ghost p/ número par
-  const ghost: TimeRow = { id: 'ghost' as UUID, nome: 'BYE', logo_url: null }
-  const lista = times.length % 2 === 1 ? [...times, ghost] : [...times]
-
-  // seed default: concatenação estável dos IDs
-  const seed =
-    opts?.seed ??
-    times
-      .map(t => t.id)
-      .sort()
-      .join('|')
-
-  const arr = shuffleDeterministico(lista, seed)
-
-  const n = arr.length
-  const rounds = n - 1
-  const half = n / 2
-
-  const fixo = arr[0]
-  let rotativos = arr.slice(1)
-
-  // contador de mandos para tentar equilibrar
-  const mandos = new Map<string, number>()
-  for (const t of times) mandos.set(t.id, 0)
-
-  // datas
-  const datas = opts?.datas ?? gerarDatasRodadas(rounds)
-
-  const result: { numero: number; jogos: Jogo[] }[] = []
-
-  for (let r = 0; r < rounds; r++) {
-    const esquerda = [fixo, ...rotativos.slice(0, half - 1)]
-    const direita = rotativos.slice(half - 1).reverse()
-
-    const jogos: Jogo[] = []
-    for (let i = 0; i < half; i++) {
-      const A = esquerda[i]
-      const B = direita[i]
-      if (!A || !B) continue
-      if (A.id === 'ghost' || B.id === 'ghost') continue
-
-      // orientação base + inversão
-      let mand = A
-      let vis = B
-      const invert = (r + i) % 2 === 1
-      if (invert) [mand, vis] = [vis, mand]
-
-      // ajuste de mando se algum estiver desequilibrado
-      const mMand = mandos.get(mand.id) ?? 0
-      const mVis = mandos.get(vis.id) ?? 0
-      if (mMand > mVis + 1) [mand, vis] = [vis, mand]
-
-      // registra mando
-      if (mand.id !== 'ghost') mandos.set(mand.id, (mandos.get(mand.id) ?? 0) + 1)
-
-      jogos.push({
-        mandante_id: mand.id as UUID,
-        visitante_id: vis.id as UUID,
-        mandante: mand.nome,
-        visitante: vis.nome,
-        gols_mandante: null,
-        gols_visitante: null,
-        data_iso: datas[r] ?? null
-      })
-    }
-
-    result.push({ numero: r + 1, jogos })
-    // rotação circular
-    rotativos = [rotativos[rotativos.length - 1], ...rotativos.slice(0, rotativos.length - 1)]
-  }
-
-  return result
-}
-
 /** === Classificação === */
 type RowClass = {
   id_time: UUID
@@ -234,12 +113,47 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
   })
 }
 
+/** === Descobrir Admin (via localStorage) === */
+function descobrirAdmin(): boolean {
+  try {
+    const ls = (k: string) => (typeof window !== 'undefined' ? localStorage.getItem(k) : null)
+
+    // flags diretas
+    if (ls('is_admin') === '1') return true
+    if (ls('admin') === '1' || ls('admin') === 'true') return true
+
+    // role/perfil
+    const role = (ls('role') || '').toLowerCase()
+    if (role === 'admin' || role === 'super' || role === 'owner') return true
+
+    const perfil = (ls('perfil') || '').toLowerCase()
+    if (perfil.includes('admin')) return true
+
+    // user JSON
+    const userStr = ls('user') || ls('usuario')
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr)
+        if (u?.admin === true) return true
+        const r = (u?.role || u?.papel || '').toLowerCase()
+        if (['admin', 'super', 'owner'].includes(r)) return true
+      } catch {}
+    }
+  } catch {}
+  return false
+}
+
 /** === Page === */
 export default function LigaCopaPage() {
   const [times, setTimes] = useState<TimeRow[]>([])
   const [rodadas, setRodadas] = useState<RodadaRow[]>([])
   const [loading, setLoading] = useState(false)
   const [savingRodada, setSavingRodada] = useState<number | null>(null)
+
+  // preferências UI
+  const [showClass, setShowClass] = useState<boolean>(true)
+  const [isAdmin, setIsAdmin] = useState<boolean>(false)
+  const [filtroRodada, setFiltroRodada] = useState<number | 'all'>('all')
 
   // carregar SOMENTE divisões 1 a 3
   const loadTimes = async () => {
@@ -272,65 +186,78 @@ export default function LigaCopaPage() {
     setRodadas((data as RodadaRow[]) || [])
   }
 
+  // init
   useEffect(() => {
+    // prefs
+    try {
+      const pref = localStorage.getItem('lc_show_class')
+      if (pref !== null) setShowClass(pref === '1')
+    } catch {}
+    setIsAdmin(descobrirAdmin())
+
     loadTimes()
     loadRodadas()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // persistir toggle classificação
+  useEffect(() => {
+    try {
+      localStorage.setItem('lc_show_class', showClass ? '1' : '0')
+    } catch {}
+  }, [showClass])
+
   const classificacao = useMemo(() => computeClassificacao(rodadas, times), [rodadas, times])
 
-  /** === GERAR/RESETAR CONFRONTOS (no front, sem RPC) === */
+  // lista de rodadas para filtro
+  const numerosRodadas = useMemo(
+    () => Array.from(new Set(rodadas.map(r => r.numero))).sort((a, b) => a - b),
+    [rodadas]
+  )
+
+  const rodadasFiltradas = useMemo(() => {
+    if (filtroRodada === 'all') return rodadas
+    return rodadas.filter(r => r.numero === filtroRodada)
+  }, [rodadas, filtroRodada])
+
+  /** === GERAR/RESETAR CONFRONTOS (via API) === */
   const gerarLigaCopa = async () => {
     if (times.length < 2) {
       toast.error('Cadastre ao menos 2 times (divisões 1 a 3).')
       return
     }
     setLoading(true)
-    const idLoading = 'gera-lc'
+    const idLoading = 'gera-lc-api'
     try {
       toast.loading('Gerando confrontos da Liga-Copa…', { id: idLoading })
 
-      // limpar tabela
-      const { error: delErr } = await supabase
-        .from('liga_copa_rodadas')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000')
-      if (delErr && delErr.code !== '42P01') {
-        console.warn('Erro ao limpar liga_copa_rodadas', delErr)
-      }
+      const res = await fetch('/api/liga-copa/gerar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const json = await res.json()
 
-      // nº de rodadas = (qtd times com ghost ajustado) - 1
-      const qtdTimesPar = times.length % 2 === 0 ? times.length : times.length + 1
-      const qtdRodadas = qtdTimesPar - 1
-      const datas = gerarDatasRodadas(qtdRodadas)
-      const seed = 'liga-copa-D1-D3' // mude se quiser outra ordem determinística
-
-      // gera lista de rodadas e jogos
-      const listas = gerarRodadasTurnoUnico(times, { seed, datas })
-      if (listas.length === 0) {
-        toast.error('Não foi possível gerar as rodadas.', { id: idLoading })
-        setLoading(false)
-        return
-      }
-
-      // salva em lote
-      const payload = listas.map(r => ({ numero: r.numero, jogos: r.jogos }))
-      const { error: insErr } = await supabase.from('liga_copa_rodadas').insert(payload)
-      if (insErr) {
-        console.error(insErr)
-        toast.error('Erro ao salvar as rodadas.', { id: idLoading })
+      if (!res.ok || !json?.ok) {
+        console.error(json)
+        toast.error(json?.error || 'Erro ao gerar rodadas.', { id: idLoading })
         return
       }
 
       await loadRodadas()
-      toast.success('✅ Liga-Copa gerada com sucesso!', { id: idLoading })
+      toast.success(`✅ Liga-Copa gerada: ${json.rodadas} rodadas`, { id: idLoading })
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro inesperado ao chamar a API.', { id: idLoading })
     } finally {
       setLoading(false)
     }
   }
 
   const salvarRodada = async (numero: number, jogosAtualizados: Jogo[]) => {
+    if (!isAdmin) {
+      toast.error('Apenas administradores podem salvar resultados.')
+      return
+    }
     setSavingRodada(numero)
     try {
       const { error: updErr } = await supabase
@@ -357,8 +284,9 @@ export default function LigaCopaPage() {
     field: 'gols_mandante' | 'gols_visitante',
     val: number | null
   ) => {
-    setRodadas((prev) =>
-      prev.map((r) => {
+    if (!isAdmin) return // bloqueia edição no estado para não-admin
+    setRodadas(prev =>
+      prev.map(r => {
         if (r.numero !== rnum) return r
         const jogos = [...(r.jogos || [])]
         const j = { ...(jogos[idx] || {}) } as Jogo
@@ -392,25 +320,70 @@ export default function LigaCopaPage() {
         </h1>
       </div>
 
-      {/* Ações */}
+      {/* Barra de Ações */}
       <div className="max-w-6xl mx-auto px-4">
-        <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-          <button
-            onClick={gerarLigaCopa}
-            disabled={loading || times.length < 2}
-            className={`px-4 py-2 rounded-full text-sm border transition ${
-              loading
-                ? 'bg-gray-700 text-gray-300 cursor-not-allowed border-white/10'
-                : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-500/50'
-            }`}
-            title="Gera/Reseta todas as rodadas da Liga-Copa no front-end"
-          >
-            {loading ? 'Gerando…' : '🚀 Gerar/Resetar Rodadas'}
-          </button>
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Botão gerar */}
+          <div className="flex items-center justify-center">
+            <button
+              onClick={gerarLigaCopa}
+              disabled={loading || times.length < 2}
+              className={`px-4 py-2 rounded-full text-sm border transition ${
+                loading
+                  ? 'bg-gray-700 text-gray-300 cursor-not-allowed border-white/10'
+                  : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-500/50'
+              }`}
+              title="Gera/Reseta todas as rodadas da Liga-Copa via API"
+            >
+              {loading ? 'Gerando…' : '🚀 Gerar/Resetar Rodadas'}
+            </button>
+          </div>
+
+          {/* Filtro por rodada */}
+          <div className="flex items-center justify-center gap-2">
+            <label className="text-sm text-gray-300">Rodada:</label>
+            <select
+              value={filtroRodada === 'all' ? 'all' : String(filtroRodada)}
+              onChange={(e) =>
+                setFiltroRodada(e.target.value === 'all' ? 'all' : Number(e.target.value))
+              }
+              className="rounded-lg bg-gray-800 text-white text-sm px-3 py-2 border border-white/10"
+              title="Filtrar por rodada"
+            >
+              <option value="all">Todas</option>
+              {numerosRodadas.map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Toggle classificação */}
+          <div className="flex items-center justify-center gap-3">
+            <span className="text-sm text-gray-300">Classificação</span>
+            <button
+              onClick={() => setShowClass(v => !v)}
+              className={[
+                'relative inline-flex h-8 w-16 items-center rounded-full border transition',
+                showClass ? 'bg-emerald-600 border-emerald-500' : 'bg-gray-700 border-white/10'
+              ].join(' ')}
+              aria-pressed={showClass}
+              title={showClass ? 'Ocultar classificação' : 'Mostrar classificação'}
+            >
+              <span
+                className={[
+                  'inline-block h-6 w-6 transform rounded-full bg-white transition',
+                  showClass ? 'translate-x-9' : 'translate-x-1'
+                ].join(' ')}
+              />
+            </button>
+          </div>
         </div>
 
         <div className="mb-1 text-center text-xs text-emerald-300">
           Participantes (D1–D3): <b>{times.length}</b>
+          {!isAdmin && (
+            <span className="ml-2 text-amber-300">• edição de resultados bloqueada (somente admin)</span>
+          )}
         </div>
       </div>
 
@@ -429,143 +402,150 @@ export default function LigaCopaPage() {
         </div>
       </div>
 
-      {/* Tabela principal */}
-      <div className="max-w-6xl mx-auto px-4 pb-10">
-        {/* Compartilhar */}
-        <div className="mb-3 flex justify-end">
-          <a
-            href={`https://wa.me/?text=${encodeURIComponent(
-              `📊 Liga-Copa (Turno Único • D1–D3):\n\n` +
-                classificacao
-                  .map(
-                    (item, i) =>
-                      `${i + 1}º ${item.nome} - ${item.pontos} pts (${item.v}V ${item.e}E ${item.d}D)`
-                  )
-                  .join('\n')
-            )}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm px-3 py-1.5 rounded-lg font-semibold"
-          >
-            📤 Compartilhar
-          </a>
-        </div>
+      {/* Classificação (ocultável) */}
+      {showClass && (
+        <div className="max-w-6xl mx-auto px-4 pb-10">
+          {/* Compartilhar */}
+          <div className="mb-3 flex justify-end">
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(
+                `📊 Liga-Copa (Turno Único • D1–D3):\n\n` +
+                  classificacao
+                    .map(
+                      (item, i) =>
+                        `${i + 1}º ${item.nome} - ${item.pontos} pts (${item.v}V ${item.e}E ${item.d}D)`
+                    )
+                    .join('\n')
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm px-3 py-1.5 rounded-lg font-semibold"
+            >
+              📤 Compartilhar
+            </a>
+          </div>
 
-        <div className="overflow-x-auto rounded-xl border border-white/10 bg-gray-900/60 shadow-2xl shadow-black/30">
-          <table className="min-w-full text-sm">
-            <thead className="bg-black/70 text-yellow-300 border-b border-white/10">
-              <tr>
-                <th className="py-3 px-4 text-left">Pos</th>
-                <th className="py-3 px-4 text-left">Time</th>
-                <th className="py-3 px-2 text-center">Faixa</th>
-                <th className="py-3 px-2 text-center">Pts</th>
-                <th className="py-3 px-2 text-center">Aprove.</th>
-                <th className="py-3 px-2 text-center">J</th>
-                <th className="py-3 px-2 text-center">V</th>
-                <th className="py-3 px-2 text-center">E</th>
-                <th className="py-3 px-2 text-center">D</th>
-                <th className="py-3 px-2 text-center">GP</th>
-                <th className="py-3 px-2 text-center">GC</th>
-                <th className="py-3 px-2 text-center">SG</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-white/5">
-              {classificacao.map((item, index) => {
-                const pos = index + 1
-                const ap = aproveitamento(item)
-                const faixa = faixaPorPosicao(pos)
-
-                const linhaCor =
-                  pos <= 10
-                    ? 'bg-emerald-950/30 hover:bg-emerald-900/30'
-                    : pos <= 20
-                    ? 'bg-sky-950/30 hover:bg-sky-900/30'
-                    : 'bg-amber-950/30 hover:bg-amber-900/30'
-
-                return (
-                  <tr key={item.id_time} className={`${linhaCor} transition-colors`}>
-                    <td className="py-2.5 px-4">
-                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ring-1 ring-white/10 bg-gray-700 text-gray-200">
-                        {pos}
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-3">
-                        {item.logo_url ? (
-                          <img
-                            src={item.logo_url}
-                            alt={item.nome}
-                            className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover"
-                          />
-                        ) : (
-                          <span className="w-7 h-7 grid place-items-center rounded-full bg-gray-700 text-[10px] text-gray-200 ring-1 ring-white/10">
-                            {item.nome.slice(0, 2).toUpperCase()}
-                          </span>
-                        )}
-                        <span className="font-medium">{item.nome}</span>
-                        {typeof item.divisao === 'number' && (
-                          <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 ring-1 ring-white/10 text-gray-300">
-                            D{item.divisao}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Faixa da próxima divisão */}
-                    <td className="py-2.5 px-2 text-center">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
-                        <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
-                        {faixa.rotulo}
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{item.pontos}</td>
-
-                    <td className="py-2.5 px-2">
-                      <div className="flex flex-col items-center gap-1">
-                        <div className="w-24 md:w-32 h-2 rounded-full bg-gray-700 overflow-hidden">
-                          <div className="h-2 bg-emerald-500" style={{ width: `${ap}%` }} />
-                        </div>
-                        <span className="text-xs text-gray-300">{ap}%</span>
-                      </div>
-                    </td>
-
-                    <td className="py-2.5 px-2 text-center">{item.jogos}</td>
-                    <td className="py-2.5 px-2 text-center">{item.v}</td>
-                    <td className="py-2.5 px-2 text-center">{item.e}</td>
-                    <td className="py-2.5 px-2 text-center">{item.d}</td>
-                    <td className="py-2.5 px-2 text-center">{item.gp}</td>
-                    <td className="py-2.5 px-2 text-center">{item.gc}</td>
-                    <td className="py-2.5 px-2 text-center">{item.sg}</td>
-                  </tr>
-                )
-              })}
-              {classificacao.length === 0 && (
+          <div className="overflow-x-auto rounded-xl border border-white/10 bg-gray-900/60 shadow-2xl shadow-black/30">
+            <table className="min-w-full text-sm">
+              <thead className="bg-black/70 text-yellow-300 border-b border-white/10">
                 <tr>
-                  <td colSpan={12} className="px-3 py-8 text-center text-gray-400">
-                    Sem jogos finalizados ainda.
-                  </td>
+                  <th className="py-3 px-4 text-left">Pos</th>
+                  <th className="py-3 px-4 text-left">Time</th>
+                  <th className="py-3 px-2 text-center">Faixa</th>
+                  <th className="py-3 px-2 text-center">Pts</th>
+                  <th className="py-3 px-2 text-center">Aprove.</th>
+                  <th className="py-3 px-2 text-center">J</th>
+                  <th className="py-3 px-2 text-center">V</th>
+                  <th className="py-3 px-2 text-center">E</th>
+                  <th className="py-3 px-2 text-center">D</th>
+                  <th className="py-3 px-2 text-center">GP</th>
+                  <th className="py-3 px-2 text-center">GC</th>
+                  <th className="py-3 px-2 text-center">SG</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </thead>
 
-      {/* Rodadas — cartões escuros no mesmo estilo */}
+              <tbody className="divide-y divide-white/5">
+                {classificacao.map((item, index) => {
+                  const pos = index + 1
+                  const ap = aproveitamento(item)
+                  const faixa = faixaPorPosicao(pos)
+
+                  const linhaCor =
+                    pos <= 10
+                      ? 'bg-emerald-950/30 hover:bg-emerald-900/30'
+                      : pos <= 20
+                      ? 'bg-sky-950/30 hover:bg-sky-900/30'
+                      : 'bg-amber-950/30 hover:bg-amber-900/30'
+
+                  return (
+                    <tr key={item.id_time} className={`${linhaCor} transition-colors`}>
+                      <td className="py-2.5 px-4">
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ring-1 ring-white/10 bg-gray-700 text-gray-200">
+                          {pos}
+                        </span>
+                      </td>
+
+                      <td className="py-2.5 px-4">
+                        <div className="flex items-center gap-3">
+                          {item.logo_url ? (
+                            <img
+                              src={item.logo_url}
+                              alt={item.nome}
+                              className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover"
+                            />
+                          ) : (
+                            <span className="w-7 h-7 grid place-items-center rounded-full bg-gray-700 text-[10px] text-gray-200 ring-1 ring-white/10">
+                              {item.nome.slice(0, 2).toUpperCase()}
+                            </span>
+                          )}
+                          <span className="font-medium">{item.nome}</span>
+                          {typeof item.divisao === 'number' && (
+                            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 ring-1 ring-white/10 text-gray-300">
+                              D{item.divisao}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Faixa da próxima divisão */}
+                      <td className="py-2.5 px-2 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
+                          <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
+                          {faixa.rotulo}
+                        </span>
+                      </td>
+
+                      <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{item.pontos}</td>
+
+                      <td className="py-2.5 px-2">
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="w-24 md:w-32 h-2 rounded-full bg-gray-700 overflow-hidden">
+                            <div className="h-2 bg-emerald-500" style={{ width: `${ap}%` }} />
+                          </div>
+                          <span className="text-xs text-gray-300">{ap}%</span>
+                        </div>
+                      </td>
+
+                      <td className="py-2.5 px-2 text-center">{item.jogos}</td>
+                      <td className="py-2.5 px-2 text-center">{item.v}</td>
+                      <td className="py-2.5 px-2 text-center">{item.e}</td>
+                      <td className="py-2.5 px-2 text-center">{item.d}</td>
+                      <td className="py-2.5 px-2 text-center">{item.gp}</td>
+                      <td className="py-2.5 px-2 text-center">{item.gc}</td>
+                      <td className="py-2.5 px-2 text-center">{item.sg}</td>
+                    </tr>
+                  )
+                })}
+                {classificacao.length === 0 && (
+                  <tr>
+                    <td colSpan={12} className="px-3 py-8 text-center text-gray-400">
+                      Sem jogos finalizados ainda.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Rodadas — filtro aplicado, apenas admin pode editar */}
       <div className="max-w-6xl mx-auto px-4 pb-12">
         <h2 className="text-base font-semibold text-gray-200 mb-3">Rodadas</h2>
 
-        {rodadas.map((r) => (
+        {rodadasFiltradas.map(r => (
           <div key={r.id ?? r.numero} className="rounded-xl border border-white/10 bg-gray-900/50 mb-4">
             <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-white/10">
               <h3 className="font-semibold">Rodada {r.numero}</h3>
               <button
                 onClick={() => salvarRodada(r.numero, r.jogos || [])}
-                disabled={savingRodada === r.numero}
-                className="rounded-lg px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-black text-sm disabled:opacity-50"
+                disabled={savingRodada === r.numero || !isAdmin}
+                className={`rounded-lg px-3 py-1.5 text-sm ${
+                  isAdmin
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-black'
+                    : 'bg-gray-700 text-gray-300 cursor-not-allowed'
+                }`}
+                title={isAdmin ? 'Salvar resultados' : 'Somente administradores podem salvar'}
               >
                 {savingRodada === r.numero ? 'Salvando…' : 'Salvar resultados'}
               </button>
@@ -593,6 +573,9 @@ export default function LigaCopaPage() {
                       className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
                       value={jogo.gols_mandante ?? ''}
                       onChange={(e) => setGol(r.numero, idx, 'gols_mandante', clampInt(e.target.value))}
+                      disabled={!isAdmin}
+                      readOnly={!isAdmin}
+                      title={isAdmin ? 'Editar gols do mandante' : 'Somente administradores podem editar'}
                     />
                   </div>
                   <div className="col-span-0 text-center font-semibold">x</div>
@@ -603,6 +586,9 @@ export default function LigaCopaPage() {
                       className="w-14 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-white"
                       value={jogo.gols_visitante ?? ''}
                       onChange={(e) => setGol(r.numero, idx, 'gols_visitante', clampInt(e.target.value))}
+                      disabled={!isAdmin}
+                      readOnly={!isAdmin}
+                      title={isAdmin ? 'Editar gols do visitante' : 'Somente administradores podem editar'}
                     />
                   </div>
                   <div className="col-span-5 md:col-span-5 text-left truncate">{jogo.visitante}</div>
@@ -625,9 +611,9 @@ export default function LigaCopaPage() {
           </div>
         ))}
 
-        {rodadas.length === 0 && (
+        {rodadasFiltradas.length === 0 && (
           <div className="rounded-xl border border-dashed border-white/15 px-4 md:px-6 py-10 text-center text-gray-400">
-            Nenhuma rodada gerada. Use <strong>Gerar/Resetar Rodadas</strong> acima.
+            Nenhuma rodada para o filtro selecionado.
           </div>
         )}
       </div>
