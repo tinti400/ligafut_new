@@ -134,16 +134,44 @@ function calcularPremios(gm: number, gv: number) {
   }
 }
 
-/** === Descobrir Admin (via RPC/claim) === */
+/** === Descobrir Admin (igual ao page Jogos) === */
 async function descobrirAdminLikeJogos(): Promise<boolean> {
   try {
-    const { data, error } = await supabase.rpc('is_admin')
-    if (!error && (data === true || data === 'true' || data === 1)) return true
-  } catch {}
-  // fallback local (não confiável p/ RLS, só pra UI)
-  try {
-    const v = localStorage.getItem('is_admin')
-    if (v === '1' || v === 'true') return true
+    const ls = (k: string) => (typeof window !== 'undefined' ? localStorage.getItem(k) : null)
+
+    const direto = [
+      ls('is_admin'), ls('admin'), ls('isAdmin'),
+      ls('usuario_admin'), ls('usuario_is_admin'),
+      ls('moderador'), ls('is_moderator'), ls('staff'),
+    ]
+    if (direto.some(v => v === '1' || v === 'true')) return true
+
+    const role = (ls('role') || '').toLowerCase()
+    if (['admin', 'super', 'owner', 'moderador', 'staff'].includes(role)) return true
+
+    const perfil = (ls('perfil') || '').toLowerCase()
+    if (perfil.includes('admin') || perfil.includes('moderador') || perfil.includes('staff')) return true
+
+    let usuarioId: string | null = ls('usuario_id') || null
+    const userStr = ls('user') || ls('usuario')
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr)
+        if (u?.admin === true || u?.is_admin === true || u?.isAdmin === true) return true
+        const r = (u?.role || u?.papel || '').toLowerCase()
+        if (['admin', 'super', 'owner', 'moderador', 'staff'].includes(r)) return true
+        const perms: any[] = Array.isArray(u?.permissoes) ? u.permissoes : Array.isArray(u?.permissions) ? u.permissions : []
+        if (perms.some(p => String(p).toLowerCase().includes('admin'))) return true
+        const grupos: any[] = Array.isArray(u?.grupos) ? u.grupos : []
+        if (grupos.some(g => String(g).toLowerCase().includes('admin'))) return true
+        if (!usuarioId) usuarioId = u?.id || u?.usuario_id || u?.user_id || null
+      } catch {}
+    }
+
+    try {
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('is_admin')
+      if (!rpcErr && (rpcData === true || rpcData === 'true' || rpcData === 1)) return true
+    } catch {}
   } catch {}
   return false
 }
@@ -235,7 +263,7 @@ export default function LigaCopaPage() {
     [rodadas]
   )
 
-  // filtro combinado (rodada + time)
+  // === filtro combinado (rodada + time) sobre as rodadas e os jogos ===
   const rodadasFiltradas = useMemo(() => {
     const base = filtroRodada === 'all' ? rodadas : rodadas.filter(r => r.numero === filtroRodada)
     if (filtroTime === 'all') return base
@@ -249,37 +277,149 @@ export default function LigaCopaPage() {
       .filter(r => (r.jogos || []).length > 0)
   }, [rodadas, filtroRodada, filtroTime])
 
-  /** === RPCs SEGURAS (RLS-friendly) === */
-  async function rpcSalvarResultado(rodadaId: UUID, idx: number, gm: number, gv: number) {
-    const { data, error } = await supabase.rpc('lc_salvar_resultado', {
-      p_rodada_id: rodadaId,
-      p_index: idx,
-      p_gm: Math.max(0, Math.floor(gm)),
-      p_gv: Math.max(0, Math.floor(gv)),
-    } as any)
-    if (error) throw error
-    return data as { mandante_id: string; visitante_id: string; pago_m: number; pago_v: number } | null
+  /** === FINANCEIRO: usa SOMENTE public.times.saldo === */
+
+  async function getSaldoTime(id_time: UUID): Promise<number> {
+    try {
+      const { data, error } = await supabase
+        .from('times')
+        .select('saldo')
+        .eq('id', id_time)
+        .maybeSingle()
+      if (error) throw error
+      return Number(data?.saldo ?? 0)
+    } catch {
+      return 0
+    }
   }
 
-  async function rpcAjustarResultado(rodadaId: UUID, idx: number, gm: number, gv: number) {
-    const { error } = await supabase.rpc('lc_ajustar_resultado', {
-      p_rodada_id: rodadaId,
-      p_index: idx,
-      p_gm: Math.max(0, Math.floor(gm)),
-      p_gv: Math.max(0, Math.floor(gv)),
-    } as any)
-    if (error) throw error
+  async function setSaldoTime(id_time: UUID, novoSaldo: number): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('times')
+        .update({ saldo: novoSaldo })
+        .eq('id', id_time)
+      if (error) throw error
+      return true
+    } catch (e) {
+      console.warn('Falha ao atualizar public.times.saldo:', e)
+      return false
+    }
   }
 
-  async function rpcExcluirResultado(rodadaId: UUID, idx: number) {
-    const { error } = await supabase.rpc('lc_excluir_resultado', {
-      p_rodada_id: rodadaId,
-      p_index: idx,
-    } as any)
-    if (error) throw error
+  async function registrarMovimentacao(id_time: UUID, valor: number, descricao: string) {
+    try {
+      await supabase.from('movimentacoes').insert([{
+        id_time,
+        valor,
+        tipo: 'premiacao',
+        descricao,
+        data_evento: new Date().toISOString()
+      } as any])
+    } catch (e) {
+      console.warn('Tabela movimentacoes ausente (ok ignorar):', e)
+    }
   }
 
-  /** === AÇÕES === */
+  async function creditarPremio(id_time: UUID, valor: number, descricao: string) {
+    if (valor <= 0) return
+    const saldoAtual = await getSaldoTime(id_time)
+    const ok = await setSaldoTime(id_time, saldoAtual + valor)
+    if (!ok) {
+      toast.error('Não foi possível atualizar o saldo do time.')
+      return
+    }
+    await registrarMovimentacao(id_time, valor, descricao)
+  }
+
+  /** === JOGADORES (contabilizar participações do ELENCO inteiro) === */
+
+  async function fetchElencoIdsByTeam(timeId: UUID, tmap: Record<string, TimeRow>): Promise<UUID[]> {
+    const tableCandidates = ['elenco', 'public_elenco']
+    const colCandidates = ['id_time', 'time_id', 'time', 'time_origem']
+    for (const table of tableCandidates) {
+      for (const col of colCandidates) {
+        try {
+          const { data, error } = await supabase
+            .from(table)
+            .select('id')
+            .eq(col, timeId)
+          if (!error && Array.isArray(data) && data.length > 0) {
+            return (data as Array<{ id: string }>).map(r => r.id as UUID)
+          }
+        } catch {}
+      }
+    }
+    try {
+      const nome = tmap[timeId]?.nome
+      if (nome) {
+        const { data, error } = await supabase
+          .from('elenco')
+          .select('id, time_origem')
+          .ilike('time_origem', nome)
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return (data as Array<{ id: string }>).map(r => r.id as UUID)
+        }
+      }
+    } catch {}
+    return []
+  }
+
+  async function tryRPCAjustarJogosJogadores(ids: UUID[], delta: number) {
+    try {
+      const { error } = await supabase.rpc('ajustar_jogos_jogadores', {
+        p_ids: ids,
+        p_delta: delta
+      } as any)
+      if (error) throw error
+      return true
+    } catch (e) {
+      console.warn('RPC ajustar_jogos_jogadores indisponível/falhou; usando fallback.', e)
+      return false
+    }
+  }
+
+  async function fallbackAjustarJogosJogadores(ids: UUID[], delta: number) {
+    if (!ids || ids.length === 0) return true
+    try {
+      const { data, error } = await supabase
+        .from('jogadores')
+        .select('id, jogos')
+        .in('id', ids)
+      if (error) throw error
+      const byId: Record<string, number> = {}
+      for (const r of data as Array<{id: string; jogos: number | null}>) {
+        byId[r.id] = r.jogos ?? 0
+      }
+      for (const id of ids) {
+        const novo = Math.max(0, (byId[id] ?? 0) + delta)
+        const { error: uErr } = await supabase
+          .from('jogadores')
+          .update({ jogos: novo })
+          .eq('id', id)
+        if (uErr) throw uErr
+      }
+      return true
+    } catch (e) {
+      console.error('fallbackAjustarJogosJogadores falhou:', e)
+      return false
+    }
+  }
+
+  async function ajustarJogosElencoDoTime(timeId: UUID, delta: number, tmap: Record<string, TimeRow>) {
+    const ids = await fetchElencoIdsByTeam(timeId, tmap)
+    if (ids.length === 0) {
+      console.warn('Nenhum jogador encontrado para o time', timeId)
+      return
+    }
+    const okRPC = await tryRPCAjustarJogosJogadores(ids, delta)
+    if (!okRPC) {
+      const ok = await fallbackAjustarJogosJogadores(ids, delta)
+      if (!ok) toast.error('Falha ao atualizar jogos dos jogadores.')
+    }
+  }
+
+  /** === GERAR/RESETAR CONFRONTOS (via API) === */
   const gerarLigaCopa = async () => {
     if (times.length < 2) {
       toast.error('Cadastre ao menos 2 times (divisões 1 a 3).')
@@ -312,123 +452,154 @@ export default function LigaCopaPage() {
     }
   }
 
-  /** === Salvar por JOGO (PRIMEIRO LANÇAMENTO • via RPC) === */
+  /** === Helper centralizado de UPDATE (pega retorno do banco) === */
+  async function updateRodadaJogos(rodadaId: UUID, jogos: Jogo[]) {
+    const { data, error } = await supabase
+      .from('liga_copa_rodadas')
+      .update({ jogos })
+      .eq('id', rodadaId)
+      .select('id, numero, jogos')
+      .single()
+    if (error) throw error
+    return data as { id: UUID; numero: number; jogos: Jogo[] }
+  }
+
+  /** === Salvar por JOGO (PRIMEIRO LANÇAMENTO) === */
   const salvarPrimeiroLancamento = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
     if (!isAdmin || salvandoJogo) return
     setSalvandoJogo(true)
     try {
-      // Otimismo local (não remove flags ainda)
-      setRodadas(prev => prev.map(r => {
-        if (r.id !== rodadaId) return r
-        const jogos = [...(r.jogos || [])]
-        const j = { ...(jogos[index] || {}) }
-        j.gols_mandante = Math.max(0, Math.floor(gm))
-        j.gols_visitante = Math.max(0, Math.floor(gv))
-        jogos[index] = j
-        return { ...r, jogos }
-      }))
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+      if (error || !data) throw new Error('Rodada não encontrada')
 
-      const pr = await rpcSalvarResultado(rodadaId, index, gm, gv)
+      const lista: Jogo[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
 
-      // Confirma flags no estado após sucesso
-      setRodadas(prev => prev.map(r => {
-        if (r.id !== rodadaId) return r
-        const jogos = [...(r.jogos || [])]
-        const j = { ...(jogos[index] || {}) }
-        j.bonus_pago = true
-        j.participacoes_contabilizadas = true
-        jogos[index] = j
-        return { ...r, jogos }
-      }))
+      const golsM = Number.isFinite(gm) ? Math.max(0, Math.floor(gm)) : 0
+      const golsV = Number.isFinite(gv) ? Math.max(0, Math.floor(gv)) : 0
 
-      // toast bonito
-      const j = rodadas.find(r => r.id === rodadaId)?.jogos?.[index]
-      const mId = j?.mandante_id
-      const vId = j?.visitante_id
-      const mNome = (mId && timesMap[mId]?.nome) || j?.mandante || 'Mandante'
-      const vNome = (vId && timesMap[vId]?.nome) || j?.visitante || 'Visitante'
-      if (pr) {
-        toast.success(`✅ ${mNome} e ${vNome} premiados (RLS ✔).`)
-      } else {
-        toast.success(`✅ Placar salvo (RLS ✔).`)
-      }
+      jogo.gols_mandante = golsM
+      jogo.gols_visitante = golsV
+      jogo.bonus_pago = true
+      jogo.participacoes_contabilizadas = true
+      lista[index] = jogo
+
+      const upd = await updateRodadaJogos(rodadaId, lista)
+
+      const mId = jogo.mandante_id
+      const vId = jogo.visitante_id
+      const mNome = timesMap[mId]?.nome || jogo.mandante || 'Mandante'
+      const vNome = timesMap[vId]?.nome || jogo.visitante || 'Visitante'
+
+      const { mandante, visitante, detalhado } = calcularPremios(golsM, golsV)
+
+      const descM =
+        `Liga-Copa • Rodada: prêmio ${fmtBRL0(detalhado.baseMandante)} + ` +
+        `${golsM} gol(s) x ${fmtBRL0(BONUS_POR_GOL)} = ${fmtBRL0(detalhado.bonusGolsMandante)} • ${mNome} ${golsM}x${golsV} ${vNome}`
+
+      const descV =
+        `Liga-Copa • Rodada: prêmio ${fmtBRL0(detalhado.baseVisitante)} + ` +
+        `${golsV} gol(s) x ${fmtBRL0(BONUS_POR_GOL)} = ${fmtBRL0(detalhado.bonusGolsVisitante)} • ${mNome} ${golsM}x${golsV} ${vNome}`
+
+      await Promise.all([
+        creditarPremio(mId, mandante, descM),
+        creditarPremio(vId, visitante, descV),
+      ])
+
+      await Promise.all([
+        ajustarJogosElencoDoTime(mId, +1, timesMap),
+        ajustarJogosElencoDoTime(vId, +1, timesMap),
+      ])
+
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: upd.jogos ?? [] } : r)))
+
+      toast.success(
+        `✅ Placar salvo, premiações pagas e jogos dos elencos contabilizados!\n` +
+        `${mNome}: ${fmtBRL0(mandante)} • ${vNome}: ${fmtBRL0(visitante)}`
+      )
       setEditRodadaId(null); setEditIndex(null)
     } catch (e: any) {
       console.error(e)
       toast.error(e?.message || 'Erro ao salvar placar')
-      // rollback otimista (recarrega tabela)
-      await loadRodadas()
     } finally {
       setSalvandoJogo(false)
     }
   }
 
-  /** === Ajuste (sem repetir finanças) • via RPC === */
+  /** === Salvar por JOGO (AJUSTE • não paga/conta novamente) === */
   const salvarAjuste = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
     if (!isAdmin || salvandoJogo) return
     setSalvandoJogo(true)
     try {
-      // Otimismo local
-      setRodadas(prev => prev.map(r => {
-        if (r.id !== rodadaId) return r
-        const jogos = [...(r.jogos || [])]
-        const j = { ...(jogos[index] || {}) }
-        j.gols_mandante = Math.max(0, Math.floor(gm))
-        j.gols_visitante = Math.max(0, Math.floor(gv))
-        jogos[index] = j
-        return { ...r, jogos }
-      }))
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+      if (error || !data) throw new Error('Rodada não encontrada')
 
-      await rpcAjustarResultado(rodadaId, index, gm, gv)
+      const lista: Jogo[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
+      jogo.gols_mandante = Number.isFinite(gm) ? Math.max(0, Math.floor(gm)) : 0
+      jogo.gols_visitante = Number.isFinite(gv) ? Math.max(0, Math.floor(gv)) : 0
+      jogo.bonus_pago = true
+      jogo.participacoes_contabilizadas = true
 
-      // Garante flags ligadas
-      setRodadas(prev => prev.map(r => {
-        if (r.id !== rodadaId) return r
-        const jogos = [...(r.jogos || [])]
-        const j = { ...(jogos[index] || {}) }
-        j.bonus_pago = true
-        j.participacoes_contabilizadas = true
-        jogos[index] = j
-        return { ...r, jogos }
-      }))
+      lista[index] = jogo
+      const upd = await updateRodadaJogos(rodadaId, lista)
 
-      toast.success('✏️ Resultado ajustado! (RLS ✔; sem repetir premiação/participações)')
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: upd.jogos ?? [] } : r)))
+      toast.success('✏️ Resultado ajustado! (sem repetir premiação/participações)')
       setEditRodadaId(null); setEditIndex(null)
     } catch (e: any) {
       console.error(e)
       toast.error(e?.message || 'Erro ao ajustar placar')
-      await loadRodadas()
     } finally {
       setSalvandoJogo(false)
     }
   }
 
-  /** === Excluir (estorna participações) • via RPC === */
   const excluirResultado = async (rodadaId: UUID, index: number) => {
     if (!isAdmin) return
     if (!confirm('Deseja excluir o resultado deste jogo?')) return
     try {
-      // Otimismo local: limpa placar
-      setRodadas(prev => prev.map(r => {
-        if (r.id !== rodadaId) return r
-        const jogos = [...(r.jogos || [])]
-        const j = { ...(jogos[index] || {}) }
-        const tinhaPlacar = j.gols_mandante != null && j.gols_visitante != null
-        j.gols_mandante = null
-        j.gols_visitante = null
-        j.bonus_pago = false
-        j.participacoes_contabilizadas = false
-        jogos[index] = j
-        return { ...r, jogos }
-      }))
+      const { data, error } = await supabase
+        .from('liga_copa_rodadas')
+        .select('jogos')
+        .eq('id', rodadaId)
+        .maybeSingle()
+      if (error || !data) throw new Error('Rodada não encontrada')
 
-      await rpcExcluirResultado(rodadaId, index)
+      const lista: Jogo[] = [...(data.jogos || [])]
+      const jogo = { ...(lista[index] || {}) }
 
-      toast.success('🗑️ Resultado removido (RLS ✔).')
+      const tinhaPlacar = jogo.gols_mandante != null && jogo.gols_visitante != null
+      const tinhaParticipacoes = jogo.participacoes_contabilizadas === true
+
+      jogo.gols_mandante = null
+      jogo.gols_visitante = null
+      jogo.bonus_pago = false
+      jogo.participacoes_contabilizadas = false
+      lista[index] = jogo
+
+      const upd = await updateRodadaJogos(rodadaId, lista)
+
+      if (tinhaPlacar && tinhaParticipacoes) {
+        await Promise.all([
+          ajustarJogosElencoDoTime(jogo.mandante_id, -1, timesMap),
+          ajustarJogosElencoDoTime(jogo.visitante_id, -1, timesMap),
+        ])
+      }
+
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: upd.jogos ?? [] } : r)))
+      toast.success('🗑️ Resultado removido e participações revertidas (se existiam).')
     } catch (e: any) {
       console.error(e)
       toast.error(e?.message || 'Erro ao remover resultado')
-      await loadRodadas()
     }
   }
 
@@ -462,6 +633,7 @@ export default function LigaCopaPage() {
       {/* Barra de Ações */}
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+          {/* Gerar */}
           <div className="flex items-center justify-center">
             <button
               onClick={gerarLigaCopa}
@@ -552,7 +724,7 @@ export default function LigaCopaPage() {
         </div>
       </div>
 
-      {/* Legenda (faixas por posição) */}
+      {/* Legenda */}
       <div className="max-w-6xl mx-auto px-4 mt-2 mb-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-2 bg-emerald-600/20 ring-1 ring-emerald-500/40 px-2.5 py-1 rounded-full">
@@ -652,6 +824,7 @@ export default function LigaCopaPage() {
                         </div>
                       </td>
 
+                      {/* Faixa */}
                       <td className="py-2.5 px-2 text-center">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
                           <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
@@ -744,20 +917,21 @@ export default function LigaCopaPage() {
                         <div className="col-span-2 md:col-span-4 text-center">
                           {editando ? (
                             <div className="flex items-center justify-center gap-2">
+                              {/* inputs CONTROLADOS */}
                               <input
                                 type="number"
-                                defaultValue={gm}
-                                onChange={(e) => setGM(Number(e.target.value))}
+                                value={gM}
+                                onChange={(e) => setGM(Math.max(0, Number(e.target.value) || 0))}
                                 className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0" min={0}
+                                min={0}
                               />
                               <span className="text-white/70 font-semibold">x</span>
                               <input
                                 type="number"
-                                defaultValue={gv}
-                                onChange={(e) => setGV(Number(e.target.value))}
+                                value={gV}
+                                onChange={(e) => setGV(Math.max(0, Number(e.target.value) || 0))}
                                 className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0" min={0}
+                                min={0}
                               />
                             </div>
                           ) : temPlacar ? (
@@ -789,6 +963,9 @@ export default function LigaCopaPage() {
                                   setEditRodadaId(r.id)
                                   setEditIndex(idx)
                                   setGM(gm); setGV(gv)
+                                  if (jogo.bonus_pago) {
+                                    toast('Modo ajuste: edite e salve sem repetir premiação/participações.', { icon: '✏️' })
+                                  }
                                 }}
                                 className="text-sm text-yellow-300 hover:text-yellow-200"
                                 title={jogo.bonus_pago ? 'Editar (ajuste, sem repetir premiação/participações)' : 'Editar (primeiro lançamento)'}
