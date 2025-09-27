@@ -172,32 +172,6 @@ async function descobrirAdminLikeJogos(): Promise<boolean> {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('is_admin')
       if (!rpcErr && (rpcData === true || rpcData === 'true' || rpcData === 1)) return true
     } catch {}
-
-    if (usuarioId) {
-      try {
-        const { data: adm, error } = await supabase
-          .from('admins')
-          .select('id, ativo')
-          .eq('usuario_id', usuarioId)
-          .limit(1)
-          .maybeSingle()
-        if (!error && adm && (adm.ativo === true || adm.ativo === 1)) return true
-      } catch {}
-
-      try {
-        const { data: usr, error } = await supabase
-          .from('usuarios')
-          .select('id, admin, is_admin, role, perfil')
-          .eq('id', usuarioId)
-          .limit(1)
-          .maybeSingle()
-        if (!error && usr) {
-          if (usr.admin === true || usr.is_admin === true) return true
-          const r = String(usr.role || usr.perfil || '').toLowerCase()
-          if (['admin', 'super', 'owner', 'moderador', 'staff'].includes(r)) return true
-        }
-      } catch {}
-    }
   } catch {}
   return false
 }
@@ -478,6 +452,18 @@ export default function LigaCopaPage() {
     }
   }
 
+  /** === Helper centralizado de UPDATE (pega retorno do banco) === */
+  async function updateRodadaJogos(rodadaId: UUID, jogos: Jogo[]) {
+    const { data, error } = await supabase
+      .from('liga_copa_rodadas')
+      .update({ jogos })
+      .eq('id', rodadaId)
+      .select('id, numero, jogos')
+      .single()
+    if (error) throw error
+    return data as { id: UUID; numero: number; jogos: Jogo[] }
+  }
+
   /** === Salvar por JOGO (PRIMEIRO LANÇAMENTO) === */
   const salvarPrimeiroLancamento = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
     if (!isAdmin || salvandoJogo) return
@@ -502,11 +488,7 @@ export default function LigaCopaPage() {
       jogo.participacoes_contabilizadas = true
       lista[index] = jogo
 
-      const { error: updErr } = await supabase
-        .from('liga_copa_rodadas')
-        .update({ jogos: lista })
-        .eq('id', rodadaId)
-      if (updErr) throw updErr
+      const upd = await updateRodadaJogos(rodadaId, lista)
 
       const mId = jogo.mandante_id
       const vId = jogo.visitante_id
@@ -533,7 +515,7 @@ export default function LigaCopaPage() {
         ajustarJogosElencoDoTime(vId, +1, timesMap),
       ])
 
-      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: upd.jogos ?? [] } : r)))
 
       toast.success(
         `✅ Placar salvo, premiações pagas e jogos dos elencos contabilizados!\n` +
@@ -568,13 +550,9 @@ export default function LigaCopaPage() {
       jogo.participacoes_contabilizadas = true
 
       lista[index] = jogo
-      const { error: updErr } = await supabase
-        .from('liga_copa_rodadas')
-        .update({ jogos: lista })
-        .eq('id', rodadaId)
-      if (updErr) throw updErr
+      const upd = await updateRodadaJogos(rodadaId, lista)
 
-      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: upd.jogos ?? [] } : r)))
       toast.success('✏️ Resultado ajustado! (sem repetir premiação/participações)')
       setEditRodadaId(null); setEditIndex(null)
     } catch (e: any) {
@@ -608,11 +586,7 @@ export default function LigaCopaPage() {
       jogo.participacoes_contabilizadas = false
       lista[index] = jogo
 
-      const { error: updErr } = await supabase
-        .from('liga_copa_rodadas')
-        .update({ jogos: lista })
-        .eq('id', rodadaId)
-      if (updErr) throw updErr
+      const upd = await updateRodadaJogos(rodadaId, lista)
 
       if (tinhaPlacar && tinhaParticipacoes) {
         await Promise.all([
@@ -621,7 +595,7 @@ export default function LigaCopaPage() {
         ])
       }
 
-      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
+      setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: upd.jogos ?? [] } : r)))
       toast.success('🗑️ Resultado removido e participações revertidas (se existiam).')
     } catch (e: any) {
       console.error(e)
@@ -659,6 +633,7 @@ export default function LigaCopaPage() {
       {/* Barra de Ações */}
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+          {/* Gerar */}
           <div className="flex items-center justify-center">
             <button
               onClick={gerarLigaCopa}
@@ -749,7 +724,7 @@ export default function LigaCopaPage() {
         </div>
       </div>
 
-      {/* Legenda (faixas por posição) */}
+      {/* Legenda */}
       <div className="max-w-6xl mx-auto px-4 mt-2 mb-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-2 bg-emerald-600/20 ring-1 ring-emerald-500/40 px-2.5 py-1 rounded-full">
@@ -829,6 +804,7 @@ export default function LigaCopaPage() {
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-3">
                           {item.logo_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                               src={item.logo_url}
                               alt={item.nome}
@@ -848,6 +824,7 @@ export default function LigaCopaPage() {
                         </div>
                       </td>
 
+                      {/* Faixa */}
                       <td className="py-2.5 px-2 text-center">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
                           <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
@@ -926,6 +903,7 @@ export default function LigaCopaPage() {
                         {/* Mandante */}
                         <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
                           {lM ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img src={lM} alt="" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
                           ) : (
                             <span className="h-6 w-6 grid place-items-center rounded-full bg-gray-700 text-[10px] ring-1 ring-white/10">
@@ -939,20 +917,21 @@ export default function LigaCopaPage() {
                         <div className="col-span-2 md:col-span-4 text-center">
                           {editando ? (
                             <div className="flex items-center justify-center gap-2">
+                              {/* inputs CONTROLADOS */}
                               <input
                                 type="number"
-                                defaultValue={gm}
-                                onChange={(e) => setGM(Number(e.target.value))}
+                                value={gM}
+                                onChange={(e) => setGM(Math.max(0, Number(e.target.value) || 0))}
                                 className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0" min={0}
+                                min={0}
                               />
                               <span className="text-white/70 font-semibold">x</span>
                               <input
                                 type="number"
-                                defaultValue={gv}
-                                onChange={(e) => setGV(Number(e.target.value))}
+                                value={gV}
+                                onChange={(e) => setGV(Math.max(0, Number(e.target.value) || 0))}
                                 className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0" min={0}
+                                min={0}
                               />
                             </div>
                           ) : temPlacar ? (
@@ -968,6 +947,7 @@ export default function LigaCopaPage() {
                         <div className="col-span-5 md:col-span-4 flex items-center justify-start gap-2">
                           <span className="font-medium text-left truncate">{nV || jogo.visitante}</span>
                           {lV ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img src={lV} alt="" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
                           ) : (
                             <span className="h-6 w-6 grid place-items-center rounded-full bg-gray-700 text-[10px] ring-1 ring-white/10">
