@@ -29,9 +29,8 @@ type Jogo = {
   gols_mandante: number | null
   gols_visitante: number | null
   data_iso?: string | null
-  /** premiação e bônus de gols pagos no 1º lançamento */
+  /** flags de efeito financeiro/estatístico já aplicados no 1º lançamento */
   bonus_pago?: boolean
-  /** se já somou jogos para todos os jogadores dos 2 times */
   participacoes_contabilizadas?: boolean
 }
 
@@ -70,14 +69,7 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
       nome: t.nome,
       logo_url: t.logo_url,
       divisao: t.divisao,
-      jogos: 0,
-      v: 0,
-      e: 0,
-      d: 0,
-      gp: 0,
-      gc: 0,
-      sg: 0,
-      pontos: 0,
+      jogos: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0, pontos: 0
     })
   }
   for (const r of rodadas) {
@@ -87,20 +79,13 @@ function computeClassificacao(rodadas: RodadaRow[], times: TimeRow[]): RowClass[
       const v = map.get(j.visitante_id)
       if (!m || !v) continue
 
-      m.jogos += 1
-      v.jogos += 1
-      m.gp += j.gols_mandante
-      m.gc += j.gols_visitante
-      v.gp += j.gols_visitante
-      v.gc += j.gols_mandante
+      m.jogos += 1; v.jogos += 1
+      m.gp += j.gols_mandante; m.gc += j.gols_visitante
+      v.gp += j.gols_visitante; v.gc += j.gols_mandante
 
-      if (j.gols_mandante > j.gols_visitante) {
-        m.v += 1; m.pontos += 3; v.d += 1
-      } else if (j.gols_mandante < j.gols_visitante) {
-        v.v += 1; v.pontos += 3; m.d += 1
-      } else {
-        m.e += 1; v.e += 1; m.pontos += 1; v.pontos += 1
-      }
+      if (j.gols_mandante > j.gols_visitante) { m.v += 1; m.pontos += 3; v.d += 1 }
+      else if (j.gols_mandante < j.gols_visitante) { v.v += 1; v.pontos += 3; m.d += 1 }
+      else { m.e += 1; v.e += 1; m.pontos += 1; v.pontos += 1 }
     }
   }
   for (const r of map.values()) r.sg = r.gp - r.gc
@@ -136,16 +121,11 @@ function calcularPremios(gm: number, gv: number) {
   }
 }
 
-/** === Descobrir Admin (igual ao page Jogos) === */
+/** === Descobrir Admin === */
 async function descobrirAdminLikeJogos(): Promise<boolean> {
   try {
     const ls = (k: string) => (typeof window !== 'undefined' ? localStorage.getItem(k) : null)
-
-    const direto = [
-      ls('is_admin'), ls('admin'), ls('isAdmin'),
-      ls('usuario_admin'), ls('usuario_is_admin'),
-      ls('moderador'), ls('is_moderator'), ls('staff'),
-    ]
+    const direto = [ls('is_admin'), ls('admin'), ls('isAdmin'), ls('usuario_admin'), ls('usuario_is_admin'), ls('moderador'), ls('is_moderator'), ls('staff')]
     if (direto.some(v => v === '1' || v === 'true')) return true
 
     const role = (ls('role') || '').toLowerCase()
@@ -177,22 +157,11 @@ async function descobrirAdminLikeJogos(): Promise<boolean> {
 
     if (usuarioId) {
       try {
-        const { data: adm, error } = await supabase
-          .from('admins')
-          .select('id, ativo')
-          .eq('usuario_id', usuarioId)
-          .limit(1)
-          .maybeSingle()
+        const { data: adm, error } = await supabase.from('admins').select('id, ativo').eq('usuario_id', usuarioId).limit(1).maybeSingle()
         if (!error && adm && (adm.ativo === true || adm.ativo === 1)) return true
       } catch {}
-
       try {
-        const { data: usr, error } = await supabase
-          .from('usuarios')
-          .select('id, admin, is_admin, role, perfil')
-          .eq('id', usuarioId)
-          .limit(1)
-          .maybeSingle()
+        const { data: usr, error } = await supabase.from('usuarios').select('id, admin, is_admin, role, perfil').eq('id', usuarioId).limit(1).maybeSingle()
         if (!error && usr) {
           if (usr.admin === true || usr.is_admin === true) return true
           const r = String(usr.role || usr.perfil || '').toLowerCase()
@@ -232,19 +201,16 @@ export default function LigaCopaPage() {
       .in('divisao', [1, 2, 3])
       .order('divisao', { ascending: true })
       .order('nome', { ascending: true })
-
     if (error) {
       toast.error('Erro ao carregar times das divisões 1 a 3')
       console.error(error)
-      setTimes([])
-      setTimesMap({})
+      setTimes([]); setTimesMap({})
       return
     }
     const arr = (data as TimeRow[]) || []
     const map: Record<string, TimeRow> = {}
     for (const t of arr) map[t.id] = t
-    setTimes(arr)
-    setTimesMap(map)
+    setTimes(arr); setTimesMap(map)
   }
 
   const loadRodadas = async () => {
@@ -267,10 +233,8 @@ export default function LigaCopaPage() {
         const pref = localStorage.getItem('lc_show_class')
         if (pref !== null) setShowClass(pref === '1')
       } catch {}
-
       const admin = await descobrirAdminLikeJogos()
       setIsAdmin(admin)
-
       await Promise.all([loadTimes(), loadRodadas()])
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -278,213 +242,119 @@ export default function LigaCopaPage() {
 
   // persistir toggle classificação
   useEffect(() => {
-    try {
-      localStorage.setItem('lc_show_class', showClass ? '1' : '0')
-    } catch {}
+    try { localStorage.setItem('lc_show_class', showClass ? '1' : '0') } catch {}
   }, [showClass])
 
   const classificacao = useMemo(() => computeClassificacao(rodadas, times), [rodadas, times])
 
-  // lista de rodadas para filtro
   const numerosRodadas = useMemo(
     () => Array.from(new Set(rodadas.map(r => r.numero))).sort((a, b) => a - b),
     [rodadas]
   )
 
-  // === filtro combinado (rodada + time) sobre as rodadas e os jogos ===
+  // filtro combinado
   const rodadasFiltradas = useMemo(() => {
     const base = filtroRodada === 'all' ? rodadas : rodadas.filter(r => r.numero === filtroRodada)
     if (filtroTime === 'all') return base
     return base
-      .map(r => ({
-        ...r,
-        jogos: (r.jogos || []).filter(
-          j => j.mandante_id === filtroTime || j.visitante_id === filtroTime
-        ),
-      }))
+      .map(r => ({ ...r, jogos: (r.jogos || []).filter(j => j.mandante_id === filtroTime || j.visitante_id === filtroTime) }))
       .filter(r => (r.jogos || []).length > 0)
   }, [rodadas, filtroRodada, filtroTime])
 
-  /** === Helpers financeiros === */
+  /** === Financeiro === */
   async function tryRPCIncrementarSaldo(id_time: UUID, valor: number, descricao: string) {
     try {
-      const { error } = await supabase.rpc('incrementar_saldo', {
-        p_id_time: id_time,
-        p_valor: valor,
-        p_descricao: descricao
-      } as any)
+      const { error } = await supabase.rpc('incrementar_saldo', { p_id_time: id_time, p_valor: valor, p_descricao: descricao } as any)
       if (error) throw error
       return true
-    } catch (e) {
-      console.warn('RPC incrementar_saldo indisponível/falhou; usando fallback.', e)
-      return false
-    }
+    } catch (e) { console.warn('RPC incrementar_saldo indisponível/falhou; usando fallback.', e); return false }
   }
   async function fallbackAtualizaSaldo(id_time: UUID, delta: number) {
     try {
-      const { data: tRow, error: tErr } = await supabase
-        .from('times')
-        .select('id, saldo')
-        .eq('id', id_time)
-        .maybeSingle()
+      const { data: tRow, error: tErr } = await supabase.from('times').select('id, saldo').eq('id', id_time).maybeSingle()
       if (tErr || !tRow) return false
       const novo = (tRow.saldo ?? 0) + delta
-      const { error: uErr } = await supabase
-        .from('times')
-        .update({ saldo: novo })
-        .eq('id', id_time)
+      const { error: uErr } = await supabase.from('times').update({ saldo: novo }).eq('id', id_time)
       if (uErr) return false
       return true
-    } catch {
-      return false
-    }
+    } catch { return false }
   }
   async function registrarMovimentacao(id_time: UUID, valor: number, descricao: string) {
     try {
-      await supabase.from('movimentacoes').insert([{
-        id_time,
-        valor,
-        tipo: 'premiacao',
-        descricao,
-        data_evento: new Date().toISOString()
-      } as any])
-    } catch (e) {
-      console.warn('Tabela movimentacoes pode não existir; ignorando.', e)
-    }
+      await supabase.from('movimentacoes').insert([{ id_time, valor, tipo: 'premiacao', descricao, data_evento: new Date().toISOString() } as any])
+    } catch (e) { console.warn('Tabela movimentacoes pode não existir; ignorando.', e) }
   }
   async function creditarPremio(id_time: UUID, valor: number, descricao: string) {
     if (valor <= 0) return
     const okRPC = await tryRPCIncrementarSaldo(id_time, valor, descricao)
-    if (!okRPC) {
-      const ok = await fallbackAtualizaSaldo(id_time, valor)
-      if (!ok) console.warn('Falha ao atualizar saldo (fallback).')
-    }
+    if (!okRPC) { const ok = await fallbackAtualizaSaldo(id_time, valor); if (!ok) console.warn('Falha ao atualizar saldo (fallback).') }
     await registrarMovimentacao(id_time, valor, descricao)
   }
 
-  /** === Helpers jogadores (contabilizar participações do ELENCO inteiro do time) === */
+  /** === Jogadores: ajustar 'jogos' de TODO o elenco via ID do time === */
 
-  // tenta várias formas de buscar o elenco de um time
-  async function fetchElencoIdsByTeam(timeId: UUID): Promise<UUID[]> {
-    const tableCandidates = ['elenco', 'public_elenco']
-    const colCandidates = ['id_time', 'time_id', 'time', 'time_origem'] // usa o que existir
-    for (const table of tableCandidates) {
-      for (const col of colCandidates) {
-        try {
-          const { data, error } = await supabase
-            .from(table)
-            .select('id')
-            .eq(col, timeId)
-          if (!error && Array.isArray(data) && data.length > 0) {
-            return (data as Array<{ id: string }>).map(r => r.id as UUID)
-          }
-        } catch {}
-      }
-    }
-    // última tentativa: pode haver string com o nome do time
+  // RPC opcional (recomendada)
+  async function tryRPCAjustarPorTimeId(timeId: UUID, delta: number) {
     try {
-      const nome = timesMap[timeId]?.nome
-      if (nome) {
-        const { data, error } = await supabase
-          .from('elenco')
-          .select('id, time_origem')
-          .ilike('time_origem', nome) // match aproximado
-        if (!error && Array.isArray(data) && data.length > 0) {
-          return (data as Array<{ id: string }>).map(r => r.id as UUID)
-        }
-      }
-    } catch {}
-    return []
-  }
-
-  async function tryRPCAjustarJogosJogadores(ids: UUID[], delta: number) {
-    try {
-      const { error } = await supabase.rpc('ajustar_jogos_jogadores', {
-        p_ids: ids,
-        p_delta: delta
+      const { error } = await supabase.rpc('ajustar_jogos_elenco_por_time', {
+        p_time_id: timeId, p_delta: delta
       } as any)
       if (error) throw error
       return true
     } catch (e) {
-      console.warn('RPC ajustar_jogos_jogadores indisponível/falhou; usando fallback.', e)
+      console.warn('RPC ajustar_jogos_elenco_por_time indisponível/falhou; usando fallback.', e)
       return false
     }
   }
 
-  async function fallbackAjustarJogosJogadores(ids: UUID[], delta: number) {
-    if (!ids || ids.length === 0) return true
+  // Fallback direto na tabela `public.elenco`
+  async function fallbackAjustarPorTimeId(timeId: UUID, delta: number) {
     try {
-      // Busca jogos atuais
       const { data, error } = await supabase
-        .from('jogadores')
-        .select('id, jogos')
-        .in('id', ids)
+        .from('elenco')
+        .select('id, jogos, id_time, time_id, id_time_text')
+        .or([
+          `id_time.eq.${timeId}`,
+          `time_id.eq.${timeId}`,
+          `id_time_text.eq.${timeId}`
+        ].join(','))
       if (error) throw error
-      const byId: Record<string, number> = {}
-      for (const r of data as Array<{id: string; jogos: number | null}>) {
-        byId[r.id] = r.jogos ?? 0
-      }
-      // Atualiza um a um (garante não negativo)
-      for (const id of ids) {
-        const novo = Math.max(0, (byId[id] ?? 0) + delta)
-        const { error: uErr } = await supabase
-          .from('jogadores')
-          .update({ jogos: novo })
-          .eq('id', id)
+
+      const rows = (data as Array<{ id: string; jogos: number | null }>) || []
+      if (rows.length === 0) { console.warn('[elenco] nenhum jogador encontrado para time', timeId); return true }
+
+      for (const r of rows) {
+        const novo = Math.max(0, (r.jogos ?? 0) + delta)
+        const { error: uErr } = await supabase.from('elenco').update({ jogos: novo }).eq('id', r.id)
         if (uErr) throw uErr
       }
       return true
-    } catch (e) {
-      console.error('fallbackAjustarJogosJogadores falhou:', e)
-      return false
-    }
+    } catch (e) { console.error('fallbackAjustarPorTimeId falhou:', e); return false }
   }
 
-  // Ajusta +1 ou -1 para TODOS os jogadores do time
-  async function ajustarJogosElencoDoTime(timeId: UUID, delta: number) {
-    const ids = await fetchElencoIdsByTeam(timeId)
-    if (ids.length === 0) {
-      console.warn('Nenhum jogador encontrado para o time', timeId)
-      return
-    }
-    const okRPC = await tryRPCAjustarJogosJogadores(ids, delta)
+  async function ajustarJogosElencoPorTimeId(timeId: UUID, delta: number) {
+    if (!timeId) return
+    const okRPC = await tryRPCAjustarPorTimeId(timeId, delta)
     if (!okRPC) {
-      const ok = await fallbackAjustarJogosJogadores(ids, delta)
-      if (!ok) toast.error('Falha ao atualizar jogos dos jogadores.')
+      const ok = await fallbackAjustarPorTimeId(timeId, delta)
+      if (!ok) toast.error('Falha ao atualizar jogos do elenco (por time).')
     }
   }
 
   /** === GERAR/RESETAR CONFRONTOS (via API) === */
   const gerarLigaCopa = async () => {
-    if (times.length < 2) {
-      toast.error('Cadastre ao menos 2 times (divisões 1 a 3).')
-      return
-    }
+    if (times.length < 2) { toast.error('Cadastre ao menos 2 times (divisões 1 a 3).'); return }
     setLoading(true)
     const idLoading = 'gera-lc-api'
     try {
       toast.loading('Gerando confrontos da Liga-Copa…', { id: idLoading })
-
-      const res = await fetch('/api/liga-copa/gerar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
+      const res = await fetch('/api/liga-copa/gerar', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       const json = await res.json()
-
-      if (!res.ok || !json?.ok) {
-        console.error(json)
-        toast.error(json?.error || 'Erro ao gerar rodadas.', { id: idLoading })
-        return
-      }
-
+      if (!res.ok || !json?.ok) { console.error(json); toast.error(json?.error || 'Erro ao gerar rodadas.', { id: idLoading }); return }
       await loadRodadas()
       toast.success(`✅ Liga-Copa gerada: ${json.rodadas} rodadas`, { id: idLoading })
-    } catch (e) {
-      console.error(e)
-      toast.error('Erro inesperado ao chamar a API.', { id: idLoading })
-    } finally {
-      setLoading(false)
-    }
+    } catch (e) { console.error(e); toast.error('Erro inesperado ao chamar a API.', { id: idLoading }) }
+    finally { setLoading(false) }
   }
 
   /** === Salvar por JOGO (PRIMEIRO LANÇAMENTO) === */
@@ -492,11 +362,7 @@ export default function LigaCopaPage() {
     if (!isAdmin || salvandoJogo) return
     setSalvandoJogo(true)
     try {
-      const { data, error } = await supabase
-        .from('liga_copa_rodadas')
-        .select('jogos')
-        .eq('id', rodadaId)
-        .maybeSingle()
+      const { data, error } = await supabase.from('liga_copa_rodadas').select('jogos').eq('id', rodadaId).maybeSingle()
       if (error || !data) throw new Error('Rodada não encontrada')
 
       const lista: Jogo[] = [...(data.jogos || [])]
@@ -505,110 +371,73 @@ export default function LigaCopaPage() {
       const golsM = Number.isFinite(gm) ? Math.max(0, Math.floor(gm)) : 0
       const golsV = Number.isFinite(gv) ? Math.max(0, Math.floor(gv)) : 0
 
-      // Atualiza placar + trava premiação e participações
+      // Atualiza placar + trava efeitos
       jogo.gols_mandante = golsM
       jogo.gols_visitante = golsV
       jogo.bonus_pago = true
       jogo.participacoes_contabilizadas = true
       lista[index] = jogo
 
-      // Persistir esse jogo no array
-      const { error: updErr } = await supabase
-        .from('liga_copa_rodadas')
-        .update({ jogos: lista })
-        .eq('id', rodadaId)
+      const { error: updErr } = await supabase.from('liga_copa_rodadas').update({ jogos: lista }).eq('id', rodadaId)
       if (updErr) throw updErr
 
-      // === PREMIAÇÃO ÚNICA + BÔNUS DE GOLS ===
-      const mId = jogo.mandante_id
-      const vId = jogo.visitante_id
+      // Premiação
+      const mId = jogo.mandante_id, vId = jogo.visitante_id
       const mNome = timesMap[mId]?.nome || jogo.mandante || 'Mandante'
       const vNome = timesMap[vId]?.nome || jogo.visitante || 'Visitante'
-
       const { mandante, visitante, detalhado } = calcularPremios(golsM, golsV)
 
-      const descM =
-        `Liga-Copa • Rodada: prêmio ${fmtBRL0(detalhado.baseMandante)} + ` +
-        `${golsM} gol(s) x ${fmtBRL0(BONUS_POR_GOL)} = ${fmtBRL0(detalhado.bonusGolsMandante)} • ${mNome} ${golsM}x${golsV} ${vNome}`
+      const descM = `Liga-Copa • prêmio ${fmtBRL0(detalhado.baseMandante)} + ${golsM} gol(s) x ${fmtBRL0(BONUS_POR_GOL)} = ${fmtBRL0(detalhado.bonusGolsMandante)} • ${mNome} ${golsM}x${golsV} ${vNome}`
+      const descV = `Liga-Copa • prêmio ${fmtBRL0(detalhado.baseVisitante)} + ${golsV} gol(s) x ${fmtBRL0(BONUS_POR_GOL)} = ${fmtBRL0(detalhado.bonusGolsVisitante)} • ${mNome} ${golsM}x${golsV} ${vNome}`
 
-      const descV =
-        `Liga-Copa • Rodada: prêmio ${fmtBRL0(detalhado.baseVisitante)} + ` +
-        `${golsV} gol(s) x ${fmtBRL0(BONUS_POR_GOL)} = ${fmtBRL0(detalhado.bonusGolsVisitante)} • ${mNome} ${golsM}x${golsV} ${vNome}`
+      await Promise.all([creditarPremio(mId, mandante, descM), creditarPremio(vId, visitante, descV)])
 
-      await Promise.all([
-        creditarPremio(mId, mandante, descM),
-        creditarPremio(vId, visitante, descV),
-      ])
+      // +1 jogo para todo elenco dos dois times
+      await Promise.all([ajustarJogosElencoPorTimeId(mId, +1), ajustarJogosElencoPorTimeId(vId, +1)])
 
-      // === CONTABILIZAR +1 JOGO PARA TODOS OS JOGADORES DOS 2 TIMES ===
-      await Promise.all([
-        ajustarJogosElencoDoTime(mId, +1),
-        ajustarJogosElencoDoTime(vId, +1),
-      ])
-
-      // Atualiza estado local (recalcula classificação via useMemo)
+      // Atualiza estado local (recalcula classificação)
       setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
 
-      toast.success(
-        `✅ Placar salvo, premiações pagas e jogos dos elencos contabilizados!\n` +
-        `${mNome}: ${fmtBRL0(mandante)} • ${vNome}: ${fmtBRL0(visitante)}`
-      )
+      toast.success(`✅ Placar salvo, premiações pagas e jogos do elenco contabilizados!\n${mNome}: ${fmtBRL0(mandante)} • ${vNome}: ${fmtBRL0(visitante)}`)
       setEditRodadaId(null); setEditIndex(null)
     } catch (e: any) {
-      console.error(e)
-      toast.error(e?.message || 'Erro ao salvar placar')
-    } finally {
-      setSalvandoJogo(false)
-    }
+      console.error(e); toast.error(e?.message || 'Erro ao salvar placar')
+    } finally { setSalvandoJogo(false) }
   }
 
-  /** === Salvar por JOGO (AJUSTE • não paga/conta novamente) === */
+  /** === Salvar por JOGO (AJUSTE • sem repagar / sem recontar) === */
   const salvarAjuste = async (rodadaId: UUID, index: number, gm: number, gv: number) => {
     if (!isAdmin || salvandoJogo) return
     setSalvandoJogo(true)
     try {
-      const { data, error } = await supabase
-        .from('liga_copa_rodadas')
-        .select('jogos')
-        .eq('id', rodadaId)
-        .maybeSingle()
+      const { data, error } = await supabase.from('liga_copa_rodadas').select('jogos').eq('id', rodadaId).maybeSingle()
       if (error || !data) throw new Error('Rodada não encontrada')
 
       const lista: Jogo[] = [...(data.jogos || [])]
       const jogo = { ...(lista[index] || {}) }
       jogo.gols_mandante = Number.isFinite(gm) ? Math.max(0, Math.floor(gm)) : 0
       jogo.gols_visitante = Number.isFinite(gv) ? Math.max(0, Math.floor(gv)) : 0
-      // mantém flags ligadas para não repetir premiação/participações
       jogo.bonus_pago = true
       jogo.participacoes_contabilizadas = true
 
       lista[index] = jogo
-      const { error: updErr } = await supabase
-        .from('liga_copa_rodadas')
-        .update({ jogos: lista })
-        .eq('id', rodadaId)
+      const { error: updErr } = await supabase.from('liga_copa_rodadas').update({ jogos: lista }).eq('id', rodadaId)
       if (updErr) throw updErr
 
       setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
       toast.success('✏️ Resultado ajustado! (sem repetir premiação/participações)')
       setEditRodadaId(null); setEditIndex(null)
     } catch (e: any) {
-      console.error(e)
-      toast.error(e?.message || 'Erro ao ajustar placar')
-    } finally {
-      setSalvandoJogo(false)
-    }
+      console.error(e); toast.error(e?.message || 'Erro ao ajustar placar')
+    } finally { setSalvandoJogo(false) }
   }
 
+  /** === Excluir resultado (estorna jogadores se já tinham sido contabilizados) === */
   const excluirResultado = async (rodadaId: UUID, index: number) => {
     if (!isAdmin) return
     if (!confirm('Deseja excluir o resultado deste jogo?')) return
     try {
-      const { data, error } = await supabase
-        .from('liga_copa_rodadas')
-        .select('jogos')
-        .eq('id', rodadaId)
-        .maybeSingle()
+      const { data, error } = await supabase.from('liga_copa_rodadas').select('jogos').eq('id', rodadaId).maybeSingle()
       if (error || !data) throw new Error('Rodada não encontrada')
 
       const lista: Jogo[] = [...(data.jogos || [])]
@@ -624,25 +453,21 @@ export default function LigaCopaPage() {
       jogo.participacoes_contabilizadas = false
       lista[index] = jogo
 
-      const { error: updErr } = await supabase
-        .from('liga_copa_rodadas')
-        .update({ jogos: lista })
-        .eq('id', rodadaId)
+      const { error: updErr } = await supabase.from('liga_copa_rodadas').update({ jogos: lista }).eq('id', rodadaId)
       if (updErr) throw updErr
 
-      // se já tinha contabilizado, desfaz −1 para os 2 elencos
+      // estorna −1 para elencos se já tinha contabilizado
       if (tinhaPlacar && tinhaParticipacoes) {
         await Promise.all([
-          ajustarJogosElencoDoTime(jogo.mandante_id, -1),
-          ajustarJogosElencoDoTime(jogo.visitante_id, -1),
+          ajustarJogosElencoPorTimeId(jogo.mandante_id, -1),
+          ajustarJogosElencoPorTimeId(jogo.visitante_id, -1),
         ])
       }
 
       setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
       toast.success('🗑️ Resultado removido e participações revertidas (se existiam).')
     } catch (e: any) {
-      console.error(e)
-      toast.error(e?.message || 'Erro ao remover resultado')
+      console.error(e); toast.error(e?.message || 'Erro ao remover resultado')
     }
   }
 
@@ -650,7 +475,6 @@ export default function LigaCopaPage() {
   const aproveitamento = (row: RowClass) =>
     row.jogos > 0 ? Math.round((row.pontos / (row.jogos * 3)) * 100) : 0
 
-  // mapeia a faixa por posição (1-10 → D1, 11-20 → D2, 21-último → D3)
   const faixaPorPosicao = (pos: number) => {
     if (pos >= 1 && pos <= 10) return { rotulo: '1ª Divisão', cor: 'bg-emerald-500 text-black', chip: 'bg-emerald-600/20 ring-emerald-500/40' }
     if (pos >= 11 && pos <= 20) return { rotulo: '2ª Divisão', cor: 'bg-sky-400 text-black', chip: 'bg-sky-600/20 ring-sky-400/40' }
@@ -677,15 +501,13 @@ export default function LigaCopaPage() {
       {/* Barra de Ações */}
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
-          {/* Botão gerar */}
           <div className="flex items-center justify-center">
             <button
               onClick={gerarLigaCopa}
               disabled={loading || times.length < 2}
               className={`px-4 py-2 rounded-full text-sm border transition ${
-                loading
-                  ? 'bg-gray-700 text-gray-300 cursor-not-allowed border-white/10'
-                  : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-500/50'
+                loading ? 'bg-gray-700 text-gray-300 cursor-not-allowed border-white/10'
+                        : 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-500/50'
               }`}
               title="Gera/Reseta todas as rodadas da Liga-Copa via API"
             >
@@ -698,16 +520,12 @@ export default function LigaCopaPage() {
             <label className="text-sm text-gray-300">Rodada:</label>
             <select
               value={filtroRodada === 'all' ? 'all' : String(filtroRodada)}
-              onChange={(e) =>
-                setFiltroRodada(e.target.value === 'all' ? 'all' : Number(e.target.value))
-              }
+              onChange={(e) => setFiltroRodada(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               className="rounded-lg bg-gray-800 text-white text-sm px-3 py-2 border border-white/10"
               title="Filtrar por rodada"
             >
               <option value="all">Todas</option>
-              {numerosRodadas.map(n => (
-                <option key={n} value={n}>{n}</option>
-              ))}
+              {numerosRodadas.map(n => (<option key={n} value={n}>{n}</option>))}
             </select>
           </div>
 
@@ -762,13 +580,11 @@ export default function LigaCopaPage() {
 
         <div className="mb-1 text-center text-xs text-emerald-300">
           Participantes (D1–D3): <b>{times.length}</b>
-          {!isAdmin && (
-            <span className="ml-2 text-amber-300">• edição de resultados bloqueada (somente admin)</span>
-          )}
+          {!isAdmin && (<span className="ml-2 text-amber-300">• edição de resultados bloqueada (somente admin)</span>)}
         </div>
       </div>
 
-      {/* Legenda (faixas por posição) */}
+      {/* Legenda */}
       <div className="max-w-6xl mx-auto px-4 mt-2 mb-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-2 bg-emerald-600/20 ring-1 ring-emerald-500/40 px-2.5 py-1 rounded-full">
@@ -783,7 +599,7 @@ export default function LigaCopaPage() {
         </div>
       </div>
 
-      {/* Classificação (ocultável) */}
+      {/* Classificação */}
       {showClass && (
         <div className="max-w-6xl mx-auto px-4 pb-10">
           {/* Compartilhar */}
@@ -791,15 +607,9 @@ export default function LigaCopaPage() {
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
                 `📊 Liga-Copa (Turno Único • D1–D3):\n\n` +
-                  classificacao
-                    .map(
-                      (item, i) =>
-                        `${i + 1}º ${item.nome} - ${item.pontos} pts (${item.v}V ${item.e}E ${item.d}D)`
-                    )
-                    .join('\n')
+                  classificacao.map((item, i) => `${i + 1}º ${item.nome} - ${item.pontos} pts (${item.v}V ${item.e}E ${item.d}D)`).join('\n')
               )}`}
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm px-3 py-1.5 rounded-lg font-semibold"
             >
               📤 Compartilhar
@@ -824,20 +634,15 @@ export default function LigaCopaPage() {
                   <th className="py-3 px-2 text-center">SG</th>
                 </tr>
               </thead>
-
               <tbody className="divide-y divide-white/5">
                 {classificacao.map((item, index) => {
                   const pos = index + 1
                   const ap = aproveitamento(item)
                   const faixa = faixaPorPosicao(pos)
-
                   const linhaCor =
-                    pos <= 10
-                      ? 'bg-emerald-950/30 hover:bg-emerald-900/30'
-                      : pos <= 20
-                      ? 'bg-sky-950/30 hover:bg-sky-900/30'
-                      : 'bg-amber-950/30 hover:bg-amber-900/30'
-
+                    pos <= 10 ? 'bg-emerald-950/30 hover:bg-emerald-900/30'
+                    : pos <= 20 ? 'bg-sky-950/30 hover:bg-sky-900/30'
+                    : 'bg-amber-950/30 hover:bg-amber-900/30'
                   return (
                     <tr key={item.id_time} className={`${linhaCor} transition-colors`}>
                       <td className="py-2.5 px-4">
@@ -845,16 +650,11 @@ export default function LigaCopaPage() {
                           {pos}
                         </span>
                       </td>
-
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-3">
                           {item.logo_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={item.logo_url}
-                              alt={item.nome}
-                              className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover"
-                            />
+                            <img src={item.logo_url} alt={item.nome} className="w-7 h-7 rounded-full ring-1 ring-white/10 object-cover" />
                           ) : (
                             <span className="w-7 h-7 grid place-items-center rounded-full bg-gray-700 text-[10px] text-gray-200 ring-1 ring-white/10">
                               {item.nome.slice(0, 2).toUpperCase()}
@@ -862,23 +662,17 @@ export default function LigaCopaPage() {
                           )}
                           <span className="font-medium">{item.nome}</span>
                           {typeof item.divisao === 'number' && (
-                            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 ring-1 ring-white/10 text-gray-300">
-                              D{item.divisao}
-                            </span>
+                            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 ring-1 ring-white/10 text-gray-300">D{item.divisao}</span>
                           )}
                         </div>
                       </td>
-
-                      {/* Faixa da próxima divisão */}
                       <td className="py-2.5 px-2 text-center">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
-                          <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
+                          <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black','')}`}></span>
                           {faixa.rotulo}
                         </span>
                       </td>
-
                       <td className="py-2.5 px-2 text-center font-bold text-yellow-300">{item.pontos}</td>
-
                       <td className="py-2.5 px-2">
                         <div className="flex flex-col items-center gap-1">
                           <div className="w-24 md:w-32 h-2 rounded-full bg-gray-700 overflow-hidden">
@@ -887,7 +681,6 @@ export default function LigaCopaPage() {
                           <span className="text-xs text-gray-300">{ap}%</span>
                         </div>
                       </td>
-
                       <td className="py-2.5 px-2 text-center">{item.jogos}</td>
                       <td className="py-2.5 px-2 text-center">{item.v}</td>
                       <td className="py-2.5 px-2 text-center">{item.e}</td>
@@ -899,11 +692,7 @@ export default function LigaCopaPage() {
                   )
                 })}
                 {classificacao.length === 0 && (
-                  <tr>
-                    <td colSpan={12} className="px-3 py-8 text-center text-gray-400">
-                      Sem jogos finalizados ainda.
-                    </td>
-                  </tr>
+                  <tr><td colSpan={12} className="px-3 py-8 text-center text-gray-400">Sem jogos finalizados ainda.</td></tr>
                 )}
               </tbody>
             </table>
@@ -939,10 +728,9 @@ export default function LigaCopaPage() {
                   return (
                     <article
                       key={idx}
-                      className={`rounded-2xl border px-4 py-3 transition
-                        ${temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]'
-                                     : 'border-white/10 bg-white/5 hover:bg-white/7'}
-                      `}
+                      className={`rounded-2xl border px-4 py-3 transition ${
+                        temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]' : 'border-white/10 bg-white/5 hover:bg-white/7'
+                      }`}
                     >
                       <div className="grid grid-cols-12 items-center gap-2">
                         {/* Mandante */}
@@ -958,33 +746,19 @@ export default function LigaCopaPage() {
                           <span className="font-medium text-right truncate">{nM || jogo.mandante}</span>
                         </div>
 
-                        {/* Placar (edição por jogo) */}
+                        {/* Placar */}
                         <div className="col-span-2 md:col-span-4 text-center">
                           {editando ? (
                             <div className="flex items-center justify-center gap-2">
-                              <input
-                                type="number"
-                                defaultValue={gm}
-                                onChange={(e) => setGM(Number(e.target.value))}
-                                className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0" min={0}
-                              />
+                              <input type="number" defaultValue={gm} onChange={(e) => setGM(Number(e.target.value))} className="w-12 text-black text-center rounded-lg px-2 py-1" placeholder="0" min={0} />
                               <span className="text-white/70 font-semibold">x</span>
-                              <input
-                                type="number"
-                                defaultValue={gv}
-                                onChange={(e) => setGV(Number(e.target.value))}
-                                className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0" min={0}
-                              />
+                              <input type="number" defaultValue={gv} onChange={(e) => setGV(Number(e.target.value))} className="w-12 text-black text-center rounded-lg px-2 py-1" placeholder="0" min={0} />
                             </div>
                           ) : temPlacar ? (
                             <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
                               {gm} <span className="text-white/60">x</span> {gv}
                             </span>
-                          ) : (
-                            <span className="text-white/50">🆚</span>
-                          )}
+                          ) : <span className="text-white/50">🆚</span>}
                         </div>
 
                         {/* Visitante + ações */}
@@ -999,18 +773,11 @@ export default function LigaCopaPage() {
                             </span>
                           )}
 
-                          {/* Ações (somente admin) */}
+                          {/* Ações (admin) */}
                           {isAdmin && !editando && (
                             <div className="flex gap-2 ml-2">
                               <button
-                                onClick={() => {
-                                  setEditRodadaId(r.id)
-                                  setEditIndex(idx)
-                                  setGM(gm); setGV(gv)
-                                  if (jogo.bonus_pago) {
-                                    toast('Modo ajuste: edite e salve sem repetir premiação/participações.', { icon: '✏️' })
-                                  }
-                                }}
+                                onClick={() => { setEditRodadaId(r.id); setEditIndex(idx); setGM(gm); setGV(gv); if (jogo.bonus_pago) toast('Modo ajuste: edite e salve sem repetir premiação/participações.', { icon: '✏️' }) }}
                                 className="text-sm text-yellow-300 hover:text-yellow-200"
                                 title={jogo.bonus_pago ? 'Editar (ajuste, sem repetir premiação/participações)' : 'Editar (primeiro lançamento)'}
                               >
@@ -1018,11 +785,7 @@ export default function LigaCopaPage() {
                               </button>
 
                               {temPlacar && (
-                                <button
-                                  onClick={() => excluirResultado(r.id, idx)}
-                                  className="text-sm text-red-400 hover:text-red-300"
-                                  title="Remover resultado"
-                                >
+                                <button onClick={() => excluirResultado(r.id, idx)} className="text-sm text-red-400 hover:text-red-300" title="Remover resultado">
                                   🗑️
                                 </button>
                               )}
@@ -1050,11 +813,7 @@ export default function LigaCopaPage() {
                                   ✅
                                 </button>
                               )}
-                              <button
-                                onClick={() => { setEditRodadaId(null); setEditIndex(null) }}
-                                className="text-sm text-red-400 font-semibold hover:text-red-300"
-                                title="Cancelar edição"
-                              >
+                              <button onClick={() => { setEditRodadaId(null); setEditIndex(null) }} className="text-sm text-red-400 font-semibold hover:text-red-300" title="Cancelar edição">
                                 ❌
                               </button>
                             </div>
@@ -1065,9 +824,7 @@ export default function LigaCopaPage() {
                       {/* data do jogo (opcional) */}
                       {jogo?.data_iso && (
                         <div className="mt-1 text-right text-[11px] text-white/60">
-                          {new Date(jogo.data_iso).toLocaleString('pt-BR', {
-                            weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-                          })}
+                          {new Date(jogo.data_iso).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                         </div>
                       )}
                     </article>
