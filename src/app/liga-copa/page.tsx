@@ -29,9 +29,7 @@ type Jogo = {
   gols_mandante: number | null
   gols_visitante: number | null
   data_iso?: string | null
-  /** premiação e bônus de gols pagos no 1º lançamento */
   bonus_pago?: boolean
-  /** se já somou jogos para todos os jogadores dos 2 times */
   participacoes_contabilizadas?: boolean
 }
 
@@ -336,7 +334,6 @@ export default function LigaCopaPage() {
   }
 
   async function registrarMovimentacao(id_time: UUID, valor: number, descricao: string) {
-    // usa apenas "movimentacoes" (se não existir, ignora)
     try {
       await supabase.from('movimentacoes').insert([{
         id_time,
@@ -363,7 +360,6 @@ export default function LigaCopaPage() {
 
   /** === JOGADORES (contabilizar participações do ELENCO inteiro) === */
 
-  // tenta várias formas de buscar o elenco de um time
   async function fetchElencoIdsByTeam(timeId: UUID, tmap: Record<string, TimeRow>): Promise<UUID[]> {
     const tableCandidates = ['elenco', 'public_elenco']
     const colCandidates = ['id_time', 'time_id', 'time', 'time_origem']
@@ -380,7 +376,6 @@ export default function LigaCopaPage() {
         } catch {}
       }
     }
-    // fallback por nome
     try {
       const nome = tmap[timeId]?.nome
       if (nome) {
@@ -437,7 +432,6 @@ export default function LigaCopaPage() {
     }
   }
 
-  // Ajusta +1 ou -1 para TODOS os jogadores do time
   async function ajustarJogosElencoDoTime(timeId: UUID, delta: number, tmap: Record<string, TimeRow>) {
     const ids = await fetchElencoIdsByTeam(timeId, tmap)
     if (ids.length === 0) {
@@ -502,21 +496,18 @@ export default function LigaCopaPage() {
       const golsM = Number.isFinite(gm) ? Math.max(0, Math.floor(gm)) : 0
       const golsV = Number.isFinite(gv) ? Math.max(0, Math.floor(gv)) : 0
 
-      // Atualiza placar + trava premiação e participações
       jogo.gols_mandante = golsM
       jogo.gols_visitante = golsV
       jogo.bonus_pago = true
       jogo.participacoes_contabilizadas = true
       lista[index] = jogo
 
-      // Persistir esse jogo no array
       const { error: updErr } = await supabase
         .from('liga_copa_rodadas')
         .update({ jogos: lista })
         .eq('id', rodadaId)
       if (updErr) throw updErr
 
-      // === PREMIAÇÃO ÚNICA + BÔNUS DE GOLS ===
       const mId = jogo.mandante_id
       const vId = jogo.visitante_id
       const mNome = timesMap[mId]?.nome || jogo.mandante || 'Mandante'
@@ -537,13 +528,11 @@ export default function LigaCopaPage() {
         creditarPremio(vId, visitante, descV),
       ])
 
-      // === CONTABILIZAR +1 JOGO PARA TODOS OS JOGADORES DOS 2 TIMES ===
       await Promise.all([
         ajustarJogosElencoDoTime(mId, +1, timesMap),
         ajustarJogosElencoDoTime(vId, +1, timesMap),
       ])
 
-      // Atualiza estado local (recalcula classificação via useMemo)
       setRodadas(prev => prev.map(r => (r.id === rodadaId ? { ...r, jogos: lista } : r)))
 
       toast.success(
@@ -575,7 +564,6 @@ export default function LigaCopaPage() {
       const jogo = { ...(lista[index] || {}) }
       jogo.gols_mandante = Number.isFinite(gm) ? Math.max(0, Math.floor(gm)) : 0
       jogo.gols_visitante = Number.isFinite(gv) ? Math.max(0, Math.floor(gv)) : 0
-      // mantém flags ligadas para não repetir premiação/participações
       jogo.bonus_pago = true
       jogo.participacoes_contabilizadas = true
 
@@ -614,7 +602,6 @@ export default function LigaCopaPage() {
       const tinhaPlacar = jogo.gols_mandante != null && jogo.gols_visitante != null
       const tinhaParticipacoes = jogo.participacoes_contabilizadas === true
 
-      // zera placar e flags
       jogo.gols_mandante = null
       jogo.gols_visitante = null
       jogo.bonus_pago = false
@@ -627,7 +614,6 @@ export default function LigaCopaPage() {
         .eq('id', rodadaId)
       if (updErr) throw updErr
 
-      // se já tinha contabilizado, desfaz −1 para os 2 elencos
       if (tinhaPlacar && tinhaParticipacoes) {
         await Promise.all([
           ajustarJogosElencoDoTime(jogo.mandante_id, -1, timesMap),
@@ -647,7 +633,6 @@ export default function LigaCopaPage() {
   const aproveitamento = (row: RowClass) =>
     row.jogos > 0 ? Math.round((row.pontos / (row.jogos * 3)) * 100) : 0
 
-  // mapeia a faixa por posição (1-10 → D1, 11-20 → D2, 21-último → D3)
   const faixaPorPosicao = (pos: number) => {
     if (pos >= 1 && pos <= 10) return { rotulo: '1ª Divisão', cor: 'bg-emerald-500 text-black', chip: 'bg-emerald-600/20 ring-emerald-500/40' }
     if (pos >= 11 && pos <= 20) return { rotulo: '2ª Divisão', cor: 'bg-sky-400 text-black', chip: 'bg-sky-600/20 ring-sky-400/40' }
@@ -674,7 +659,6 @@ export default function LigaCopaPage() {
       {/* Barra de Ações */}
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
-          {/* Botão gerar */}
           <div className="flex items-center justify-center">
             <button
               onClick={gerarLigaCopa}
@@ -783,7 +767,6 @@ export default function LigaCopaPage() {
       {/* Classificação (ocultável) */}
       {showClass && (
         <div className="max-w-6xl mx-auto px-4 pb-10">
-          {/* Compartilhar */}
           <div className="mb-3 flex justify-end">
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
@@ -846,7 +829,6 @@ export default function LigaCopaPage() {
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-3">
                           {item.logo_url ? (
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={item.logo_url}
                               alt={item.nome}
@@ -866,7 +848,6 @@ export default function LigaCopaPage() {
                         </div>
                       </td>
 
-                      {/* Faixa da próxima divisão */}
                       <td className="py-2.5 px-2 text-center">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${faixa.chip}`}>
                           <span className={`inline-block w-2 h-2 rounded-full ${faixa.cor.replace(' text-black', '')}`}></span>
@@ -945,7 +926,6 @@ export default function LigaCopaPage() {
                         {/* Mandante */}
                         <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
                           {lM ? (
-                            // eslint-disable-next-line @next/next/no-img-element
                             <img src={lM} alt="" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
                           ) : (
                             <span className="h-6 w-6 grid place-items-center rounded-full bg-gray-700 text-[10px] ring-1 ring-white/10">
@@ -988,7 +968,6 @@ export default function LigaCopaPage() {
                         <div className="col-span-5 md:col-span-4 flex items-center justify-start gap-2">
                           <span className="font-medium text-left truncate">{nV || jogo.visitante}</span>
                           {lV ? (
-                            // eslint-disable-next-line @next/next/no-img-element
                             <img src={lV} alt="" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
                           ) : (
                             <span className="h-6 w-6 grid place-items-center rounded-full bg-gray-700 text-[10px] ring-1 ring-white/10">
@@ -1059,7 +1038,6 @@ export default function LigaCopaPage() {
                         </div>
                       </div>
 
-                      {/* data do jogo (opcional) */}
                       {jogo?.data_iso && (
                         <div className="mt-1 text-right text-[11px] text-white/60">
                           {new Date(jogo.data_iso).toLocaleString('pt-BR', {
