@@ -305,74 +305,114 @@ export default function LigaCopaPage() {
       .filter(r => (r.jogos || []).length > 0)
   }, [rodadas, filtroRodada, filtroTime])
 
-  /** === Helpers financeiros === */
-  async function tryRPCIncrementarSaldo(id_time: UUID, valor: number, descricao: string) {
+  /** === Helpers financeiros (sem RPC; usa carteira/carteira_mov) === */
+
+  async function getSaldoCarteira(id_time: UUID): Promise<number> {
     try {
-      const { error } = await supabase.rpc('incrementar_saldo', {
-        p_id_time: id_time,
-        p_valor: valor,
-        p_descricao: descricao
-      } as any)
+      const { data, error } = await supabase
+        .from('carteira')
+        .select('saldo')
+        .eq('id_time', id_time)
+        .maybeSingle()
       if (error) throw error
+      return Number(data?.saldo ?? 0)
+    } catch {
+      return 0
+    }
+  }
+
+  async function setSaldoCarteira(id_time: UUID, novoSaldo: number): Promise<boolean> {
+    try {
+      // tenta atualizar
+      const { data, error } = await supabase
+        .from('carteira')
+        .update({ saldo: novoSaldo })
+        .eq('id_time', id_time)
+        .select('id_time')
+      if (error) throw error
+
+      // se não atualizou nenhuma linha, insere
+      if (!data || data.length === 0) {
+        const { error: insErr } = await supabase
+          .from('carteira')
+          .insert([{ id_time, saldo: novoSaldo } as any])
+        if (insErr) throw insErr
+      }
       return true
     } catch (e) {
-      console.warn('RPC incrementar_saldo indisponível/falhou; usando fallback.', e)
+      console.warn('Falha ao salvar saldo na carteira:', e)
       return false
     }
   }
-  async function fallbackAtualizaSaldo(id_time: UUID, delta: number) {
-    try {
-      const { data: tRow, error: tErr } = await supabase
-        .from('times')
-        .select('id, saldo')
-        .eq('id', id_time)
-        .maybeSingle()
-      if (tErr || !tRow) return false
-      const novo = (tRow.saldo ?? 0) + delta
-      const { error: uErr } = await supabase
-        .from('times')
-        .update({ saldo: novo })
-        .eq('id', id_time)
-      if (uErr) return false
-      return true
-    } catch {
-      return false
-    }
-  }
+
   async function registrarMovimentacao(id_time: UUID, valor: number, descricao: string) {
     try {
-      await supabase.from('movimentacoes').insert([{
+      await supabase.from('carteira_mov').insert([{
         id_time,
         valor,
-        tipo: 'premiacao',
+        origem: 'premiacao',
         descricao,
-        data_evento: new Date().toISOString()
+        created_at: new Date().toISOString()
       } as any])
-    } catch (e) {
-      console.warn('Tabela movimentacoes pode não existir; ignorando.', e)
+      return
+    } catch (e1) {
+      try {
+        await supabase.from('carteira_mov').insert([{
+          id_time, valor, created_at: new Date().toISOString()
+        } as any])
+      } catch (e2) {
+        try {
+          await supabase.from('movimentacoes').insert([{
+            id_time, valor, tipo: 'premiacao', descricao, data_evento: new Date().toISOString()
+          } as any])
+        } catch (e3) {
+          console.warn('Não consegui registrar movimento (ok ignorar):', e3)
+        }
+      }
     }
   }
+
   async function creditarPremio(id_time: UUID, valor: number, descricao: string) {
     if (valor <= 0) return
-    const okRPC = await tryRPCIncrementarSaldo(id_time, valor, descricao)
-    if (!okRPC) {
-      const ok = await fallbackAtualizaSaldo(id_time, valor)
-      if (!ok) console.warn('Falha ao atualizar saldo (fallback).')
+    const saldoAtual = await getSaldoCarteira(id_time)
+    const ok = await setSaldoCarteira(id_time, saldoAtual + valor)
+    if (!ok) {
+      toast.error('Não foi possível atualizar a carteira do time.')
+      return
     }
     await registrarMovimentacao(id_time, valor, descricao)
   }
 
   /** === Helpers jogadores (contabilizar participações do ELENCO inteiro do time) === */
 
-  // busca ids dos jogadores do elenco de um time
+  // tenta várias formas de buscar o elenco de um time
   async function fetchElencoIdsByTeam(timeId: UUID): Promise<UUID[]> {
+    const tableCandidates = ['elenco', 'public_elenco']
+    const colCandidates = ['id_time', 'time_id', 'time', 'time_origem']
+    for (const table of tableCandidates) {
+      for (const col of colCandidates) {
+        try {
+          const { data, error } = await supabase
+            .from(table)
+            .select('id')
+            .eq(col, timeId)
+          if (!error && Array.isArray(data) && data.length > 0) {
+            return (data as Array<{ id: string }>).map(r => r.id as UUID)
+          }
+        } catch {}
+      }
+    }
+    // fallback por nome
     try {
-      const { data, error } = await supabase
-        .from('elenco')
-        .select('id')
-        .eq('id_time', timeId)
-      if (!error && Array.isArray(data) && data.length > 0) {
-        return (data as Array<{ id: string }>).map(r => r.id as UUID)
+      const nome = timesMap[timeId]?.nome
+      if (nome) {
+        const { data, error } = await supabase
+          .from('elenco')
+          .select('id, time_origem')
+          .ilike('time_origem', nome)
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return (data as Array<{ id: string }>).map(r => r.id as UUID)
+        }
       }
     } catch {}
     return []
@@ -396,7 +436,7 @@ export default function LigaCopaPage() {
     if (!ids || ids.length === 0) return true
     try {
       const { data, error } = await supabase
-        .from('elenco')
+        .from('jogadores')
         .select('id, jogos')
         .in('id', ids)
       if (error) throw error
@@ -407,7 +447,7 @@ export default function LigaCopaPage() {
       for (const id of ids) {
         const novo = Math.max(0, (byId[id] ?? 0) + delta)
         const { error: uErr } = await supabase
-          .from('elenco')
+          .from('jogadores')
           .update({ jogos: novo })
           .eq('id', id)
         if (uErr) throw uErr
