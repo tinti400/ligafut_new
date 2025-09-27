@@ -305,14 +305,14 @@ export default function LigaCopaPage() {
       .filter(r => (r.jogos || []).length > 0)
   }, [rodadas, filtroRodada, filtroTime])
 
-  /** === Helpers financeiros (sem RPC; usa carteira/carteira_mov) === */
+  /** === FINANCEIRO: usa SOMENTE public.times.saldo === */
 
-  async function getSaldoCarteira(id_time: UUID): Promise<number> {
+  async function getSaldoTime(id_time: UUID): Promise<number> {
     try {
       const { data, error } = await supabase
-        .from('carteira')
+        .from('times')
         .select('saldo')
-        .eq('id_time', id_time)
+        .eq('id', id_time)
         .maybeSingle()
       if (error) throw error
       return Number(data?.saldo ?? 0)
@@ -321,72 +321,50 @@ export default function LigaCopaPage() {
     }
   }
 
-  async function setSaldoCarteira(id_time: UUID, novoSaldo: number): Promise<boolean> {
+  async function setSaldoTime(id_time: UUID, novoSaldo: number): Promise<boolean> {
     try {
-      // tenta atualizar
-      const { data, error } = await supabase
-        .from('carteira')
+      const { error } = await supabase
+        .from('times')
         .update({ saldo: novoSaldo })
-        .eq('id_time', id_time)
-        .select('id_time')
+        .eq('id', id_time)
       if (error) throw error
-
-      // se não atualizou nenhuma linha, insere
-      if (!data || data.length === 0) {
-        const { error: insErr } = await supabase
-          .from('carteira')
-          .insert([{ id_time, saldo: novoSaldo } as any])
-        if (insErr) throw insErr
-      }
       return true
     } catch (e) {
-      console.warn('Falha ao salvar saldo na carteira:', e)
+      console.warn('Falha ao atualizar public.times.saldo:', e)
       return false
     }
   }
 
   async function registrarMovimentacao(id_time: UUID, valor: number, descricao: string) {
+    // usa apenas "movimentacoes" (se não existir, ignora)
     try {
-      await supabase.from('carteira_mov').insert([{
+      await supabase.from('movimentacoes').insert([{
         id_time,
         valor,
-        origem: 'premiacao',
+        tipo: 'premiacao',
         descricao,
-        created_at: new Date().toISOString()
+        data_evento: new Date().toISOString()
       } as any])
-      return
-    } catch (e1) {
-      try {
-        await supabase.from('carteira_mov').insert([{
-          id_time, valor, created_at: new Date().toISOString()
-        } as any])
-      } catch (e2) {
-        try {
-          await supabase.from('movimentacoes').insert([{
-            id_time, valor, tipo: 'premiacao', descricao, data_evento: new Date().toISOString()
-          } as any])
-        } catch (e3) {
-          console.warn('Não consegui registrar movimento (ok ignorar):', e3)
-        }
-      }
+    } catch (e) {
+      console.warn('Tabela movimentacoes ausente (ok ignorar):', e)
     }
   }
 
   async function creditarPremio(id_time: UUID, valor: number, descricao: string) {
     if (valor <= 0) return
-    const saldoAtual = await getSaldoCarteira(id_time)
-    const ok = await setSaldoCarteira(id_time, saldoAtual + valor)
+    const saldoAtual = await getSaldoTime(id_time)
+    const ok = await setSaldoTime(id_time, saldoAtual + valor)
     if (!ok) {
-      toast.error('Não foi possível atualizar a carteira do time.')
+      toast.error('Não foi possível atualizar o saldo do time.')
       return
     }
     await registrarMovimentacao(id_time, valor, descricao)
   }
 
-  /** === Helpers jogadores (contabilizar participações do ELENCO inteiro do time) === */
+  /** === JOGADORES (contabilizar participações do ELENCO inteiro) === */
 
   // tenta várias formas de buscar o elenco de um time
-  async function fetchElencoIdsByTeam(timeId: UUID): Promise<UUID[]> {
+  async function fetchElencoIdsByTeam(timeId: UUID, tmap: Record<string, TimeRow>): Promise<UUID[]> {
     const tableCandidates = ['elenco', 'public_elenco']
     const colCandidates = ['id_time', 'time_id', 'time', 'time_origem']
     for (const table of tableCandidates) {
@@ -404,7 +382,7 @@ export default function LigaCopaPage() {
     }
     // fallback por nome
     try {
-      const nome = timesMap[timeId]?.nome
+      const nome = tmap[timeId]?.nome
       if (nome) {
         const { data, error } = await supabase
           .from('elenco')
@@ -460,8 +438,8 @@ export default function LigaCopaPage() {
   }
 
   // Ajusta +1 ou -1 para TODOS os jogadores do time
-  async function ajustarJogosElencoDoTime(timeId: UUID, delta: number) {
-    const ids = await fetchElencoIdsByTeam(timeId)
+  async function ajustarJogosElencoDoTime(timeId: UUID, delta: number, tmap: Record<string, TimeRow>) {
+    const ids = await fetchElencoIdsByTeam(timeId, tmap)
     if (ids.length === 0) {
       console.warn('Nenhum jogador encontrado para o time', timeId)
       return
@@ -561,8 +539,8 @@ export default function LigaCopaPage() {
 
       // === CONTABILIZAR +1 JOGO PARA TODOS OS JOGADORES DOS 2 TIMES ===
       await Promise.all([
-        ajustarJogosElencoDoTime(mId, +1),
-        ajustarJogosElencoDoTime(vId, +1),
+        ajustarJogosElencoDoTime(mId, +1, timesMap),
+        ajustarJogosElencoDoTime(vId, +1, timesMap),
       ])
 
       // Atualiza estado local (recalcula classificação via useMemo)
@@ -652,8 +630,8 @@ export default function LigaCopaPage() {
       // se já tinha contabilizado, desfaz −1 para os 2 elencos
       if (tinhaPlacar && tinhaParticipacoes) {
         await Promise.all([
-          ajustarJogosElencoDoTime(jogo.mandante_id, -1),
-          ajustarJogosElencoDoTime(jogo.visitante_id, -1),
+          ajustarJogosElencoDoTime(jogo.mandante_id, -1, timesMap),
+          ajustarJogosElencoDoTime(jogo.visitante_id, -1, timesMap),
         ])
       }
 
@@ -868,7 +846,7 @@ export default function LigaCopaPage() {
                       <td className="py-2.5 px-4">
                         <div className="flex items-center gap-3">
                           {item.logo_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={item.logo_url}
                               alt={item.nome}
