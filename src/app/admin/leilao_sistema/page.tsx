@@ -12,7 +12,7 @@ const supabase = createClient(
 )
 
 const MAX_ATIVOS = 200
-const INCREMENTO_MINIMO = 20_000_000 // +2mi
+const INCREMENTO_MINIMO = 2_000_000 // +2mi
 const LANCE_TOAST_ID = 'lance-unico' // 🔔 notificação única
 
 type Leilao = {
