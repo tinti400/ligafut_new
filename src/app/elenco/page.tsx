@@ -276,7 +276,7 @@ export default function ElencoPage() {
         }
 
         const baseValor = Number(jogador.valor || 0)
-        const valorVenda = Math.round((baseValor * percentualNum / 100) * 0.7)
+        const valorVenda = Math.round((baseValor * percentualNum / 100) * 0.3)
 
         // 1) Mercado
         {
