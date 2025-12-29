@@ -80,9 +80,9 @@ function calcularPremiacao(time: TimeDados): number {
   const { divisao, historico } = time
   const ultimaPartida = historico[historico.length - 1]
   const regras = {
-    1: { vitoria: 13_000_000, empate: 8_000_000,  derrota: 3_000_000, gol: 500_000, gol_sofrido: 80_000 },
-    2: { vitoria: 8_500_000,  empate: 4_000_000,  derrota: 1_750_000, gol: 375_000, gol_sofrido: 60_000 },
-    3: { vitoria: 5_000_000,  empate: 2_500_000,  derrota: 1_000_000, gol: 250_000, gol_sofrido: 40_000 },
+    1: { vitoria: 9_000_000, empate: 6_000_000,  derrota: 2_500_000, gol: 150_000, gol_sofrido: 30_000 },
+    2: { vitoria: 5_000,  empate: 3_000_000,  derrota: 1_750_000, gol: 90_000, gol_sofrido: 20_000 },
+    3: { vitoria: 2_000_000,  empate: 500_000,  derrota: 200_000, gol: 30_000, gol_sofrido: 10_000 },
   } as const
 
   const regra = regras[divisao as 1|2|3]
