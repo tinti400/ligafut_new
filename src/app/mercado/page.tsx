@@ -100,6 +100,8 @@ type Jogador = {
   imagem_url?: string | null
   foto?: string | null
   link_sofifa?: string | null
+  data_listagem?: string | null
+}
 }
 
 type JogadorCardProps = {
