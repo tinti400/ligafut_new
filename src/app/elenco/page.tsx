@@ -294,6 +294,13 @@ export default function ElencoPage() {
             percentual: percentualNum,
             created_at: new Date().toISOString()
           })
+await registrarNoBID({
+  tipo_evento: 'anuncio_mercado',
+  descricao: `${jogador.nome} (${jogador.posicao}) colocado no mercado (${percentualNum}%) por ${formatBRL(baseValor)}`,
+  id_time1: jogador.id_time,
+  valor: baseValor
+})
+
           if (error) { console.error('Erro ao inserir no mercado:', error); toast.error(`❌ Falha ao anunciar ${jogador.nome}.`); continue }
         }
 
