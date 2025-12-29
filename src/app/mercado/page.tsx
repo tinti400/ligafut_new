@@ -142,11 +142,25 @@ const JogadorCard = ({
       ? jogador.nacionalidade
       : 'Resto do Mundo'
 
-  // ✅ CALCULA O VALOR COM DESGASTE (FORA DO JSX)
+  // 🔹 VALOR REAL (o que será pago)
   const valorAtual = calcularValorComDesgaste(
     jogador.valor,
     (jogador as any).data_listagem
   )
+
+  // 🔹 DIAS NO MERCADO
+  const diasNoMercado = (jogador as any).data_listagem
+    ? Math.floor(
+        (Date.now() - new Date((jogador as any).data_listagem).getTime()) /
+          (1000 * 60 * 60 * 24)
+      )
+    : 0
+
+  // 🔹 % DE DESVALORIZAÇÃO
+  const percentualDesconto =
+    jogador.valor > valorAtual
+      ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
+      : 0
 
   return (
     <div
@@ -154,7 +168,7 @@ const JogadorCard = ({
         'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
         'hover:shadow-lg hover:shadow-black/30 transition-shadow',
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
-        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
+        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
       ].join(' ')}
     >
       {/* Seleção admin */}
@@ -189,7 +203,7 @@ const JogadorCard = ({
 
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold">{jogador.nome}</h3>
-          <div className="mt-1 flex gap-2 text-xs text-gray-300">
+          <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-300">
             <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
               OVR {jogador.overall}
             </span>
@@ -203,10 +217,23 @@ const JogadorCard = ({
       {/* Valores */}
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-          <p className="text-xs text-gray-400">Valor</p>
-          <p className="font-semibold text-gray-200">
+          <p className="text-xs text-gray-400 mb-1">Valor</p>
+
+          <p className="font-semibold text-green-400">
             {formatarValor(valorAtual)}
           </p>
+
+          {percentualDesconto > 0 && (
+            <span className="mt-1 inline-block rounded-full bg-red-600/20 px-2 py-0.5 text-[11px] font-semibold text-red-400">
+              🔻 -{percentualDesconto}%
+            </span>
+          )}
+
+          {diasNoMercado > 0 && (
+            <p className="mt-1 text-[11px] text-gray-400">
+              ⏱️ {diasNoMercado} dia{diasNoMercado > 1 ? 's' : ''} no mercado
+            </p>
+          )}
         </div>
 
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
@@ -231,7 +258,7 @@ const JogadorCard = ({
             onChange={(e) => setNovoValor(Number(e.target.value))}
             onBlur={handleBlur}
             disabled={loadingAtualizarPreco}
-            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white focus:border-green-500"
+            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none focus:border-green-500"
           />
         </div>
       )}
@@ -241,13 +268,17 @@ const JogadorCard = ({
         onClick={onComprar}
         disabled={loadingComprar || mercadoFechado}
         className={[
-          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold',
+          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
           mercadoFechado
-            ? 'bg-gray-700 text-gray-300'
-            : 'bg-green-600 text-white hover:bg-green-700'
+            ? 'cursor-not-allowed bg-gray-700 text-gray-300'
+            : 'bg-green-600 text-white hover:bg-green-700',
         ].join(' ')}
       >
-        {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
+        {loadingComprar
+          ? 'Comprando...'
+          : mercadoFechado
+          ? 'Mercado fechado'
+          : 'Comprar'}
       </button>
     </div>
   )
