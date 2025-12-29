@@ -18,6 +18,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+
+
 /* ================= Modal genérico ================= */
 function ModalConfirm({
   visible,
@@ -175,7 +177,11 @@ const JogadorCard = ({
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
           <p className="text-xs text-gray-400">Valor</p>
-          <p className="font-bold text-green-400">{formatarValor(jogador.valor)}</p>
+          const valorAtual = calcularValorComDesgaste(
+  jogador.valor,
+  (jogador as any).data_listagem
+)
+
         </div>
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
           <p className="text-xs text-gray-400">Salário</p>
@@ -379,6 +385,7 @@ export default function MercadoPage() {
             link_sofifa,
             nacionalidade,
             time_origem,
+            data_listagem: new Date().toISOString(),
           }
 
           return payload as NovoJogador
