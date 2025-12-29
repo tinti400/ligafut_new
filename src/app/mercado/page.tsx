@@ -568,14 +568,14 @@ const confirmarCompra = async () => {
   }
 
   if ((elencoAtual?.length || 0) >= 25) {
-    toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco.')
+    toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco. Venda para comprar do mercado!')
     return
   }
 
   setLoadingComprarId(jogadorParaComprar.id)
 
   try {
-    // 🔒 exclusividade
+    // garante exclusividade
     const { data: deletedJogador, error: deleteError } = await supabase
       .from('mercado_transferencias')
       .delete()
@@ -590,6 +590,11 @@ const confirmarCompra = async () => {
 
     const jogador = deletedJogador[0] as Jogador
 
+    if (valorCompra > saldo) {
+      toast.error('Saldo insuficiente.')
+      return
+    }
+
     // BID
     await supabase.from('bid').insert({
       tipo_evento: 'compra',
@@ -599,7 +604,7 @@ const confirmarCompra = async () => {
       data_evento: new Date().toISOString(),
     })
 
-    // Salário = 1% do valor REAL
+    // Salário = 1% do valor REAL pago
     const salario = Math.round(valorCompra * 0.01)
 
     const { error: errorInsert } = await supabase.from('elenco').insert({
@@ -608,13 +613,14 @@ const confirmarCompra = async () => {
       posicao: jogador.posicao,
       overall: jogador.overall,
       valor: valorCompra,
-      imagem_url: jogador.imagem_url || jogador.foto || '',
-      salario,
+      imagem_url: (jogador.imagem_url || jogador.foto || '') as string,
+      salario: salario,
       jogos: 0,
       link_sofifa: jogador.link_sofifa || '',
     })
     if (errorInsert) throw errorInsert
 
+    // movimentação financeira
     await registrarMovimentacao({
       id_time: user.id_time,
       tipo: 'saida',
@@ -622,10 +628,11 @@ const confirmarCompra = async () => {
       descricao: `Compra de ${jogador.nome} no mercado`,
     })
 
-    await supabase
+    const { error: errorUpdate } = await supabase
       .from('times')
       .update({ saldo: saldo - valorCompra })
       .eq('id', user.id_time)
+    if (errorUpdate) throw errorUpdate
 
     setSaldo((prev) => prev - valorCompra)
     setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
@@ -641,7 +648,6 @@ const confirmarCompra = async () => {
     setJogadorParaComprar(null)
   }
 }
-
 
 
   /* ================= Admin: excluir/atualizar preço ================= */
