@@ -144,25 +144,42 @@ const JogadorCard = ({
       ? jogador.nacionalidade
       : 'Resto do Mundo'
 
-  // 🔹 VALOR REAL (o que será pago)
+  /* ================= DESGASTE ================= */
+
+  const DIAS_POR_ETAPA = 3
+  const PERCENTUAL_ETAPA = 5
+  const LIMITE_MINIMO = 0.5 // 50%
+
+  const dataListagem = (jogador as any).data_listagem
+    ? new Date((jogador as any).data_listagem)
+    : null
+
+  const diasNoMercado = dataListagem
+    ? Math.floor((Date.now() - dataListagem.getTime()) / (1000 * 60 * 60 * 24))
+    : 0
+
+  const ciclosPassados = Math.floor(diasNoMercado / DIAS_POR_ETAPA)
+
   const valorAtual = calcularValorComDesgaste(
     jogador.valor,
     (jogador as any).data_listagem
   )
 
-  // 🔹 DIAS NO MERCADO
-  const diasNoMercado = (jogador as any).data_listagem
-    ? Math.floor(
-        (Date.now() - new Date((jogador as any).data_listagem).getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
-    : 0
-
-  // 🔹 % DE DESVALORIZAÇÃO
   const percentualDesconto =
     jogador.valor > valorAtual
       ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
       : 0
+
+  const diasParaProximoDesconto =
+    DIAS_POR_ETAPA - (diasNoMercado % DIAS_POR_ETAPA || DIAS_POR_ETAPA)
+
+  const valorFuturo = Math.max(
+    Math.round(
+      jogador.valor *
+        Math.pow(1 - PERCENTUAL_ETAPA / 100, ciclosPassados + 1)
+    ),
+    Math.round(jogador.valor * LIMITE_MINIMO)
+  )
 
   return (
     <div
@@ -219,7 +236,7 @@ const JogadorCard = ({
       {/* Valores */}
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-          <p className="text-xs text-gray-400 mb-1">Valor</p>
+          <p className="text-xs text-gray-400 mb-1">Valor de compra</p>
 
           <p className="font-semibold text-green-400">
             {formatarValor(valorAtual)}
@@ -231,9 +248,15 @@ const JogadorCard = ({
             </span>
           )}
 
-          {diasNoMercado > 0 && (
-            <p className="mt-1 text-[11px] text-gray-400">
-              ⏱️ {diasNoMercado} dia{diasNoMercado > 1 ? 's' : ''} no mercado
+          <p className="mt-1 text-[11px] text-gray-400">
+            ⏱️ {diasNoMercado} dia{diasNoMercado !== 1 ? 's' : ''} no mercado
+          </p>
+
+          {diasParaProximoDesconto > 0 && valorFuturo < valorAtual && (
+            <p className="mt-1 text-[11px] text-yellow-400">
+              📉 Em {diasParaProximoDesconto} dia
+              {diasParaProximoDesconto !== 1 ? 's' : ''} cai para{' '}
+              <strong>{formatarValor(valorFuturo)}</strong>
             </p>
           )}
         </div>
