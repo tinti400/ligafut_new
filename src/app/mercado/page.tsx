@@ -102,7 +102,7 @@ type Jogador = {
   link_sofifa?: string | null
   data_listagem?: string | null
 }
-}
+
 
 type JogadorCardProps = {
   jogador: Jogador
