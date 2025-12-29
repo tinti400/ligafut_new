@@ -9,6 +9,23 @@ import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import * as XLSX from 'xlsx'
 import toast, { Toaster } from 'react-hot-toast'
 
+const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string) => {
+  if (!dataListagem) return valorInicial
+
+  const agora = Date.now()
+  const listagem = new Date(dataListagem).getTime()
+
+  const dias = Math.floor((agora - listagem) / (1000 * 60 * 60 * 24))
+  const ciclos = Math.floor(dias / 3)
+  const desconto = ciclos * 0.05
+
+  const fatorMinimo = 0.6
+  const fatorFinal = Math.min(1, Math.max(1 - desconto, fatorMinimo))
+
+  return Math.round(valorInicial * fatorFinal)
+}
+
+
 /* ================= Util ================= */
 const formatarValor = (valor: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
