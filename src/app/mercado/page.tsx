@@ -138,7 +138,15 @@ const JogadorCard = ({
   }
 
   const nacionalidade =
-    jogador.nacionalidade && jogador.nacionalidade.trim() !== '' ? jogador.nacionalidade : 'Resto do Mundo'
+    jogador.nacionalidade && jogador.nacionalidade.trim() !== ''
+      ? jogador.nacionalidade
+      : 'Resto do Mundo'
+
+  // ✅ CALCULA O VALOR COM DESGASTE (FORA DO JSX)
+  const valorAtual = calcularValorComDesgaste(
+    jogador.valor,
+    (jogador as any).data_listagem
+  )
 
   return (
     <div
@@ -149,13 +157,10 @@ const JogadorCard = ({
         selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : ''
       ].join(' ')}
     >
-      {/* Seleção admin (canto superior direito, fora da foto) */}
+      {/* Seleção admin */}
       {isAdmin && (
         <div className="absolute right-2 top-2 z-10">
-          <label
-            className="inline-flex items-center gap-2 rounded-full bg-gray-900/80 px-3 py-1 text-xs text-white ring-1 ring-white/10 shadow"
-            title="Selecionar para excluir"
-          >
+          <label className="inline-flex items-center gap-2 rounded-full bg-gray-900/80 px-3 py-1 text-xs text-white ring-1 ring-white/10 shadow">
             <input
               type="checkbox"
               checked={selecionado}
@@ -167,7 +172,7 @@ const JogadorCard = ({
         </div>
       )}
 
-      {/* Cabeçalho do card */}
+      {/* Cabeçalho */}
       <div className="flex items-center gap-3">
         <div className="relative">
           <ImagemComFallback
@@ -181,11 +186,16 @@ const JogadorCard = ({
             {jogador.posicao}
           </span>
         </div>
+
         <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold leading-tight">{jogador.nome}</h3>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-300">
-            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">OVR {jogador.overall}</span>
-            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">🌎 {nacionalidade}</span>
+          <h3 className="truncate text-base font-semibold">{jogador.nome}</h3>
+          <div className="mt-1 flex gap-2 text-xs text-gray-300">
+            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
+              OVR {jogador.overall}
+            </span>
+            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
+              🌎 {nacionalidade}
+            </span>
           </div>
         </div>
       </div>
@@ -194,22 +204,25 @@ const JogadorCard = ({
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
           <p className="text-xs text-gray-400">Valor</p>
-          const valorAtual = calcularValorComDesgaste(
-  jogador.valor,
-  (jogador as any).data_listagem
-)
-
+          <p className="font-semibold text-gray-200">
+            {formatarValor(valorAtual)}
+          </p>
         </div>
+
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
           <p className="text-xs text-gray-400">Salário</p>
-          <p className="font-semibold text-gray-200">{formatarValor(jogador.salario || 0)}</p>
+          <p className="font-semibold text-gray-200">
+            {formatarValor(jogador.salario || 0)}
+          </p>
         </div>
       </div>
 
       {/* Admin: alterar preço */}
       {isAdmin && (
         <div className="mt-3">
-          <label className="mb-1 block text-[11px] text-gray-300">💰 Alterar Preço (R$)</label>
+          <label className="mb-1 block text-[11px] text-gray-300">
+            💰 Alterar Preço (R$)
+          </label>
           <input
             type="number"
             min={1}
@@ -218,24 +231,21 @@ const JogadorCard = ({
             onChange={(e) => setNovoValor(Number(e.target.value))}
             onBlur={handleBlur}
             disabled={loadingAtualizarPreco}
-            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-green-500"
-            placeholder="Novo valor"
+            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white focus:border-green-500"
           />
-          {loadingAtualizarPreco && <p className="mt-1 text-[11px] text-gray-400">Atualizando...</p>}
         </div>
       )}
 
-      {/* Ação */}
+      {/* Comprar */}
       <button
         onClick={onComprar}
         disabled={loadingComprar || mercadoFechado}
         className={[
-          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
+          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold',
           mercadoFechado
-            ? 'cursor-not-allowed bg-gray-700 text-gray-300'
+            ? 'bg-gray-700 text-gray-300'
             : 'bg-green-600 text-white hover:bg-green-700'
         ].join(' ')}
-        title={mercadoFechado ? 'Mercado fechado' : 'Comprar jogador'}
       >
         {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
       </button>
