@@ -423,106 +423,107 @@ export default function MercadoPage() {
   }, [router])
 
   /* ================= Upload XLSX ================= */
-const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0]
-  if (!file) return
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
 
-  setUploadLoading(true)
-  setMsg('Lendo planilha...')
+    setUploadLoading(true)
+    setMsg('Lendo planilha...')
 
-  // helpers
-  const normalizeKeys = (obj: any) =>
-    Object.fromEntries(
-      Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v])
-    )
+    // helpers
+    const normalizeKeys = (obj: any) =>
+      Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+      )
 
-  const sanitizeUrl = (u?: any) => {
-    if (!u) return ''
-    return String(u).trim().replace(/\s/g, '%20')
-  }
-
-  const pickImagemUrl = (row: Record<string, any>) => {
-    const cand =
-      row['imagem_url'] ??
-      row['foto'] ??
-      row['imagem url'] ??
-      row['url_imagem'] ??
-      row['imagem']
-    return sanitizeUrl(cand)
-  }
-
-  const toNumber = (v: any) => {
-    if (v === null || v === undefined || v === '') return 0
-    const num = Number(String(v).replace(/[^\d.-]/g, ''))
-    return Number.isFinite(num) ? num : 0
-  }
-
-  type NovoJogador = Omit<Jogador, 'id'>
-
-  const reader = new FileReader()
-  reader.onload = async (event) => {
-    try {
-      const data = new Uint8Array(event.target?.result as ArrayBuffer)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const sheetName = workbook.SheetNames.includes('Consolidado')
-        ? 'Consolidado'
-        : workbook.SheetNames[0]
-
-      const sheet = workbook.Sheets[sheetName]
-      const json = XLSX.utils.sheet_to_json(sheet)
-
-      const jogadoresParaInserir: NovoJogador[] = (json as any[]).map((raw) => {
-        const row = normalizeKeys(raw)
-
-        const nome = row['nome']
-        const posicao = row['posicao']
-        const overall = toNumber(row['overall'])
-        const valor = toNumber(row['valor'])
-        const link_sofifa = row['link_sofifa'] ?? row['sofifa'] ?? ''
-        const nacionalidade = row['nacionalidade'] ?? row['pais'] ?? ''
-        const time_origem = row['time_origem'] ?? row['time'] ?? ''
-        const imagem_url = pickImagemUrl(row)
-
-        if (!nome || !posicao || !overall || !valor) {
-          throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
-        }
-
-        return {
-          nome,
-          posicao,
-          overall,
-          valor,
-          imagem_url,
-          link_sofifa,
-          nacionalidade,
-          time_origem,
-          // 🔹 DATA DE LISTAGEM PADRÃO
-          data_listagem: new Date().toISOString(),
-        } as NovoJogador
-      })
-
-      const { data: inseridos, error } = await supabase
-        .from('mercado_transferencias')
-        .insert(jogadoresParaInserir)
-        .select('*')
-
-      if (error) throw error
-
-      toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
-      setJogadores((prev) => [...prev, ...(inseridos ?? [])])
-    } catch (error: any) {
-      console.error('Erro ao importar:', error)
-      toast.error(`Erro no upload: ${error.message || error}`)
-    } finally {
-      setUploadLoading(false)
-      if (e.target) e.target.value = ''
-      setMsg('')
+    const sanitizeUrl = (u?: any) => {
+      if (!u) return ''
+      const s = String(u).trim().replace(/\s/g, '%20')
+      return s
     }
+
+    const pickImagemUrl = (row: Record<string, any>) => {
+      const cand =
+        row['imagem_url'] ??
+        row['foto'] ??
+        row['imagem url'] ??
+        row['url_imagem'] ??
+        row['imagem']
+      return sanitizeUrl(cand)
+    }
+
+    const toNumber = (v: any) => {
+      if (v === null || v === undefined || v === '') return 0
+      const num = Number(String(v).replace(/[^\d.-]/g, ''))
+      return Number.isFinite(num) ? num : 0
+    }
+
+    type NovoJogador = Omit<Jogador, 'id'>
+
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheetName = workbook.SheetNames.includes('Consolidado')
+          ? 'Consolidado'
+          : workbook.SheetNames[0]
+        const sheet = workbook.Sheets[sheetName]
+        const json = XLSX.utils.sheet_to_json(sheet)
+
+        const jogadoresParaInserir: NovoJogador[] = (json as any[]).map((raw) => {
+          const row = normalizeKeys(raw)
+
+          const nome = row['nome']
+          const posicao = row['posicao']
+          const overall = toNumber(row['overall'])
+          const valor = toNumber(row['valor'])
+          const link_sofifa = row['link_sofifa'] ?? row['sofifa'] ?? ''
+          const nacionalidade = row['nacionalidade'] ?? row['pais'] ?? ''
+          const time_origem = row['time_origem'] ?? row['time'] ?? ''
+          const imagem_url = pickImagemUrl(row)
+
+          if (!nome || !posicao || !overall || !valor) {
+            throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
+          }
+
+          const payload: any = {
+            nome,
+            posicao,
+            overall,
+            valor,
+            imagem_url,
+            link_sofifa,
+            nacionalidade,
+            time_origem,
+            data_listagem: new Date().toISOString(),
+          }
+
+          return payload as NovoJogador
+        })
+
+        const { data: inseridos, error } = await supabase
+          .from('mercado_transferencias')
+          .insert(jogadoresParaInserir as any[])
+          .select('*')
+
+        if (error) throw error
+
+        toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
+
+        setJogadores((prev) => [...prev, ...((inseridos as unknown as Jogador[]) ?? [])])
+      } catch (error: any) {
+        console.error('Erro ao importar:', error)
+        toast.error(`Erro no upload: ${error.message || error}`)
+      } finally {
+        setUploadLoading(false)
+        if (e.target) e.target.value = ''
+        setMsg('')
+      }
+    }
+
+    reader.readAsArrayBuffer(file)
   }
-
-  reader.readAsArrayBuffer(file)
-}
-
 
  /* ================= Compra ================= */
 const solicitarCompra = (jogador: Jogador) => {
