@@ -371,9 +371,34 @@ export default function MercadoPage() {
     const carregarDados = async () => {
       try {
         const [resMercado, resTime, resMarketStatus] = await Promise.all([
-          supabase.from('mercado_transferencias').select('*'),
-          supabase.from('times').select('saldo').eq('id', userData.id_time).single(),
-          supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
+          // 🔹 IMPORTANTE: garantir data_listagem
+          supabase
+            .from('mercado_transferencias')
+            .select(`
+              id,
+              nome,
+              posicao,
+              overall,
+              valor,
+              salario,
+              nacionalidade,
+              imagem_url,
+              foto,
+              link_sofifa,
+              data_listagem
+            `),
+
+          supabase
+            .from('times')
+            .select('saldo')
+            .eq('id', userData.id_time)
+            .single(),
+
+          supabase
+            .from('configuracoes')
+            .select('aberto')
+            .eq('id', 'estado_mercado')
+            .single(),
         ])
 
         if (resMercado.error) throw resMercado.error
@@ -385,7 +410,10 @@ export default function MercadoPage() {
         setMarketStatus(resMarketStatus.data?.aberto ? 'aberto' : 'fechado')
       } catch (e: any) {
         console.error('Erro ao carregar dados:', e)
-        setErro('Erro ao carregar dados. Tente novamente mais tarde. ' + (e.message || e.toString()))
+        setErro(
+          'Erro ao carregar dados. Tente novamente mais tarde. ' +
+            (e.message || e.toString())
+        )
       } finally {
         setLoading(false)
       }
