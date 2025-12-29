@@ -15,10 +15,10 @@ function formatBRL(valor: number) {
 
 /** Juros por quantidade de turnos */
 const jurosPorTurno: Record<number, number> = {
-  1: 0.05,
-  2: 0.10,
-  3: 0.15,
-  4: 0.20,
+  1: 0.08,
+  2: 0.16,
+  3: 0.25,
+  4: 0.35,
 }
 
 /** Limites por divisão – AQUI você pode “turbinar” o crédito */
