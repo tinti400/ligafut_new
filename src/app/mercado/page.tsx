@@ -605,8 +605,8 @@ const confirmarCompra = async () => {
       data_evento: new Date().toISOString(),
     })
 
-    // Salário = 1% do valor REAL pago
-    const salario = Math.round(valorCompra * 0.01)
+    // Salário = 0.75% do valor REAL pago
+    const salario = Math.round(valorCompra * 0.0075)
 
     const { error: errorInsert } = await supabase.from('elenco').insert({
       id_time: user.id_time,
