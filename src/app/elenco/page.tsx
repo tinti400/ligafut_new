@@ -32,7 +32,7 @@ interface Jogador {
 }
 
 /** ===== Regra de salário (1%) ===== */
-const SALARIO_PERCENTUAL = 0.01
+const SALARIO_PERCENTUAL = 0.0075
 const calcularSalario = (valor: number | null | undefined) =>
   Math.round(Number(valor || 0) * SALARIO_PERCENTUAL)
 
