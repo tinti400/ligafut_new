@@ -277,11 +277,17 @@ export default function PropostasRecebidasPage() {
         toast('🔁 Troca realizada sem movimentação de caixa.', { icon: '🤝' })
       }
 
-      const updatesAlvo: any = { id_time: proposta.id_time_origem, jogos: 0 }
-      if (isDinheiro || (isTrocaComposta && valorTransacao > 0)) {
-        updatesAlvo.valor = valorTransacao
-        updatesAlvo.salario = Math.round(valorTransacao * 0.007)
-      }
+      const updatesAlvo: any = {
+  id_time: proposta.id_time_origem,
+  jogos: 0
+}
+
+// ✅ SOMENTE compra direta altera valor e salário
+if (isDinheiro) {
+  updatesAlvo.valor = valorTransacao
+  updatesAlvo.salario = Math.round(valorTransacao * 0.0075)
+}
+
       const eAlvo = await supabase.from('elenco').update(updatesAlvo).eq('id', proposta.jogador_id)
       if (eAlvo.error) throw eAlvo.error
 
