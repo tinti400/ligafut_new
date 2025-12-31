@@ -314,148 +314,105 @@ export default function MercadoPage() {
   const router = useRouter()
   const { isAdmin } = useAdmin()
 
-  /* ================= Sessão / Mercado ================= */
-  const [user, setUser] = useState<any>(null)
-  const [saldo, setSaldo] = useState(0)
-  const [marketStatus, setMarketStatus] =
-    useState<'aberto' | 'fechado'>('fechado')
-
-  /* ================= Dados ================= */
   const [jogadores, setJogadores] = useState<Jogador[]>([])
-  const [selecionados, setSelecionados] =
-    useState<(string | number)[]>([])
+  const [saldo, setSaldo] = useState(0)
+  const [user, setUser] = useState<any>(null)
+  const [selecionados, setSelecionados] = useState<(string | number)[]>([])
 
-  /* ================= Filtros ================= */
+  // filtros
   const [filtroNome, setFiltroNome] = useState('')
   const [filtroPosicao, setFiltroPosicao] = useState('')
-  const [filtroOverallMin, setFiltroOverallMin] =
-    useState<number | ''>('')
-  const [filtroOverallMax, setFiltroOverallMax] =
-    useState<number | ''>('')
-  const [filtroValorMax, setFiltroValorMax] =
-    useState<number | ''>('')
-  const [filtroNacionalidade, setFiltroNacionalidade] =
-    useState('')
+  const [filtroOverallMin, setFiltroOverallMin] = useState<number | ''>('')
+  const [filtroOverallMax, setFiltroOverallMax] = useState<number | ''>('')
+  const [filtroValorMax, setFiltroValorMax] = useState<number | ''>('')
+  const [filtroNacionalidade, setFiltroNacionalidade] = useState('')
 
-  /* ================= Admin – exclusão por faixa ================= */
-  const [excluirOverallMin, setExcluirOverallMin] =
-    useState<number>(79)
-  const [excluirOverallMax, setExcluirOverallMax] =
-    useState<number>(80)
-  const [modalExcluirFaixaVisivel, setModalExcluirFaixaVisivel] =
-    useState(false)
-  const [loadingExcluirFaixa, setLoadingExcluirFaixa] =
-    useState(false)
+  // admin: exclusão por faixa de OVR
+  const [excluirOverallMin, setExcluirOverallMin] = useState<number>(79)
+  const [excluirOverallMax, setExcluirOverallMax] = useState<number>(80)
+  const [modalExcluirFaixaVisivel, setModalExcluirFaixaVisivel] = useState(false)
+  const [loadingExcluirFaixa, setLoadingExcluirFaixa] = useState(false)
 
-  /* ================= Ordenação / Paginação ================= */
   const [ordenarPor, setOrdenarPor] = useState('')
   const [itensPorPagina, setItensPorPagina] = useState(40)
   const [paginaAtual, setPaginaAtual] = useState(1)
 
-  /* ================= Estados Gerais ================= */
+  // estados gerais
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [loadingComprarId, setLoadingComprarId] =
-    useState<string | number | null>(null)
-  const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] =
-    useState<string | number | null>(null)
+  const [loadingComprarId, setLoadingComprarId] = useState<string | number | null>(null)
+  const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | number | null>(null)
   const [loadingExcluir, setLoadingExcluir] = useState(false)
 
-  /* ================= Modais ================= */
-  const [modalComprarVisivel, setModalComprarVisivel] =
-    useState(false)
-  const [modalExcluirVisivel, setModalExcluirVisivel] =
-    useState(false)
-  const [jogadorParaComprar, setJogadorParaComprar] =
-    useState<Jogador | null>(null)
+  const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
+  const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
+  const [jogadorParaComprar, setJogadorParaComprar] = useState<Jogador | null>(null)
 
-  /* ================= Upload ================= */
+  // upload
   const [uploadLoading, setUploadLoading] = useState(false)
   const [msg, setMsg] = useState('')
 
-  /* ======================================================
-     🔐 AUTH – carregar usuário
-     ====================================================== */
+  // mercado
+  const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
+
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
-
     if (!userStorage) {
       router.push('/login')
       return
     }
 
-    try {
-      const parsed = JSON.parse(userStorage)
+    setLoading(true)
+    setErro(null)
 
-      if (!parsed?.id_time) {
-        router.push('/login')
-        return
-      }
-
-      setUser(parsed)
-    } catch {
-      router.push('/login')
-    }
-  }, [router])
-
-  /* ======================================================
-     📦 FETCH – carregar mercado, saldo e status
-     ====================================================== */
-  useEffect(() => {
-    if (!user) return
+    const userData = JSON.parse(userStorage)
+    setUser(userData)
 
     const carregarDados = async () => {
-      setLoading(true)
-      setErro(null)
-
       try {
-        const [resMercado, resTime, resMarketStatus] =
-          await Promise.all([
-            supabase
-              .from('mercado_transferencias')
-              .select(`
-                id,
-                nome,
-                posicao,
-                overall,
-                valor,
-                salario,
-                nacionalidade,
-                imagem_url,
-                foto,
-                link_sofifa,
-                data_listagem
-              `),
+        const [resMercado, resTime, resMarketStatus] = await Promise.all([
+          // 🔹 IMPORTANTE: garantir data_listagem
+          supabase
+            .from('mercado_transferencias')
+            .select(`
+              id,
+              nome,
+              posicao,
+              overall,
+              valor,
+              salario,
+              nacionalidade,
+              imagem_url,
+              foto,
+              link_sofifa,
+              data_listagem
+            `),
 
-            supabase
-              .from('times')
-              .select('saldo')
-              .eq('id', user.id_time)
-              .single(),
+          supabase
+            .from('times')
+            .select('saldo')
+            .eq('id', userData.id_time)
+            .single(),
 
-            supabase
-              .from('configuracoes')
-              .select('aberto')
-              .eq('id', 'estado_mercado')
-              .single(),
-          ])
+          supabase
+            .from('configuracoes')
+            .select('aberto')
+            .eq('id', 'estado_mercado')
+            .single(),
+        ])
 
         if (resMercado.error) throw resMercado.error
         if (resTime.error) throw resTime.error
-        if (resMarketStatus.error)
-          throw resMarketStatus.error
+        if (resMarketStatus.error) throw resMarketStatus.error
 
-        setJogadores(resMercado.data ?? [])
-        setSaldo(resTime.data?.saldo ?? 0)
-        setMarketStatus(
-          resMarketStatus.data?.aberto
-            ? 'aberto'
-            : 'fechado'
-        )
+        setJogadores(resMercado.data || [])
+        setSaldo(resTime.data?.saldo || 0)
+        setMarketStatus(resMarketStatus.data?.aberto ? 'aberto' : 'fechado')
       } catch (e: any) {
-        console.error('Erro ao carregar mercado:', e)
+        console.error('Erro ao carregar dados:', e)
         setErro(
-          'Erro ao carregar dados. Tente novamente mais tarde.'
+          'Erro ao carregar dados. Tente novamente mais tarde. ' +
+            (e.message || e.toString())
         )
       } finally {
         setLoading(false)
@@ -463,8 +420,7 @@ export default function MercadoPage() {
     }
 
     carregarDados()
-  }, [user])
-}
+  }, [router])
 
   /* ================= Upload XLSX ================= */
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
