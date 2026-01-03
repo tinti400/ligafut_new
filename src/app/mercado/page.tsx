@@ -194,27 +194,31 @@ const tipoCarta =
   return (
   <div
     className={[
-      'relative rounded-2xl p-4 transition-all duration-300',
-      'hover:shadow-xl hover:shadow-black/40',
+      // base da carta (formato EA FC)
+      'relative w-full h-[420px] rounded-[28px] p-4 overflow-hidden',
+      'transition-all duration-300 hover:scale-[1.02]',
+      'hover:shadow-2xl hover:shadow-black/50',
 
-      // 🟤 BRONZE
+      // 🟤 BRONZE (OVR <= 64)
       tipoCarta === 'bronze' &&
-        'bg-gradient-to-b from-yellow-900 via-yellow-800 to-gray-900 text-yellow-100 border border-yellow-800',
+        'bg-gradient-to-b from-[#7a4a12] via-[#9c6b2f] to-[#1a1a1a] text-yellow-100 border border-[#9c6b2f]',
 
-      // ⚪ PRATA
+      // ⚪ PRATA (65–74)
       tipoCarta === 'prata' &&
-        'bg-gradient-to-b from-gray-300 via-gray-400 to-gray-900 text-gray-900 border border-gray-300',
+        'bg-gradient-to-b from-[#d1d5db] via-[#9ca3af] to-[#1a1a1a] text-gray-900 border border-[#d1d5db]',
 
-      // 🟡 OURO
+      // 🟡 OURO (75+)
       tipoCarta === 'ouro' &&
-        'bg-gradient-to-b from-yellow-400 via-yellow-500 to-gray-900 text-yellow-900 border border-yellow-400',
+        'bg-gradient-to-b from-[#facc15] via-[#eab308] to-[#1a1a1a] text-yellow-900 border border-[#facc15]',
 
+      // estados
       loadingComprar ? 'opacity-70 pointer-events-none' : '',
       selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
     ]
       .filter(Boolean)
       .join(' ')}
   >
+
 
       {/* Seleção admin */}
       {isAdmin && (
