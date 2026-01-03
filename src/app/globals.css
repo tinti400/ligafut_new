@@ -48,38 +48,46 @@ body {
 
 /* ================= WATERMARKS ================= */
 
-/* LOGO CENTRAL (FUNCIONA EM FUNDO ESCURO) */
+/* LOGO CENTRAL */
 .watermark-logo {
   position: absolute;
   inset: 0;
   background-image: url('/logo-ligafut26.svg');
   background-repeat: no-repeat;
   background-position: center;
-  background-size: 75%;
-  opacity: 0.12;
-  mix-blend-mode: soft-light; /* 🔥 ESSENCIAL */
+  background-size: 70%;
+  opacity: 0.08;
+  mix-blend-mode: soft-light;
   z-index: 1;
   pointer-events: none;
 }
 
-/* TEXTO DIAGONAL */
+/* TEXTO DIAGONAL REAL (LIGAFUT26) */
 .watermark-text {
   position: absolute;
-  inset: -40%;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transform: rotate(-30deg);
-  background-image: repeating-linear-gradient(
-    transparent 0px,
-    transparent 26px,
-    rgba(255,255,255,0.12) 26px,
-    rgba(255,255,255,0.12) 52px
-  );
-  mix-blend-mode: soft-light; /* 🔥 ESSENCIAL */
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
   z-index: 1;
   pointer-events: none;
 }
 
-/* GARANTE CONTEÚDO SEMPRE ACIMA */
-.card > *:not(.watermark-logo):not(.watermark-text) {
+/* CONTEÚDO DO TEXTO */
+.watermark-text::before {
+  content: 'LIGAFUT26  LIGAFUT26  LIGAFUT26  LIGAFUT26  LIGAFUT26';
+}
+
+/* GARANTE TODO CONTEÚDO DO CARD ACIMA DA WATERMARK */
+.watermark-logo ~ *,
+.watermark-text ~ * {
   position: relative;
   z-index: 2;
 }
