@@ -182,6 +182,15 @@ const JogadorCard = ({
     Math.round(jogador.valor * LIMITE_MINIMO)
   )
 
+/* ================= TIPO DA CARTA ================= */
+const tipoCarta =
+  jogador.overall <= 68
+    ? 'bronze'
+    : jogador.overall <= 74
+    ? 'prata'
+    : 'ouro'
+
+
   return (
     <div
       className={[
