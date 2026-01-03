@@ -1,6 +1,6 @@
 'use client'
 
-import CardJogador from '@/components/CardJogador'
+
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
@@ -118,14 +118,6 @@ type JogadorCardProps = {
 }
 
 /* ================= Card do jogador ================= */
-
-// define o tipo da carta pelo overall
-const getTipoCarta = (overall: number) => {
-  if (overall <= 68) return 'bronze'
-  if (overall <= 74) return 'prata'
-  return 'ouro'
-}
-
 const JogadorCard = ({
   jogador,
   isAdmin,
@@ -153,61 +145,387 @@ const JogadorCard = ({
       ? jogador.nacionalidade
       : 'Resto do Mundo'
 
-  const tipoCarta = getTipoCarta(jogador.overall)
+  /* ================= DESGASTE ================= */
+
+  const DIAS_POR_ETAPA = 3
+  const PERCENTUAL_ETAPA = 5
+  const LIMITE_MINIMO = 0.5 // 50%
+
+  const dataListagem = (jogador as any).data_listagem
+    ? new Date((jogador as any).data_listagem)
+    : null
+
+  const diasNoMercado = dataListagem
+    ? Math.floor((Date.now() - dataListagem.getTime()) / (1000 * 60 * 60 * 24))
+    : 0
+
+  const ciclosPassados = Math.floor(diasNoMercado / DIAS_POR_ETAPA)
+
+  const valorAtual = calcularValorComDesgaste(
+    jogador.valor,
+    (jogador as any).data_listagem
+  )
+
+  const percentualDesconto =
+    jogador.valor > valorAtual
+      ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
+      : 0
+
+  const diasParaProximoDesconto =
+    DIAS_POR_ETAPA - (diasNoMercado % DIAS_POR_ETAPA || DIAS_POR_ETAPA)
+
+  const valorFuturo = Math.max(
+    Math.round(
+      jogador.valor *
+        Math.pow(1 - PERCENTUAL_ETAPA / 100, ciclosPassados + 1)
+    ),
+    Math.round(jogador.valor * LIMITE_MINIMO)
+  )
 
   return (
-    <div className={`card ${tipoCarta}`}>
-      {/* TOPO */}
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <strong>{jogador.overall}</strong>
-        <span>{jogador.posicao}</span>
+    <div
+      className={[
+        'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
+        'hover:shadow-lg hover:shadow-black/30 transition-shadow',
+        loadingComprar ? 'opacity-70 pointer-events-none' : '',
+        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
+      ].join(' ')}
+    >
+      {/* Seleção admin */}
+      {isAdmin && (
+        <div className="absolute right-2 top-2 z-10">
+          <label className="inline-flex items-center gap-2 rounded-full bg-gray-900/80 px-3 py-1 text-xs text-white ring-1 ring-white/10 shadow">
+            <input
+              type="checkbox"
+              checked={selecionado}
+              onChange={toggleSelecionado}
+              className="h-4 w-4 accent-red-500"
+            />
+            Excluir
+          </label>
+        </div>
+      )}
+
+      {/* Cabeçalho */}
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <ImagemComFallback
+            src={jogador.imagem_url || jogador.foto || ''}
+            alt={jogador.nome}
+            width={80}
+            height={80}
+            className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
+          />
+          <span className="absolute -bottom-1 -right-1 rounded-full bg-gray-800 px-2 py-0.5 text-[10px] font-bold text-gray-200 ring-1 ring-white/10">
+            {jogador.posicao}
+          </span>
+        </div>
+
+        <div className="min-w-0">
+          <h3 className="truncate text-base font-semibold">{jogador.nome}</h3>
+          <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-300">
+            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
+              OVR {jogador.overall}
+            </span>
+            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
+              🌎 {nacionalidade}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* IMAGEM DO JOGADOR */}
-      <img
-        src={jogador.imagem_url || '/player-placeholder.png'}
-        alt={jogador.nome}
-      />
+      {/* Valores */}
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
+          <p className="text-xs text-gray-400 mb-1">Valor de compra</p>
 
-      {/* NOME */}
-      <h3>{jogador.nome}</h3>
+          <p className="font-semibold text-green-400">
+            {formatarValor(valorAtual)}
+          </p>
 
-      {/* NACIONALIDADE */}
-      <p>{nacionalidade}</p>
+          {percentualDesconto > 0 && (
+            <span className="mt-1 inline-block rounded-full bg-red-600/20 px-2 py-0.5 text-[11px] font-semibold text-red-400">
+              🔻 -{percentualDesconto}%
+            </span>
+          )}
 
-      {/* VALOR */}
-      <p>
-        <strong>R$ {jogador.valor}</strong>
-      </p>
+          <p className="mt-1 text-[11px] text-gray-400">
+            ⏱️ {diasNoMercado} dia{diasNoMercado !== 1 ? 's' : ''} no mercado
+          </p>
 
-      {/* ADMIN - EDITAR PREÇO */}
+          {diasParaProximoDesconto > 0 && valorFuturo < valorAtual && (
+            <p className="mt-1 text-[11px] text-yellow-400">
+              📉 Em {diasParaProximoDesconto} dia
+              {diasParaProximoDesconto !== 1 ? 's' : ''} cai para{' '}
+              <strong>{formatarValor(valorFuturo)}</strong>
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
+          <p className="text-xs text-gray-400">Salário</p>
+          <p className="font-semibold text-gray-200">
+            {formatarValor(jogador.salario || 0)}
+          </p>
+        </div>
+      </div>
+
+      {/* Admin: alterar preço */}
       {isAdmin && (
-        <input
-          type="number"
-          value={novoValor}
-          onChange={(e) => setNovoValor(Number(e.target.value))}
-          onBlur={handleBlur}
-          disabled={loadingAtualizarPreco}
-          style={{ width: '100%', marginTop: 6 }}
-        />
+        <div className="mt-3">
+          <label className="mb-1 block text-[11px] text-gray-300">
+            💰 Alterar Preço (R$)
+          </label>
+          <input
+            type="number"
+            min={1}
+            step={1000}
+            value={novoValor}
+            onChange={(e) => setNovoValor(Number(e.target.value))}
+            onBlur={handleBlur}
+            disabled={loadingAtualizarPreco}
+            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none focus:border-green-500"
+          />
+        </div>
       )}
 
-      {/* BOTÃO COMPRAR */}
-      {!mercadoFechado && onComprar && (
-        <button
-          onClick={onComprar}
-          disabled={loadingComprar}
-          style={{ marginTop: 8, width: '100%' }}
-        >
-          {loadingComprar ? 'Comprando...' : 'Comprar'}
-        </button>
-      )}
+      {/* Comprar */}
+      <button
+        onClick={onComprar}
+        disabled={loadingComprar || mercadoFechado}
+        className={[
+          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
+          mercadoFechado
+            ? 'cursor-not-allowed bg-gray-700 text-gray-300'
+            : 'bg-green-600 text-white hover:bg-green-700',
+        ].join(' ')}
+      >
+        {loadingComprar
+          ? 'Comprando...'
+          : mercadoFechado
+          ? 'Mercado fechado'
+          : 'Comprar'}
+      </button>
     </div>
   )
 }
 
-	
-  
+/* ================= Página ================= */
+export default function MercadoPage() {
+  const router = useRouter()
+  const { isAdmin } = useAdmin()
+
+  const [jogadores, setJogadores] = useState<Jogador[]>([])
+  const [saldo, setSaldo] = useState(0)
+  const [user, setUser] = useState<any>(null)
+  const [selecionados, setSelecionados] = useState<(string | number)[]>([])
+
+  // filtros
+  const [filtroNome, setFiltroNome] = useState('')
+  const [filtroPosicao, setFiltroPosicao] = useState('')
+  const [filtroOverallMin, setFiltroOverallMin] = useState<number | ''>('')
+  const [filtroOverallMax, setFiltroOverallMax] = useState<number | ''>('')
+  const [filtroValorMax, setFiltroValorMax] = useState<number | ''>('')
+  const [filtroNacionalidade, setFiltroNacionalidade] = useState('')
+
+  // admin: exclusão por faixa de OVR
+  const [excluirOverallMin, setExcluirOverallMin] = useState<number>(79)
+  const [excluirOverallMax, setExcluirOverallMax] = useState<number>(80)
+  const [modalExcluirFaixaVisivel, setModalExcluirFaixaVisivel] = useState(false)
+  const [loadingExcluirFaixa, setLoadingExcluirFaixa] = useState(false)
+
+  const [ordenarPor, setOrdenarPor] = useState('')
+  const [itensPorPagina, setItensPorPagina] = useState(40)
+  const [paginaAtual, setPaginaAtual] = useState(1)
+
+  // estados gerais
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [loadingComprarId, setLoadingComprarId] = useState<string | number | null>(null)
+  const [loadingAtualizarPrecoId, setLoadingAtualizarPrecoId] = useState<string | number | null>(null)
+  const [loadingExcluir, setLoadingExcluir] = useState(false)
+
+  const [modalComprarVisivel, setModalComprarVisivel] = useState(false)
+  const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
+  const [jogadorParaComprar, setJogadorParaComprar] = useState<Jogador | null>(null)
+
+  // upload
+  const [uploadLoading, setUploadLoading] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  // mercado
+  const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
+
+  useEffect(() => {
+    const userStorage = localStorage.getItem('user')
+    if (!userStorage) {
+      router.push('/login')
+      return
+    }
+
+    setLoading(true)
+    setErro(null)
+
+    const userData = JSON.parse(userStorage)
+    setUser(userData)
+
+    const carregarDados = async () => {
+      try {
+        const [resMercado, resTime, resMarketStatus] = await Promise.all([
+          // 🔹 IMPORTANTE: garantir data_listagem
+          supabase
+            .from('mercado_transferencias')
+            .select(`
+              id,
+              nome,
+              posicao,
+              overall,
+              valor,
+              salario,
+              nacionalidade,
+              imagem_url,
+              foto,
+              link_sofifa,
+              data_listagem
+            `),
+
+          supabase
+            .from('times')
+            .select('saldo')
+            .eq('id', userData.id_time)
+            .single(),
+
+          supabase
+            .from('configuracoes')
+            .select('aberto')
+            .eq('id', 'estado_mercado')
+            .single(),
+        ])
+
+        if (resMercado.error) throw resMercado.error
+        if (resTime.error) throw resTime.error
+        if (resMarketStatus.error) throw resMarketStatus.error
+
+        setJogadores(resMercado.data || [])
+        setSaldo(resTime.data?.saldo || 0)
+        setMarketStatus(resMarketStatus.data?.aberto ? 'aberto' : 'fechado')
+      } catch (e: any) {
+        console.error('Erro ao carregar dados:', e)
+        setErro(
+          'Erro ao carregar dados. Tente novamente mais tarde. ' +
+            (e.message || e.toString())
+        )
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    carregarDados()
+  }, [router])
+
+  /* ================= Upload XLSX ================= */
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadLoading(true)
+    setMsg('Lendo planilha...')
+
+    // helpers
+    const normalizeKeys = (obj: any) =>
+      Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v])
+      )
+
+    const sanitizeUrl = (u?: any) => {
+      if (!u) return ''
+      const s = String(u).trim().replace(/\s/g, '%20')
+      return s
+    }
+
+    const pickImagemUrl = (row: Record<string, any>) => {
+      const cand =
+        row['imagem_url'] ??
+        row['foto'] ??
+        row['imagem url'] ??
+        row['url_imagem'] ??
+        row['imagem']
+      return sanitizeUrl(cand)
+    }
+
+    const toNumber = (v: any) => {
+      if (v === null || v === undefined || v === '') return 0
+      const num = Number(String(v).replace(/[^\d.-]/g, ''))
+      return Number.isFinite(num) ? num : 0
+    }
+
+    type NovoJogador = Omit<Jogador, 'id'>
+
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheetName = workbook.SheetNames.includes('Consolidado')
+          ? 'Consolidado'
+          : workbook.SheetNames[0]
+        const sheet = workbook.Sheets[sheetName]
+        const json = XLSX.utils.sheet_to_json(sheet)
+
+        const jogadoresParaInserir: NovoJogador[] = (json as any[]).map((raw) => {
+          const row = normalizeKeys(raw)
+
+          const nome = row['nome']
+          const posicao = row['posicao']
+          const overall = toNumber(row['overall'])
+          const valor = toNumber(row['valor'])
+          const link_sofifa = row['link_sofifa'] ?? row['sofifa'] ?? ''
+          const nacionalidade = row['nacionalidade'] ?? row['pais'] ?? ''
+          const time_origem = row['time_origem'] ?? row['time'] ?? ''
+          const imagem_url = pickImagemUrl(row)
+
+          if (!nome || !posicao || !overall || !valor) {
+            throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
+          }
+
+          const payload: any = {
+            nome,
+            posicao,
+            overall,
+            valor,
+            imagem_url,
+            link_sofifa,
+            nacionalidade,
+            time_origem,
+            data_listagem: new Date().toISOString(),
+          }
+
+          return payload as NovoJogador
+        })
+
+        const { data: inseridos, error } = await supabase
+          .from('mercado_transferencias')
+          .insert(jogadoresParaInserir as any[])
+          .select('*')
+
+        if (error) throw error
+
+        toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
+
+        setJogadores((prev) => [...prev, ...((inseridos as unknown as Jogador[]) ?? [])])
+      } catch (error: any) {
+        console.error('Erro ao importar:', error)
+        toast.error(`Erro no upload: ${error.message || error}`)
+      } finally {
+        setUploadLoading(false)
+        if (e.target) e.target.value = ''
+        setMsg('')
+      }
+    }
+
+    reader.readAsArrayBuffer(file)
+  }
+
  /* ================= Compra ================= */
 const solicitarCompra = (jogador: Jogador) => {
   if (marketStatus === 'fechado') {
