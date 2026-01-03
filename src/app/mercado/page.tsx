@@ -250,9 +250,6 @@ const JogadorCard = ({
   </div>
 
 
-        <div className="mt-1 text-sm font-semibold text-green-300">
-          {formatarValor(valorAtual)}
-        </div>
 
         {jogador.salario && (
           <div className="mt-0.5 text-[11px] text-gray-200">
