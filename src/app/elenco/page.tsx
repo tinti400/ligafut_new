@@ -737,7 +737,7 @@ export default function ElencoPage() {
             return (
               <div key={jogador.id} className="relative">
                 {/* Checkbox */}
-                <label className="absolute top-2 left-2 z-20 inline-flex items-center">
+                <label className="absolute top-2 right-2 z-20 inline-flex items-center">
                   <input
                     type="checkbox"
                     checked={selecionado}
