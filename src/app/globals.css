@@ -25,50 +25,105 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* ================= CARTAS DE JOGADOR ================= */
+/* =====================================================
+   CARTAS DE JOGADOR — LIGAFUT26
+===================================================== */
 
 .card {
+  position: relative;
   width: 200px;
   padding: 12px;
   border-radius: 14px;
   margin: 10px;
   box-shadow: 0 6px 15px rgba(0,0,0,0.25);
   transition: transform 0.2s ease;
+  overflow: hidden;
 }
 
 .card:hover {
   transform: scale(1.03);
 }
 
+/* ================= WATERMARKS ================= */
+
+/* LOGO CENTRAL */
+.watermark-logo {
+  position: absolute;
+  inset: 0;
+  background-image: url('/logo-ligafut26.svg');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 70%;
+  opacity: 0.04;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* TEXTO DIAGONAL */
+.watermark-text {
+  position: absolute;
+  inset: -40%;
+  transform: rotate(-30deg);
+  background-image: repeating-linear-gradient(
+    transparent 0px,
+    transparent 26px,
+    rgba(255,255,255,0.06) 26px,
+    rgba(255,255,255,0.06) 52px
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* GARANTE CONTEÚDO ACIMA */
+.card > *:not(.watermark-logo):not(.watermark-text) {
+  position: relative;
+  z-index: 2;
+}
+
+/* ================= TIPOS DE CARTA ================= */
+
 /* BRONZE */
 .bronze {
   background: linear-gradient(135deg, #7a4a1d, #a97142);
   color: #ffffff;
 }
+.bronze .watermark-logo { opacity: 0.06; }
 
 /* PRATA */
 .prata {
   background: linear-gradient(135deg, #cfd3d7, #9ea4aa);
   color: #111111;
 }
+.prata .watermark-logo { opacity: 0.045; }
 
 /* OURO */
 .ouro {
   background: linear-gradient(135deg, #f5c16c, #b8860b);
   color: #111111;
 }
+.ouro .watermark-logo { opacity: 0.035; }
 
-/* ELEMENTOS DA CARTA */
-.card img {
+/* ================= ELEMENTOS ================= */
+
+.card-topo {
+  display: flex;
+  justify-content: space-between;
+  font-weight: bold;
+}
+
+.card img,
+.card-imagem {
   width: 100%;
   border-radius: 10px;
   margin: 8px 0;
 }
 
-.card h3 {
+.card h3,
+.card-nome {
   text-align: center;
   font-size: 16px;
   margin: 6px 0;
+  font-weight: 700;
 }
 
 .card p {
@@ -77,3 +132,21 @@ body {
   opacity: 0.9;
 }
 
+.card-valor {
+  font-weight: 600;
+}
+
+.card-botao {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #16a34a;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.card-botao:hover {
+  background: #15803d;
+}

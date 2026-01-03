@@ -17,59 +17,46 @@ type CardJogadorProps = {
 }
 
 export default function CardJogador({ jogador, onComprar }: CardJogadorProps) {
-  // garante que overall é número
   const overallNumero = Number(jogador.overall || 0)
-
-  // define automaticamente bronze / prata / ouro
-  const tipoCarta = getTipoCarta(overallNumero)
+  const tipoCarta = getTipoCarta(overallNumero) // bronze | prata | ouro
 
   return (
     <div className={`card ${tipoCarta}`}>
+      {/* WATERMARKS */}
+      <div className="watermark-logo" />
+      <div className="watermark-text" />
+
       {/* TOPO */}
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div className="card-topo">
         <strong>{overallNumero}</strong>
         <span>{jogador.posicao}</span>
       </div>
 
       {/* IMAGEM */}
       <img
-        src={
-          jogador.imagem_url ||
-          jogador.foto ||
-          '/player-placeholder.png'
-        }
+        src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
         alt={jogador.nome}
-        style={{ width: '100%', borderRadius: 10, marginTop: 8 }}
+        className="card-imagem"
       />
 
       {/* NOME */}
-      <h3>{jogador.nome}</h3>
+      <h3 className="card-nome">{jogador.nome}</h3>
 
       {/* NACIONALIDADE */}
       {jogador.nacionalidade && (
-        <p>{jogador.nacionalidade}</p>
+        <p className="card-nacionalidade">{jogador.nacionalidade}</p>
       )}
 
-      {/* VALOR (opcional – mercado) */}
+      {/* VALOR */}
       {typeof jogador.valor === 'number' && (
-        <p>
+        <p className="card-valor">
           💰 R$ {jogador.valor.toLocaleString('pt-BR')}
         </p>
       )}
 
-      {/* BOTÃO COMPRAR (opcional) */}
+      {/* BOTÃO */}
       {onComprar && (
-        <button
-          onClick={onComprar}
-          style={{
-            marginTop: 8,
-            padding: '6px 10px',
-            borderRadius: 6,
-            background: '#111',
-            color: '#fff',
-            cursor: 'pointer',
-          }}
-        >
+        <button className="card-botao" onClick={onComprar}>
           Comprar
         </button>
       )}
