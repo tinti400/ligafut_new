@@ -194,16 +194,20 @@ const tipoCarta =
   return (
   <div
     className={[
-      'relative rounded-2xl border p-4 transition-shadow hover:shadow-lg hover:shadow-black/30',
+      'relative rounded-2xl p-4 transition-all duration-300',
+      'hover:shadow-xl hover:shadow-black/40',
 
+      // 🟤 BRONZE
       tipoCarta === 'bronze' &&
-        'border-yellow-700 bg-gradient-to-b from-yellow-900/40 to-gray-900',
+        'bg-gradient-to-b from-yellow-900 via-yellow-800 to-gray-900 text-yellow-100 border border-yellow-800',
 
+      // ⚪ PRATA
       tipoCarta === 'prata' &&
-        'border-gray-300 bg-gradient-to-b from-gray-300/30 to-gray-900',
+        'bg-gradient-to-b from-gray-300 via-gray-400 to-gray-900 text-gray-900 border border-gray-300',
 
+      // 🟡 OURO
       tipoCarta === 'ouro' &&
-        'border-yellow-400 bg-gradient-to-b from-yellow-500/40 to-gray-900',
+        'bg-gradient-to-b from-yellow-400 via-yellow-500 to-gray-900 text-yellow-900 border border-yellow-400',
 
       loadingComprar ? 'opacity-70 pointer-events-none' : '',
       selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
