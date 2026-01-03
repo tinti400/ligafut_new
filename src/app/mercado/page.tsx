@@ -184,7 +184,7 @@ const JogadorCard = ({
 
 /* ================= TIPO DA CARTA ================= */
 const tipoCarta =
-  jogador.overall <= 68
+  jogador.overall <= 64
     ? 'bronze'
     : jogador.overall <= 74
     ? 'prata'
