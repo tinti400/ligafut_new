@@ -732,24 +732,45 @@ export default function ElencoPage() {
   <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
     {elencoFiltrado.map((jogador) => {
       const selecionado = selecionados.includes(jogador.id)
-      const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
       const ehTitular = jogadorEhTitular(jogador.id)
-
-      const status: string[] = []
-      if (jogador.protegido) status.push('🛡️ Protegido')
-      if (jogador.lesionado) status.push('⚠️ Lesionado')
-      if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
       return (
         <CardJogador
-  key={jogador.id}
-  jogador={jogador}
-  modo="elenco"
-  selecionado={selecionado}
-  onToggleSelecionado={() => toggleSelecionado(jogador.id)}
-  ehTitular={ehTitular}
-  onToggleTitular={() => toggleTitular(jogador.id)}
-  escalaFixada={escalaFixada}
-  onVender={venderSelecionados}
-/>
+          key={jogador.id}
+          jogador={jogador}
+          modo="elenco"
+          selecionado={selecionado}
+          onToggleSelecionado={() => toggleSelecionado(jogador.id)}
+          ehTitular={ehTitular}
+          onToggleTitular={() => toggleTitular(jogador.id)}
+          escalaFixada={escalaFixada}
+          onVender={venderSelecionados}
+        />
+      )
+    })}
+  </div>
+) : (
+  <div className="mt-5 overflow-x-auto rounded-xl border border-white/10 hidden md:block">
+    <table className="min-w-full divide-y divide-white/10">
+      <thead className="bg-gray-900/80">
+        <tr className="text-left text-sm text-gray-300">
+          <th className="px-3 py-3">Jogador</th>
+          <th className="px-3 py-3">Posição</th>
+          <th className="px-3 py-3">OVR</th>
+          <th className="px-3 py-3">Valor</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-white/5">
+        {elencoFiltrado.map((j) => (
+          <tr key={j.id} className="hover:bg-gray-900/40">
+            <td className="px-3 py-3 font-semibold">{j.nome}</td>
+            <td className="px-3 py-3">{j.posicao}</td>
+            <td className="px-3 py-3">{j.overall ?? 0}</td>
+            <td className="px-3 py-3">{formatBRL(j.valor)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
 
