@@ -741,69 +741,16 @@ export default function ElencoPage() {
       if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
       return (
-        <div
-          <CardJogador
-  key={jogador.id}
-  jogador={jogador}
-  modo="elenco"
-  selecionado={selecionado}
-  onToggleSelecionado={() => toggleSelecionado(jogador.id)}
-  ehTitular={ehTitular}
-  onToggleTitular={() => toggleTitular(jogador.id)}
-  escalaFixada={escalaFixada}
-  onVender={venderSelecionados}
-/>
-
-            <div className="mt-2 text-center">
-              <p className="text-emerald-400 font-semibold text-sm">
-                💰 {formatBRL(jogador.valor)}
-              </p>
-              <p className="text-[11px] text-gray-400">
-                Salário: {formatBRL(calcularSalario(jogador.valor))} • Jogos:{' '}
-                {jogador.jogos ?? 0} • {jogador.percentual ?? 100}%
-              </p>
-            </div>
-
-            {jogador.link_sofifa && (
-              <a
-                href={jogador.link_sofifa}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-blue-400 text-xs underline text-center mt-1"
-              >
-                🔗 Ver no SoFIFA
-              </a>
-            )}
-          </div>
-        </div>
-      )
-    })}
-  </div>
-) : (
-  <div className="mt-5 overflow-x-auto rounded-xl border border-white/10 hidden md:block">
-    <table className="min-w-full divide-y divide-white/10">
-      <thead className="bg-gray-900/80">
-        <tr className="text-left text-sm text-gray-300">
-          <th className="px-3 py-3">Jogador</th>
-          <th className="px-3 py-3">Posição</th>
-          <th className="px-3 py-3">OVR</th>
-          <th className="px-3 py-3">Valor</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-white/5">
-        {elencoFiltrado.map((j) => (
-          <tr key={j.id} className="hover:bg-gray-900/40">
-            <td className="px-3 py-3 font-semibold">{j.nome}</td>
-            <td className="px-3 py-3">{j.posicao}</td>
-            <td className="px-3 py-3">{j.overall ?? 0}</td>
-            <td className="px-3 py-3">{formatBRL(j.valor)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-)}
-</div>
-)
-}
-
+        <CardJogador
+      key={jogador.id}
+      jogador={jogador}
+      modo="elenco"
+      selecionado={selecionado}
+      onToggleSelecionado={() => toggleSelecionado(jogador.id)}
+      ehTitular={ehTitular}
+      onToggleTitular={() => toggleTitular(jogador.id)}
+      escalaFixada={escalaFixada}
+      onVender={venderSelecionados}
+    />
+  )
+})}
