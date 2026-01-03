@@ -117,207 +117,102 @@ type JogadorCardProps = {
   mercadoFechado: boolean
 }
 
-/* ================= Card do jogador ================= */
+/* ================= Card do jogador (ESTILO EA FC) ================= */
 const JogadorCard = ({
   jogador,
   isAdmin,
   selecionado,
   toggleSelecionado,
   onComprar,
-  onAtualizarPreco,
   loadingComprar,
-  loadingAtualizarPreco,
   mercadoFechado,
 }: JogadorCardProps) => {
-  const [novoValor, setNovoValor] = useState<number>(jogador.valor)
-
-  const handleBlur = () => {
-    if (novoValor <= 0) {
-      toast.error('Valor deve ser maior que zero')
-      setNovoValor(jogador.valor)
-      return
-    }
-    if (novoValor !== jogador.valor) onAtualizarPreco(novoValor)
-  }
-
-  const nacionalidade =
-    jogador.nacionalidade && jogador.nacionalidade.trim() !== ''
-      ? jogador.nacionalidade
-      : 'Resto do Mundo'
-
-  /* ================= DESGASTE ================= */
-
-  const DIAS_POR_ETAPA = 3
-  const PERCENTUAL_ETAPA = 5
-  const LIMITE_MINIMO = 0.5 // 50%
-
-  const dataListagem = (jogador as any).data_listagem
-    ? new Date((jogador as any).data_listagem)
-    : null
-
-  const diasNoMercado = dataListagem
-    ? Math.floor((Date.now() - dataListagem.getTime()) / (1000 * 60 * 60 * 24))
-    : 0
-
-  const ciclosPassados = Math.floor(diasNoMercado / DIAS_POR_ETAPA)
-
   const valorAtual = calcularValorComDesgaste(
     jogador.valor,
     (jogador as any).data_listagem
   )
 
-  const percentualDesconto =
-    jogador.valor > valorAtual
-      ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
-      : 0
-
-  const diasParaProximoDesconto =
-    DIAS_POR_ETAPA - (diasNoMercado % DIAS_POR_ETAPA || DIAS_POR_ETAPA)
-
-  const valorFuturo = Math.max(
-    Math.round(
-      jogador.valor *
-        Math.pow(1 - PERCENTUAL_ETAPA / 100, ciclosPassados + 1)
-    ),
-    Math.round(jogador.valor * LIMITE_MINIMO)
-  )
-
-/* ================= TIPO DA CARTA ================= */
-const tipoCarta =
-  jogador.overall <= 68
-    ? 'bronze'
-    : jogador.overall <= 74
-    ? 'prata'
-    : 'ouro'
-
+  /* ===== Tipo da carta ===== */
+  const tipoCarta =
+    jogador.overall <= 64
+      ? 'bronze'
+      : jogador.overall <= 74
+      ? 'prata'
+      : 'ouro'
 
   return (
     <div
       className={[
-        'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
-        'hover:shadow-lg hover:shadow-black/30 transition-shadow',
+        'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
+        'transition-transform duration-300 hover:scale-[1.03]',
+        'shadow-xl',
+
+        // 🟤 BRONZE
+        tipoCarta === 'bronze' &&
+          'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
+
+        // ⚪ PRATA
+        tipoCarta === 'prata' &&
+          'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
+
+        // 🟡 OURO
+        tipoCarta === 'ouro' &&
+          'bg-gradient-to-b from-[#f6d365] via-[#fda085] to-[#8b5a00] text-black',
+
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
         selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
-      ].join(' ')}
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
-      {/* Seleção admin */}
-      {isAdmin && (
-        <div className="absolute right-2 top-2 z-10">
-          <label className="inline-flex items-center gap-2 rounded-full bg-gray-900/80 px-3 py-1 text-xs text-white ring-1 ring-white/10 shadow">
-            <input
-              type="checkbox"
-              checked={selecionado}
-              onChange={toggleSelecionado}
-              className="h-4 w-4 accent-red-500"
-            />
-            Excluir
-          </label>
-        </div>
-      )}
+      {/* OVR + POSIÇÃO (topo esquerdo) */}
+      <div className="absolute left-3 top-3 z-10 text-left leading-none">
+        <div className="text-3xl font-extrabold">{jogador.overall}</div>
+        <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
+      </div>
 
-      {/* Cabeçalho */}
-      <div className="flex items-center gap-3">
-        <div className="relative">
-          <ImagemComFallback
-            src={jogador.imagem_url || jogador.foto || ''}
-            alt={jogador.nome}
-            width={80}
-            height={80}
-            className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
-          />
-          <span className="absolute -bottom-1 -right-1 rounded-full bg-gray-800 px-2 py-0.5 text-[10px] font-bold text-gray-200 ring-1 ring-white/10">
-            {jogador.posicao}
-          </span>
-        </div>
+      {/* IMAGEM */}
+      <div className="flex justify-center pt-10">
+        <img
+          src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
+          alt={jogador.nome}
+          className="h-[180px] object-contain drop-shadow-2xl"
+        />
+      </div>
 
-        <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold">{jogador.nome}</h3>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-300">
-            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
-              OVR {jogador.overall}
-            </span>
-            <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
-              🌎 {nacionalidade}
-            </span>
-          </div>
+      {/* NOME + PREÇO */}
+      <div className="mt-3 bg-black/25 px-3 py-2 text-center">
+        <div className="text-sm font-extrabold uppercase tracking-wide">
+          {jogador.nome}
+        </div>
+        <div className="mt-1 text-sm font-semibold text-green-300">
+          {formatarValor(valorAtual)}
         </div>
       </div>
 
-      {/* Valores */}
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-          <p className="text-xs text-gray-400 mb-1">Valor de compra</p>
-
-          <p className="font-semibold text-green-400">
-            {formatarValor(valorAtual)}
-          </p>
-
-          {percentualDesconto > 0 && (
-            <span className="mt-1 inline-block rounded-full bg-red-600/20 px-2 py-0.5 text-[11px] font-semibold text-red-400">
-              🔻 -{percentualDesconto}%
-            </span>
-          )}
-
-          <p className="mt-1 text-[11px] text-gray-400">
-            ⏱️ {diasNoMercado} dia{diasNoMercado !== 1 ? 's' : ''} no mercado
-          </p>
-
-          {diasParaProximoDesconto > 0 && valorFuturo < valorAtual && (
-            <p className="mt-1 text-[11px] text-yellow-400">
-              📉 Em {diasParaProximoDesconto} dia
-              {diasParaProximoDesconto !== 1 ? 's' : ''} cai para{' '}
-              <strong>{formatarValor(valorFuturo)}</strong>
-            </p>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-          <p className="text-xs text-gray-400">Salário</p>
-          <p className="font-semibold text-gray-200">
-            {formatarValor(jogador.salario || 0)}
-          </p>
-        </div>
+      {/* BOTÃO COMPRAR */}
+      <div className="px-3 pb-4 pt-3">
+        <button
+          onClick={onComprar}
+          disabled={loadingComprar || mercadoFechado}
+          className={[
+            'w-full rounded-xl py-2 text-sm font-bold transition',
+            mercadoFechado
+              ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+              : 'bg-green-600 text-white hover:bg-green-700',
+          ].join(' ')}
+        >
+          {loadingComprar
+            ? 'Comprando...'
+            : mercadoFechado
+            ? 'Mercado fechado'
+            : 'Comprar'}
+        </button>
       </div>
-
-      {/* Admin: alterar preço */}
-      {isAdmin && (
-        <div className="mt-3">
-          <label className="mb-1 block text-[11px] text-gray-300">
-            💰 Alterar Preço (R$)
-          </label>
-          <input
-            type="number"
-            min={1}
-            step={1000}
-            value={novoValor}
-            onChange={(e) => setNovoValor(Number(e.target.value))}
-            onBlur={handleBlur}
-            disabled={loadingAtualizarPreco}
-            className="w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-sm text-white outline-none focus:border-green-500"
-          />
-        </div>
-      )}
-
-      {/* Comprar */}
-      <button
-        onClick={onComprar}
-        disabled={loadingComprar || mercadoFechado}
-        className={[
-          'mt-4 w-full rounded-xl px-4 py-2 text-sm font-semibold transition',
-          mercadoFechado
-            ? 'cursor-not-allowed bg-gray-700 text-gray-300'
-            : 'bg-green-600 text-white hover:bg-green-700',
-        ].join(' ')}
-      >
-        {loadingComprar
-          ? 'Comprando...'
-          : mercadoFechado
-          ? 'Mercado fechado'
-          : 'Comprar'}
-      </button>
     </div>
   )
 }
+
 
 /* ================= Página ================= */
 export default function MercadoPage() {
