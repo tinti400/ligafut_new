@@ -184,7 +184,7 @@ const JogadorCard = ({
 
 /* ================= TIPO DA CARTA ================= */
 const tipoCarta =
-  jogador.overall <= 64
+  jogador.overall <= 68
     ? 'bronze'
     : jogador.overall <= 74
     ? 'prata'
@@ -195,48 +195,52 @@ const tipoCarta =
   <div
     className={[
       'relative w-full max-w-[260px] rounded-[22px] overflow-hidden',
-      'transition-transform hover:scale-[1.02]',
+      'transition-transform duration-300 hover:scale-[1.02]',
+
+      // 🟤 BRONZE (64 pra baixo)
       tipoCarta === 'bronze' &&
-        'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#3a2a1a]',
+        'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
+
+      // ⚪ PRATA (65–74)
       tipoCarta === 'prata' &&
-        'bg-gradient-to-b from-[#d1d5db] via-[#9ca3af] to-[#4b5563]',
+        'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
+
+      // 🟡 OURO (75+)
       tipoCarta === 'ouro' &&
-        'bg-gradient-to-b from-[#f5c16c] via-[#d4a017] to-[#7a5c00]',
+        'bg-gradient-to-b from-[#f6d365] via-[#fda085] to-[#8b5a00] text-black',
+
+      loadingComprar ? 'opacity-70 pointer-events-none' : '',
+      selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
     ]
       .filter(Boolean)
       .join(' ')}
   >
-    {/* TOPO: OVR + POSIÇÃO */}
-    <div className="absolute top-3 left-3 text-black">
-      <p className="text-2xl font-extrabold leading-none">
-        {jogador.overall}
-      </p>
-      <p className="text-xs font-bold uppercase">
-        {jogador.posicao}
-      </p>
+    {/* OVR + POSIÇÃO (topo esquerdo estilo EA) */}
+    <div className="absolute left-3 top-3 text-left leading-none">
+      <div className="text-3xl font-extrabold">{jogador.overall}</div>
+      <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
     </div>
 
-    {/* IMAGEM */}
+    {/* IMAGEM DO JOGADOR */}
     <div className="flex justify-center pt-10">
       <img
         src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
         alt={jogador.nome}
-        className="h-[170px] object-contain drop-shadow-xl"
+        className="h-[170px] object-contain drop-shadow-2xl"
       />
     </div>
 
-    {/* NOME + PREÇO */}
-    <div className="bg-black/20 mt-3 px-3 py-2 text-center">
-      <p className="text-base font-extrabold uppercase tracking-wide">
+    {/* NOME + PREÇO (como no EA FC) */}
+    <div className="mt-3 bg-black/25 px-3 py-2 text-center">
+      <div className="text-sm font-extrabold uppercase tracking-wide">
         {jogador.nome}
-      </p>
-
-      <p className="mt-1 text-sm font-semibold text-green-300">
+      </div>
+      <div className="mt-1 text-sm font-semibold text-green-300">
         {formatarValor(valorAtual)}
-      </p>
+      </div>
     </div>
 
-    {/* BOTÃO */}
+    {/* BOTÃO COMPRAR */}
     <div className="px-3 pb-4 pt-3">
       <button
         onClick={onComprar}
@@ -257,22 +261,7 @@ const tipoCarta =
     </div>
   </div>
 )
-
-
-      {/* Seleção admin */}
-      {isAdmin && (
-        <div className="absolute right-2 top-2 z-10">
-          <label className="inline-flex items-center gap-2 rounded-full bg-gray-900/80 px-3 py-1 text-xs text-white ring-1 ring-white/10 shadow">
-            <input
-              type="checkbox"
-              checked={selecionado}
-              onChange={toggleSelecionado}
-              className="h-4 w-4 accent-red-500"
-            />
-            Excluir
-          </label>
-        </div>
-      )}
+}
 
       {/* Cabeçalho */}
       <div className="flex items-center gap-3">
