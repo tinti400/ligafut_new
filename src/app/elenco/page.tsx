@@ -741,14 +741,17 @@ export default function ElencoPage() {
       if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
       return (
-        <div
-          key={jogador.id}
-          className={`relative bg-white/[0.04] p-3 rounded-2xl border transition
-            ${selecionado
-              ? 'border-emerald-500 ring-1 ring-emerald-400/30'
-              : 'border-white/10 hover:border-white/20'}
-            shadow-lg`}
-        >
+        <CardJogador
+  jogador={jogador}
+  modo="elenco"
+  selecionado={selecionado}
+  onToggleSelecionado={() => toggleSelecionado(jogador.id)}
+  ehTitular={ehTitular}
+  onToggleTitular={() => toggleTitular(jogador.id)}
+  escalaFixada={escalaFixada}
+  onVender={() => venderSelecionados()}
+ />
+
           <label className="absolute top-2 left-2 inline-flex items-center">
             <input
               type="checkbox"
