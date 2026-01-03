@@ -54,9 +54,9 @@ export default function CardJogador({
     <div
       className={[
         'relative',
-        'w-[220px] h-[340px]',               // ✅ tamanho fixo (EA FC)
-        'rounded-[18px]',                    // ✅ raio correto
-        'overflow-hidden',                   // ✅ corta tudo certinho
+        'w-[220px] h-[340px]',          // 🔒 tamanho fixo EA FC
+        'rounded-[18px]',
+        'overflow-hidden',              // 🔥 evita borda preta externa
         'shadow-2xl',
         'transition-transform duration-300 hover:scale-[1.04]',
         gradiente,
@@ -73,15 +73,17 @@ export default function CardJogador({
         <div className="text-[11px] font-bold uppercase">{jogador.posicao}</div>
       </div>
 
-      {/* ===== CHECKBOX (ELENCO) ===== */}
+      {/* ===== CHECKBOX (ELENCO) — DENTRO DA CARTA ===== */}
       {modo !== 'mercado' && onToggleSelecionado && (
-        <div className="absolute right-2 top-2 z-20">
-          <input
-            type="checkbox"
-            checked={selecionado}
-            onChange={onToggleSelecionado}
-            className="h-5 w-5 accent-emerald-500"
-          />
+        <div className="absolute right-3 top-3 z-20">
+          <label className="flex h-7 w-7 items-center justify-center rounded-md bg-black/30 backdrop-blur-sm">
+            <input
+              type="checkbox"
+              checked={selecionado}
+              onChange={onToggleSelecionado}
+              className="h-4 w-4 accent-emerald-500"
+            />
+          </label>
         </div>
       )}
 
@@ -138,4 +140,5 @@ export default function CardJogador({
     </div>
   )
 }
+
 
