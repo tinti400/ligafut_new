@@ -746,26 +746,7 @@ export default function ElencoPage() {
                   />
                 </label>
 
-                {/* Estrela */}
-                <button
-                  type="button"
-                  onClick={() => toggleTitular(jogador.id)}
-                  disabled={escalaFixada}
-                  className={`absolute top-2 right-2 z-20 rounded-full px-2 py-1 text-base border
-                    ${
-                      ehTitular
-                        ? 'border-amber-400/60 bg-amber-400/20'
-                        : 'border-white/10 bg-black/60'
-                    }
-                    ${
-                      escalaFixada
-                        ? 'opacity-50 cursor-not-allowed'
-                        : 'hover:bg-black/80'
-                    }`}
-                >
-                  {ehTitular ? '⭐' : '☆'}
-                </button>
-
+                
                 {/* Card padrão (Mercado / Elenco / Leilão) */}
                 <CardJogador
                   jogador={{
