@@ -707,7 +707,42 @@ export default function LeilaoSistemaPage() {
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
 
-                              tempoRestante === 0 ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
+              const CARD_GRADIENTS = [
+                'from-emerald-500/40 via-emerald-400/25 to-emerald-300/20',
+                'from-emerald-400/45 via-teal-400/30 to-cyan-400/20',
+                'from-teal-400/45 via-cyan-400/30 to-sky-400/20',
+                'from-cyan-400/45 via-sky-400/30 to-blue-400/20',
+                'from-sky-400/45 via-blue-500/30 to-indigo-500/20',
+                'from-blue-500/45 via-indigo-500/30 to-violet-500/20',
+                'from-indigo-500/45 via-violet-500/30 to-fuchsia-500/20',
+                'from-violet-500/45 via-fuchsia-500/30 to-pink-500/20',
+                'from-fuchsia-500/45 via-pink-500/30 to-rose-500/20',
+                'from-pink-500/45 via-rose-500/30 to-red-500/20',
+                'from-rose-500/45 via-red-500/30 to-orange-500/20',
+                'from-red-500/45 via-orange-500/30 to-amber-500/20',
+                'from-orange-500/45 via-amber-500/30 to-yellow-500/20',
+                'from-amber-500/45 via-yellow-400/30 to-lime-400/20',
+                'from-yellow-400/45 via-lime-400/30 to-emerald-400/20',
+                'from-lime-400/45 via-emerald-400/30 to-teal-400/20',
+                'from-emerald-600/40 via-teal-500/30 to-cyan-500/20',
+                'from-teal-500/45 via-cyan-500/30 to-sky-500/20',
+                'from-cyan-500/45 via-sky-500/30 to-blue-500/20',
+                'from-sky-500/45 via-blue-600/30 to-indigo-600/20',
+                'from-blue-600/45 via-indigo-600/30 to-violet-600/20',
+                'from-indigo-600/45 via-violet-600/30 to-fuchsia-600/20',
+                'from-violet-600/45 via-fuchsia-600/30 to-pink-600/20',
+                'from-fuchsia-600/45 via-pink-600/30 to-rose-600/20',
+                'from-pink-600/45 via-rose-600/30 to-red-600/20',
+                'from-rose-600/45 via-red-600/30 to-orange-600/20',
+                'from-red-600/45 via-orange-600/30 to-amber-600/20',
+              ] as const
+              const gradIndexForValor = (v: number) => {
+                const idx = Math.floor((v || 0) / 50_000_000)
+                return Math.max(0, Math.min(idx, CARD_GRADIENTS.length - 1))
+              }
+              const gradIdx = gradIndexForValor(leilao.valor_atual)
+              const barraCor =
+                tempoRestante === 0 ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
 
               return (
                 <div key={leilao.id} className="relative group">
