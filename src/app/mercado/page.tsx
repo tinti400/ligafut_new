@@ -132,6 +132,12 @@ const JogadorCard = ({
     (jogador as any).data_listagem
   )
 
+  /* ===== Desvalorização ===== */
+  const percentualDesconto =
+    jogador.valor > valorAtual
+      ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
+      : 0
+
   /* ===== Tipo da carta ===== */
   const tipoCarta =
     jogador.overall <= 64
@@ -139,6 +145,22 @@ const JogadorCard = ({
       : jogador.overall <= 74
       ? 'prata'
       : 'ouro'
+
+  /* ===== Bandeira (ISO simples) ===== */
+  const codigoPais =
+    jogador.nacionalidade?.toLowerCase() === 'brasil'
+      ? 'br'
+      : jogador.nacionalidade?.toLowerCase() === 'argentina'
+      ? 'ar'
+      : jogador.nacionalidade?.toLowerCase() === 'frança'
+      ? 'fr'
+      : jogador.nacionalidade?.toLowerCase() === 'inglaterra'
+      ? 'gb'
+      : jogador.nacionalidade?.toLowerCase() === 'espanha'
+      ? 'es'
+      : jogador.nacionalidade?.toLowerCase() === 'portugal'
+      ? 'pt'
+      : 'un' // fallback
 
   return (
     <div
@@ -155,10 +177,9 @@ const JogadorCard = ({
         tipoCarta === 'prata' &&
           'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
 
-        // 🟡 OURO (EA FC STYLE)
-tipoCarta === 'ouro' &&
-  'bg-gradient-to-b from-[#fff1a8] via-[#f5c96a] to-[#c99700] text-black',
-
+        // 🟡 OURO (EA FC REAL)
+        tipoCarta === 'ouro' &&
+          'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
 
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
         selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
@@ -166,13 +187,19 @@ tipoCarta === 'ouro' &&
         .filter(Boolean)
         .join(' ')}
     >
-      {/* OVR + POSIÇÃO (topo esquerdo) */}
+      {/* OVR + POSIÇÃO + BANDEIRA */}
       <div className="absolute left-3 top-3 z-10 text-left leading-none">
         <div className="text-3xl font-extrabold">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
+
+        <img
+          src={`https://flagcdn.com/w20/${codigoPais}.png`}
+          alt={jogador.nacionalidade || 'País'}
+          className="mt-1 h-4 w-6 rounded-sm shadow"
+        />
       </div>
 
-      {/* IMAGEM */}
+      {/* IMAGEM DO JOGADOR */}
       <div className="flex justify-center pt-10">
         <img
           src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
@@ -181,14 +208,21 @@ tipoCarta === 'ouro' &&
         />
       </div>
 
-      {/* NOME + PREÇO */}
+      {/* NOME + VALOR + DESVALORIZAÇÃO */}
       <div className="mt-3 bg-black/25 px-3 py-2 text-center">
         <div className="text-sm font-extrabold uppercase tracking-wide">
           {jogador.nome}
         </div>
+
         <div className="mt-1 text-sm font-semibold text-green-300">
           {formatarValor(valorAtual)}
         </div>
+
+        {percentualDesconto > 0 && (
+          <div className="mt-0.5 text-[11px] font-semibold text-red-300">
+            🔻 -{percentualDesconto}% desde a listagem
+          </div>
+        )}
       </div>
 
       {/* BOTÃO COMPRAR */}
