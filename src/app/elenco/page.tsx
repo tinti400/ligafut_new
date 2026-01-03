@@ -960,6 +960,5 @@ export default function ElencoPage() {
       </tbody>
     </table>
   </div>
-)
-}
+)}
 
