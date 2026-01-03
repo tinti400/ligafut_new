@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+/* ================= VARIÁVEIS GERAIS ================= */
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -35,7 +37,7 @@ body {
   padding: 12px;
   border-radius: 14px;
   margin: 10px;
-  box-shadow: 0 6px 15px rgba(0,0,0,0.25);
+  box-shadow: 0 6px 15px rgba(0,0,0,0.35);
   transition: transform 0.2s ease;
   overflow: hidden;
 }
@@ -46,15 +48,16 @@ body {
 
 /* ================= WATERMARKS ================= */
 
-/* LOGO CENTRAL */
+/* LOGO CENTRAL (FUNCIONA EM FUNDO ESCURO) */
 .watermark-logo {
   position: absolute;
   inset: 0;
   background-image: url('/logo-ligafut26.svg');
   background-repeat: no-repeat;
   background-position: center;
-  background-size: 70%;
-  opacity: 0.04;
+  background-size: 75%;
+  opacity: 0.12;
+  mix-blend-mode: soft-light; /* 🔥 ESSENCIAL */
   z-index: 1;
   pointer-events: none;
 }
@@ -67,14 +70,15 @@ body {
   background-image: repeating-linear-gradient(
     transparent 0px,
     transparent 26px,
-    rgba(255,255,255,0.06) 26px,
-    rgba(255,255,255,0.06) 52px
+    rgba(255,255,255,0.12) 26px,
+    rgba(255,255,255,0.12) 52px
   );
+  mix-blend-mode: soft-light; /* 🔥 ESSENCIAL */
   z-index: 1;
   pointer-events: none;
 }
 
-/* GARANTE CONTEÚDO ACIMA */
+/* GARANTE CONTEÚDO SEMPRE ACIMA */
 .card > *:not(.watermark-logo):not(.watermark-text) {
   position: relative;
   z-index: 2;
@@ -87,28 +91,29 @@ body {
   background: linear-gradient(135deg, #7a4a1d, #a97142);
   color: #ffffff;
 }
-.bronze .watermark-logo { opacity: 0.06; }
+.bronze .watermark-logo { opacity: 0.16; }
 
 /* PRATA */
 .prata {
   background: linear-gradient(135deg, #cfd3d7, #9ea4aa);
   color: #111111;
 }
-.prata .watermark-logo { opacity: 0.045; }
+.prata .watermark-logo { opacity: 0.13; }
 
 /* OURO */
 .ouro {
   background: linear-gradient(135deg, #f5c16c, #b8860b);
   color: #111111;
 }
-.ouro .watermark-logo { opacity: 0.035; }
+.ouro .watermark-logo { opacity: 0.10; }
 
-/* ================= ELEMENTOS ================= */
+/* ================= ELEMENTOS INTERNOS ================= */
 
 .card-topo {
   display: flex;
   justify-content: space-between;
   font-weight: bold;
+  font-size: 14px;
 }
 
 .card img,
@@ -144,9 +149,10 @@ body {
   color: #ffffff;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background 0.2s ease, transform 0.15s ease;
 }
 
 .card-botao:hover {
   background: #15803d;
+  transform: scale(1.04);
 }
