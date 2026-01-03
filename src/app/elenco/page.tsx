@@ -744,11 +744,14 @@ export default function ElencoPage() {
         <div
           key={jogador.id}
           className={`relative bg-white/[0.04] p-3 rounded-2xl border transition
-            ${selecionado
-              ? 'border-emerald-500 ring-1 ring-emerald-400/30'
-              : 'border-white/10 hover:border-white/20'}
+            ${
+              selecionado
+                ? 'border-emerald-500 ring-1 ring-emerald-400/30'
+                : 'border-white/10 hover:border-white/20'
+            }
             shadow-lg`}
         >
+          {/* checkbox */}
           <label className="absolute top-2 left-2 inline-flex items-center">
             <input
               type="checkbox"
@@ -758,15 +761,22 @@ export default function ElencoPage() {
             />
           </label>
 
+          {/* estrela titular */}
           <button
             type="button"
             onClick={() => toggleTitular(jogador.id)}
             disabled={escalaFixada}
             className={`absolute top-2 right-2 rounded-full px-2 py-1 text-base border
-              ${ehTitular
-                ? 'border-amber-400/60 bg-amber-400/20'
-                : 'border-white/10 bg-gray-800/70'}
-              ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700/70'}`}
+              ${
+                ehTitular
+                  ? 'border-amber-400/60 bg-amber-400/20'
+                  : 'border-white/10 bg-gray-800/70'
+              }
+              ${
+                escalaFixada
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'hover:bg-gray-700/70'
+              }`}
           >
             {ehTitular ? '⭐' : '☆'}
           </button>
@@ -872,7 +882,8 @@ export default function ElencoPage() {
     </table>
   </div>
 )}
-</div>
-)
+
+    </div>
+  )
 }
 
