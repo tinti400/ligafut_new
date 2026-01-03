@@ -194,30 +194,69 @@ const tipoCarta =
   return (
   <div
     className={[
-      // base da carta (formato EA FC)
-      'relative w-full h-[420px] rounded-[28px] p-4 overflow-hidden',
-      'transition-all duration-300 hover:scale-[1.02]',
-      'hover:shadow-2xl hover:shadow-black/50',
-
-      // 🟤 BRONZE (OVR <= 64)
+      'relative w-full max-w-[260px] rounded-[22px] overflow-hidden',
+      'transition-transform hover:scale-[1.02]',
       tipoCarta === 'bronze' &&
-        'bg-gradient-to-b from-[#7a4a12] via-[#9c6b2f] to-[#1a1a1a] text-yellow-100 border border-[#9c6b2f]',
-
-      // ⚪ PRATA (65–74)
+        'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#3a2a1a]',
       tipoCarta === 'prata' &&
-        'bg-gradient-to-b from-[#d1d5db] via-[#9ca3af] to-[#1a1a1a] text-gray-900 border border-[#d1d5db]',
-
-      // 🟡 OURO (75+)
+        'bg-gradient-to-b from-[#d1d5db] via-[#9ca3af] to-[#4b5563]',
       tipoCarta === 'ouro' &&
-        'bg-gradient-to-b from-[#facc15] via-[#eab308] to-[#1a1a1a] text-yellow-900 border border-[#facc15]',
-
-      // estados
-      loadingComprar ? 'opacity-70 pointer-events-none' : '',
-      selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
+        'bg-gradient-to-b from-[#f5c16c] via-[#d4a017] to-[#7a5c00]',
     ]
       .filter(Boolean)
       .join(' ')}
   >
+    {/* TOPO: OVR + POSIÇÃO */}
+    <div className="absolute top-3 left-3 text-black">
+      <p className="text-2xl font-extrabold leading-none">
+        {jogador.overall}
+      </p>
+      <p className="text-xs font-bold uppercase">
+        {jogador.posicao}
+      </p>
+    </div>
+
+    {/* IMAGEM */}
+    <div className="flex justify-center pt-10">
+      <img
+        src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
+        alt={jogador.nome}
+        className="h-[170px] object-contain drop-shadow-xl"
+      />
+    </div>
+
+    {/* NOME + PREÇO */}
+    <div className="bg-black/20 mt-3 px-3 py-2 text-center">
+      <p className="text-base font-extrabold uppercase tracking-wide">
+        {jogador.nome}
+      </p>
+
+      <p className="mt-1 text-sm font-semibold text-green-300">
+        {formatarValor(valorAtual)}
+      </p>
+    </div>
+
+    {/* BOTÃO */}
+    <div className="px-3 pb-4 pt-3">
+      <button
+        onClick={onComprar}
+        disabled={loadingComprar || mercadoFechado}
+        className={[
+          'w-full rounded-xl py-2 text-sm font-bold transition',
+          mercadoFechado
+            ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+            : 'bg-green-600 text-white hover:bg-green-700',
+        ].join(' ')}
+      >
+        {loadingComprar
+          ? 'Comprando...'
+          : mercadoFechado
+          ? 'Mercado fechado'
+          : 'Comprar'}
+      </button>
+    </div>
+  </div>
+)
 
 
       {/* Seleção admin */}
