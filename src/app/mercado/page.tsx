@@ -261,7 +261,7 @@ const tipoCarta =
     </div>
   </div>
 )
-}
+
 
       {/* Cabeçalho */}
       <div className="flex items-center gap-3">
