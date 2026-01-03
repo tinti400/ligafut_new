@@ -24,3 +24,56 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ================= CARTAS DE JOGADOR ================= */
+
+.card {
+  width: 200px;
+  padding: 12px;
+  border-radius: 14px;
+  margin: 10px;
+  box-shadow: 0 6px 15px rgba(0,0,0,0.25);
+  transition: transform 0.2s ease;
+}
+
+.card:hover {
+  transform: scale(1.03);
+}
+
+/* BRONZE */
+.bronze {
+  background: linear-gradient(135deg, #7a4a1d, #a97142);
+  color: #ffffff;
+}
+
+/* PRATA */
+.prata {
+  background: linear-gradient(135deg, #cfd3d7, #9ea4aa);
+  color: #111111;
+}
+
+/* OURO */
+.ouro {
+  background: linear-gradient(135deg, #f5c16c, #b8860b);
+  color: #111111;
+}
+
+/* ELEMENTOS DA CARTA */
+.card img {
+  width: 100%;
+  border-radius: 10px;
+  margin: 8px 0;
+}
+
+.card h3 {
+  text-align: center;
+  font-size: 16px;
+  margin: 6px 0;
+}
+
+.card p {
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
