@@ -1,6 +1,6 @@
 'use client'
 
-
+import CardJogador from '@/components/CardJogador'
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
