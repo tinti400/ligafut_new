@@ -741,16 +741,138 @@ export default function ElencoPage() {
       if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
       return (
-        <CardJogador
-      key={jogador.id}
-      jogador={jogador}
-      modo="elenco"
-      selecionado={selecionado}
-      onToggleSelecionado={() => toggleSelecionado(jogador.id)}
-      ehTitular={ehTitular}
-      onToggleTitular={() => toggleTitular(jogador.id)}
-      escalaFixada={escalaFixada}
-      onVender={venderSelecionados}
-    />
-  )
-})}
+        <div
+          key={jogador.id}
+          className={`relative bg-white/[0.04] p-3 rounded-2xl border transition
+            ${selecionado
+              ? 'border-emerald-500 ring-1 ring-emerald-400/30'
+              : 'border-white/10 hover:border-white/20'}
+            shadow-lg`}
+        >
+          <label className="absolute top-2 left-2 inline-flex items-center">
+            <input
+              type="checkbox"
+              checked={selecionado}
+              onChange={() => toggleSelecionado(jogador.id)}
+              className="h-5 w-5 accent-emerald-500"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => toggleTitular(jogador.id)}
+            disabled={escalaFixada}
+            className={`absolute top-2 right-2 rounded-full px-2 py-1 text-base border
+              ${ehTitular
+                ? 'border-amber-400/60 bg-amber-400/20'
+                : 'border-white/10 bg-gray-800/70'}
+              ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700/70'}`}
+          >
+            {ehTitular ? '⭐' : '☆'}
+          </button>
+
+          <div className="select-none">
+            <ImagemComFallback
+              src={imgSrc}
+              alt={jogador.nome}
+              width={96}
+              height={96}
+              className={`rounded-full mb-2 mx-auto ring-2 ${ringByOVR(
+                jogador.overall
+              )} h-20 w-20 sm:h-24 sm:w-24 object-cover`}
+            />
+
+            <h2 className="text-sm sm:text-base font-extrabold text-center line-clamp-1">
+              {jogador.nome}
+            </h2>
+
+            <div className="flex justify-center items-center gap-2 text-xs text-gray-300 mt-1">
+              {getFlagUrl(jogador.nacionalidade) && (
+                <img
+                  src={getFlagUrl(jogador.nacionalidade)}
+                  className="w-5 h-3"
+                  alt={jogador.nacionalidade || '—'}
+                />
+              )}
+              <span>{jogador.nacionalidade || 'Outro'}</span>
+            </div>
+
+            <div className="mt-2 flex justify-center gap-2">
+              <span
+                className={`text-[11px] text-white px-3 py-1 rounded-full ${
+                  coresPorPosicao[jogador.posicao] || 'bg-gray-600'
+                }`}
+              >
+                {jogador.posicao}
+              </span>
+              <span className="text-[11px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10">
+                OVR <b>{jogador.overall ?? 0}</b>
+              </span>
+            </div>
+
+            {status.length > 0 && (
+              <div className="mt-2 flex flex-wrap justify-center gap-1">
+                {status.map((s, i) => (
+                  <span
+                    key={i}
+                    className="text-[10px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-2 text-center">
+              <p className="text-emerald-400 font-semibold text-sm">
+                💰 {formatBRL(jogador.valor)}
+              </p>
+              <p className="text-[11px] text-gray-400">
+                Salário: {formatBRL(calcularSalario(jogador.valor))} • Jogos:{' '}
+                {jogador.jogos ?? 0} • {jogador.percentual ?? 100}%
+              </p>
+            </div>
+
+            {jogador.link_sofifa && (
+              <a
+                href={jogador.link_sofifa}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-blue-400 text-xs underline text-center mt-1"
+              >
+                🔗 Ver no SoFIFA
+              </a>
+            )}
+          </div>
+        </div>
+      )
+    })}
+  </div>
+) : (
+  <div className="mt-5 overflow-x-auto rounded-xl border border-white/10 hidden md:block">
+    <table className="min-w-full divide-y divide-white/10">
+      <thead className="bg-gray-900/80">
+        <tr className="text-left text-sm text-gray-300">
+          <th className="px-3 py-3">Jogador</th>
+          <th className="px-3 py-3">Posição</th>
+          <th className="px-3 py-3">OVR</th>
+          <th className="px-3 py-3">Valor</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-white/5">
+        {elencoFiltrado.map((j) => (
+          <tr key={j.id} className="hover:bg-gray-900/40">
+            <td className="px-3 py-3 font-semibold">{j.nome}</td>
+            <td className="px-3 py-3">{j.posicao}</td>
+            <td className="px-3 py-3">{j.overall ?? 0}</td>
+            <td className="px-3 py-3">{formatBRL(j.valor)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
+</div>
+)
+}
+
