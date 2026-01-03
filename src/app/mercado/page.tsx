@@ -192,14 +192,26 @@ const tipoCarta =
 
 
   return (
-    <div
-      className={[
-        'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
-        'hover:shadow-lg hover:shadow-black/30 transition-shadow',
-        loadingComprar ? 'opacity-70 pointer-events-none' : '',
-        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
-      ].join(' ')}
-    >
+  <div
+    className={[
+      'relative rounded-2xl border p-4 transition-shadow hover:shadow-lg hover:shadow-black/30',
+
+      tipoCarta === 'bronze' &&
+        'border-yellow-700 bg-gradient-to-b from-yellow-900/40 to-gray-900',
+
+      tipoCarta === 'prata' &&
+        'border-gray-300 bg-gradient-to-b from-gray-300/30 to-gray-900',
+
+      tipoCarta === 'ouro' &&
+        'border-yellow-400 bg-gradient-to-b from-yellow-500/40 to-gray-900',
+
+      loadingComprar ? 'opacity-70 pointer-events-none' : '',
+      selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')}
+  >
+
       {/* Seleção admin */}
       {isAdmin && (
         <div className="absolute right-2 top-2 z-10">
