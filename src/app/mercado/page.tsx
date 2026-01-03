@@ -230,9 +230,25 @@ const JogadorCard = ({
 
       {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
       <div className="mt-3 bg-black/25 px-3 py-2 text-center">
-        <div className="text-sm font-extrabold uppercase tracking-wide">
-          {jogador.nome}
-        </div>
+  <div className="text-sm font-extrabold uppercase tracking-wide">
+    {jogador.nome}
+  </div>
+
+  {jogador.link_sofifa && (
+    <a
+      href={jogador.link_sofifa}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-0.5 inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-200 hover:text-blue-400 transition"
+    >
+      🔗 SoFIFA
+    </a>
+  )}
+
+  <div className="mt-1 text-sm font-semibold text-green-300">
+    {formatarValor(valorAtual)}
+  </div>
+
 
         <div className="mt-1 text-sm font-semibold text-green-300">
           {formatarValor(valorAtual)}
