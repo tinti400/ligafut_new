@@ -707,8 +707,7 @@ export default function LeilaoSistemaPage() {
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
 
-              const barraCor =
-                tempoRestante === 0 ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
+                              tempoRestante === 0 ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
 
               return (
                 <div key={leilao.id} className="relative group">
