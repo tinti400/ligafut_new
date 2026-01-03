@@ -1,5 +1,6 @@
 'use client'
 
+import '@/styles/cardJogador.css'
 import { getTipoCarta } from '@/utils/cardUtils'
 
 /* ================= TIPOS ================= */
