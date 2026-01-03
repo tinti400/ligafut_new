@@ -251,27 +251,45 @@ const JogadorCard = ({
         )}
       </div>
 
-      {/* BOTÃO COMPRAR (ATUALIZADO) */}
-      <div className="px-3 pb-4 pt-3">
-        <button
-          onClick={onComprar}
-          disabled={botaoDesabilitado}
-          className={[
-            'w-full rounded-xl py-2 text-sm font-bold transition-all',
-            botaoDesabilitado
-              ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-              : 'bg-green-600 text-white hover:bg-green-700 hover:scale-[1.02]',
-          ].join(' ')}
-        >
-          {loadingComprar
-            ? 'Comprando...'
-            : mercadoFechado
-            ? 'Mercado fechado'
-            : 'Comprar'}
-        </button>
-      </div>
-    </div>
-  )
+      {/* BOTÃO COMPRAR (ESTILO EA FC) */}
+<div className="px-3 pb-4 pt-3">
+  <button
+    onClick={onComprar}
+    disabled={botaoDesabilitado}
+    className={[
+      'group relative w-full overflow-hidden rounded-xl py-2.5 text-sm font-extrabold uppercase tracking-wide',
+      'transition-all duration-200',
+      'active:scale-[0.97]',
+
+      botaoDesabilitado
+        ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+        : 'bg-gradient-to-r from-green-500 via-green-600 to-green-500 text-white',
+    ].join(' ')}
+  >
+    {/* brilho animado */}
+    {!botaoDesabilitado && (
+      <span className="absolute inset-0 -translate-x-full bg-white/20 group-hover:translate-x-full transition-transform duration-700" />
+    )}
+
+    <span className="relative z-10 flex items-center justify-center gap-2">
+      {loadingComprar ? (
+        <>
+          <span className="animate-spin">⏳</span>
+          Comprando
+        </>
+      ) : mercadoFechado ? (
+        <>
+          🔒 Mercado fechado
+        </>
+      ) : (
+        <>
+          🛒 Comprar
+        </>
+      )}
+    </span>
+  </button>
+</div>
+)
 }
 
 
