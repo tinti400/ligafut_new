@@ -131,32 +131,28 @@ const JogadorCard = ({
 }: JogadorCardProps) => {
   const [novoValor, setNovoValor] = useState<number>(jogador.valor)
 
-  /* ===== Atualizar preço (admin) ===== */
   const handleBlur = () => {
     if (novoValor <= 0) {
       toast.error('Valor deve ser maior que zero')
       setNovoValor(jogador.valor)
       return
     }
-
-    if (novoValor !== jogador.valor) {
-      onAtualizarPreco(novoValor)
-    }
+    if (novoValor !== jogador.valor) onAtualizarPreco(novoValor)
   }
 
-  /* ===== Nacionalidade ===== */
   const nacionalidade =
     jogador.nacionalidade && jogador.nacionalidade.trim() !== ''
       ? jogador.nacionalidade
       : 'Resto do Mundo'
 
   /* ================= DESGASTE ================= */
+
   const DIAS_POR_ETAPA = 3
   const PERCENTUAL_ETAPA = 5
   const LIMITE_MINIMO = 0.5 // 50%
 
-  const dataListagem = jogador.data_listagem
-    ? new Date(jogador.data_listagem)
+  const dataListagem = (jogador as any).data_listagem
+    ? new Date((jogador as any).data_listagem)
     : null
 
   const diasNoMercado = dataListagem
@@ -167,7 +163,7 @@ const JogadorCard = ({
 
   const valorAtual = calcularValorComDesgaste(
     jogador.valor,
-    jogador.data_listagem
+    (jogador as any).data_listagem
   )
 
   const percentualDesconto =
@@ -192,9 +188,7 @@ const JogadorCard = ({
         'relative rounded-2xl border border-white/10 bg-gradient-to-b from-gray-800 to-gray-900 p-4',
         'hover:shadow-lg hover:shadow-black/30 transition-shadow',
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
-        selecionado
-          ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900'
-          : '',
+        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
       ].join(' ')}
     >
       {/* Seleção admin */}
@@ -228,9 +222,7 @@ const JogadorCard = ({
         </div>
 
         <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold">
-            {jogador.nome}
-          </h3>
+          <h3 className="truncate text-base font-semibold">{jogador.nome}</h3>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-300">
             <span className="rounded-full bg-white/5 px-2 py-0.5 ring-1 ring-white/10">
               OVR {jogador.overall}
@@ -245,7 +237,7 @@ const JogadorCard = ({
       {/* Valores */}
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-xl border border-white/10 bg-gray-800/60 p-3">
-          <p className="mb-1 text-xs text-gray-400">Valor de compra</p>
+          <p className="text-xs text-gray-400 mb-1">Valor de compra</p>
 
           <p className="font-semibold text-green-400">
             {formatarValor(valorAtual)}
