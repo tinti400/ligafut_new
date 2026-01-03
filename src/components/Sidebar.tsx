@@ -627,7 +627,6 @@ export default function Sidebar() {
                 {!logado && <NavLink href="/login">🔑 Login</NavLink>}
                 <NavLink href="/">🏠 Home</NavLink>
                 <NavLink href="/classificacao">🏆 Classificação</NavLink>
-                <NavLink href="/liga-copa">🏟️ Liga-Copa</NavLink> {/* ADICIONADO */}
                 <NavLink href="/jogos">📅 Jogos</NavLink>
                 <NavLink href="/mercado">💸 Mercado</NavLink>
                 <NavLink href="/BID">📰 BID</NavLink>
