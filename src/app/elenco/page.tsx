@@ -735,19 +735,7 @@ export default function ElencoPage() {
             const ehTitular = jogadorEhTitular(jogador.id)
 
             return (
-              <div key={jogador.id} className="relative">
-                {/* Checkbox */}
-                <label className="absolute top-2 right-2 z-20 inline-flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={selecionado}
-                    onChange={() => toggleSelecionado(jogador.id)}
-                    className="h-5 w-5 accent-emerald-500"
-                  />
-                </label>
-
-                
-                {/* Card padrão (Mercado / Elenco / Leilão) */}
+                              {/* Card padrão (Mercado / Elenco / Leilão) */}
                 <CardJogador
                   jogador={{
                     id: jogador.id,
