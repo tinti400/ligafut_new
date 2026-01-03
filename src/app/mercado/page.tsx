@@ -171,32 +171,29 @@ const JogadorCard = ({
       'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
       'transition-transform duration-300 hover:scale-[1.03]',
       'shadow-xl',
+
+      // 🟤 BRONZE
+      tipoCarta === 'bronze' &&
+        'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
+
+      // ⚪ PRATA
+      tipoCarta === 'prata' &&
+        'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
+
+      // 🟡 OURO
+      tipoCarta === 'ouro' &&
+        'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
+
+      loadingComprar ? 'opacity-70 pointer-events-none' : '',
+      selecionado ? 'ring-4 ring-red-500' : '',
     ]
       .filter(Boolean)
       .join(' ')}
   >
-    {/* 🔥 WATERMARKS (OBRIGATÓRIO) */}
+    {/* 🔥 WATERMARKS */}
     <div className="watermark-logo" />
     <div className="watermark-text" />
 
-        // 🟤 BRONZE
-        tipoCarta === 'bronze' &&
-          'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
-
-        // ⚪ PRATA
-        tipoCarta === 'prata' &&
-          'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
-
-        // 🟡 OURO
-        tipoCarta === 'ouro' &&
-          'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
-
-        botaoDesabilitado ? 'opacity-70 pointer-events-none' : '',
-        selecionado ? 'ring-4 ring-red-500' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-    >
       {/* CHECKBOX ADMIN */}
       {isAdmin && (
         <div className="absolute right-2 top-2 z-20">
