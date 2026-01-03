@@ -723,16 +723,54 @@ export default function ElencoPage() {
         </div>
       )}
 
-       {/* Lista */}
-      {elencoFiltrado.length === 0 ? (
-        <div className="mt-8 text-center text-gray-300">
-          Nenhum jogador encontrado com os filtros aplicados.
-        </div>
-      ) : viewMode === 'grid' ? (
-        <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-          {elencoFiltrado.map((jogador) => {
-            const selecionado = selecionados.includes(jogador.id)
-            const ehTitular = jogadorEhTitular(jogador.id)
+{/* Lista */}
+{elencoFiltrado.length === 0 ? (
+  <div className="mt-8 text-center text-gray-300">
+    Nenhum jogador encontrado com os filtros aplicados.
+  </div>
+) : viewMode === 'grid' ? (
+  <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
+    {elencoFiltrado.map((jogador) => (
+      <CardJogador
+        key={jogador.id}
+        modo="elenco"
+        selecionado={selecionados.includes(jogador.id)}
+        onToggleSelecionado={() => toggleSelecionado(jogador.id)}
+        jogador={{
+          id: jogador.id,
+          nome: jogador.nome,
+          overall: jogador.overall ?? 0,
+          posicao: jogador.posicao,
+          nacionalidade: jogador.nacionalidade ?? undefined,
+          imagem_url: jogador.imagem_url ?? undefined,
+          valor: jogador.valor ?? undefined,
+        }}
+      />
+    ))}
+  </div>
+) : (
+  <div className="mt-5 overflow-x-auto rounded-xl border border-white/10 hidden md:block">
+    <table className="min-w-full divide-y divide-white/10">
+      <thead className="bg-gray-900/80">
+        <tr className="text-left text-sm text-gray-300">
+          <th className="px-3 py-3">Jogador</th>
+          <th className="px-3 py-3">Posição</th>
+          <th className="px-3 py-3">OVR</th>
+          <th className="px-3 py-3">Valor</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-white/5">
+        {elencoFiltrado.map((j) => (
+          <tr key={j.id} className="hover:bg-gray-900/40">
+            <td className="px-3 py-3 font-semibold">{j.nome}</td>
+            <td className="px-3 py-3">{j.posicao}</td>
+            <td className="px-3 py-3">{j.overall ?? 0}</td>
+            <td className="px-3 py-3">{formatBRL(j.valor)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
 
-            return (
              
