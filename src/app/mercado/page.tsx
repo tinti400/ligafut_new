@@ -1,5 +1,6 @@
 'use client'
 
+import CardJogador from '@/components/CardJogador'
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
@@ -117,6 +118,14 @@ type JogadorCardProps = {
 }
 
 /* ================= Card do jogador ================= */
+
+// define o tipo da carta pelo overall
+const getTipoCarta = (overall: number) => {
+  if (overall <= 68) return 'bronze'
+  if (overall <= 74) return 'prata'
+  return 'ouro'
+}
+
 const JogadorCard = ({
   jogador,
   isAdmin,
@@ -143,6 +152,61 @@ const JogadorCard = ({
     jogador.nacionalidade && jogador.nacionalidade.trim() !== ''
       ? jogador.nacionalidade
       : 'Resto do Mundo'
+
+  const tipoCarta = getTipoCarta(jogador.overall)
+
+  return (
+    <div className={`card ${tipoCarta}`}>
+      {/* TOPO */}
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <strong>{jogador.overall}</strong>
+        <span>{jogador.posicao}</span>
+      </div>
+
+      {/* IMAGEM DO JOGADOR */}
+      <img
+        src={jogador.imagem_url || '/player-placeholder.png'}
+        alt={jogador.nome}
+      />
+
+      {/* NOME */}
+      <h3>{jogador.nome}</h3>
+
+      {/* NACIONALIDADE */}
+      <p>{nacionalidade}</p>
+
+      {/* VALOR */}
+      <p>
+        <strong>R$ {jogador.valor}</strong>
+      </p>
+
+      {/* ADMIN - EDITAR PREÇO */}
+      {isAdmin && (
+        <input
+          type="number"
+          value={novoValor}
+          onChange={(e) => setNovoValor(Number(e.target.value))}
+          onBlur={handleBlur}
+          disabled={loadingAtualizarPreco}
+          style={{ width: '100%', marginTop: 6 }}
+        />
+      )}
+
+      {/* BOTÃO COMPRAR */}
+      {!mercadoFechado && onComprar && (
+        <button
+          onClick={onComprar}
+          disabled={loadingComprar}
+          style={{ marginTop: 8, width: '100%' }}
+        >
+          {loadingComprar ? 'Comprando...' : 'Comprar'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+export default JogadorCard
 
   /* ================= DESGASTE ================= */
 
