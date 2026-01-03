@@ -734,8 +734,7 @@ export default function ElencoPage() {
             const selecionado = selecionados.includes(jogador.id)
             const ehTitular = jogadorEhTitular(jogador.id)
 
-            return (
-                              {/* Card padrão (Mercado / Elenco / Leilão) */}
+                            {/* Card padrão (Mercado / Elenco / Leilão) */}
                 <CardJogador
                   jogador={{
                     id: jogador.id,
