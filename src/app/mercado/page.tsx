@@ -89,6 +89,34 @@ function ModalConfirm({
   )
 }
 
+/* ================= Tipos ================= */
+type Jogador = {
+  id: string | number
+  nome: string
+  posicao: string
+  overall: number
+  valor: number
+  salario?: number | null
+  nacionalidade?: string | null
+  imagem_url?: string | null
+  foto?: string | null
+  link_sofifa?: string | null
+  data_listagem?: string | null
+}
+
+
+type JogadorCardProps = {
+  jogador: Jogador
+  isAdmin: boolean
+  selecionado: boolean
+  toggleSelecionado: () => void
+  onComprar: () => void
+  onAtualizarPreco: (novoValor: number) => void
+  loadingComprar: boolean
+  loadingAtualizarPreco: boolean
+  mercadoFechado: boolean
+}
+
 /* ================= Card do jogador (ESTILO EA FC) ================= */
 const JogadorCard = ({
   jogador,
