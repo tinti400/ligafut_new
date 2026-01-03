@@ -166,11 +166,18 @@ const JogadorCard = ({
   const botaoDesabilitado = loadingComprar || mercadoFechado
 
   return (
-    <div
-      className={[
-        'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
-        'transition-transform duration-300 hover:scale-[1.03]',
-        'shadow-xl',
+  <div
+    className={[
+      'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
+      'transition-transform duration-300 hover:scale-[1.03]',
+      'shadow-xl',
+    ]
+      .filter(Boolean)
+      .join(' ')}
+  >
+    {/* 🔥 WATERMARKS (OBRIGATÓRIO) */}
+    <div className="watermark-logo" />
+    <div className="watermark-text" />
 
         // 🟤 BRONZE
         tipoCarta === 'bronze' &&
