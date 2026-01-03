@@ -1,0 +1,92 @@
+/* Base da carta */
+.card {
+  position: relative;
+  width: 220px;
+  height: 320px;
+  border-radius: 18px;
+  padding: 14px;
+  text-align: center;
+  color: #111;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+  background-size: cover;
+  background-position: center;
+}
+
+/* ===== TIPOS ===== */
+.card.bronze {
+  background: linear-gradient(160deg, #7a4a2e, #c68642);
+}
+
+.card.prata {
+  background: linear-gradient(160deg, #cfd2d6, #8e9399);
+}
+
+.card.ouro {
+  background: linear-gradient(160deg, #f5d061, #c9a227);
+}
+
+/* Watermarks */
+.watermark-logo {
+  position: absolute;
+  inset: 0;
+  background-image: url('/ea-pattern.png');
+  opacity: 0.08;
+}
+
+.watermark-text {
+  position: absolute;
+  bottom: -20px;
+  right: -10px;
+  font-size: 90px;
+  font-weight: 900;
+  opacity: 0.05;
+}
+
+/* Topo */
+.card-topo {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 900;
+  font-size: 18px;
+}
+
+/* Imagem */
+.card-imagem {
+  width: 140px;
+  height: 140px;
+  object-fit: contain;
+  margin: 10px auto;
+  display: block;
+}
+
+/* Nome */
+.card-nome {
+  font-weight: 900;
+  font-size: 15px;
+  margin-top: 4px;
+}
+
+/* Nacionalidade */
+.card-nacionalidade {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+/* Valor */
+.card-valor {
+  margin-top: 6px;
+  font-weight: 700;
+}
+
+/* Botão */
+.card-botao {
+  margin-top: 8px;
+  width: 100%;
+  padding: 6px;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
