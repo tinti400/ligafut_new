@@ -104,16 +104,13 @@ type Jogador = {
   data_listagem?: string | null
 }
 
-
 type JogadorCardProps = {
   jogador: Jogador
   isAdmin: boolean
   selecionado: boolean
   toggleSelecionado: () => void
   onComprar: () => void
-  onAtualizarPreco: (novoValor: number) => void
   loadingComprar: boolean
-  loadingAtualizarPreco: boolean
   mercadoFechado: boolean
 }
 
@@ -127,19 +124,17 @@ const JogadorCard = ({
   loadingComprar,
   mercadoFechado,
 }: JogadorCardProps) => {
-  // 🔧 CORREÇÃO DEFINITIVA DO ERRO DE BUILD
+  // 🔧 CORREÇÃO DEFINITIVA DO BUILD (TypeScript)
   const valorAtual = calcularValorComDesgaste(
     jogador.valor,
     jogador.data_listagem ?? undefined
   )
 
-  /* ===== Desvalorização ===== */
   const percentualDesconto =
     jogador.valor > valorAtual
       ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
       : 0
 
-  /* ===== Tipo da carta ===== */
   const tipoCarta =
     jogador.overall <= 64
       ? 'bronze'
@@ -147,7 +142,6 @@ const JogadorCard = ({
       ? 'prata'
       : 'ouro'
 
-  /* ===== Bandeira ===== */
   const codigoPais =
     jogador.nacionalidade?.toLowerCase() === 'brasil'
       ? 'br'
@@ -166,33 +160,29 @@ const JogadorCard = ({
   const botaoDesabilitado = loadingComprar || mercadoFechado
 
   return (
-  <div
-    className={[
-      'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
-      'transition-transform duration-300 hover:scale-[1.03]',
-      'shadow-xl',
+    <div
+      className={[
+        'relative w-full max-w-[260px] overflow-hidden rounded-[22px] shadow-xl',
+        'transition-transform duration-300 hover:scale-[1.03]',
 
-      // 🟤 BRONZE
-      tipoCarta === 'bronze' &&
-        'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
+        tipoCarta === 'bronze' &&
+          'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
 
-      // ⚪ PRATA
-      tipoCarta === 'prata' &&
-        'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
+        tipoCarta === 'prata' &&
+          'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
 
-      // 🟡 OURO
-      tipoCarta === 'ouro' &&
-        'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
+        tipoCarta === 'ouro' &&
+          'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
 
-      loadingComprar ? 'opacity-70 pointer-events-none' : '',
-      selecionado ? 'ring-4 ring-red-500' : '',
-    ]
-      .filter(Boolean)
-      .join(' ')}
-  >
-    {/* 🔥 WATERMARKS */}
-    <div className="watermark-logo" />
-    <div className="watermark-text" />
+        selecionado ? 'ring-4 ring-red-500' : '',
+        loadingComprar ? 'opacity-70 pointer-events-none' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {/* 🔥 WATERMARKS */}
+      <div className="watermark-logo" />
+      <div className="watermark-text" />
 
       {/* CHECKBOX ADMIN */}
       {isAdmin && (
@@ -209,7 +199,7 @@ const JogadorCard = ({
       )}
 
       {/* OVR + POSIÇÃO + BANDEIRA */}
-      <div className="absolute left-3 top-3 z-10 text-left leading-none">
+      <div className="absolute left-3 top-3 z-10 leading-none">
         <div className="text-3xl font-extrabold">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
         <img
@@ -228,7 +218,7 @@ const JogadorCard = ({
         />
       </div>
 
-      {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
+      {/* NOME + VALOR + INFO */}
       <div className="mt-3 bg-black/25 px-3 py-2 text-center">
         <div className="text-sm font-extrabold uppercase tracking-wide">
           {jogador.nome}
@@ -251,49 +241,28 @@ const JogadorCard = ({
         )}
       </div>
 
-      {/* BOTÃO COMPRAR (ESTILO EA FC) */}
-<div className="px-3 pb-4 pt-3">
-  <button
-    onClick={onComprar}
-    disabled={botaoDesabilitado}
-    className={[
-      'group relative w-full overflow-hidden rounded-xl py-2.5 text-sm font-extrabold uppercase tracking-wide',
-      'transition-all duration-200 active:scale-[0.97]',
-      botaoDesabilitado
-        ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-        : 'bg-gradient-to-r from-green-500 via-green-600 to-green-500 text-white',
-    ].join(' ')}
-  >
-    {/* brilho animado */}
-    {!botaoDesabilitado && (
-      <span
-        className="
-          absolute inset-0 
-          transform -translate-x-full 
-          bg-white/20 
-          transition-transform duration-700 
-          group-hover:translate-x-full
-        "
-      />
-    )}
-
-    <span className="relative z-10 flex items-center justify-center gap-2">
-      {loadingComprar ? (
-        <>
-          <span className="animate-spin">⏳</span>
-          <span>Comprando</span>
-        </>
-      ) : mercadoFechado ? (
-        <span>🔒 Mercado fechado</span>
-      ) : (
-        <span>🛒 Comprar</span>
-      )}
-    </span>
-  </button>
-</div>
- )
+      {/* BOTÃO COMPRAR */}
+      <div className="px-3 pb-4 pt-3">
+        <button
+          onClick={onComprar}
+          disabled={botaoDesabilitado}
+          className={[
+            'w-full rounded-xl py-2 text-sm font-bold transition-all',
+            botaoDesabilitado
+              ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+              : 'bg-green-600 text-white hover:bg-green-700 hover:scale-[1.02]',
+          ].join(' ')}
+        >
+          {loadingComprar
+            ? 'Comprando...'
+            : mercadoFechado
+            ? 'Mercado fechado'
+            : 'Comprar'}
+        </button>
+      </div>
+    </div>
+  )
 }
-
 
 /* ================= Página ================= */
 export default function MercadoPage() {
