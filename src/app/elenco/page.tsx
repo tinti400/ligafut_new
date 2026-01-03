@@ -772,5 +772,7 @@ export default function ElencoPage() {
     </table>
   </div>
 )}
-
+</div>
+  )
+}
              
