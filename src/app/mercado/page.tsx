@@ -182,14 +182,22 @@ tipoCarta === 'ouro' &&
       </div>
 
       {/* NOME + PREÇO */}
-      <div className="mt-3 bg-black/25 px-3 py-2 text-center">
-        <div className="text-sm font-extrabold uppercase tracking-wide">
-          {jogador.nome}
-        </div>
-        <div className="mt-1 text-sm font-semibold text-green-300">
-          {formatarValor(valorAtual)}
-        </div>
-      </div>
+<div className="mt-3 bg-black/25 px-3 py-2 text-center">
+  <div className="text-sm font-extrabold uppercase tracking-wide">
+    {jogador.nome}
+  </div>
+
+  <div className="mt-1 text-sm font-semibold text-green-300">
+    {formatarValor(valorAtual)}
+  </div>
+
+  {percentualDesconto > 0 && (
+    <div className="mt-0.5 text-[11px] text-red-300 font-semibold">
+      🔻 -{percentualDesconto}% desde a listagem
+    </div>
+  )}
+</div>
+
 
       {/* BOTÃO COMPRAR */}
       <div className="px-3 pb-4 pt-3">
