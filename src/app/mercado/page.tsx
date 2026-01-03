@@ -89,34 +89,6 @@ function ModalConfirm({
   )
 }
 
-/* ================= Tipos ================= */
-type Jogador = {
-  id: string | number
-  nome: string
-  posicao: string
-  overall: number
-  valor: number
-  salario?: number | null
-  nacionalidade?: string | null
-  imagem_url?: string | null
-  foto?: string | null
-  link_sofifa?: string | null
-  data_listagem?: string | null
-}
-
-
-type JogadorCardProps = {
-  jogador: Jogador
-  isAdmin: boolean
-  selecionado: boolean
-  toggleSelecionado: () => void
-  onComprar: () => void
-  onAtualizarPreco: (novoValor: number) => void
-  loadingComprar: boolean
-  loadingAtualizarPreco: boolean
-  mercadoFechado: boolean
-}
-
 /* ================= Card do jogador (ESTILO EA FC) ================= */
 const JogadorCard = ({
   jogador,
@@ -187,10 +159,14 @@ const JogadorCard = ({
         .filter(Boolean)
         .join(' ')}
     >
-      {/* ✅ CHECKBOX ADMIN (MULTISELECT) */}
+      {/* 🔥 WATERMARKS (OBRIGATÓRIO) */}
+      <div className="watermark-logo" />
+      <div className="watermark-text" />
+
+      {/* ✅ CHECKBOX ADMIN */}
       {isAdmin && (
         <div className="absolute right-2 top-2 z-20">
-          <label className="flex items-center justify-center h-7 w-7 rounded-full bg-black/70 backdrop-blur cursor-pointer">
+          <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/70 backdrop-blur">
             <input
               type="checkbox"
               checked={selecionado}
@@ -202,7 +178,7 @@ const JogadorCard = ({
       )}
 
       {/* OVR + POSIÇÃO + BANDEIRA */}
-      <div className="absolute left-3 top-3 z-10 text-left leading-none">
+      <div className="absolute left-3 top-3 z-20 text-left leading-none">
         <div className="text-3xl font-extrabold">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
 
@@ -214,7 +190,7 @@ const JogadorCard = ({
       </div>
 
       {/* IMAGEM */}
-      <div className="flex justify-center pt-10">
+      <div className="relative z-20 flex justify-center pt-10">
         <img
           src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
           alt={jogador.nome}
@@ -223,28 +199,49 @@ const JogadorCard = ({
       </div>
 
       {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
-<div className="mt-3 bg-black/25 px-3 py-2 text-center">
-  <div className="text-sm font-extrabold uppercase tracking-wide">
-    {jogador.nome}
-  </div>
+      <div className="relative z-20 mt-3 bg-black/25 px-3 py-2 text-center">
+        <div className="text-sm font-extrabold uppercase tracking-wide">
+          {jogador.nome}
+        </div>
 
-  <div className="mt-1 text-sm font-semibold text-green-300">
-    {formatarValor(valorAtual)}
-  </div>
+        <div className="mt-1 text-sm font-semibold text-green-300">
+          {formatarValor(valorAtual)}
+        </div>
 
-  {jogador.salario && (
-    <div className="mt-0.5 text-[11px] text-gray-200">
-      💸 Salário: <strong>{formatarValor(jogador.salario)}</strong>
+        {jogador.salario && (
+          <div className="mt-0.5 text-[11px] text-gray-200">
+            💸 Salário: <strong>{formatarValor(jogador.salario)}</strong>
+          </div>
+        )}
+
+        {percentualDesconto > 0 && (
+          <div className="mt-0.5 text-[11px] font-semibold text-red-300">
+            🔻 -{percentualDesconto}% desde a listagem
+          </div>
+        )}
+      </div>
+
+      {/* BOTÃO COMPRAR */}
+      <div className="relative z-20 px-3 pb-4 pt-3">
+        <button
+          onClick={onComprar}
+          disabled={loadingComprar || mercadoFechado}
+          className={[
+            'w-full rounded-xl py-2 text-sm font-bold transition',
+            mercadoFechado
+              ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+              : 'bg-green-600 text-white hover:bg-green-700',
+          ].join(' ')}
+        >
+          {loadingComprar
+            ? 'Comprando...'
+            : mercadoFechado
+            ? 'Mercado fechado'
+            : 'Comprar'}
+        </button>
+      </div>
     </div>
-  )}
-
-  {percentualDesconto > 0 && (
-    <div className="mt-0.5 text-[11px] font-semibold text-red-300">
-      🔻 -{percentualDesconto}% desde a listagem
-    </div>
-  )}
-</div>
-
+  
 
       {/* BOTÃO COMPRAR */}
       <div className="px-3 pb-4 pt-3">
