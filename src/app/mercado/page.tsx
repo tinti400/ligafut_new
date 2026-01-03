@@ -146,7 +146,7 @@ const JogadorCard = ({
       ? 'prata'
       : 'ouro'
 
-  /* ===== Bandeira (ISO simples) ===== */
+  /* ===== Bandeira ===== */
   const codigoPais =
     jogador.nacionalidade?.toLowerCase() === 'brasil'
       ? 'br'
@@ -160,7 +160,7 @@ const JogadorCard = ({
       ? 'es'
       : jogador.nacionalidade?.toLowerCase() === 'portugal'
       ? 'pt'
-      : 'un' // fallback
+      : 'un'
 
   return (
     <div
@@ -177,16 +177,30 @@ const JogadorCard = ({
         tipoCarta === 'prata' &&
           'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
 
-        // 🟡 OURO (EA FC REAL)
+        // 🟡 OURO
         tipoCarta === 'ouro' &&
           'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
 
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
-        selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
+        selecionado ? 'ring-4 ring-red-500' : '',
       ]
         .filter(Boolean)
         .join(' ')}
     >
+      {/* ✅ CHECKBOX ADMIN (MULTISELECT) */}
+      {isAdmin && (
+        <div className="absolute right-2 top-2 z-20">
+          <label className="flex items-center justify-center h-7 w-7 rounded-full bg-black/70 backdrop-blur cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selecionado}
+              onChange={toggleSelecionado}
+              className="h-4 w-4 accent-red-500"
+            />
+          </label>
+        </div>
+      )}
+
       {/* OVR + POSIÇÃO + BANDEIRA */}
       <div className="absolute left-3 top-3 z-10 text-left leading-none">
         <div className="text-3xl font-extrabold">{jogador.overall}</div>
@@ -199,7 +213,7 @@ const JogadorCard = ({
         />
       </div>
 
-      {/* IMAGEM DO JOGADOR */}
+      {/* IMAGEM */}
       <div className="flex justify-center pt-10">
         <img
           src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
