@@ -722,113 +722,244 @@ export default function ElencoPage() {
       )}
 
       {/* Lista */}
-      {elencoFiltrado.length === 0 ? (
-        <div className="mt-8 text-center text-gray-300">Nenhum jogador encontrado com os filtros aplicados.</div>
-      ) : viewMode === 'grid' ? (
-        <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
-          {elencoFiltrado.map(jogador => {
-            const selecionado = selecionados.includes(jogador.id)
-            const status: string[] = []
-            if (jogador.protegido) status.push('🛡️ Protegido')
-            if (jogador.lesionado) status.push('⚠️ Lesionado')
-            if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
-
-            const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
-            const ehTitular = jogadorEhTitular(jogador.id)
-
-            return (
-              <div
-                <div
-  key={jogador.id}
-  className={`relative rounded-2xl overflow-hidden border transition-all
-    ${selecionado
-      ? 'border-emerald-500 ring-2 ring-emerald-400/30'
-      : 'border-white/10 hover:border-white/20'}
-    bg-gradient-to-b from-gray-800/60 to-gray-900/80 shadow-xl`}
->
-  {/* checkbox */}
-  <input
-    type="checkbox"
-    checked={selecionado}
-    onChange={() => toggleSelecionado(jogador.id)}
-    className="absolute top-2 left-2 h-4 w-4 accent-emerald-500 z-10"
-  />
-
-  {/* estrela */}
-  <button
-    type="button"
-    onClick={() => toggleTitular(jogador.id)}
-    disabled={escalaFixada}
-    className={`absolute top-2 right-2 z-10 rounded-full px-2 py-1 text-sm border
-      ${ehTitular
-        ? 'border-amber-400/60 bg-amber-400/20'
-        : 'border-white/10 bg-black/40'}
-      ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 transition'}`}
-  >
-    {ehTitular ? '⭐' : '☆'}
-  </button>
-
-  {/* FOTO + OVR */}
-  <div className="relative flex justify-center pt-4">
-    <ImagemComFallback
-      src={imgSrc}
-      alt={jogador.nome}
-      width={120}
-      height={120}
-      className={`rounded-full ring-4 ${ringByOVR(jogador.overall)}
-        h-24 w-24 object-cover shadow-lg`}
-    />
-    <div className="absolute -bottom-2 right-6 bg-black/80 text-xs px-2 py-1 rounded-full border border-white/20">
-      ⭐ {jogador.overall ?? 0}
-    </div>
+{elencoFiltrado.length === 0 ? (
+  <div className="mt-8 text-center text-gray-300">
+    Nenhum jogador encontrado com os filtros aplicados.
   </div>
+) : viewMode === 'grid' ? (
+  <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+    {elencoFiltrado.map(jogador => {
+      const selecionado = selecionados.includes(jogador.id)
+      const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
+      const ehTitular = jogadorEhTitular(jogador.id)
 
-  {/* NOME */}
-  <h2 className="mt-3 text-center font-extrabold text-sm leading-tight px-2 line-clamp-1">
-    {jogador.nome}
-  </h2>
+      const status: string[] = []
+      if (jogador.protegido) status.push('🛡️')
+      if (jogador.lesionado) status.push('⚠️')
+      if ((jogador.jogos || 0) >= 7) status.push('🔥')
 
-  {/* POSIÇÃO */}
-  <div className="flex justify-center mt-1">
-    <span
-      className={`text-[11px] px-3 py-1 rounded-full text-white
-        ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'}`}
-    >
-      {jogador.posicao}
-    </span>
+      return (
+        <div
+          key={jogador.id}
+          className={`relative rounded-2xl overflow-hidden border transition-all
+            ${selecionado
+              ? 'border-emerald-500 ring-2 ring-emerald-400/30'
+              : 'border-white/10 hover:border-white/20'}
+            bg-gradient-to-b from-gray-800/60 to-gray-900/80 shadow-xl`}
+        >
+          {/* checkbox */}
+          <input
+            type="checkbox"
+            checked={selecionado}
+            onChange={() => toggleSelecionado(jogador.id)}
+            className="absolute top-2 left-2 h-4 w-4 accent-emerald-500 z-10"
+            aria-label={`Selecionar ${jogador.nome}`}
+          />
+
+          {/* estrela */}
+          <button
+            type="button"
+            onClick={() => toggleTitular(jogador.id)}
+            disabled={escalaFixada}
+            className={`absolute top-2 right-2 z-10 rounded-full px-2 py-1 text-sm border
+              ${ehTitular
+                ? 'border-amber-400/60 bg-amber-400/20'
+                : 'border-white/10 bg-black/40'}
+              ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 transition'}`}
+            title={ehTitular ? 'Titular (remover)' : 'Marcar como titular'}
+          >
+            {ehTitular ? '⭐' : '☆'}
+          </button>
+
+          {/* FOTO + OVR */}
+          <div className="relative flex justify-center pt-4">
+            <ImagemComFallback
+              src={imgSrc}
+              alt={jogador.nome}
+              width={120}
+              height={120}
+              className={`rounded-full ring-4 ${ringByOVR(jogador.overall)}
+                h-24 w-24 object-cover shadow-lg`}
+            />
+            <div className="absolute -bottom-2 right-6 bg-black/80 text-xs px-2 py-1 rounded-full border border-white/20">
+              ⭐ {jogador.overall ?? 0}
+            </div>
+          </div>
+
+          {/* NOME */}
+          <h2 className="mt-3 text-center font-extrabold text-sm leading-tight px-2 line-clamp-1">
+            {jogador.nome}
+          </h2>
+
+          {/* NACIONALIDADE */}
+          {getFlagUrl(jogador.nacionalidade) && (
+            <img
+              src={getFlagUrl(jogador.nacionalidade)}
+              alt={jogador.nacionalidade || ''}
+              title={jogador.nacionalidade || ''}
+              className="mx-auto mt-1 w-6 h-4 rounded-sm shadow"
+              loading="lazy"
+              decoding="async"
+            />
+          )}
+
+          {/* POSIÇÃO */}
+          <div className="flex justify-center mt-2">
+            <span
+              className={`text-[11px] px-3 py-1 rounded-full text-white
+                ${coresPorPosicao[jogador.posicao] || 'bg-gray-600'}`}
+            >
+              {jogador.posicao}
+            </span>
+          </div>
+
+          {/* STATUS */}
+          {status.length > 0 && (
+            <div className="absolute bottom-2 left-2 flex gap-1">
+              {status.map((s, i) => (
+                <span
+                  key={i}
+                  className="text-[10px] px-2 py-1 rounded-full bg-black/70 border border-white/10"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* VALORES */}
+          <div className="mt-3 text-center pb-4 space-y-0.5">
+            <p className="text-emerald-400 font-bold text-sm">
+              {formatBRL(jogador.valor)}
+            </p>
+            <p className="text-[11px] text-gray-400">
+              💸 {formatBRL(calcularSalario(jogador.valor))} • 🏟️ {jogador.jogos ?? 0}
+            </p>
+            <p className="text-[11px] text-gray-500">
+              💼 {jogador.percentual ?? 100}%
+            </p>
+          </div>
+
+          {jogador.link_sofifa && (
+            <a
+              href={jogador.link_sofifa}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center text-xs text-blue-400 underline pb-3"
+            >
+              🔗 SoFIFA
+            </a>
+          )}
+        </div>
+      )
+    })}
   </div>
+) : (
+  // ================= TABELA (DESKTOP) =================
+  <div className="mt-5 overflow-x-auto rounded-xl border border-white/10 hidden md:block">
+    <table className="min-w-full divide-y divide-white/10">
+      <thead className="bg-gray-900/80 sticky top-[56px] z-10 backdrop-blur supports-[backdrop-filter]:bg-gray-900/60 shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
+        <tr className="text-left text-sm text-gray-300">
+          <th className="px-3 py-3 w-12">
+            <input
+              type="checkbox"
+              checked={selecionados.length > 0 && selecionados.length === elencoFiltrado.length}
+              onChange={(e) =>
+                e.target.checked ? selecionarTodosFiltrados() : limparSelecao()
+              }
+              className="h-5 w-5 accent-emerald-500"
+            />
+          </th>
+          <th className="px-3 py-3 w-12">⭐</th>
+          <th className="px-3 py-3">Jogador</th>
+          <th className="px-3 py-3">País</th>
+          <th className="px-3 py-3">Posição</th>
+          <th className="px-3 py-3">OVR</th>
+          <th className="px-3 py-3">Valor</th>
+          <th className="px-3 py-3">Salário</th>
+          <th className="px-3 py-3">Jogos</th>
+          <th className="px-3 py-3">%</th>
+          <th className="px-3 py-3">Link</th>
+          <th className="px-3 py-3">Status</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-white/5 bg-gray-950/40">
+        {elencoFiltrado.map(jogador => {
+          const selecionado = selecionados.includes(jogador.id)
+          const imgSrc = jogador.imagem_url ?? FALLBACK_SRC
+          const ehTitular = jogadorEhTitular(jogador.id)
 
-  {/* STATUS */}
-  <div className="absolute bottom-2 left-2 flex gap-1">
-    {jogador.protegido && <span className="text-[10px] px-2 py-1 rounded-full bg-black/70 border border-white/10">🛡️</span>}
-    {jogador.lesionado && <span className="text-[10px] px-2 py-1 rounded-full bg-black/70 border border-white/10">⚠️</span>}
-    {(jogador.jogos || 0) >= 7 && <span className="text-[10px] px-2 py-1 rounded-full bg-black/70 border border-white/10">🔥</span>}
+          return (
+            <tr
+              key={jogador.id}
+              className={`text-sm hover:bg-gray-900/40
+                ${selecionado ? 'bg-gray-900/60' : 'odd:bg-gray-950/30'}`}
+            >
+              <td className="px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={selecionado}
+                  onChange={() => toggleSelecionado(jogador.id)}
+                  className="h-5 w-5 accent-emerald-500"
+                />
+              </td>
+              <td className="px-3 py-3">
+                <button
+                  type="button"
+                  onClick={() => toggleTitular(jogador.id)}
+                  disabled={escalaFixada}
+                  className={`rounded-full px-2 py-1 text-sm border
+                    ${ehTitular
+                      ? 'border-amber-400/60 bg-amber-400/20'
+                      : 'border-white/10 bg-gray-800/70'}`}
+                >
+                  {ehTitular ? '⭐' : '☆'}
+                </button>
+              </td>
+              <td className="px-3 py-3">
+                <div className="flex items-center gap-3">
+                  <ImagemComFallback
+                    src={imgSrc}
+                    alt={jogador.nome}
+                    width={36}
+                    height={36}
+                    className={`rounded-full ring-2 ${ringByOVR(jogador.overall)}`}
+                  />
+                  <span className="font-semibold">{jogador.nome}</span>
+                </div>
+              </td>
+              <td className="px-3 py-3">{jogador.nacionalidade || '—'}</td>
+              <td className="px-3 py-3">{jogador.posicao}</td>
+              <td className="px-3 py-3">{jogador.overall ?? 0}</td>
+              <td className="px-3 py-3">{formatBRL(jogador.valor)}</td>
+              <td className="px-3 py-3">{formatBRL(calcularSalario(jogador.valor))}</td>
+              <td className="px-3 py-3">{jogador.jogos ?? 0}</td>
+              <td className="px-3 py-3">{jogador.percentual ?? 100}%</td>
+              <td className="px-3 py-3">
+                {jogador.link_sofifa ? (
+                  <a
+                    href={jogador.link_sofifa}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 underline"
+                  >
+                    SoFIFA
+                  </a>
+                ) : '—'}
+              </td>
+              <td className="px-3 py-3">
+                <div className="flex gap-1">
+                  {jogador.protegido && '🛡️'}
+                  {jogador.lesionado && '⚠️'}
+                  {(jogador.jogos || 0) >= 7 && '🔥'}
+                </div>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
   </div>
-
-  {/* VALORES */}
-  <div className="mt-3 text-center pb-4 space-y-0.5">
-    <p className="text-emerald-400 font-bold text-sm">
-      {formatBRL(jogador.valor)}
-    </p>
-    <p className="text-[11px] text-gray-400">
-      💸 {formatBRL(calcularSalario(jogador.valor))} • 🏟️ {jogador.jogos ?? 0}
-    </p>
-    <p className="text-[11px] text-gray-500">
-      💼 {jogador.percentual ?? 100}%
-    </p>
-  </div>
-
-  {jogador.link_sofifa && (
-    <a
-      href={jogador.link_sofifa}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block text-center text-xs text-blue-400 underline pb-3"
-    >
-      🔗 SoFIFA
-    </a>
-  )}
-</div>
-
-  )
+)
 }
+
