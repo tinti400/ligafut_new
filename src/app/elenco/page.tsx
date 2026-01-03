@@ -741,7 +741,9 @@ export default function ElencoPage() {
       if ((jogador.jogos || 0) >= 7) status.push('🔥 Em Alta')
 
       return (
-        <CardJogador
+        <div
+          <CardJogador
+  key={jogador.id}
   jogador={jogador}
   modo="elenco"
   selecionado={selecionado}
@@ -749,82 +751,8 @@ export default function ElencoPage() {
   ehTitular={ehTitular}
   onToggleTitular={() => toggleTitular(jogador.id)}
   escalaFixada={escalaFixada}
-  onVender={() => venderSelecionados()}
- />
-
-          <label className="absolute top-2 left-2 inline-flex items-center">
-            <input
-              type="checkbox"
-              checked={selecionado}
-              onChange={() => toggleSelecionado(jogador.id)}
-              className="h-5 w-5 accent-emerald-500"
-            />
-          </label>
-
-          <button
-            type="button"
-            onClick={() => toggleTitular(jogador.id)}
-            disabled={escalaFixada}
-            className={`absolute top-2 right-2 rounded-full px-2 py-1 text-base border
-              ${ehTitular
-                ? 'border-amber-400/60 bg-amber-400/20'
-                : 'border-white/10 bg-gray-800/70'}
-              ${escalaFixada ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700/70'}`}
-          >
-            {ehTitular ? '⭐' : '☆'}
-          </button>
-
-          <div className="select-none">
-            <ImagemComFallback
-              src={imgSrc}
-              alt={jogador.nome}
-              width={96}
-              height={96}
-              className={`rounded-full mb-2 mx-auto ring-2 ${ringByOVR(
-                jogador.overall
-              )} h-20 w-20 sm:h-24 sm:w-24 object-cover`}
-            />
-
-            <h2 className="text-sm sm:text-base font-extrabold text-center line-clamp-1">
-              {jogador.nome}
-            </h2>
-
-            <div className="flex justify-center items-center gap-2 text-xs text-gray-300 mt-1">
-              {getFlagUrl(jogador.nacionalidade) && (
-                <img
-                  src={getFlagUrl(jogador.nacionalidade)}
-                  className="w-5 h-3"
-                  alt={jogador.nacionalidade || '—'}
-                />
-              )}
-              <span>{jogador.nacionalidade || 'Outro'}</span>
-            </div>
-
-            <div className="mt-2 flex justify-center gap-2">
-              <span
-                className={`text-[11px] text-white px-3 py-1 rounded-full ${
-                  coresPorPosicao[jogador.posicao] || 'bg-gray-600'
-                }`}
-              >
-                {jogador.posicao}
-              </span>
-              <span className="text-[11px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10">
-                OVR <b>{jogador.overall ?? 0}</b>
-              </span>
-            </div>
-
-            {status.length > 0 && (
-              <div className="mt-2 flex flex-wrap justify-center gap-1">
-                {status.map((s, i) => (
-                  <span
-                    key={i}
-                    className="text-[10px] px-2 py-1 rounded-full bg-gray-800/80 border border-white/10"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            )}
+  onVender={venderSelecionados}
+/>
 
             <div className="mt-2 text-center">
               <p className="text-emerald-400 font-semibold text-sm">
