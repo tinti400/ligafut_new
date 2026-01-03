@@ -446,10 +446,16 @@ const solicitarCompra = (jogador: Jogador) => {
     return
   }
 
-  const valorCompra = calcularValorComDesgaste(
-    jogador.valor,
-    (jogador as any).data_listagem
-  )
+  const valorAtual = calcularValorComDesgaste(
+  jogador.valor,
+  jogador.data_listagem
+)
+
+const percentualDesconto =
+  jogador.valor > valorAtual
+    ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
+    : 0
+
 
   if (valorCompra > saldo) {
     toast.error('Saldo insuficiente!')
