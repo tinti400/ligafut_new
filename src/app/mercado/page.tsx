@@ -258,9 +258,7 @@ const JogadorCard = ({
     disabled={botaoDesabilitado}
     className={[
       'group relative w-full overflow-hidden rounded-xl py-2.5 text-sm font-extrabold uppercase tracking-wide',
-      'transition-all duration-200',
-      'active:scale-[0.97]',
-
+      'transition-all duration-200 active:scale-[0.97]',
       botaoDesabilitado
         ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
         : 'bg-gradient-to-r from-green-500 via-green-600 to-green-500 text-white',
@@ -268,29 +266,32 @@ const JogadorCard = ({
   >
     {/* brilho animado */}
     {!botaoDesabilitado && (
-      <span className="absolute inset-0 -translate-x-full bg-white/20 group-hover:translate-x-full transition-transform duration-700" />
+      <span
+        className="
+          absolute inset-0 
+          transform -translate-x-full 
+          bg-white/20 
+          transition-transform duration-700 
+          group-hover:translate-x-full
+        "
+      />
     )}
 
     <span className="relative z-10 flex items-center justify-center gap-2">
       {loadingComprar ? (
         <>
           <span className="animate-spin">⏳</span>
-          Comprando
+          <span>Comprando</span>
         </>
       ) : mercadoFechado ? (
-        <>
-          🔒 Mercado fechado
-        </>
+        <span>🔒 Mercado fechado</span>
       ) : (
-        <>
-          🛒 Comprar
-        </>
+        <span>🛒 Comprar</span>
       )}
     </span>
   </button>
 </div>
-)
-}
+
 
 
 /* ================= Página ================= */
