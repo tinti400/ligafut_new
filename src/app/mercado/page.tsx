@@ -104,13 +104,16 @@ type Jogador = {
   data_listagem?: string | null
 }
 
+
 type JogadorCardProps = {
   jogador: Jogador
   isAdmin: boolean
   selecionado: boolean
   toggleSelecionado: () => void
   onComprar: () => void
+  onAtualizarPreco: (novoValor: number) => void
   loadingComprar: boolean
+  loadingAtualizarPreco: boolean
   mercadoFechado: boolean
 }
 
@@ -124,17 +127,19 @@ const JogadorCard = ({
   loadingComprar,
   mercadoFechado,
 }: JogadorCardProps) => {
-  // 🔧 CORREÇÃO DEFINITIVA DO BUILD (TypeScript)
+  // 🔧 CORREÇÃO DEFINITIVA DO ERRO DE BUILD
   const valorAtual = calcularValorComDesgaste(
     jogador.valor,
     jogador.data_listagem ?? undefined
   )
 
+  /* ===== Desvalorização ===== */
   const percentualDesconto =
     jogador.valor > valorAtual
       ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
       : 0
 
+  /* ===== Tipo da carta ===== */
   const tipoCarta =
     jogador.overall <= 64
       ? 'bronze'
@@ -142,6 +147,7 @@ const JogadorCard = ({
       ? 'prata'
       : 'ouro'
 
+  /* ===== Bandeira ===== */
   const codigoPais =
     jogador.nacionalidade?.toLowerCase() === 'brasil'
       ? 'br'
@@ -160,29 +166,33 @@ const JogadorCard = ({
   const botaoDesabilitado = loadingComprar || mercadoFechado
 
   return (
-    <div
-      className={[
-        'relative w-full max-w-[260px] overflow-hidden rounded-[22px] shadow-xl',
-        'transition-transform duration-300 hover:scale-[1.03]',
+  <div
+    className={[
+      'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
+      'transition-transform duration-300 hover:scale-[1.03]',
+      'shadow-xl',
 
-        tipoCarta === 'bronze' &&
-          'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
+      // 🟤 BRONZE
+      tipoCarta === 'bronze' &&
+        'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
 
-        tipoCarta === 'prata' &&
-          'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
+      // ⚪ PRATA
+      tipoCarta === 'prata' &&
+        'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
 
-        tipoCarta === 'ouro' &&
-          'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
+      // 🟡 OURO
+      tipoCarta === 'ouro' &&
+        'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
 
-        selecionado ? 'ring-4 ring-red-500' : '',
-        loadingComprar ? 'opacity-70 pointer-events-none' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-    >
-      {/* 🔥 WATERMARKS */}
-      <div className="watermark-logo" />
-      <div className="watermark-text" />
+      loadingComprar ? 'opacity-70 pointer-events-none' : '',
+      selecionado ? 'ring-4 ring-red-500' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')}
+  >
+    {/* 🔥 WATERMARKS */}
+    <div className="watermark-logo" />
+    <div className="watermark-text" />
 
       {/* CHECKBOX ADMIN */}
       {isAdmin && (
@@ -199,7 +209,7 @@ const JogadorCard = ({
       )}
 
       {/* OVR + POSIÇÃO + BANDEIRA */}
-      <div className="absolute left-3 top-3 z-10 leading-none">
+      <div className="absolute left-3 top-3 z-10 text-left leading-none">
         <div className="text-3xl font-extrabold">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
         <img
@@ -218,7 +228,7 @@ const JogadorCard = ({
         />
       </div>
 
-      {/* NOME + VALOR + INFO */}
+      {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
       <div className="mt-3 bg-black/25 px-3 py-2 text-center">
         <div className="text-sm font-extrabold uppercase tracking-wide">
           {jogador.nome}
@@ -241,7 +251,7 @@ const JogadorCard = ({
         )}
       </div>
 
-      {/* BOTÃO COMPRAR */}
+     {/* BOTÃO COMPRAR (ATUALIZADO) */}
       <div className="px-3 pb-4 pt-3">
         <button
           onClick={onComprar}
@@ -263,6 +273,8 @@ const JogadorCard = ({
     </div>
   )
 }
+
+
 
 /* ================= Página ================= */
 export default function MercadoPage() {
