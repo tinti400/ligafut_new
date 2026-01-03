@@ -723,7 +723,7 @@ export default function ElencoPage() {
         </div>
       )}
 
-      {/* Lista */}
+{/* Lista */}
 {elencoFiltrado.length === 0 ? (
   <div className="mt-8 text-center text-gray-300">
     Nenhum jogador encontrado com os filtros aplicados.
