@@ -101,7 +101,7 @@ const JogadorCard = ({
 }: JogadorCardProps) => {
   const valorAtual = calcularValorComDesgaste(
     jogador.valor,
-    (jogador as any).data_listagem
+    jogador.data_listagem
   )
 
   /* ===== Desvalorização ===== */
@@ -134,6 +134,8 @@ const JogadorCard = ({
       ? 'pt'
       : 'un'
 
+  const botaoDesabilitado = loadingComprar || mercadoFechado
+
   return (
     <div
       className={[
@@ -153,19 +155,19 @@ const JogadorCard = ({
         tipoCarta === 'ouro' &&
           'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
 
-        loadingComprar ? 'opacity-70 pointer-events-none' : '',
+        botaoDesabilitado ? 'opacity-70 pointer-events-none' : '',
         selecionado ? 'ring-4 ring-red-500' : '',
       ]
         .filter(Boolean)
         .join(' ')}
     >
-      {/* 🔥 WATERMARKS (OBRIGATÓRIO) */}
+      {/* 🔥 WATERMARKS */}
       <div className="watermark-logo" />
       <div className="watermark-text" />
 
       {/* ✅ CHECKBOX ADMIN */}
       {isAdmin && (
-        <div className="absolute right-2 top-2 z-20">
+        <div className="absolute right-2 top-2 z-30">
           <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/70 backdrop-blur">
             <input
               type="checkbox"
@@ -178,10 +180,9 @@ const JogadorCard = ({
       )}
 
       {/* OVR + POSIÇÃO + BANDEIRA */}
-      <div className="absolute left-3 top-3 z-20 text-left leading-none">
+      <div className="absolute left-3 top-3 z-30 text-left leading-none">
         <div className="text-3xl font-extrabold">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
-
         <img
           src={`https://flagcdn.com/w20/${codigoPais}.png`}
           alt={jogador.nacionalidade || 'País'}
@@ -199,7 +200,7 @@ const JogadorCard = ({
       </div>
 
       {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
-      <div className="relative z-20 mt-3 bg-black/25 px-3 py-2 text-center">
+      <div className="relative z-20 mt-3 bg-black/30 px-3 py-2 text-center">
         <div className="text-sm font-extrabold uppercase tracking-wide">
           {jogador.nome}
         </div>
@@ -221,40 +222,16 @@ const JogadorCard = ({
         )}
       </div>
 
-      {/* BOTÃO COMPRAR */}
+      {/* BOTÃO COMPRAR (ATUALIZADO) */}
       <div className="relative z-20 px-3 pb-4 pt-3">
         <button
           onClick={onComprar}
-          disabled={loadingComprar || mercadoFechado}
+          disabled={botaoDesabilitado}
           className={[
-            'w-full rounded-xl py-2 text-sm font-bold transition',
-            mercadoFechado
+            'w-full rounded-xl py-2 text-sm font-bold transition-all',
+            botaoDesabilitado
               ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-              : 'bg-green-600 text-white hover:bg-green-700',
-          ].join(' ')}
-        >
-          {loadingComprar
-            ? 'Comprando...'
-            : mercadoFechado
-            ? 'Mercado fechado'
-            : 'Comprar'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-
-      {/* BOTÃO COMPRAR */}
-      <div className="px-3 pb-4 pt-3">
-        <button
-          onClick={onComprar}
-          disabled={loadingComprar || mercadoFechado}
-          className={[
-            'w-full rounded-xl py-2 text-sm font-bold transition',
-            mercadoFechado
-              ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-              : 'bg-green-600 text-white hover:bg-green-700',
+              : 'bg-green-600 text-white hover:bg-green-700 hover:scale-[1.02]',
           ].join(' ')}
         >
           {loadingComprar
