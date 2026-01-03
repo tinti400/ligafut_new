@@ -155,9 +155,10 @@ const JogadorCard = ({
         tipoCarta === 'prata' &&
           'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
 
-        // 🟡 OURO
-        tipoCarta === 'ouro' &&
-          'bg-gradient-to-b from-[#f6d365] via-[#fda085] to-[#8b5a00] text-black',
+        // 🟡 OURO (EA FC STYLE)
+tipoCarta === 'ouro' &&
+  'bg-gradient-to-b from-[#fff1a8] via-[#f5c96a] to-[#c99700] text-black',
+
 
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
         selecionado ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-gray-900' : '',
