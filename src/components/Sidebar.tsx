@@ -601,7 +601,6 @@ export default function Sidebar() {
 
                 <CollapsedItem href="/" label="Home" emoji="🏠" />
                 <CollapsedItem href="/classificacao" label="Classificação" emoji="🏆" />
-                <CollapsedItem href="/liga-copa" label="Liga-Copa" emoji="🏟️" /> {/* ADICIONADO */}
                 <CollapsedItem href="/jogos" label="Jogos" emoji="📅" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/BID" label="BID" emoji="📰" />
