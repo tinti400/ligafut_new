@@ -28,6 +28,21 @@ type CardJogadorProps = {
   onToggleSelecionado?: () => void
 }
 
+/* ================= UTIL ================= */
+
+// 🇧🇷 map simples → pode expandir depois
+const bandeiras: Record<string, string> = {
+  Brasil: 'br',
+  Argentina: 'ar',
+  Portugal: 'pt',
+  Espanha: 'es',
+  França: 'fr',
+  Alemanha: 'de',
+  Itália: 'it',
+  Inglaterra: 'gb',
+  Holanda: 'nl',
+}
+
 /* ================= COMPONENTE ================= */
 
 export default function CardJogador({
@@ -42,6 +57,17 @@ export default function CardJogador({
   const overallNumero = Number(jogador.overall ?? 0)
   const tipoCarta = getTipoCarta(overallNumero)
 
+  /* ===== Salário (0,75%) ===== */
+  const salario =
+    typeof jogador.valor === 'number'
+      ? Math.round(jogador.valor * 0.0075)
+      : null
+
+  /* ===== Bandeira ===== */
+  const flagCode = jogador.nacionalidade
+    ? bandeiras[jogador.nacionalidade]
+    : null
+
   /* ===== Gradiente EA FC ===== */
   const gradiente =
     tipoCarta === 'bronze'
@@ -54,9 +80,9 @@ export default function CardJogador({
     <div
       className={[
         'relative',
-        'w-[220px] h-[340px]',          // 🔒 tamanho fixo EA FC
+        'w-[220px] h-[340px]',
         'rounded-[18px]',
-        'overflow-hidden',              // 🔥 evita borda preta externa
+        'overflow-hidden',
         'shadow-2xl',
         'transition-transform duration-300 hover:scale-[1.04]',
         gradiente,
@@ -73,7 +99,18 @@ export default function CardJogador({
         <div className="text-[11px] font-bold uppercase">{jogador.posicao}</div>
       </div>
 
-      {/* ===== CHECKBOX (ELENCO) — DENTRO DA CARTA ===== */}
+      {/* ===== BANDEIRA ===== */}
+      {flagCode && (
+        <div className="absolute left-3 top-[64px] z-10">
+          <img
+            src={`https://flagcdn.com/w40/${flagCode}.png`}
+            alt={jogador.nacionalidade ?? ''}
+            className="w-6 h-4 rounded-sm shadow"
+          />
+        </div>
+      )}
+
+      {/* ===== CHECKBOX (ELENCO) ===== */}
       {modo !== 'mercado' && onToggleSelecionado && (
         <div className="absolute right-3 top-3 z-20">
           <label className="flex h-7 w-7 items-center justify-center rounded-md bg-black/30 backdrop-blur-sm">
@@ -103,12 +140,14 @@ export default function CardJogador({
           {jogador.nome}
         </div>
 
-        {jogador.nacionalidade && (
-          <div className="mt-0.5 text-[11px] opacity-90">
-            🌍 {jogador.nacionalidade}
+        {/* SALÁRIO */}
+        {salario !== null && (
+          <div className="mt-0.5 text-[11px] text-white/80">
+            💼 Salário: R$ {salario.toLocaleString('pt-BR')}
           </div>
         )}
 
+        {/* VALOR */}
         {typeof jogador.valor === 'number' && (
           <div className="mt-1 text-sm font-semibold text-green-300">
             💰 R$ {jogador.valor.toLocaleString('pt-BR')}
@@ -140,5 +179,3 @@ export default function CardJogador({
     </div>
   )
 }
-
-
