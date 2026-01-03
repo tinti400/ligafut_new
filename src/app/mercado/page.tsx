@@ -291,7 +291,8 @@ const JogadorCard = ({
     </span>
   </button>
 </div>
-
+ )
+}
 
 
 /* ================= Página ================= */
