@@ -241,7 +241,9 @@ const JogadorCard = ({
         </button>
       </div>
     </div>
-  
+  )
+}
+
 
       {/* BOTÃO COMPRAR */}
       <div className="px-3 pb-4 pt-3">
