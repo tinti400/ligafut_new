@@ -1,6 +1,6 @@
 'use client'
 
-
+import { useTemaTime } from '@/hooks/useTemaTime'
 import CardJogador from '@/components/CardJogador'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'
 
 /** ===== Supabase ===== */
 const supabase = createClient(
+const { tema, loading: loadingTema } = useTemaTime()
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )

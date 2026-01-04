@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { temasTimes, TemaTime } from '@/config/temasTimes'
+import { temasTimes, TemaTime } from '../config/temasTimes'
 import { useAuth } from '@/context/AuthContext'
 
 const supabase = createClient(
