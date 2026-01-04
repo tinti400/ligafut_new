@@ -9,7 +9,6 @@ import toast from 'react-hot-toast'
 
 /** ===== Supabase ===== */
 const supabase = createClient(
-const { tema, loading: loadingTema } = useTemaTime()
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
