@@ -1,7 +1,6 @@
-```tsx
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
@@ -9,13 +8,7 @@ import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import * as XLSX from 'xlsx'
 import toast, { Toaster } from 'react-hot-toast'
 
-/* ================= Supabase ================= */
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-/* ================= Util ================= */
+/* ================= Helpers ================= */
 const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string) => {
   if (!dataListagem) return valorInicial
 
@@ -35,6 +28,12 @@ const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string) =
 const formatarValor = (valor: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 
+/* ================= Supabase ================= */
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
 /* ================= Modal genérico ================= */
 function ModalConfirm({
   visible,
@@ -53,29 +52,34 @@ function ModalConfirm({
 }) {
   if (!visible) return null
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gray-900 shadow-2xl">
         <div className="p-6">
           <h2 className="text-xl font-bold tracking-tight text-white">{titulo}</h2>
           <p className="mt-2 text-gray-300">{mensagem}</p>
-
           <div className="mt-6 flex items-center justify-end gap-3">
             <button
               onClick={onCancel}
               disabled={loading}
-              className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-700"
+              className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition"
             >
               Cancelar
             </button>
-
             <button
               onClick={onConfirm}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700"
+              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 transition"
             >
               {loading && (
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               )}
@@ -115,7 +119,7 @@ type JogadorCardProps = {
   mercadoFechado: boolean
 }
 
-/* ================= Card do jogador (ESTILO EA FC + WATERMARK LIGAFUT) ================= */
+/* ================= Card do jogador (ESTILO EA FC) ================= */
 const JogadorCard = ({
   jogador,
   isAdmin,
@@ -128,46 +132,52 @@ const JogadorCard = ({
   const valorAtual = calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? undefined)
 
   const percentualDesconto =
-    jogador.valor > valorAtual ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100) : 0
+    jogador.valor > valorAtual
+      ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
+      : 0
 
   const tipoCarta = jogador.overall <= 64 ? 'bronze' : jogador.overall <= 74 ? 'prata' : 'ouro'
 
+  // fallback seguro (flagcdn não tem "un")
+  const nacionalidadeLower = (jogador.nacionalidade || '').toLowerCase()
   const codigoPais =
-    jogador.nacionalidade?.toLowerCase() === 'brasil'
+    nacionalidadeLower === 'brasil'
       ? 'br'
-      : jogador.nacionalidade?.toLowerCase() === 'argentina'
+      : nacionalidadeLower === 'argentina'
       ? 'ar'
-      : jogador.nacionalidade?.toLowerCase() === 'frança'
+      : nacionalidadeLower === 'frança'
       ? 'fr'
-      : jogador.nacionalidade?.toLowerCase() === 'inglaterra'
+      : nacionalidadeLower === 'inglaterra'
       ? 'gb'
-      : jogador.nacionalidade?.toLowerCase() === 'espanha'
+      : nacionalidadeLower === 'espanha'
       ? 'es'
-      : jogador.nacionalidade?.toLowerCase() === 'portugal'
+      : nacionalidadeLower === 'portugal'
       ? 'pt'
-      : 'un'
+      : 'us'
 
   const botaoDesabilitado = loadingComprar || mercadoFechado
+
+  // ✅ Marca d’água (troque a URL pelo seu logo)
+  const watermarkImageUrl = '/ligafut-watermark.png' // coloque esse arquivo em /public
 
   return (
     <div
       className={[
-        'relative w-full max-w-[260px] overflow-hidden rounded-[22px] shadow-xl',
+        'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
         'transition-transform duration-300 hover:scale-[1.03]',
+        'shadow-xl',
 
-        // acabamento EAFC
-        'before:absolute before:inset-0 before:z-[2] before:bg-[radial-gradient(circle_at_50%_30%,rgba(255,255,255,0.20),transparent_55%)] before:content-[""]',
-        'after:absolute after:inset-0 after:z-[2] after:bg-[radial-gradient(circle_at_50%_50%,transparent_35%,rgba(0,0,0,0.45)_100%)] after:content-[""]',
-
-        // 🟤 BRONZE
+        // BRONZE
         tipoCarta === 'bronze' &&
           'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
 
-        // ⚪ PRATA
-        tipoCarta === 'prata' && 'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
+        // PRATA
+        tipoCarta === 'prata' &&
+          'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
 
-        // 🟡 OURO
-        tipoCarta === 'ouro' && 'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
+        // OURO
+        tipoCarta === 'ouro' &&
+          'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
 
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
         selecionado ? 'ring-4 ring-red-500' : '',
@@ -175,22 +185,24 @@ const JogadorCard = ({
         .filter(Boolean)
         .join(' ')}
     >
-      {/* 🔥 WATERMARK LigaFut (fundo da carta) */}
+      {/* ✅ WATERMARK LIGAFUT (logo + texto) */}
       <div className="pointer-events-none absolute inset-0 z-[1]">
-        {/* Logo grande (imagem) - coloque em /public/ligafut-watermark.png */}
+        {/* logo watermark */}
         <div
-          className="absolute left-1/2 top-1/2 h-[220px] w-[220px] -translate-x-1/2 -translate-y-1/2 rotate-[-18deg] opacity-[0.10]
-                     bg-[url('/ligafut-watermark.png')] bg-contain bg-center bg-no-repeat"
+          className="absolute inset-0 opacity-[0.12]"
+          style={{
+            backgroundImage: `url(${watermarkImageUrl})`,
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: 'center',
+            backgroundSize: '180px',
+            transform: 'rotate(-12deg)',
+          }}
         />
-
-        {/* Texto repetido */}
-        <div className="absolute inset-0 opacity-[0.08]">
-          <div className="absolute -left-10 top-10 rotate-[-18deg] text-[34px] font-black tracking-[0.35em] uppercase">
-            LIGAFUT • LIGAFUT • LIGAFUT •
-          </div>
-          <div className="absolute -right-10 bottom-10 rotate-[-18deg] text-[34px] font-black tracking-[0.35em] uppercase">
-            LIGAFUT • LIGAFUT • LIGAFUT •
-          </div>
+        {/* texto watermark */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="select-none text-5xl font-black tracking-[0.35em] text-white/10 rotate-[-18deg]">
+            LIGAFUT
+          </span>
         </div>
       </div>
 
@@ -198,7 +210,12 @@ const JogadorCard = ({
       {isAdmin && (
         <div className="absolute right-2 top-2 z-20">
           <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/70 backdrop-blur">
-            <input type="checkbox" checked={selecionado} onChange={toggleSelecionado} className="h-4 w-4 accent-red-500" />
+            <input
+              type="checkbox"
+              checked={selecionado}
+              onChange={toggleSelecionado}
+              className="h-4 w-4 accent-red-500"
+            />
           </label>
         </div>
       )}
@@ -207,15 +224,17 @@ const JogadorCard = ({
       <div className="absolute left-3 top-3 z-10 text-left leading-none">
         <div className="text-3xl font-extrabold">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase">{jogador.posicao}</div>
+
+        {/* ✅ FIX BUILD: sem template string */}
         <img
-          src={`https://flagcdn.com/w20/${codigoPais}.png`}
+          src={'https://flagcdn.com/w20/' + codigoPais + '.png'}
           alt={jogador.nacionalidade || 'País'}
           className="mt-1 h-4 w-6 rounded-sm shadow"
         />
       </div>
 
       {/* IMAGEM */}
-      <div className="relative z-10 flex justify-center pt-10">
+      <div className="relative z-[2] flex justify-center pt-10">
         <img
           src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
           alt={jogador.nome}
@@ -224,7 +243,7 @@ const JogadorCard = ({
       </div>
 
       {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
-      <div className="relative z-10 mt-3 bg-black/25 px-3 py-2 text-center">
+      <div className="relative z-[2] mt-3 bg-black/25 px-3 py-2 text-center">
         <div className="text-sm font-extrabold uppercase tracking-wide">{jogador.nome}</div>
 
         {jogador.link_sofifa && (
@@ -232,7 +251,7 @@ const JogadorCard = ({
             href={jogador.link_sofifa}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-0.5 inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-200 transition hover:text-blue-400"
+            className="mt-0.5 inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-200 hover:text-blue-400 transition"
           >
             🔗 SoFIFA
           </a>
@@ -240,19 +259,21 @@ const JogadorCard = ({
 
         <div className="mt-1 text-sm font-semibold text-green-300">{formatarValor(valorAtual)}</div>
 
-        {jogador.salario && (
+        {jogador.salario ? (
           <div className="mt-0.5 text-[11px] text-gray-200">
             💸 Salário: <strong>{formatarValor(jogador.salario)}</strong>
           </div>
-        )}
+        ) : null}
 
         {percentualDesconto > 0 && (
-          <div className="mt-0.5 text-[11px] font-semibold text-red-300">🔻 -{percentualDesconto}% desde a listagem</div>
+          <div className="mt-0.5 text-[11px] font-semibold text-red-300">
+            🔻 -{percentualDesconto}% desde a listagem
+          </div>
         )}
       </div>
 
       {/* BOTÃO COMPRAR */}
-      <div className="relative z-10 px-3 pb-4 pt-3">
+      <div className="relative z-[2] px-3 pb-4 pt-3">
         <button
           onClick={onComprar}
           disabled={botaoDesabilitado}
@@ -332,10 +353,7 @@ export default function MercadoPage() {
     const carregarDados = async () => {
       try {
         const [resMercado, resTime, resMarketStatus] = await Promise.all([
-          supabase
-            .from('mercado_transferencias')
-            .select(
-              `
+          supabase.from('mercado_transferencias').select(`
               id,
               nome,
               posicao,
@@ -347,8 +365,7 @@ export default function MercadoPage() {
               foto,
               link_sofifa,
               data_listagem
-            `
-            ),
+            `),
 
           supabase.from('times').select('saldo').eq('id', userData.id_time).single(),
 
@@ -381,7 +398,6 @@ export default function MercadoPage() {
     setUploadLoading(true)
     setMsg('Lendo planilha...')
 
-    // helpers
     const normalizeKeys = (obj: any) =>
       Object.fromEntries(Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v]))
 
@@ -429,7 +445,7 @@ export default function MercadoPage() {
             throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
           }
 
-          return {
+          const payload: any = {
             nome,
             posicao,
             overall,
@@ -439,7 +455,9 @@ export default function MercadoPage() {
             nacionalidade,
             time_origem,
             data_listagem: new Date().toISOString(),
-          } as any
+          }
+
+          return payload as NovoJogador
         })
 
         const { data: inseridos, error } = await supabase
@@ -450,7 +468,7 @@ export default function MercadoPage() {
         if (error) throw error
 
         toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
-        setJogadores((prev) => [...prev, ...(((inseridos as unknown as Jogador[]) ?? []) as Jogador[])])
+        setJogadores((prev) => [...prev, ...((inseridos as unknown as Jogador[]) ?? [])])
       } catch (error: any) {
         console.error('Erro ao importar:', error)
         toast.error(`Erro no upload: ${error.message || error}`)
@@ -488,10 +506,16 @@ export default function MercadoPage() {
       return
     }
 
-    const valorCompra = calcularValorComDesgaste(jogadorParaComprar.valor, (jogadorParaComprar as any).data_listagem)
+    const valorCompra = calcularValorComDesgaste(
+      jogadorParaComprar.valor,
+      (jogadorParaComprar as any).data_listagem
+    )
 
     // Limite de elenco
-    const { data: elencoAtual, error: errorElenco } = await supabase.from('elenco').select('id').eq('id_time', user.id_time)
+    const { data: elencoAtual, error: errorElenco } = await supabase
+      .from('elenco')
+      .select('id')
+      .eq('id_time', user.id_time)
 
     if (errorElenco) {
       toast.error('Erro ao verificar o elenco atual.')
@@ -545,13 +569,12 @@ export default function MercadoPage() {
         overall: jogador.overall,
         valor: valorCompra,
         imagem_url: (jogador.imagem_url || jogador.foto || '') as string,
-        salario,
+        salario: salario,
         jogos: 0,
         link_sofifa: jogador.link_sofifa || '',
       })
       if (errorInsert) throw errorInsert
 
-      // movimentação financeira
       await registrarMovimentacao({
         id_time: user.id_time,
         tipo: 'saida',
@@ -559,7 +582,10 @@ export default function MercadoPage() {
         descricao: `Compra de ${jogador.nome} no mercado`,
       })
 
-      const { error: errorUpdate } = await supabase.from('times').update({ saldo: saldo - valorCompra }).eq('id', user.id_time)
+      const { error: errorUpdate } = await supabase
+        .from('times')
+        .update({ saldo: saldo - valorCompra })
+        .eq('id', user.id_time)
       if (errorUpdate) throw errorUpdate
 
       setSaldo((prev) => prev - valorCompra)
@@ -667,7 +693,11 @@ export default function MercadoPage() {
     setLoading(true)
     try {
       const novoStatus = marketStatus === 'aberto' ? false : true
-      const { error } = await supabase.from('configuracoes').update({ aberto: novoStatus }).eq('id', 'estado_mercado')
+      const { error } = await supabase
+        .from('configuracoes')
+        .update({ aberto: novoStatus })
+        .eq('id', 'estado_mercado')
+
       if (error) throw error
       setMarketStatus(novoStatus ? 'aberto' : 'fechado')
       toast.success(`Mercado ${novoStatus ? 'aberto' : 'fechado'} com sucesso!`)
@@ -685,9 +715,11 @@ export default function MercadoPage() {
       .filter((j) => {
         const nomeMatch = j.nome.toLowerCase().includes(filtroNome.toLowerCase())
         const posicaoMatch = filtroPosicao ? j.posicao === filtroPosicao : true
+
         const overallMin = filtroOverallMin === '' ? 0 : filtroOverallMin
         const overallMax = filtroOverallMax === '' ? 99 : filtroOverallMax
         const valorMax = filtroValorMax === '' ? Infinity : filtroValorMax
+
         const nacionalidadeJogador = j.nacionalidade && j.nacionalidade.trim() !== '' ? j.nacionalidade : 'Resto do Mundo'
         const nacionalidadeMatch = filtroNacionalidade
           ? nacionalidadeJogador.toLowerCase().includes(filtroNacionalidade.toLowerCase())
@@ -695,6 +727,7 @@ export default function MercadoPage() {
 
         const overallMatch = j.overall >= overallMin && j.overall <= overallMax
         const valorMatch = j.valor <= valorMax
+
         return nomeMatch && posicaoMatch && overallMatch && valorMatch && nacionalidadeMatch
       })
       .sort((a, b) => {
@@ -748,11 +781,14 @@ export default function MercadoPage() {
                 <span
                   className={[
                     'inline-flex items-center gap-1 rounded-full px-2 py-0.5 ring-1 ring-inset',
-                    mercadoFechado ? 'bg-red-500/10 text-red-300 ring-red-500/30' : 'bg-green-500/10 text-green-300 ring-green-500/30',
+                    mercadoFechado
+                      ? 'bg-red-500/10 text-red-300 ring-red-500/30'
+                      : 'bg-green-500/10 text-green-300 ring-green-500/30',
                   ].join(' ')}
                 >
                   {mercadoFechado ? '🔒 Fechado' : '🔓 Aberto'}
                 </span>
+
                 <span className="rounded-full bg-white/5 px-2 py-0.5 text-gray-300 ring-1 ring-white/10">
                   {totalResultados} jogadores
                 </span>
@@ -910,7 +946,11 @@ export default function MercadoPage() {
                 <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-gray-300 ring-1 ring-white/10">
                   💰 Saldo: <strong className="text-green-400">{formatarValor(saldo)}</strong>
                 </span>
-                <button onClick={limparFiltros} className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm transition hover:bg-gray-700">
+
+                <button
+                  onClick={limparFiltros}
+                  className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm hover:bg-gray-700 transition"
+                >
                   Limpar filtros
                 </button>
               </div>
@@ -931,7 +971,6 @@ export default function MercadoPage() {
                 {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
               </button>
 
-              {/* Excluir por faixa de OVR */}
               <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-gray-800 px-3 py-2">
                 <span className="text-sm text-gray-300">Excluir OVR</span>
                 <input
@@ -973,7 +1012,7 @@ export default function MercadoPage() {
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               ← Anterior
             </button>
@@ -982,7 +1021,7 @@ export default function MercadoPage() {
             </span>
             <button
               onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               Próxima →
             </button>
@@ -1016,7 +1055,7 @@ export default function MercadoPage() {
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               ← Anterior
             </button>
@@ -1025,7 +1064,7 @@ export default function MercadoPage() {
             </span>
             <button
               onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
             >
               Próxima →
             </button>
@@ -1068,12 +1107,3 @@ export default function MercadoPage() {
     </>
   )
 }
-
-/**
- * ✅ IMPORTANTE:
- * Coloque um PNG transparente do logo da LigaFut aqui:
- * /public/ligafut-watermark.png
- *
- * Se quiser, posso também gerar um watermark em SVG (sem precisar de imagem).
- */
-```
