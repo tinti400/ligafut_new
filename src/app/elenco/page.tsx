@@ -1,6 +1,5 @@
 'use client'
 
-import { useTemaTime } from '@/hooks/useTemaTime'
 import CardJogador from '@/components/CardJogador'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
