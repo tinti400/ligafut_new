@@ -816,7 +816,7 @@ export default function Jogos() {
                           <span className="font-medium text-right truncate">{mandante?.nome || '???'}</span>
                         </div>
 
-                        {/* Placar */}
+{/* Placar */}
 <div className="col-span-2 md:col-span-4 text-center">
   {estaEditando ? (
     <div className="flex items-center justify-center gap-2">
@@ -958,9 +958,11 @@ export default function Jogos() {
     </span>
   )}
 </div>
-        ))}
+</article>
+
+          )
+        })}
       </div>
     </div>
   )
 }
-
