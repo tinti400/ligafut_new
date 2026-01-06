@@ -1005,84 +1005,15 @@ export default function BIDPage() {
                           </div>
 
                           {/* Conteúdo */}
-<div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">
-  {/* COLUNA PRINCIPAL */}
-  <div className="md:col-span-2">
-    <p className="text-gray-100 leading-relaxed">
-      {buscaAtiva ? (
-        <Highlight
-          text={gerarDescricaoEvento(evento, timesMap)}
-          query={debouncedBusca}
-        />
-      ) : (
-        gerarDescricaoEvento(evento, timesMap)
-      )}
-    </p>
-
-    <div className="mt-3 flex flex-wrap items-center gap-3">
-      {/* time 1 */}
-      <div className="flex items-center gap-2">
-        <AvatarTime nome={time1?.nome || 'Time'} logo={time1?.logo_url} />
-        <div className="text-sm">
-          <p className="text-gray-400">Time principal</p>
-          <p className="font-semibold">{time1?.nome || 'Desconhecido'}</p>
-        </div>
-      </div>
-
-      {time2 && <span className="text-gray-500">•</span>}
-
-      {time2 && (
-        <div className="flex items-center gap-2">
-          <AvatarTime nome={time2?.nome || 'Time'} logo={time2?.logo_url} />
-          <div className="text-sm">
-            <p className="text-gray-400">Time adversário</p>
-            <p className="font-semibold">{time2?.nome || 'Desconhecido'}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  </div> {/* ⬅️ ESTE FECHAMENTO ESTAVA FALTANDO */}
-
-  {/* LATERAL */}
-  <div className="md:col-span-1 space-y-3">
-    {(() => {
-      const jEv: Partial<Jogador> = {
-        id: evento.id_jogador || undefined,
-        nome: evento.nome_jogador || undefined,
-        foto_url: evento.foto_jogador_url || undefined,
-      }
-      const jFromMap = evento.id_jogador
-        ? jogadoresMap[evento.id_jogador]
-        : undefined
-
-      const jogador =
-        jEv.nome || jEv.foto_url ? { ...jFromMap, ...jEv } : jFromMap
-
-      return jogador ? (
-        <CardJogador
-          j={jogador}
-          highlight={buscaAtiva ? debouncedBusca : ''}
-        />
-      ) : null
-    })()}
-
-    {evento.valor != null && (
-      <div className="rounded-xl bg-black/30 border border-white/10 p-3">
-        <p className="text-xs text-gray-400 mb-0.5">Movimentação</p>
-        <p
-          className="font-extrabold text-yellow-300 leading-tight whitespace-nowrap overflow-hidden text-ellipsis tracking-tight"
-          style={{ fontSize: 'clamp(0.95rem, 2.4vw, 1.35rem)' }}
-        >
-          {evento.valor.toLocaleString('pt-BR', {
-            style: 'currency',
-            currency: 'BRL',
-          })}
-        </p>
-      </div>
-    )}
-  </div>
-</div>
-
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">
+                            <div className="md:col-span-2">
+                              <p className="text-gray-100 leading-relaxed">
+                                {buscaAtiva ? (
+                                  <Highlight text={evento.descricao} query={debouncedBusca} />
+                                ) : (
+                                  evento.descricao
+                                )}
+                              </p>
 
                               <div className="mt-3 flex flex-wrap items-center gap-3">
                                 {/* time 1 */}
