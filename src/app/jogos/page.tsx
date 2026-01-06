@@ -959,10 +959,9 @@ export default function Jogos() {
   )}
 </div>
 </article>
-
-          )
-        })}
+        ))}
       </div>
     </div>
   )
 }
+
