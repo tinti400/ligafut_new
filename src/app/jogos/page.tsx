@@ -817,129 +817,152 @@ export default function Jogos() {
                         </div>
 
                         {/* Placar */}
-                        <div className="col-span-2 md:col-span-4 text-center">
-                          {estaEditando ? (
-                            <div className="flex items-center justify-center gap-2">
-                              <input
-                                type="number"
-                                defaultValue={jogo.gols_mandante ?? 0}
-                                onChange={(e) => setGolsMandante(Number(e.target.value))}
-                                className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0"
-                                min={0}
-                              />
-                              <span className="text-white/70 font-semibold">x</span>
-                              <input
-                                type="number"
-                                defaultValue={jogo.gols_visitante ?? 0}
-                                onChange={(e) => setGolsVisitante(Number(e.target.value))}
-                                className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0"
-                                min={0}
-                              />
-                            </div>
-                          ) : temPlacar ? (
-                            <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
-                              {gM} <span className="text-white/60">x</span> {gV}
-                            </span>
-                          ) : (
-                            <span className="text-white/50">🆚</span>
-                          )}
-                        </div>
-
-                        {/* Visitante + ações */}
-                        <div className="col-span-5 md:col-span-4 flex items-center justify-start gap-2">
-                          <span className="font-medium text-left truncate">{visitante?.nome || '???'}</span>
-                          {visitante?.logo_url && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
-                          )}
-
-                          {/* Ações (apenas admin) */}
-                          {isAdmin && !estaEditando && (
-                            <div className="flex gap-2 ml-2">
-                              <button
-                                onClick={() => {
-                                  setEditandoRodada(rodada.id)
-                                  setEditandoIndex(index)
-                                  setGolsMandante(jogo.gols_mandante ?? 0)
-                                  setGolsVisitante(jogo.gols_visitante ?? 0)
-                                  if (jogo.bonus_pago) {
-                                    toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
-                                  }
-                                }}
-                                className="text-sm text-yellow-300 hover:text-yellow-200"
-                                title={jogo.bonus_pago ? 'Editar (ajuste sem repetir bônus)' : 'Editar (lançamento com finanças)'}
-                              >
-                                📝
-                              </button>
-
-                              {temPlacar && (
-                                <button
-                                  onClick={() => excluirResultado(rodada.id, index)}
-                                  className="text-sm text-red-400 hover:text-red-300"
-                                  title="Remover resultado (com estorno)"
-                                >
-                                  🗑️
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {isAdmin && estaEditando && (
-                            <div className="flex gap-2 ml-2">
-                              {!jogo.bonus_pago ? (
-                                <button
-                                  onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
-                                  disabled={isSalvando}
-                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
-                                  title="Salvar e processar finanças + patrocínios"
-                                >
-                                  💾
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
-                                  disabled={isSalvando}
-                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
-                                  title="Salvar ajuste (sem repetir bônus)"
-                                >
-                                  ✅
-                                </button>
-                              )}
-                              <button
-                                onClick={() => { setEditandoRodada(null); setEditandoIndex(null) }}
-                                className="text-sm text-red-400 font-semibold hover:text-red-300"
-                                title="Cancelar edição"
-                              >
-                                ❌
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Rodapé do jogo */}
-                      <div className="mt-1 flex flex-wrap items-center gap-2 justify-end">
-                        {jogo.renda && jogo.publico && (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-300">
-                            🎟️ {jogo.publico.toLocaleString()} • 💰 R$ {jogo.renda.toLocaleString()}
-                          </span>
-                        )}
-                        {jogo.bonus_pago && (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
-                            ✔️ Lançado com finanças (inclui patrocínios)
-                          </span>
-                        )}
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-            </section>
-          )
-        })}
-      </div>
+<div className="col-span-2 md:col-span-4 flex justify-center">
+  {estaEditando ? (
+    <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-xl border border-white/10">
+      <input
+        type="number"
+        defaultValue={jogo.gols_mandante ?? 0}
+        onChange={(e) => setGolsMandante(Number(e.target.value))}
+        className="w-12 text-black text-center rounded-lg px-2 py-1 font-bold"
+        min={0}
+      />
+      <span className="text-white/60 font-extrabold text-lg">x</span>
+      <input
+        type="number"
+        defaultValue={jogo.gols_visitante ?? 0}
+        onChange={(e) => setGolsVisitante(Number(e.target.value))}
+        className="w-12 text-black text-center rounded-lg px-2 py-1 font-bold"
+        min={0}
+      />
     </div>
-  )
-}
+  ) : temPlacar ? (
+    <div className="px-4 py-1 rounded-xl bg-black/40 border border-white/10">
+      <span className="text-2xl md:text-3xl font-black tracking-tight text-white drop-shadow">
+        {gM}
+        <span className="mx-2 text-white/50">x</span>
+        {gV}
+      </span>
+    </div>
+  ) : (
+    <span className="text-white/40 text-xl">🆚</span>
+  )}
+</div>
+
+{/* Visitante + ações */}
+<div className="col-span-5 md:col-span-4 flex items-center justify-between gap-2">
+  {/* Visitante */}
+  <div className="flex items-center gap-2 min-w-0">
+    <span className="font-medium truncate">{visitante?.nome || '???'}</span>
+    {visitante?.logo_url && (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={visitante.logo_url}
+        alt="logo"
+        className="h-6 w-6 rounded-full ring-1 ring-white/10"
+      />
+    )}
+  </div>
+
+  {/* Ações (admin) */}
+  {isAdmin && (
+    <div className="flex items-center gap-1 rounded-lg bg-black/40 px-2 py-1 border border-white/10">
+      {!estaEditando && (
+        <>
+          <button
+            onClick={() => {
+              setEditandoRodada(rodada.id)
+              setEditandoIndex(index)
+              setGolsMandante(jogo.gols_mandante ?? 0)
+              setGolsVisitante(jogo.gols_visitante ?? 0)
+              if (jogo.bonus_pago) {
+                toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
+              }
+            }}
+            className="text-yellow-300 hover:text-yellow-200 hover:scale-110 transition"
+            title={jogo.bonus_pago ? 'Editar (ajuste)' : 'Editar (lançamento completo)'}
+          >
+            📝
+          </button>
+
+          {temPlacar && (
+            <button
+              onClick={() => excluirResultado(rodada.id, index)}
+              className="text-red-400 hover:text-red-300 hover:scale-110 transition"
+              title="Remover resultado (estorno)"
+            >
+              🗑️
+            </button>
+          )}
+        </>
+      )}
+
+      {estaEditando && (
+        <>
+          {!jogo.bonus_pago ? (
+            <button
+              onClick={() =>
+                salvarPrimeiroLancamento(
+                  rodada.id,
+                  index,
+                  Number(golsMandante),
+                  Number(golsVisitante)
+                )
+              }
+              disabled={isSalvando}
+              className="text-green-400 hover:text-green-300 hover:scale-110 transition"
+              title="Salvar e processar finanças"
+            >
+              💾
+            </button>
+          ) : (
+            <button
+              onClick={() =>
+                salvarAjusteResultado(
+                  rodada.id,
+                  index,
+                  Number(golsMandante),
+                  Number(golsVisitante)
+                )
+              }
+              disabled={isSalvando}
+              className="text-green-400 hover:text-green-300 hover:scale-110 transition"
+              title="Salvar ajuste"
+            >
+              ✅
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              setEditandoRodada(null)
+              setEditandoIndex(null)
+            }}
+            className="text-red-400 hover:text-red-300 hover:scale-110 transition"
+            title="Cancelar edição"
+          >
+            ❌
+          </button>
+        </>
+      )}
+    </div>
+  )}
+</div>
+
+{/* Rodapé do jogo */}
+<div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+  {jogo.renda && jogo.publico && (
+    <span className="text-[11px] px-3 py-1 rounded-full bg-black/40 border border-white/15 text-zinc-300 flex items-center gap-1">
+      🎟️ <strong>{jogo.publico.toLocaleString()}</strong>
+      <span className="opacity-60">•</span>
+      💰 <strong>R$ {jogo.renda.toLocaleString()}</strong>
+    </span>
+  )}
+
+  {jogo.bonus_pago && (
+    <span className="text-[11px] px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+      ✔️ Lançado com finanças
+    </span>
+  )}
+</div>
+
