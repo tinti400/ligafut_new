@@ -1004,16 +1004,17 @@ export default function BIDPage() {
                             <div className="text-xs text-gray-300">{horaPt(new Date(evento.data_evento))}</div>
                           </div>
 
-                          {/* Conteúdo */}
-                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">
-                            <div className="md:col-span-2">
-                              <p className="text-gray-100 leading-relaxed">
-                                {buscaAtiva ? (
-                                  <Highlight text={evento.descricao} query={debouncedBusca} />
-                                ) : (
-                                  evento.descricao
-                                )}
-                              </p>
+                          <p className="text-gray-100 leading-relaxed">
+  {buscaAtiva ? (
+    <Highlight
+      text={gerarDescricaoEvento(evento, timesMap)}
+      query={debouncedBusca}
+    />
+  ) : (
+    gerarDescricaoEvento(evento, timesMap)
+  )}
+</p>
+
 
                               <div className="mt-3 flex flex-wrap items-center gap-3">
                                 {/* time 1 */}
