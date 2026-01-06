@@ -1,15 +1,21 @@
+```tsx
 'use client'
 
-import CardJogador from '@/components/CardJogador'
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
-import ImagemComFallback from '@/components/ImagemComFallback'
 import { useAdmin } from '@/hooks/useAdmin'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import * as XLSX from 'xlsx'
 import toast, { Toaster } from 'react-hot-toast'
 
+/* ================= Supabase ================= */
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+/* ================= Util ================= */
 const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string) => {
   if (!dataListagem) return valorInicial
 
@@ -26,17 +32,8 @@ const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string) =
   return Math.round(valorInicial * fatorFinal)
 }
 
-
-/* ================= Util ================= */
 const formatarValor = (valor: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-
 
 /* ================= Modal genérico ================= */
 function ModalConfirm({
@@ -56,28 +53,30 @@ function ModalConfirm({
 }) {
   if (!visible) return null
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gray-900 shadow-2xl">
         <div className="p-6">
-          <h2 className="text-xl font-bold tracking-tight">{titulo}</h2>
+          <h2 className="text-xl font-bold tracking-tight text-white">{titulo}</h2>
           <p className="mt-2 text-gray-300">{mensagem}</p>
+
           <div className="mt-6 flex items-center justify-end gap-3">
             <button
               onClick={onCancel}
               disabled={loading}
-              className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm font-medium hover:bg-gray-700 transition"
+              className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-700"
             >
               Cancelar
             </button>
+
             <button
               onClick={onConfirm}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 transition"
+              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700"
             >
               {loading && (
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               )}
               Confirmar
@@ -104,7 +103,6 @@ type Jogador = {
   data_listagem?: string | null
 }
 
-
 type JogadorCardProps = {
   jogador: Jogador
   isAdmin: boolean
@@ -117,7 +115,7 @@ type JogadorCardProps = {
   mercadoFechado: boolean
 }
 
-/* ================= Card do jogador (ESTILO EA FC) ================= */
+/* ================= Card do jogador (ESTILO EA FC + WATERMARK LIGAFUT) ================= */
 const JogadorCard = ({
   jogador,
   isAdmin,
@@ -127,27 +125,13 @@ const JogadorCard = ({
   loadingComprar,
   mercadoFechado,
 }: JogadorCardProps) => {
-  // 🔧 CORREÇÃO DEFINITIVA DO ERRO DE BUILD
-  const valorAtual = calcularValorComDesgaste(
-    jogador.valor,
-    jogador.data_listagem ?? undefined
-  )
+  const valorAtual = calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? undefined)
 
-  /* ===== Desvalorização ===== */
   const percentualDesconto =
-    jogador.valor > valorAtual
-      ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100)
-      : 0
+    jogador.valor > valorAtual ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100) : 0
 
-  /* ===== Tipo da carta ===== */
-  const tipoCarta =
-    jogador.overall <= 64
-      ? 'bronze'
-      : jogador.overall <= 74
-      ? 'prata'
-      : 'ouro'
+  const tipoCarta = jogador.overall <= 64 ? 'bronze' : jogador.overall <= 74 ? 'prata' : 'ouro'
 
-  /* ===== Bandeira ===== */
   const codigoPais =
     jogador.nacionalidade?.toLowerCase() === 'brasil'
       ? 'br'
@@ -166,44 +150,55 @@ const JogadorCard = ({
   const botaoDesabilitado = loadingComprar || mercadoFechado
 
   return (
-  <div
-    className={[
-      'relative w-full max-w-[260px] overflow-hidden rounded-[22px]',
-      'transition-transform duration-300 hover:scale-[1.03]',
-      'shadow-xl',
+    <div
+      className={[
+        'relative w-full max-w-[260px] overflow-hidden rounded-[22px] shadow-xl',
+        'transition-transform duration-300 hover:scale-[1.03]',
 
-      // 🟤 BRONZE
-      tipoCarta === 'bronze' &&
-        'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
+        // acabamento EAFC
+        'before:absolute before:inset-0 before:z-[2] before:bg-[radial-gradient(circle_at_50%_30%,rgba(255,255,255,0.20),transparent_55%)] before:content-[""]',
+        'after:absolute after:inset-0 after:z-[2] after:bg-[radial-gradient(circle_at_50%_50%,transparent_35%,rgba(0,0,0,0.45)_100%)] after:content-[""]',
 
-      // ⚪ PRATA
-      tipoCarta === 'prata' &&
-        'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
+        // 🟤 BRONZE
+        tipoCarta === 'bronze' &&
+          'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
 
-      // 🟡 OURO
-      tipoCarta === 'ouro' &&
-        'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
+        // ⚪ PRATA
+        tipoCarta === 'prata' && 'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
 
-      loadingComprar ? 'opacity-70 pointer-events-none' : '',
-      selecionado ? 'ring-4 ring-red-500' : '',
-    ]
-      .filter(Boolean)
-      .join(' ')}
-  >
-    {/* 🔥 WATERMARKS */}
-    <div className="watermark-logo" />
-    <div className="watermark-text" />
+        // 🟡 OURO
+        tipoCarta === 'ouro' && 'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
+
+        loadingComprar ? 'opacity-70 pointer-events-none' : '',
+        selecionado ? 'ring-4 ring-red-500' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {/* 🔥 WATERMARK LigaFut (fundo da carta) */}
+      <div className="pointer-events-none absolute inset-0 z-[1]">
+        {/* Logo grande (imagem) - coloque em /public/ligafut-watermark.png */}
+        <div
+          className="absolute left-1/2 top-1/2 h-[220px] w-[220px] -translate-x-1/2 -translate-y-1/2 rotate-[-18deg] opacity-[0.10]
+                     bg-[url('/ligafut-watermark.png')] bg-contain bg-center bg-no-repeat"
+        />
+
+        {/* Texto repetido */}
+        <div className="absolute inset-0 opacity-[0.08]">
+          <div className="absolute -left-10 top-10 rotate-[-18deg] text-[34px] font-black tracking-[0.35em] uppercase">
+            LIGAFUT • LIGAFUT • LIGAFUT •
+          </div>
+          <div className="absolute -right-10 bottom-10 rotate-[-18deg] text-[34px] font-black tracking-[0.35em] uppercase">
+            LIGAFUT • LIGAFUT • LIGAFUT •
+          </div>
+        </div>
+      </div>
 
       {/* CHECKBOX ADMIN */}
       {isAdmin && (
         <div className="absolute right-2 top-2 z-20">
           <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/70 backdrop-blur">
-            <input
-              type="checkbox"
-              checked={selecionado}
-              onChange={toggleSelecionado}
-              className="h-4 w-4 accent-red-500"
-            />
+            <input type="checkbox" checked={selecionado} onChange={toggleSelecionado} className="h-4 w-4 accent-red-500" />
           </label>
         </div>
       )}
@@ -220,7 +215,7 @@ const JogadorCard = ({
       </div>
 
       {/* IMAGEM */}
-      <div className="flex justify-center pt-10">
+      <div className="relative z-10 flex justify-center pt-10">
         <img
           src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
           alt={jogador.nome}
@@ -229,27 +224,21 @@ const JogadorCard = ({
       </div>
 
       {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
-      <div className="mt-3 bg-black/25 px-3 py-2 text-center">
-  <div className="text-sm font-extrabold uppercase tracking-wide">
-    {jogador.nome}
-  </div>
+      <div className="relative z-10 mt-3 bg-black/25 px-3 py-2 text-center">
+        <div className="text-sm font-extrabold uppercase tracking-wide">{jogador.nome}</div>
 
-  {jogador.link_sofifa && (
-    <a
-      href={jogador.link_sofifa}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-0.5 inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-200 hover:text-blue-400 transition"
-    >
-      🔗 SoFIFA
-    </a>
-  )}
+        {jogador.link_sofifa && (
+          <a
+            href={jogador.link_sofifa}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-200 transition hover:text-blue-400"
+          >
+            🔗 SoFIFA
+          </a>
+        )}
 
-  <div className="mt-1 text-sm font-semibold text-green-300">
-    {formatarValor(valorAtual)}
-  </div>
-
-
+        <div className="mt-1 text-sm font-semibold text-green-300">{formatarValor(valorAtual)}</div>
 
         {jogador.salario && (
           <div className="mt-0.5 text-[11px] text-gray-200">
@@ -258,14 +247,12 @@ const JogadorCard = ({
         )}
 
         {percentualDesconto > 0 && (
-          <div className="mt-0.5 text-[11px] font-semibold text-red-300">
-            🔻 -{percentualDesconto}% desde a listagem
-          </div>
+          <div className="mt-0.5 text-[11px] font-semibold text-red-300">🔻 -{percentualDesconto}% desde a listagem</div>
         )}
       </div>
 
-     {/* BOTÃO COMPRAR (ATUALIZADO) */}
-      <div className="px-3 pb-4 pt-3">
+      {/* BOTÃO COMPRAR */}
+      <div className="relative z-10 px-3 pb-4 pt-3">
         <button
           onClick={onComprar}
           disabled={botaoDesabilitado}
@@ -276,18 +263,12 @@ const JogadorCard = ({
               : 'bg-green-600 text-white hover:bg-green-700 hover:scale-[1.02]',
           ].join(' ')}
         >
-          {loadingComprar
-            ? 'Comprando...'
-            : mercadoFechado
-            ? 'Mercado fechado'
-            : 'Comprar'}
+          {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
         </button>
       </div>
     </div>
   )
 }
-
-
 
 /* ================= Página ================= */
 export default function MercadoPage() {
@@ -351,10 +332,10 @@ export default function MercadoPage() {
     const carregarDados = async () => {
       try {
         const [resMercado, resTime, resMarketStatus] = await Promise.all([
-          // 🔹 IMPORTANTE: garantir data_listagem
           supabase
             .from('mercado_transferencias')
-            .select(`
+            .select(
+              `
               id,
               nome,
               posicao,
@@ -366,19 +347,12 @@ export default function MercadoPage() {
               foto,
               link_sofifa,
               data_listagem
-            `),
+            `
+            ),
 
-          supabase
-            .from('times')
-            .select('saldo')
-            .eq('id', userData.id_time)
-            .single(),
+          supabase.from('times').select('saldo').eq('id', userData.id_time).single(),
 
-          supabase
-            .from('configuracoes')
-            .select('aberto')
-            .eq('id', 'estado_mercado')
-            .single(),
+          supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
         ])
 
         if (resMercado.error) throw resMercado.error
@@ -390,10 +364,7 @@ export default function MercadoPage() {
         setMarketStatus(resMarketStatus.data?.aberto ? 'aberto' : 'fechado')
       } catch (e: any) {
         console.error('Erro ao carregar dados:', e)
-        setErro(
-          'Erro ao carregar dados. Tente novamente mais tarde. ' +
-            (e.message || e.toString())
-        )
+        setErro('Erro ao carregar dados. Tente novamente mais tarde. ' + (e.message || e.toString()))
       } finally {
         setLoading(false)
       }
@@ -412,9 +383,7 @@ export default function MercadoPage() {
 
     // helpers
     const normalizeKeys = (obj: any) =>
-      Object.fromEntries(
-        Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v])
-      )
+      Object.fromEntries(Object.entries(obj).map(([k, v]) => [String(k).trim().toLowerCase(), v]))
 
     const sanitizeUrl = (u?: any) => {
       if (!u) return ''
@@ -423,12 +392,7 @@ export default function MercadoPage() {
     }
 
     const pickImagemUrl = (row: Record<string, any>) => {
-      const cand =
-        row['imagem_url'] ??
-        row['foto'] ??
-        row['imagem url'] ??
-        row['url_imagem'] ??
-        row['imagem']
+      const cand = row['imagem_url'] ?? row['foto'] ?? row['imagem url'] ?? row['url_imagem'] ?? row['imagem']
       return sanitizeUrl(cand)
     }
 
@@ -445,9 +409,7 @@ export default function MercadoPage() {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer)
         const workbook = XLSX.read(data, { type: 'array' })
-        const sheetName = workbook.SheetNames.includes('Consolidado')
-          ? 'Consolidado'
-          : workbook.SheetNames[0]
+        const sheetName = workbook.SheetNames.includes('Consolidado') ? 'Consolidado' : workbook.SheetNames[0]
         const sheet = workbook.Sheets[sheetName]
         const json = XLSX.utils.sheet_to_json(sheet)
 
@@ -467,7 +429,7 @@ export default function MercadoPage() {
             throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
           }
 
-          const payload: any = {
+          return {
             nome,
             posicao,
             overall,
@@ -477,9 +439,7 @@ export default function MercadoPage() {
             nacionalidade,
             time_origem,
             data_listagem: new Date().toISOString(),
-          }
-
-          return payload as NovoJogador
+          } as any
         })
 
         const { data: inseridos, error } = await supabase
@@ -490,8 +450,7 @@ export default function MercadoPage() {
         if (error) throw error
 
         toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
-
-        setJogadores((prev) => [...prev, ...((inseridos as unknown as Jogador[]) ?? [])])
+        setJogadores((prev) => [...prev, ...(((inseridos as unknown as Jogador[]) ?? []) as Jogador[])])
       } catch (error: any) {
         console.error('Erro ao importar:', error)
         toast.error(`Erro no upload: ${error.message || error}`)
@@ -505,131 +464,118 @@ export default function MercadoPage() {
     reader.readAsArrayBuffer(file)
   }
 
- /* ================= Compra ================= */
-const solicitarCompra = (jogador: Jogador) => {
-  if (marketStatus === 'fechado') {
-    toast.error('O mercado está fechado. Não é possível comprar jogadores.')
-    return
-  }
-
-  const valorCompra = calcularValorComDesgaste(
-    jogador.valor,
-    (jogador as any).data_listagem
-  )
-
-  if (valorCompra > saldo) {
-    toast.error('Saldo insuficiente!')
-    return
-  }
-
-  setJogadorParaComprar(jogador)
-  setModalComprarVisivel(true)
-}
-
-const confirmarCompra = async () => {
-  if (!jogadorParaComprar || !user) {
-    setModalComprarVisivel(false)
-    return
-  }
-
-  const valorCompra = calcularValorComDesgaste(
-    jogadorParaComprar.valor,
-    (jogadorParaComprar as any).data_listagem
-  )
-
-  // Limite de elenco
-  const { data: elencoAtual, error: errorElenco } = await supabase
-    .from('elenco')
-    .select('id')
-    .eq('id_time', user.id_time)
-
-  if (errorElenco) {
-    toast.error('Erro ao verificar o elenco atual.')
-    return
-  }
-
-  if ((elencoAtual?.length || 0) >= 25) {
-    toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco. Venda para comprar do mercado!')
-    return
-  }
-
-  setLoadingComprarId(jogadorParaComprar.id)
-
-  try {
-    // garante exclusividade
-    const { data: deletedJogador, error: deleteError } = await supabase
-      .from('mercado_transferencias')
-      .delete()
-      .eq('id', jogadorParaComprar.id)
-      .select()
-
-    if (deleteError) throw deleteError
-    if (!deletedJogador || deletedJogador.length === 0) {
-      toast.error('Esse jogador já foi comprado por outro clube.')
+  /* ================= Compra ================= */
+  const solicitarCompra = (jogador: Jogador) => {
+    if (marketStatus === 'fechado') {
+      toast.error('O mercado está fechado. Não é possível comprar jogadores.')
       return
     }
 
-    const jogador = deletedJogador[0] as Jogador
+    const valorCompra = calcularValorComDesgaste(jogador.valor, (jogador as any).data_listagem)
 
     if (valorCompra > saldo) {
-      toast.error('Saldo insuficiente.')
+      toast.error('Saldo insuficiente!')
       return
     }
 
-    // BID
-    await supabase.from('bid').insert({
-      tipo_evento: 'compra',
-      descricao: `O ${user.nome_time} comprou ${jogador.nome} por ${formatarValor(valorCompra)}.`,
-      id_time1: user.id_time,
-      valor: valorCompra,
-      data_evento: new Date().toISOString(),
-    })
-
-    // Salário = 0.75% do valor REAL pago
-    const salario = Math.round(valorCompra * 0.0075)
-
-    const { error: errorInsert } = await supabase.from('elenco').insert({
-      id_time: user.id_time,
-      nome: jogador.nome,
-      posicao: jogador.posicao,
-      overall: jogador.overall,
-      valor: valorCompra,
-      imagem_url: (jogador.imagem_url || jogador.foto || '') as string,
-      salario: salario,
-      jogos: 0,
-      link_sofifa: jogador.link_sofifa || '',
-    })
-    if (errorInsert) throw errorInsert
-
-    // movimentação financeira
-    await registrarMovimentacao({
-      id_time: user.id_time,
-      tipo: 'saida',
-      valor: valorCompra,
-      descricao: `Compra de ${jogador.nome} no mercado`,
-    })
-
-    const { error: errorUpdate } = await supabase
-      .from('times')
-      .update({ saldo: saldo - valorCompra })
-      .eq('id', user.id_time)
-    if (errorUpdate) throw errorUpdate
-
-    setSaldo((prev) => prev - valorCompra)
-    setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
-    setSelecionados((prev) => prev.filter((id) => id !== jogador.id))
-
-    toast.success('Jogador comprado com sucesso!')
-  } catch (error) {
-    console.error('Erro na compra:', error)
-    toast.error('Ocorreu um erro ao comprar o jogador.')
-  } finally {
-    setLoadingComprarId(null)
-    setModalComprarVisivel(false)
-    setJogadorParaComprar(null)
+    setJogadorParaComprar(jogador)
+    setModalComprarVisivel(true)
   }
-}
 
+  const confirmarCompra = async () => {
+    if (!jogadorParaComprar || !user) {
+      setModalComprarVisivel(false)
+      return
+    }
+
+    const valorCompra = calcularValorComDesgaste(jogadorParaComprar.valor, (jogadorParaComprar as any).data_listagem)
+
+    // Limite de elenco
+    const { data: elencoAtual, error: errorElenco } = await supabase.from('elenco').select('id').eq('id_time', user.id_time)
+
+    if (errorElenco) {
+      toast.error('Erro ao verificar o elenco atual.')
+      return
+    }
+
+    if ((elencoAtual?.length || 0) >= 25) {
+      toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco. Venda para comprar do mercado!')
+      return
+    }
+
+    setLoadingComprarId(jogadorParaComprar.id)
+
+    try {
+      // garante exclusividade
+      const { data: deletedJogador, error: deleteError } = await supabase
+        .from('mercado_transferencias')
+        .delete()
+        .eq('id', jogadorParaComprar.id)
+        .select()
+
+      if (deleteError) throw deleteError
+      if (!deletedJogador || deletedJogador.length === 0) {
+        toast.error('Esse jogador já foi comprado por outro clube.')
+        return
+      }
+
+      const jogador = deletedJogador[0] as Jogador
+
+      if (valorCompra > saldo) {
+        toast.error('Saldo insuficiente.')
+        return
+      }
+
+      // BID
+      await supabase.from('bid').insert({
+        tipo_evento: 'compra',
+        descricao: `O ${user.nome_time} comprou ${jogador.nome} por ${formatarValor(valorCompra)}.`,
+        id_time1: user.id_time,
+        valor: valorCompra,
+        data_evento: new Date().toISOString(),
+      })
+
+      // Salário = 0.75% do valor REAL pago
+      const salario = Math.round(valorCompra * 0.0075)
+
+      const { error: errorInsert } = await supabase.from('elenco').insert({
+        id_time: user.id_time,
+        nome: jogador.nome,
+        posicao: jogador.posicao,
+        overall: jogador.overall,
+        valor: valorCompra,
+        imagem_url: (jogador.imagem_url || jogador.foto || '') as string,
+        salario,
+        jogos: 0,
+        link_sofifa: jogador.link_sofifa || '',
+      })
+      if (errorInsert) throw errorInsert
+
+      // movimentação financeira
+      await registrarMovimentacao({
+        id_time: user.id_time,
+        tipo: 'saida',
+        valor: valorCompra,
+        descricao: `Compra de ${jogador.nome} no mercado`,
+      })
+
+      const { error: errorUpdate } = await supabase.from('times').update({ saldo: saldo - valorCompra }).eq('id', user.id_time)
+      if (errorUpdate) throw errorUpdate
+
+      setSaldo((prev) => prev - valorCompra)
+      setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
+      setSelecionados((prev) => prev.filter((id) => id !== jogador.id))
+
+      toast.success('Jogador comprado com sucesso!')
+    } catch (error) {
+      console.error('Erro na compra:', error)
+      toast.error('Ocorreu um erro ao comprar o jogador.')
+    } finally {
+      setLoadingComprarId(null)
+      setModalComprarVisivel(false)
+      setJogadorParaComprar(null)
+    }
+  }
 
   /* ================= Admin: excluir/atualizar preço ================= */
   const toggleSelecionado = (id: string | number) => {
@@ -662,7 +608,6 @@ const confirmarCompra = async () => {
     }
   }
 
-  // Excluir por faixa de OVR
   const solicitarExcluirPorFaixa = () => {
     if (!isAdmin) return
     if (excluirOverallMin > excluirOverallMax) {
@@ -704,11 +649,7 @@ const confirmarCompra = async () => {
     }
     setLoadingAtualizarPrecoId(jogadorId)
     try {
-      const { error } = await supabase
-        .from('mercado_transferencias')
-        .update({ valor: novoValor })
-        .eq('id', jogadorId)
-
+      const { error } = await supabase.from('mercado_transferencias').update({ valor: novoValor }).eq('id', jogadorId)
       if (error) throw error
 
       setJogadores((prev) => prev.map((j) => (j.id === jogadorId ? { ...j, valor: novoValor } : j)))
@@ -747,8 +688,7 @@ const confirmarCompra = async () => {
         const overallMin = filtroOverallMin === '' ? 0 : filtroOverallMin
         const overallMax = filtroOverallMax === '' ? 99 : filtroOverallMax
         const valorMax = filtroValorMax === '' ? Infinity : filtroValorMax
-        const nacionalidadeJogador =
-          j.nacionalidade && j.nacionalidade.trim() !== '' ? j.nacionalidade : 'Resto do Mundo'
+        const nacionalidadeJogador = j.nacionalidade && j.nacionalidade.trim() !== '' ? j.nacionalidade : 'Resto do Mundo'
         const nacionalidadeMatch = filtroNacionalidade
           ? nacionalidadeJogador.toLowerCase().includes(filtroNacionalidade.toLowerCase())
           : true
@@ -766,16 +706,7 @@ const confirmarCompra = async () => {
       })
 
     return lista
-  }, [
-    jogadores,
-    filtroNome,
-    filtroPosicao,
-    filtroOverallMin,
-    filtroOverallMax,
-    filtroValorMax,
-    filtroNacionalidade,
-    ordenarPor,
-  ])
+  }, [jogadores, filtroNome, filtroPosicao, filtroOverallMin, filtroOverallMax, filtroValorMax, filtroNacionalidade, ordenarPor])
 
   const totalResultados = jogadoresFiltrados.length
   const totalPaginas = Math.max(1, Math.ceil(totalResultados / itensPorPagina))
@@ -817,9 +748,7 @@ const confirmarCompra = async () => {
                 <span
                   className={[
                     'inline-flex items-center gap-1 rounded-full px-2 py-0.5 ring-1 ring-inset',
-                    mercadoFechado
-                      ? 'bg-red-500/10 text-red-300 ring-red-500/30'
-                      : 'bg-green-500/10 text-green-300 ring-green-500/30',
+                    mercadoFechado ? 'bg-red-500/10 text-red-300 ring-red-500/30' : 'bg-green-500/10 text-green-300 ring-green-500/30',
                   ].join(' ')}
                 >
                   {mercadoFechado ? '🔒 Fechado' : '🔓 Aberto'}
@@ -844,9 +773,7 @@ const confirmarCompra = async () => {
                   disabled={loading}
                   className={[
                     'rounded-xl px-3 py-2 text-sm font-semibold transition',
-                    mercadoFechado
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-yellow-500 text-black hover:bg-yellow-400',
+                    mercadoFechado ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-yellow-500 text-black hover:bg-yellow-400',
                   ].join(' ')}
                 >
                   {loading ? 'Processando...' : mercadoFechado ? 'Abrir mercado' : 'Fechar mercado'}
@@ -858,14 +785,13 @@ const confirmarCompra = async () => {
                   disabled={uploadLoading || mercadoFechado}
                   className={[
                     'rounded-xl px-3 py-2 text-sm font-semibold transition',
-                    uploadLoading
-                      ? 'bg-gray-700 text-gray-300'
-                      : 'bg-blue-600 text-white hover:bg-blue-700',
+                    uploadLoading ? 'bg-gray-700 text-gray-300' : 'bg-blue-600 text-white hover:bg-blue-700',
                     mercadoFechado ? 'opacity-60 cursor-not-allowed' : '',
                   ].join(' ')}
                 >
                   {uploadLoading ? 'Importando...' : 'Importar planilha'}
                 </button>
+
                 <input
                   id="input-xlsx-upload"
                   type="file"
@@ -979,14 +905,12 @@ const confirmarCompra = async () => {
                   <option value={80}>80</option>
                 </select>
               </div>
+
               <div className="flex items-center gap-2">
                 <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-gray-300 ring-1 ring-white/10">
                   💰 Saldo: <strong className="text-green-400">{formatarValor(saldo)}</strong>
                 </span>
-                <button
-                  onClick={limparFiltros}
-                  className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm hover:bg-gray-700 transition"
-                >
+                <button onClick={limparFiltros} className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm transition hover:bg-gray-700">
                   Limpar filtros
                 </button>
               </div>
@@ -1049,7 +973,7 @@ const confirmarCompra = async () => {
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
             >
               ← Anterior
             </button>
@@ -1058,7 +982,7 @@ const confirmarCompra = async () => {
             </span>
             <button
               onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
             >
               Próxima →
             </button>
@@ -1083,9 +1007,7 @@ const confirmarCompra = async () => {
               />
             ))
           ) : (
-            <p className="col-span-full mt-6 text-center text-gray-400">
-              Nenhum jogador encontrado com os filtros atuais.
-            </p>
+            <p className="col-span-full mt-6 text-center text-gray-400">Nenhum jogador encontrado com os filtros atuais.</p>
           )}
         </div>
 
@@ -1094,7 +1016,7 @@ const confirmarCompra = async () => {
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <button
               onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
             >
               ← Anterior
             </button>
@@ -1103,7 +1025,7 @@ const confirmarCompra = async () => {
             </span>
             <button
               onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
+              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm transition hover:bg-gray-700"
             >
               Próxima →
             </button>
@@ -1116,7 +1038,7 @@ const confirmarCompra = async () => {
         visible={modalComprarVisivel}
         titulo="Confirmar Compra"
         mensagem={`Deseja comprar ${jogadorParaComprar?.nome ?? ''} por ${
-          jogadorParaComprar ? formatarValor(jogadorParaComprar.valor) : ''
+          jogadorParaComprar ? formatarValor(calcularValorComDesgaste(jogadorParaComprar.valor, jogadorParaComprar.data_listagem ?? undefined)) : ''
         }?`}
         onConfirm={confirmarCompra}
         onCancel={() => {
@@ -1146,3 +1068,12 @@ const confirmarCompra = async () => {
     </>
   )
 }
+
+/**
+ * ✅ IMPORTANTE:
+ * Coloque um PNG transparente do logo da LigaFut aqui:
+ * /public/ligafut-watermark.png
+ *
+ * Se quiser, posso também gerar um watermark em SVG (sem precisar de imagem).
+ */
+```
