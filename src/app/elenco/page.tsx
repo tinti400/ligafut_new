@@ -11,30 +11,78 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-/* ================= TIPOS ================= */
-
-// ✅ TIPOS QUE ESTAVAM FALTANDO (causavam o erro no build)
+/** ===== Tipos ===== */
 type Ordenacao = 'valor' | 'overall' | 'salario' | 'jogos' | 'nome' | 'posicao'
 type ViewMode = 'grid' | 'table'
 
-type Jogador = {
-  id?: string | number
+interface Jogador {
+  id: string
+  id_time: string
   nome: string
-  overall?: number | string | null
   posicao: string
+  overall: number | null
+  valor: number | null
+  salario: number | null
+  jogos: number | null
   nacionalidade?: string | null
   imagem_url?: string | null
-  foto?: string | null
-  valor?: number | null
-
-  // ✅ CORREÇÃO DO BUILD (Vercel)
   link_sofifa?: string | null
+  protegido?: boolean | null
+  lesionado?: boolean | null
+  percentual?: number | null
 }
 
 /** ===== Regra de salário (7.5%) ===== */
 const SALARIO_PERCENTUAL = 0.075
 const calcularSalario = (valor: number | null | undefined) =>
   Math.round(Number(valor || 0) * SALARIO_PERCENTUAL)
+
+/** ===== Util ===== */
+const bandeiras: Record<string, string> = {
+  Brasil: 'br',
+  Argentina: 'ar',
+  Portugal: 'pt',
+  Espanha: 'es',
+  França: 'fr',
+  Inglaterra: 'gb',
+  Alemanha: 'de',
+  Itália: 'it',
+  Holanda: 'nl',
+  Bélgica: 'be',
+  Uruguai: 'uy',
+  Chile: 'cl',
+  Colômbia: 'co',
+  México: 'mx',
+  Estados_Unidos: 'us',
+  Canadá: 'ca',
+  Paraguai: 'py',
+  Peru: 'pe',
+  Equador: 'ec',
+  Bolívia: 'bo',
+  Venezuela: 've',
+  Congo: 'cg',
+  Guiana: 'gy',
+  Suriname: 'sr',
+  Honduras: 'hn',
+  Nicarágua: 'ni',
+  Guatemala: 'gt',
+  Costa_Rica: 'cr',
+  Panamá: 'pa',
+  Jamaica: 'jm',
+  Camarões: 'cm',
+  Senegal: 'sn',
+  Marrocos: 'ma',
+  Egito: 'eg',
+  Argélia: 'dz',
+  Croácia: 'hr',
+  Sérvia: 'rs',
+  Suíça: 'ch',
+  Polônia: 'pl',
+  Rússia: 'ru',
+  Japão: 'jp',
+  Coreia_do_Sul: 'kr',
+  Austrália: 'au',
+}
 
 const formatBRL = (n: number | null | undefined) =>
   new Intl.NumberFormat('pt-BR', {
@@ -153,19 +201,11 @@ function EmptyState({
   )
 }
 
-function safeUrl(u?: string | null) {
-  if (!u) return ''
-  const s = String(u).trim()
-  if (!s || s === 'null' || s === 'undefined') return ''
-  return s
-}
-
 export default function ElencoPage() {
   /** ===== Estados ===== */
   const [elenco, setElenco] = useState<Jogador[]>([])
   const [saldo, setSaldo] = useState<number>(0)
   const [nomeTime, setNomeTime] = useState('')
-  const [logoTime, setLogoTime] = useState<string>('') // ✅ logo do time
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -180,7 +220,7 @@ export default function ElencoPage() {
   const [ordenacao, setOrdenacao] = useState<Ordenacao>('valor')
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
 
-  const [selecionados, setSelecionados] = useState<string[]>([])
+  const [selecionados, setSelecionados] = useState<string[]>([]) // Ações em massa (venda)
 
   // ===== Escalação =====
   const [titulares, setTitulares] = useState<string[]>([]) // exatamente 11
@@ -196,7 +236,14 @@ export default function ElencoPage() {
     return () => clearTimeout(t)
   }, [filtroNome])
 
-  /** ===== Contagem ===== */
+  /** ===== Helpers ===== */
+  const getFlagUrl = (pais?: string | null) => {
+    if (!pais) return ''
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '')
+    const key = Object.keys(bandeiras).find((nome) => norm(nome) === norm(pais))
+    return key ? `https://flagcdn.com/w40/${bandeiras[key]}.png` : ''
+  }
+
   const contar = (campo: keyof Jogador | string) => {
     const contagem: Record<string, number> = {}
     elenco.forEach((j) => {
@@ -208,66 +255,6 @@ export default function ElencoPage() {
 
   const contPorNac = useMemo(() => contar('nacionalidade'), [elenco])
   const contPorPos = useMemo(() => contar('posicao'), [elenco])
-
-  /** ===== Derivados (MOVIDO PRA CIMA) ✅ corrige "used before declaration" ===== */
-  const valorTotal = useMemo(
-    () => elenco.reduce((acc, j) => acc + Number(j.valor || 0), 0),
-    [elenco]
-  )
-  const salarioTotal = useMemo(
-    () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
-    [elenco]
-  )
-  const mediaOverall = useMemo(
-    () =>
-      elenco.length > 0
-        ? elenco.reduce((acc, j) => acc + Number(j.overall || 0), 0) / elenco.length
-        : 0,
-    [elenco]
-  )
-
-  const elencoFiltrado = useMemo(() => {
-    let arr = elenco.filter(
-      (j) =>
-        (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
-        (!filtroPosicao || j.posicao === filtroPosicao) &&
-        (!nomeDebounced ||
-          j.nome.toLowerCase().includes(nomeDebounced.toLowerCase())) &&
-        (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
-        (!soVendiveis || Number(j.jogos || 0) >= 3)
-    )
-
-    arr.sort((a, b) => {
-      if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
-      if (ordenacao === 'overall')
-        return Number(b.overall || 0) - Number(a.overall || 0)
-      if (ordenacao === 'salario')
-        return calcularSalario(b.valor) - calcularSalario(a.valor)
-      if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
-      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
-      if (ordenacao === 'posicao')
-        return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
-      return 0
-    })
-
-    return arr
-  }, [
-    elenco,
-    filtroNacionalidade,
-    filtroPosicao,
-    nomeDebounced,
-    filtroOverall,
-    soVendiveis,
-    ordenacao,
-  ])
-
-  const limparFiltros = () => {
-    setFiltroNome('')
-    setFiltroOverall(0)
-    setSoVendiveis(false)
-    setFiltroNacionalidade(null)
-    setFiltroPosicao(null)
-  }
 
   /** ===== BID helper ===== */
   async function registrarNoBID({
@@ -319,7 +306,6 @@ export default function ElencoPage() {
         setElenco([])
         setSaldo(0)
         setNomeTime('')
-        setLogoTime('')
         setSelecionados([])
         setTitulares([])
         setEscalaFixada(false)
@@ -331,19 +317,19 @@ export default function ElencoPage() {
         { data: timeData, error: e2 },
       ] = await Promise.all([
         supabase.from('elenco').select('*').eq('id_time', id_time),
-        supabase.from('times').select('nome, saldo, logo').eq('id', id_time).single(),
+        supabase.from('times').select('nome, saldo').eq('id', id_time).single(),
       ])
       if (e1) throw e1
       if (e2) throw e2
 
       // sincroniza salários
-      const needsUpdate = (elencoData || []).filter((j: any) => {
+      const needsUpdate = (elencoData || []).filter((j) => {
         const esperado = calcularSalario(j.valor)
         return Number(j.salario || 0) !== esperado
       })
       if (needsUpdate.length > 0) {
         await Promise.all(
-          needsUpdate.map((j: any) =>
+          needsUpdate.map((j) =>
             supabase
               .from('elenco')
               .update({ salario: calcularSalario(j.valor) })
@@ -352,7 +338,7 @@ export default function ElencoPage() {
         )
       }
 
-      const elencoComRegra = (elencoData || []).map((j: any) => ({
+      const elencoComRegra = (elencoData || []).map((j) => ({
         ...j,
         salario: calcularSalario(j.valor),
       })) as Jogador[]
@@ -380,7 +366,6 @@ export default function ElencoPage() {
       setElenco(elencoComRegra)
       setSaldo(Number(timeData?.saldo || 0))
       setNomeTime(timeData?.nome || '')
-      setLogoTime(safeUrl((timeData as any)?.logo || ''))
       setSelecionados([])
       setTitulares(titularesValidos)
       setEscalaFixada(fixada)
@@ -402,11 +387,8 @@ export default function ElencoPage() {
       prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id]
     )
   }
-
-  // ✅ agora NÃO dá erro de "used before declaration" (elencoFiltrado já existe aqui)
   const selecionarTodosFiltrados = () =>
     setSelecionados(elencoFiltrado.map((j) => j.id))
-
   const limparSelecao = () => setSelecionados([])
 
   /** ===== Vender selecionados ===== */
@@ -529,6 +511,66 @@ export default function ElencoPage() {
     await fetchElenco()
   }
 
+  /** ===== Derivados ===== */
+  const valorTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + Number(j.valor || 0), 0),
+    [elenco]
+  )
+  const salarioTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
+    [elenco]
+  )
+  const mediaOverall = useMemo(
+    () =>
+      elenco.length > 0
+        ? elenco.reduce((acc, j) => acc + Number(j.overall || 0), 0) / elenco.length
+        : 0,
+    [elenco]
+  )
+
+  const elencoFiltrado = useMemo(() => {
+    let arr = elenco.filter(
+      (j) =>
+        (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
+        (!filtroPosicao || j.posicao === filtroPosicao) &&
+        (!nomeDebounced ||
+          j.nome.toLowerCase().includes(nomeDebounced.toLowerCase())) &&
+        (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
+        (!soVendiveis || Number(j.jogos || 0) >= 3)
+    )
+
+    arr.sort((a, b) => {
+      if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
+      if (ordenacao === 'overall')
+        return Number(b.overall || 0) - Number(a.overall || 0)
+      if (ordenacao === 'salario')
+        return calcularSalario(b.valor) - calcularSalario(a.valor)
+      if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
+      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
+      if (ordenacao === 'posicao')
+        return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
+      return 0
+    })
+
+    return arr
+  }, [
+    elenco,
+    filtroNacionalidade,
+    filtroPosicao,
+    nomeDebounced,
+    filtroOverall,
+    soVendiveis,
+    ordenacao,
+  ])
+
+  const limparFiltros = () => {
+    setFiltroNome('')
+    setFiltroOverall(0)
+    setSoVendiveis(false)
+    setFiltroNacionalidade(null)
+    setFiltroPosicao(null)
+  }
+
   /** ===== Skeleton ===== */
   const SkeletonCard = () => (
     <div className="animate-pulse bg-white/[0.04] p-4 rounded-2xl border border-white/10">
@@ -619,58 +661,33 @@ export default function ElencoPage() {
     )
   }
 
-  const initials = (nomeTime || 'LF')
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join('')
-
   return (
     <div className="min-h-screen text-white bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/10 via-gray-950 to-gray-950">
       <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-        {/* Header (UPGRADE) */}
-        <header className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-white/10">
+        {/* Header */}
+        <header className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-white/10">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              {/* Logo do time */}
-              <div className="h-11 w-11 rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden shrink-0 grid place-items-center">
-                {logoTime ? (
-                  <img
-                    src={logoTime}
-                    alt={`Logo ${nomeTime}`}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  <span className="text-sm font-extrabold text-white/80">{initials}</span>
-                )}
-              </div>
-
-              <div className="min-w-0">
-                <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight truncate">
-                  Elenco do <span className="text-emerald-400">{nomeTime || '—'}</span>
-                  <span className="text-xs sm:text-sm text-gray-400 ml-2">
-                    ({elenco.length})
-                  </span>
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 truncate">
-                  Gerencie elenco, selecione titulares e anuncie no mercado.
-                </p>
-              </div>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight truncate">
+                👥 Elenco do{' '}
+                <span className="text-emerald-400">{nomeTime || '—'}</span>
+                <span className="text-xs sm:text-sm text-gray-400 ml-2">
+                  ({elenco.length})
+                </span>
+              </h1>
+              <p className="text-xs sm:text-sm text-gray-400 mt-0.5">
+                Gerencie elenco, selecione titulares e anuncie no mercado.
+              </p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <div className="hidden sm:flex items-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
-                <span className="text-xs text-emerald-200/90">💳 Saldo</span>
-                <b className="text-sm">{formatBRL(saldo)}</b>
+              <div className="hidden sm:block rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
+                💳 <b className="ml-1">{formatBRL(saldo)}</b>
               </div>
-
               <button
                 type="button"
                 onClick={fetchElenco}
-                className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-sm font-semibold border border-white/10"
+                className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
                 aria-label="Atualizar elenco"
                 title="Atualizar"
               >
@@ -811,34 +828,19 @@ export default function ElencoPage() {
           {/* Filtros ativos (chips) */}
           <div className="mt-3 flex flex-wrap gap-2">
             {filtroNome && (
-              <ActiveFilterChip
-                label={`Nome: "${filtroNome}"`}
-                onClear={() => setFiltroNome('')}
-              />
+              <ActiveFilterChip label={`Nome: "${filtroNome}"`} onClear={() => setFiltroNome('')} />
             )}
             {filtroOverall > 0 && (
-              <ActiveFilterChip
-                label={`OVR ≥ ${filtroOverall}`}
-                onClear={() => setFiltroOverall(0)}
-              />
+              <ActiveFilterChip label={`OVR ≥ ${filtroOverall}`} onClear={() => setFiltroOverall(0)} />
             )}
             {soVendiveis && (
-              <ActiveFilterChip
-                label="Vendíveis (≥ 3 jogos)"
-                onClear={() => setSoVendiveis(false)}
-              />
+              <ActiveFilterChip label="Vendíveis (≥ 3 jogos)" onClear={() => setSoVendiveis(false)} />
             )}
             {filtroNacionalidade && (
-              <ActiveFilterChip
-                label={`Nac: ${filtroNacionalidade}`}
-                onClear={() => setFiltroNacionalidade(null)}
-              />
+              <ActiveFilterChip label={`Nac: ${filtroNacionalidade}`} onClear={() => setFiltroNacionalidade(null)} />
             )}
             {filtroPosicao && (
-              <ActiveFilterChip
-                label={`Pos: ${filtroPosicao}`}
-                onClear={() => setFiltroPosicao(null)}
-              />
+              <ActiveFilterChip label={`Pos: ${filtroPosicao}`} onClear={() => setFiltroPosicao(null)} />
             )}
           </div>
         </header>
@@ -846,11 +848,7 @@ export default function ElencoPage() {
         {/* Sheet de filtros (MOBILE) */}
         {showFiltersMobile && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm">
-            <div
-              className="absolute inset-0"
-              onClick={() => setShowFiltersMobile(false)}
-              aria-hidden
-            />
+            <div className="absolute inset-0" onClick={() => setShowFiltersMobile(false)} aria-hidden />
             <div className="absolute bottom-0 left-0 right-0 rounded-t-3xl bg-gray-950 border-t border-white/10 p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
               <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-700 mb-3" />
               <div className="flex items-center justify-between mb-2">
@@ -917,11 +915,7 @@ export default function ElencoPage() {
                   </div>
                 </div>
 
-                {(filtroNome ||
-                  filtroOverall ||
-                  soVendiveis ||
-                  filtroNacionalidade ||
-                  filtroPosicao) && (
+                {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
                   <button
                     type="button"
                     onClick={limparFiltros}
@@ -943,9 +937,7 @@ export default function ElencoPage() {
                           : 'bg-gray-700 cursor-not-allowed'
                       }`}
                   >
-                    {salvandoEscalacao
-                      ? 'Salvando...'
-                      : `Salvar Escalação (${titulares.length}/11)`}
+                    {salvandoEscalacao ? 'Salvando...' : `Salvar Escalação (${titulares.length}/11)`}
                   </button>
                 ) : (
                   <button
@@ -969,7 +961,66 @@ export default function ElencoPage() {
           </div>
         )}
 
-        {erro && <p className="mt-3 text-red-400 text-sm">{erro}</p>}
+        {/* Chips dinâmicos */}
+        <section className="mt-4">
+          <details className="open:mt-0 sm:open mt-0">
+            <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
+              🌎 Nacionalidades
+            </summary>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {Object.entries(contPorNac).map(([nac, count]) => (
+                <button
+                  key={nac}
+                  type="button"
+                  onClick={() => setFiltroNacionalidade(nac)}
+                  className={`px-3 py-2 rounded-2xl text-xs whitespace-nowrap border transition
+                    ${
+                      filtroNacionalidade === nac
+                        ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-100'
+                        : 'bg-white/[0.04] border-white/10 text-gray-200 hover:bg-white/[0.07]'
+                    }`}
+                  title={nac}
+                >
+                  {getFlagUrl(nac) && (
+                    <img
+                      src={getFlagUrl(nac)}
+                      className="inline-block w-5 h-3 mr-1 rounded-sm"
+                      alt={nac}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  )}
+                  {nac} <span className="text-gray-300/80">({count})</span>
+                </button>
+              ))}
+            </div>
+          </details>
+
+          <details className="mt-2 open:mt-2">
+            <summary className="cursor-pointer text-sm text-gray-300 select-none py-1">
+              🎯 Posições
+            </summary>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {Object.entries(contPorPos).map(([pos, count]) => (
+                <button
+                  key={pos}
+                  type="button"
+                  onClick={() => setFiltroPosicao(pos)}
+                  className={`px-3 py-2 rounded-2xl text-xs whitespace-nowrap border transition
+                    ${
+                      filtroPosicao === pos
+                        ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-100'
+                        : 'bg-white/[0.04] border-white/10 text-gray-200 hover:bg-white/[0.07]'
+                    }`}
+                >
+                  {pos} <span className="text-gray-300/80">({count})</span>
+                </button>
+              ))}
+            </div>
+          </details>
+
+          {erro && <p className="mt-2 text-red-400 text-sm">{erro}</p>}
+        </section>
 
         {/* Barra ações em massa */}
         {selecionados.length > 0 && (
@@ -1002,7 +1053,9 @@ export default function ElencoPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={limparSelecao}
+                    onClick={() => {
+                      limparSelecao()
+                    }}
                     className="flex-1 sm:flex-none bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 px-3 py-2 rounded-2xl text-sm font-semibold"
                   >
                     Limpar
@@ -1039,50 +1092,50 @@ export default function ElencoPage() {
           <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
             {elencoFiltrado.map((jogador) => (
               <div key={jogador.id} className="relative">
+                {/* Badge titular (visual, opcional) */}
+                {titulares.includes(jogador.id) && (
+                  <span className="absolute -top-2 -left-2 z-10 text-xs font-extrabold px-2 py-1 rounded-full bg-amber-500/20 border border-amber-500/30">
+                    ⭐ Titular
+                  </span>
+                )}
+
+                {/* Overlay rápido de ações (clicar no card já é do componente) */}
+                <div className="absolute -top-2 -right-2 z-10 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleTitular(jogador.id)}
+                    disabled={escalaFixada}
+                    className={`h-9 w-9 rounded-2xl border text-sm font-extrabold transition
+                      ${
+                        titulares.includes(jogador.id)
+                          ? 'bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/20'
+                          : 'bg-white/[0.04] border-white/10 hover:bg-white/[0.08]'
+                      }
+                      ${escalaFixada ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    title={escalaFixada ? 'Escalação fixada' : 'Marcar/desmarcar titular'}
+                  >
+                    ⭐
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleSelecionado(jogador.id)}
+                    className={`h-9 w-9 rounded-2xl border text-sm font-extrabold transition
+                      ${
+                        selecionados.includes(jogador.id)
+                          ? 'bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/20'
+                          : 'bg-white/[0.04] border-white/10 hover:bg-white/[0.08]'
+                      }`}
+                    title="Selecionar"
+                  >
+                    ✓
+                  </button>
+                </div>
+
                 <CardJogador
                   modo="elenco"
                   selecionado={selecionados.includes(jogador.id)}
                   onToggleSelecionado={() => toggleSelecionado(jogador.id)}
-                  badgeTopLeft={
-                    titulares.includes(jogador.id) ? (
-                      <span className="absolute -top-2 -left-2 z-10 text-xs font-extrabold px-2 py-1 rounded-full bg-amber-500/20 border border-amber-500/30">
-                        ⭐ Titular
-                      </span>
-                    ) : null
-                  }
-                  badgeTopRight={
-                    <div className="absolute -top-2 -right-2 z-10 flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleTitular(jogador.id)}
-                        disabled={escalaFixada}
-                        className={`h-9 w-9 rounded-2xl border text-sm font-extrabold transition
-                          ${
-                            titulares.includes(jogador.id)
-                              ? 'bg-amber-500/15 border-amber-500/30 hover:bg-amber-500/20'
-                              : 'bg-white/[0.04] border-white/10 hover:bg-white/[0.08]'
-                          }
-                          ${escalaFixada ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        title={escalaFixada ? 'Escalação fixada' : 'Marcar/desmarcar titular'}
-                      >
-                        ⭐
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => toggleSelecionado(jogador.id)}
-                        className={`h-9 w-9 rounded-2xl border text-sm font-extrabold transition
-                          ${
-                            selecionados.includes(jogador.id)
-                              ? 'bg-emerald-500/15 border-emerald-500/30 hover:bg-emerald-500/20'
-                              : 'bg-white/[0.04] border-white/10 hover:bg-white/[0.08]'
-                          }`}
-                        title="Selecionar"
-                      >
-                        ✓
-                      </button>
-                    </div>
-                  }
                   jogador={{
                     id: jogador.id,
                     nome: jogador.nome,
@@ -1090,8 +1143,7 @@ export default function ElencoPage() {
                     posicao: jogador.posicao,
                     nacionalidade: jogador.nacionalidade ?? undefined,
                     imagem_url: jogador.imagem_url ?? undefined,
-                    valor: jogador.valor ?? 0,
-                    link_sofifa: jogador.link_sofifa ?? undefined,
+                    valor: jogador.valor ?? undefined,
                   }}
                 />
               </div>
