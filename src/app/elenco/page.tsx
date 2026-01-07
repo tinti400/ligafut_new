@@ -13,6 +13,10 @@ const supabase = createClient(
 
 /* ================= TIPOS ================= */
 
+// ✅ TIPOS QUE ESTAVAM FALTANDO (causavam o erro no build)
+type Ordenacao = 'valor' | 'overall' | 'salario' | 'jogos' | 'nome' | 'posicao'
+type ViewMode = 'grid' | 'table'
+
 type Jogador = {
   id?: string | number
   nome: string
@@ -23,9 +27,10 @@ type Jogador = {
   foto?: string | null
   valor?: number | null
 
-  // ✅ CORREÇÃO DO BUILD (Vercel): agora o Card aceita essa prop
+  // ✅ CORREÇÃO DO BUILD (Vercel)
   link_sofifa?: string | null
 }
+
 /** ===== Regra de salário (7.5%) ===== */
 const SALARIO_PERCENTUAL = 0.075
 const calcularSalario = (valor: number | null | undefined) =>
