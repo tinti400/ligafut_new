@@ -26,7 +26,6 @@ interface Jogador {
   jogos: number | null
   nacionalidade?: string | null
   imagem_url?: string | null
-  link_sofifa?: string | null // ✅ (corrige erro de build)
   protegido?: boolean | null
   lesionado?: boolean | null
   percentual?: number | null
