@@ -26,7 +26,7 @@ interface Jogador {
   jogos: number | null
   nacionalidade?: string | null
   imagem_url?: string | null
- link_sofifa?: string | null // ✅ ADICIONADO (corrige o erro do build)
+  link_sofifa?: string | null // ✅ (corrige erro de build)
   protegido?: boolean | null
   lesionado?: boolean | null
   percentual?: number | null
@@ -210,6 +210,66 @@ export default function ElencoPage() {
   const contPorNac = useMemo(() => contar('nacionalidade'), [elenco])
   const contPorPos = useMemo(() => contar('posicao'), [elenco])
 
+  /** ===== Derivados (MOVIDO PRA CIMA) ✅ corrige "used before declaration" ===== */
+  const valorTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + Number(j.valor || 0), 0),
+    [elenco]
+  )
+  const salarioTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
+    [elenco]
+  )
+  const mediaOverall = useMemo(
+    () =>
+      elenco.length > 0
+        ? elenco.reduce((acc, j) => acc + Number(j.overall || 0), 0) / elenco.length
+        : 0,
+    [elenco]
+  )
+
+  const elencoFiltrado = useMemo(() => {
+    let arr = elenco.filter(
+      (j) =>
+        (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
+        (!filtroPosicao || j.posicao === filtroPosicao) &&
+        (!nomeDebounced ||
+          j.nome.toLowerCase().includes(nomeDebounced.toLowerCase())) &&
+        (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
+        (!soVendiveis || Number(j.jogos || 0) >= 3)
+    )
+
+    arr.sort((a, b) => {
+      if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
+      if (ordenacao === 'overall')
+        return Number(b.overall || 0) - Number(a.overall || 0)
+      if (ordenacao === 'salario')
+        return calcularSalario(b.valor) - calcularSalario(a.valor)
+      if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
+      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
+      if (ordenacao === 'posicao')
+        return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
+      return 0
+    })
+
+    return arr
+  }, [
+    elenco,
+    filtroNacionalidade,
+    filtroPosicao,
+    nomeDebounced,
+    filtroOverall,
+    soVendiveis,
+    ordenacao,
+  ])
+
+  const limparFiltros = () => {
+    setFiltroNome('')
+    setFiltroOverall(0)
+    setSoVendiveis(false)
+    setFiltroNacionalidade(null)
+    setFiltroPosicao(null)
+  }
+
   /** ===== BID helper ===== */
   async function registrarNoBID({
     tipo_evento,
@@ -272,7 +332,6 @@ export default function ElencoPage() {
         { data: timeData, error: e2 },
       ] = await Promise.all([
         supabase.from('elenco').select('*').eq('id_time', id_time),
-        // ✅ pega também o logo
         supabase.from('times').select('nome, saldo, logo').eq('id', id_time).single(),
       ])
       if (e1) throw e1
@@ -322,7 +381,7 @@ export default function ElencoPage() {
       setElenco(elencoComRegra)
       setSaldo(Number(timeData?.saldo || 0))
       setNomeTime(timeData?.nome || '')
-      setLogoTime(safeUrl((timeData as any)?.logo || '')) // ✅
+      setLogoTime(safeUrl((timeData as any)?.logo || ''))
       setSelecionados([])
       setTitulares(titularesValidos)
       setEscalaFixada(fixada)
@@ -344,8 +403,11 @@ export default function ElencoPage() {
       prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id]
     )
   }
+
+  // ✅ agora NÃO dá erro de "used before declaration" (elencoFiltrado já existe aqui)
   const selecionarTodosFiltrados = () =>
     setSelecionados(elencoFiltrado.map((j) => j.id))
+
   const limparSelecao = () => setSelecionados([])
 
   /** ===== Vender selecionados ===== */
@@ -466,66 +528,6 @@ export default function ElencoPage() {
     }
 
     await fetchElenco()
-  }
-
-  /** ===== Derivados ===== */
-  const valorTotal = useMemo(
-    () => elenco.reduce((acc, j) => acc + Number(j.valor || 0), 0),
-    [elenco]
-  )
-  const salarioTotal = useMemo(
-    () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
-    [elenco]
-  )
-  const mediaOverall = useMemo(
-    () =>
-      elenco.length > 0
-        ? elenco.reduce((acc, j) => acc + Number(j.overall || 0), 0) / elenco.length
-        : 0,
-    [elenco]
-  )
-
-  const elencoFiltrado = useMemo(() => {
-    let arr = elenco.filter(
-      (j) =>
-        (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
-        (!filtroPosicao || j.posicao === filtroPosicao) &&
-        (!nomeDebounced ||
-          j.nome.toLowerCase().includes(nomeDebounced.toLowerCase())) &&
-        (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
-        (!soVendiveis || Number(j.jogos || 0) >= 3)
-    )
-
-    arr.sort((a, b) => {
-      if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
-      if (ordenacao === 'overall')
-        return Number(b.overall || 0) - Number(a.overall || 0)
-      if (ordenacao === 'salario')
-        return calcularSalario(b.valor) - calcularSalario(a.valor)
-      if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
-      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
-      if (ordenacao === 'posicao')
-        return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
-      return 0
-    })
-
-    return arr
-  }, [
-    elenco,
-    filtroNacionalidade,
-    filtroPosicao,
-    nomeDebounced,
-    filtroOverall,
-    soVendiveis,
-    ordenacao,
-  ])
-
-  const limparFiltros = () => {
-    setFiltroNome('')
-    setFiltroOverall(0)
-    setSoVendiveis(false)
-    setFiltroNacionalidade(null)
-    setFiltroPosicao(null)
   }
 
   /** ===== Skeleton ===== */
@@ -649,8 +651,7 @@ export default function ElencoPage() {
 
               <div className="min-w-0">
                 <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight truncate">
-                  Elenco do{' '}
-                  <span className="text-emerald-400">{nomeTime || '—'}</span>
+                  Elenco do <span className="text-emerald-400">{nomeTime || '—'}</span>
                   <span className="text-xs sm:text-sm text-gray-400 ml-2">
                     ({elenco.length})
                   </span>
@@ -1039,7 +1040,6 @@ export default function ElencoPage() {
           <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
             {elencoFiltrado.map((jogador) => (
               <div key={jogador.id} className="relative">
-                {/* Badges (em cima do card, igual mercado) */}
                 <CardJogador
                   modo="elenco"
                   selecionado={selecionados.includes(jogador.id)}
@@ -1193,6 +1193,3 @@ export default function ElencoPage() {
     </div>
   )
 }
-
-
-             
