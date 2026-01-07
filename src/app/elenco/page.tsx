@@ -11,26 +11,21 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-/** ===== Tipos ===== */
-type Ordenacao = 'valor' | 'overall' | 'salario' | 'jogos' | 'nome' | 'posicao'
-type ViewMode = 'grid' | 'table'
+/* ================= TIPOS ================= */
 
-interface Jogador {
-  id: string
-  id_time: string
+type Jogador = {
+  id?: string | number
   nome: string
+  overall?: number | string | null
   posicao: string
-  overall: number | null
-  valor: number | null
-  salario: number | null
-  jogos: number | null
   nacionalidade?: string | null
   imagem_url?: string | null
-  protegido?: boolean | null
-  lesionado?: boolean | null
-  percentual?: number | null
-}
+  foto?: string | null
+  valor?: number | null
 
+  // ✅ CORREÇÃO DO BUILD (Vercel): agora o Card aceita essa prop
+  link_sofifa?: string | null
+}
 /** ===== Regra de salário (7.5%) ===== */
 const SALARIO_PERCENTUAL = 0.075
 const calcularSalario = (valor: number | null | undefined) =>
