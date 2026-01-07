@@ -13,6 +13,40 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+/** ========= Watermark ========= */
+const WATERMARK_LOGO_SRC = '/watermarks/ligafut26.png'
+
+function WatermarkBG() {
+  const itens = useMemo(() => Array.from({ length: 42 }), [])
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {/* logo grande */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={WATERMARK_LOGO_SRC}
+        alt=""
+        aria-hidden="true"
+        className="absolute left-1/2 top-24 -translate-x-1/2 w-[520px] max-w-[90vw] opacity-[0.06] rotate-[-8deg] blur-[0.2px]"
+        draggable={false}
+      />
+
+      {/* texto repetido */}
+      <div className="absolute left-[-30%] top-[25%] rotate-[-18deg] w-[160%]">
+        <div className="flex flex-wrap gap-x-6 gap-y-4 opacity-[0.06]">
+          {itens.map((_, i) => (
+            <span
+              key={i}
+              className="text-[12px] font-extrabold tracking-[0.28em] text-white/80 select-none"
+            >
+              LIGAFUT26
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** ========= Tipos ========= */
 type IDEvt = string | number
 
@@ -33,7 +67,6 @@ interface EventoBID {
   id_time2?: string | null
   valor?: number | null
   data_evento: string
-  // dados opcionais de jogador
   id_jogador?: string | null
   nome_jogador?: string | null
   foto_jogador_url?: string | null
@@ -115,6 +148,10 @@ function horaPt(date: Date) {
   return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
+function formatBRL(valor?: number | null) {
+  return (valor ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
 function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
   if (logo) {
     return (
@@ -122,15 +159,15 @@ function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
       <img
         src={logo}
         alt={nome}
-        className="size-8 rounded-full object-cover ring-1 ring-white/10"
+        className="size-9 rounded-full object-cover ring-1 ring-white/10"
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
       />
     )
   }
   const iniciais = nome.split(' ').slice(0, 2).map(s => s[0]).join('').toUpperCase()
   return (
-    <div className="size-8 rounded-full bg-gray-700 text-gray-200 grid place-items-center ring-1 ring-white/10">
-      <span className="text-xs font-bold">{iniciais || '?'}</span>
+    <div className="size-9 rounded-full bg-gray-700 text-gray-200 grid place-items-center ring-1 ring-white/10">
+      <span className="text-xs font-extrabold">{iniciais || '?'}</span>
     </div>
   )
 }
@@ -182,18 +219,18 @@ function CardJogador({ j, highlight }: { j: Partial<Jogador>, highlight?: string
     : <>{j.nome}</>
 
   return (
-    <div className="rounded-xl bg-black/30 border border-white/10 p-3 flex gap-3 items-center">
+    <div className="rounded-2xl bg-black/30 border border-white/10 ensure-shadow p-3 flex gap-3 items-center">
       {j.foto_url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={j.foto_url}
           alt={j.nome || 'Jogador'}
           loading="lazy"
-          className="size-14 rounded-lg object-cover ring-1 ring-white/10"
+          className="size-14 rounded-xl object-cover ring-1 ring-white/10"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
         />
       ) : (
-        <div className="size-14 rounded-lg bg-gray-800 text-gray-300 grid place-items-center ring-1 ring-white/10">
+        <div className="size-14 rounded-xl bg-gray-800 text-gray-300 grid place-items-center ring-1 ring-white/10">
           <span className="text-lg">👤</span>
         </div>
       )}
@@ -214,58 +251,47 @@ function CardJogador({ j, highlight }: { j: Partial<Jogador>, highlight?: string
 export default function BIDPage() {
   const { isAdmin } = useAdmin()
 
-  // Eventos, times e jogadores
   const [eventos, setEventos] = useState<EventoBID[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, Time>>({})
   const [timesLista, setTimesLista] = useState<Time[]>([])
   const [jogadoresMap, setJogadoresMap] = useState<Record<string, Jogador>>({})
 
-  // Estados gerais
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Filtros / Ordenação / Paginação
   const [filtroTime, setFiltroTime] = useState('todos')
   const [tipoFiltro, setTipoFiltro] = useState<TipoChipKey>('todos')
   const [sortOrder, setSortOrder] = useState<SortOrder>('recente')
 
-  // Busca
   const [buscaTexto, setBuscaTexto] = useState('')
   const debouncedBusca = useDebounce(buscaTexto, 350)
   const buscaAtiva = debouncedBusca.trim().length >= 2
 
-  // Paginação
   const [pagina, setPagina] = useState(1)
   const [limite] = useState(25)
   const [totalPaginas, setTotalPaginas] = useState(1)
 
-  // Comentários
   const [comentariosMap, setComentariosMap] = useState<Record<string, Comentario[]>>({})
   const [comentando, setComentando] = useState<Record<string, boolean>>({})
   const [novoComentario, setNovoComentario] = useState<Record<string, string>>({})
   const [excluindoComentario, setExcluindoComentario] = useState<Record<string, boolean>>({})
   const [comentarioAberto, setComentarioAberto] = useState<Record<string, boolean>>({})
 
-  // Reações
   const [reacoesCount, setReacoesCount] = useState<Record<string, Record<Emoji, number>>>({})
   const [minhasReacoes, setMinhasReacoes] = useState<Record<string, Record<Emoji, boolean>>>({})
   const [reagindo, setReagindo] = useState<Record<string, boolean>>({})
 
-  // Identidade do time logado
   const [idTimeLogado, setIdTimeLogado] = useState<string | null>(null)
   const [nomeTimeLogado, setNomeTimeLogado] = useState<string | null>(null)
 
-  // Auto-animate
   const [listaDiasAnim] = useAutoAnimate<HTMLDivElement>()
   const [commentsAnim] = useAutoAnimate<HTMLDivElement>()
 
-  // Scroll anchor p/ paginação
   const topRef = useRef<HTMLDivElement | null>(null)
 
-  // Modo "filtro global" (sem paginação)
   const filtroGlobalAtivo = !buscaAtiva && (filtroTime !== 'todos' || tipoFiltro !== 'todos')
 
-  /** ====== Identidade do time (robusto) ====== */
+  /** ====== Identidade do time (robusto + atualiza nome pelo BD) ====== */
   useEffect(() => {
     if (typeof window === 'undefined') return
     let id = localStorage.getItem('id_time') || localStorage.getItem('idTime') || null
@@ -276,7 +302,7 @@ export default function BIDPage() {
         const raw = localStorage.getItem(key)
         if (!raw) return
         const obj = JSON.parse(raw)
-        if (!id)   id   = obj?.id_time || obj?.idTime || obj?.id || null
+        if (!id) id = obj?.id_time || obj?.idTime || obj?.id || null
         if (!nome) nome = obj?.nome_time || obj?.nomeTime || obj?.nome || null
       } catch {}
     }
@@ -284,11 +310,24 @@ export default function BIDPage() {
 
     if (id) setIdTimeLogado(String(id))
     if (nome) setNomeTimeLogado(String(nome))
+
+    // ✅ revalida nome atual no banco (corrige "nome antigo")
+    ;(async () => {
+      try {
+        if (!id) return
+        const { data, error } = await supabase
+          .from('times')
+          .select('nome')
+          .eq('id', String(id))
+          .maybeSingle()
+        if (!error && data?.nome) setNomeTimeLogado(data.nome)
+      } catch {}
+    })()
   }, [])
 
-  /** ====== Carrega times uma vez ====== */
+  /** ====== Carrega times uma vez (e mantém mapa atualizado) ====== */
   useEffect(() => {
-    (async () => {
+    ;(async () => {
       const { data: timesData, error: errorTimes } = await supabase
         .from('times')
         .select('id, nome, logo_url')
@@ -302,51 +341,44 @@ export default function BIDPage() {
       ;(timesData || []).forEach((t) => (map[t.id] = t))
       setTimesLista(timesData || [])
       setTimesMap(map)
+
+      // se já tem idTimeLogado, garante nome atual mesmo que localStorage esteja velho
+      if (idTimeLogado && map[idTimeLogado]?.nome) {
+        setNomeTimeLogado(map[idTimeLogado].nome)
+      }
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** ====== Inicial ====== */
   useEffect(() => {
-    if (!buscaAtiva && !filtroGlobalAtivo) {
-      carregarDados(1)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!buscaAtiva && !filtroGlobalAtivo) carregarDados(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** ====== Busca global reativa ====== */
   useEffect(() => {
-    if (buscaAtiva) {
-      buscarGlobal(debouncedBusca)
-    } else if (filtroGlobalAtivo) {
-      carregarFiltrado()
-    } else {
-      carregarDados(1)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (buscaAtiva) buscarGlobal(debouncedBusca)
+    else if (filtroGlobalAtivo) carregarFiltrado()
+    else carregarDados(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedBusca])
 
   /** ====== Filtro global reativo ====== */
   useEffect(() => {
     if (buscaAtiva) return
-    if (filtroGlobalAtivo) {
-      carregarFiltrado()
-    } else {
-      carregarDados(1)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (filtroGlobalAtivo) carregarFiltrado()
+    else carregarDados(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroTime, tipoFiltro])
 
-  /** ====== Ordenação reativa ====== */
+  /** ====== Ordenação reativa (client) ====== */
   useEffect(() => {
     setEventos((prev) => {
       const arr = [...prev]
-      if (sortOrder === 'valor') {
-        arr.sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
-      } else if (sortOrder === 'antigo') {
-        arr.sort((a, b) => +new Date(a.data_evento) - +new Date(b.data_evento))
-      } else {
-        arr.sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
-      }
+      if (sortOrder === 'valor') arr.sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
+      else if (sortOrder === 'antigo') arr.sort((a, b) => +new Date(a.data_evento) - +new Date(b.data_evento))
+      else arr.sort((a, b) => +new Date(b.data_evento) - +new Date(a.data_evento))
       return arr
     })
   }, [sortOrder])
@@ -391,9 +423,7 @@ export default function BIDPage() {
         carregarReacoesParaEventos(idsStr),
       ])
 
-      if (topRef.current) {
-        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
+      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar os eventos.')
@@ -413,29 +443,23 @@ export default function BIDPage() {
     try {
       let q = supabase.from('bid').select('*')
 
-      if (filtroTime !== 'todos') {
-        q = q.or(`id_time1.eq.${filtroTime},id_time2.eq.${filtroTime}`)
-      }
+      if (filtroTime !== 'todos') q = q.or(`id_time1.eq.${filtroTime},id_time2.eq.${filtroTime}`)
 
       if (tipoFiltro !== 'todos') {
         const mapOr: Record<Exclude<TipoChipKey,'todos'>, string> = {
           transfer: 'tipo_evento.ilike.*transfer*',
           emprest: 'tipo_evento.ilike.*emprest*,tipo_evento.ilike.*emprést*',
-          rescis:   'tipo_evento.ilike.*rescis*',
-          compra:   'tipo_evento.ilike.*compra*',
-          salario:  'tipo_evento.ilike.*salario*',
-          bonus:    'tipo_evento.ilike.*bonus*,tipo_evento.ilike.*bônus*',
+          rescis: 'tipo_evento.ilike.*rescis*',
+          compra: 'tipo_evento.ilike.*compra*',
+          salario: 'tipo_evento.ilike.*salario*',
+          bonus: 'tipo_evento.ilike.*bonus*,tipo_evento.ilike.*bônus*',
         }
         q = q.or(mapOr[tipoFiltro])
       }
 
-      if (sortOrder === 'valor') {
-        q = q.order('valor', { ascending: false, nullsFirst: false })
-      } else if (sortOrder === 'antigo') {
-        q = q.order('data_evento', { ascending: true })
-      } else {
-        q = q.order('data_evento', { ascending: false })
-      }
+      if (sortOrder === 'valor') q = q.order('valor', { ascending: false, nullsFirst: false })
+      else if (sortOrder === 'antigo') q = q.order('data_evento', { ascending: true })
+      else q = q.order('data_evento', { ascending: false })
 
       const { data, error } = await q
       if (error) throw error
@@ -453,9 +477,7 @@ export default function BIDPage() {
         carregarReacoesParaEventos(idsStr),
       ])
 
-      if (topRef.current) {
-        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
+      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } catch (err: any) {
       console.error(err)
       setErro('Erro ao carregar com filtros.')
@@ -520,11 +542,10 @@ export default function BIDPage() {
       }
 
       const mapa: Record<string, EventoBID> = {}
-      ;[...(porDesc as EventoBID[] || []), ...porJogador as EventoBID[] || [], ...porTime1, ...porTime2]
+      ;[...(porDesc as EventoBID[] || []), ...(porJogador as EventoBID[] || []), ...porTime1, ...porTime2]
         .forEach((ev) => { mapa[String(ev.id)] = ev })
-      let unicos = Object.values(mapa)
 
-      unicos.sort((a, b) =>
+      const unicos = Object.values(mapa).sort((a, b) =>
         sortOrder === 'valor' ? (b.valor ?? 0) - (a.valor ?? 0)
         : sortOrder === 'antigo' ? (+new Date(a.data_evento) - +new Date(b.data_evento))
         : (+new Date(b.data_evento) - +new Date(a.data_evento))
@@ -542,9 +563,7 @@ export default function BIDPage() {
         carregarReacoesParaEventos(idsStr),
       ])
 
-      if (topRef.current) {
-        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
+      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } catch (err: any) {
       console.error(err)
       setErro('Erro na busca.')
@@ -560,11 +579,8 @@ export default function BIDPage() {
   /** ====== Jogadores ====== */
   async function carregarJogadoresParaEventos(lista: EventoBID[]) {
     try {
-      const ids = Array.from(
-        new Set(
-          lista.map(ev => ev.id_jogador || '').filter(Boolean)
-        )
-      ).filter((id) => !jogadoresMap[id as string])
+      const ids = Array.from(new Set(lista.map(ev => ev.id_jogador || '').filter(Boolean)))
+        .filter((id) => !jogadoresMap[id as string])
 
       if (!ids.length) return
 
@@ -630,18 +646,30 @@ export default function BIDPage() {
 
   async function enviarComentario(idEventoRaw: IDEvt) {
     const idEvento = String(idEventoRaw)
-    if (!idTimeLogado || !nomeTimeLogado) {
+    if (!idTimeLogado) {
       toast.error('Faça login no seu time para comentar.')
       return
     }
+
     const texto = (novoComentario[idEvento] || '').trim()
     if (!texto) { toast('Digite um comentário.', { icon: '💬' }); return }
+
+    // ✅ pega nome ATUAL do time (evita "nome antigo")
+    const nomeAtual =
+      timesMap[idTimeLogado]?.nome ||
+      nomeTimeLogado ||
+      'Time'
 
     setComentando((prev) => ({ ...prev, [idEvento]: true }))
     try {
       const { data, error } = await supabase
         .from('bid_comentarios')
-        .insert({ id_evento: idEvento, id_time: idTimeLogado, nome_time: nomeTimeLogado, comentario: texto })
+        .insert({
+          id_evento: idEvento,
+          id_time: idTimeLogado,
+          nome_time: nomeAtual,
+          comentario: texto,
+        })
         .select('*')
         .single()
       if (error) throw error
@@ -788,9 +816,11 @@ export default function BIDPage() {
 
   /** ====== Render ====== */
   return (
-    <main className="min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,rgba(16,185,129,0.10),transparent),linear-gradient(to_bottom,#0b0f14,#000000)] text-white">
+    <main className="relative min-h-screen bg-[radial-gradient(1200px_600px_at_50%_-10%,rgba(16,185,129,0.12),transparent),linear-gradient(to_bottom,#0b0f14,#000000)] text-white">
+      <WatermarkBG />
+
       <div ref={topRef} />
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-6xl mx-auto px-4 py-6 relative">
         {/* Cabeçalho */}
         <header className="mb-6 text-center">
           <div className="inline-block rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-5 py-3 shadow-sm">
@@ -801,6 +831,7 @@ export default function BIDPage() {
               Acompanhe transferências, empréstimos, rescisões e mais.
             </p>
           </div>
+
           {buscaAtiva && (
             <div className="mt-3 text-sm text-gray-300">
               🔎 Resultados para <span className="text-yellow-300 font-semibold">“{debouncedBusca}”</span>
@@ -816,7 +847,7 @@ export default function BIDPage() {
         </header>
 
         {/* Filtros sticky */}
-        <div className="sticky top-0 z-10 -mx-4 mb-6 bg-gradient-to-b from-black/70 to-transparent backdrop-blur supports-[backdrop-filter]:bg-black/40 px-4 py-3 border-b border-white/10">
+        <div className="sticky top-0 z-10 -mx-4 mb-6 bg-gradient-to-b from-black/80 to-transparent backdrop-blur supports-[backdrop-filter]:bg-black/50 px-4 py-3 border-b border-white/10">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
               <div className="flex gap-3 w-full md:w-auto">
@@ -849,6 +880,7 @@ export default function BIDPage() {
                   value={buscaTexto}
                   onChange={(e) => setBuscaTexto(e.target.value)}
                 />
+
                 {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
                   <div className="hidden md:flex items-center gap-2">
                     <button onClick={() => carregarDados(1)} disabled={pagina === 1}
@@ -944,7 +976,7 @@ export default function BIDPage() {
         {erro && <p className="text-red-400 text-center">{erro}</p>}
         {!loading && Object.keys(eventosAgrupados).length === 0 && (
           <div className="text-center text-gray-300 py-8">
-            <p className="text-lg">Nenhum evento encontrado {buscaAtiva || filtroGlobalAtivo ? 'para os filtros atuais.' : 'para esse filtro.'}</p>
+            <p className="text-lg">Nenhum evento encontrado para os filtros atuais.</p>
           </div>
         )}
 
@@ -976,6 +1008,7 @@ export default function BIDPage() {
                       const idEvento = String(evento.id)
                       const time1 = timesMap[evento.id_time1]
                       const time2 = evento.id_time2 ? timesMap[evento.id_time2] : null
+
                       const comentarios = comentariosMap[idEvento] || []
                       const counts = reacoesCount[idEvento] || {}
                       const mine = minhasReacoes[idEvento] || {}
@@ -1016,7 +1049,6 @@ export default function BIDPage() {
                               </p>
 
                               <div className="mt-3 flex flex-wrap items-center gap-3">
-                                {/* time 1 */}
                                 <div className="flex items-center gap-2">
                                   <AvatarTime nome={time1?.nome || 'Time'} logo={time1?.logo_url} />
                                   <div className="text-sm">
@@ -1027,7 +1059,6 @@ export default function BIDPage() {
 
                                 {time2 && <span className="text-gray-500">•</span>}
 
-                                {/* time 2 */}
                                 {time2 && (
                                   <div className="flex items-center gap-2">
                                     <AvatarTime nome={time2?.nome || 'Time'} logo={time2?.logo_url} />
@@ -1055,29 +1086,27 @@ export default function BIDPage() {
                                 ) : null
                               })()}
 
-                              {/* Movimentação (valor sempre cabendo no card) */}
                               {evento.valor != null && (
-                                <div className="rounded-xl bg-black/30 border border-white/10 p-3">
+                                <div className="rounded-2xl bg-black/30 border border-white/10 p-3">
                                   <p className="text-xs text-gray-400 mb-0.5">Movimentação</p>
                                   <p
                                     className="font-extrabold text-yellow-300 leading-tight whitespace-nowrap overflow-hidden text-ellipsis tracking-tight"
                                     style={{ fontSize: 'clamp(0.95rem, 2.4vw, 1.35rem)' }}
-                                    title={evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    title={formatBRL(evento.valor)}
                                   >
-                                    {evento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    {formatBRL(evento.valor)}
                                   </p>
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Reações */}
-                          <div className="mt-4 rounded-lg bg-black/25 border border-white/10 p-2.5">
+                          {/* Reações (sempre visível) */}
+                          <div className="mt-4 rounded-xl bg-black/25 border border-white/10 p-2.5">
                             <div className="flex flex-wrap items-center gap-2">
                               {EMOJIS.map((e) => {
                                 const qtd = (counts[e] || 0)
                                 const ativo = !!mine[e]
-                                if (qtd === 0 && !ativo) return null
                                 return (
                                   <button
                                     key={e}
@@ -1085,7 +1114,7 @@ export default function BIDPage() {
                                     disabled={!idTimeLogado || !!reagindo[idEvento]}
                                     aria-pressed={ativo}
                                     className={classNames(
-                                      'px-2 py-1 rounded-full text-sm border transition',
+                                      'px-2.5 py-1 rounded-full text-sm border transition',
                                       ativo
                                         ? 'bg-emerald-600/25 border-emerald-500 ring-2 ring-emerald-400/40'
                                         : 'bg-gray-900/60 border-gray-700 hover:bg-gray-800'
@@ -1104,7 +1133,7 @@ export default function BIDPage() {
                           </div>
 
                           {/* Comentários */}
-                          <div className="mt-4 rounded-xl bg-black/25 border border-white/10 p-3">
+                          <div className="mt-4 rounded-2xl bg-black/25 border border-white/10 p-3">
                             <div className="flex items-center justify-between mb-2">
                               <h3 className="font-semibold text-white" aria-live="polite">
                                 💬 Comentários ({comentarios.length})
@@ -1126,27 +1155,34 @@ export default function BIDPage() {
                                   {comentarios.length === 0 && (
                                     <p className="text-gray-300 text-sm">Seja o primeiro a comentar!</p>
                                   )}
-                                  {comentarios.map((c) => (
-                                    <div key={c.id} className="bg-gray-900/70 border border-gray-700 rounded-md p-2">
-                                      <div className="flex items-center justify-between">
-                                        <div className="text-sm flex items-center gap-2">
-                                          <AvatarTime nome={c.nome_time} logo={timesMap[c.id_time]?.logo_url} />
-                                          <span className="font-semibold text-emerald-300">{c.nome_time}</span>
-                                          <span className="text-gray-400"> • {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
+
+                                  {comentarios.map((c) => {
+                                    // ✅ NOME ATUAL do time (corrige "nome antigo" nos comentários)
+                                    const nomeAtualTime = timesMap[c.id_time]?.nome || c.nome_time || 'Time'
+                                    const logoAtual = timesMap[c.id_time]?.logo_url
+
+                                    return (
+                                      <div key={c.id} className="bg-gray-900/70 border border-gray-700 rounded-xl p-2.5">
+                                        <div className="flex items-center justify-between">
+                                          <div className="text-sm flex items-center gap-2 min-w-0">
+                                            <AvatarTime nome={nomeAtualTime} logo={logoAtual} />
+                                            <span className="font-semibold text-emerald-300 truncate">{nomeAtualTime}</span>
+                                            <span className="text-gray-400 text-xs">• {new Date(c.criado_em).toLocaleString('pt-BR')}</span>
+                                          </div>
+                                          {podeExcluirComentario(c) && (
+                                            <button
+                                              onClick={() => excluirComentario(idEvento, c.id)}
+                                              disabled={!!excluindoComentario[c.id]}
+                                              className="text-red-300 hover:text-red-500 text-xs"
+                                            >
+                                              {excluindoComentario[c.id] ? 'Excluindo…' : 'Excluir'}
+                                            </button>
+                                          )}
                                         </div>
-                                        {podeExcluirComentario(c) && (
-                                          <button
-                                            onClick={() => excluirComentario(idEvento, c.id)}
-                                            disabled={!!excluindoComentario[c.id]}
-                                            className="text-red-300 hover:text-red-500 text-xs"
-                                          >
-                                            {excluindoComentario[c.id] ? 'Excluindo…' : 'Excluir'}
-                                          </button>
-                                        )}
+                                        <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
                                       </div>
-                                      <p className="text-gray-100 text-sm mt-1 whitespace-pre-wrap break-words">{c.comentario}</p>
-                                    </div>
-                                  ))}
+                                    )
+                                  })}
                                 </div>
 
                                 <ComentarioForm
@@ -1183,7 +1219,7 @@ export default function BIDPage() {
           })}
         </div>
 
-        {/* Rodapé paginação (somente modo normal) */}
+        {/* Rodapé paginação */}
         {!buscaAtiva && !filtroGlobalAtivo && totalPaginas > 1 && (
           <div className="mt-10 flex justify-center items-center gap-3">
             <button onClick={() => carregarDados(1)} disabled={pagina === 1}
@@ -1234,11 +1270,9 @@ function ComentarioForm({
   return (
     <div className="mt-3">
       <textarea
-        placeholder={
-          podeComentar ? 'Escreva um comentário…' : 'Você precisa estar logado no seu time para comentar.'
-        }
+        placeholder={podeComentar ? 'Escreva um comentário…' : 'Você precisa estar logado no seu time para comentar.'}
         disabled={!podeComentar || enviando}
-        className="w-full rounded-md bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
+        className="w-full rounded-xl bg-gray-900/80 text-white border border-gray-700 p-2 min-h-[70px] placeholder:text-gray-500 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
         value={comentarioAtual}
         onChange={(e) => setTexto(idEvento, e.target.value)}
       />
@@ -1249,7 +1283,7 @@ function ComentarioForm({
         <button
           onClick={onSubmit}
           disabled={!podeComentar || enviando || comentarioAtual.trim().length === 0}
-          className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-sm"
+          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-sm font-semibold"
         >
           {enviando ? 'Publicando…' : 'Publicar comentário'}
         </button>
@@ -1257,4 +1291,5 @@ function ComentarioForm({
     </div>
   )
 }
+
 
