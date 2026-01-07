@@ -206,6 +206,7 @@ export default function ElencoPage() {
   const [elenco, setElenco] = useState<Jogador[]>([])
   const [saldo, setSaldo] = useState<number>(0)
   const [nomeTime, setNomeTime] = useState('')
+  const [logoTime, setLogoTime] = useState<string>('') // ✅ NOVO
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -306,6 +307,7 @@ export default function ElencoPage() {
         setElenco([])
         setSaldo(0)
         setNomeTime('')
+        setLogoTime('') // ✅
         setSelecionados([])
         setTitulares([])
         setEscalaFixada(false)
@@ -317,19 +319,24 @@ export default function ElencoPage() {
         { data: timeData, error: e2 },
       ] = await Promise.all([
         supabase.from('elenco').select('*').eq('id_time', id_time),
-        supabase.from('times').select('nome, saldo').eq('id', id_time).single(),
+        // ✅ pega logo
+        supabase
+          .from('times')
+          .select('nome, saldo, logo')
+          .eq('id', id_time)
+          .single(),
       ])
       if (e1) throw e1
       if (e2) throw e2
 
       // sincroniza salários
-      const needsUpdate = (elencoData || []).filter((j) => {
+      const needsUpdate = (elencoData || []).filter((j: any) => {
         const esperado = calcularSalario(j.valor)
         return Number(j.salario || 0) !== esperado
       })
       if (needsUpdate.length > 0) {
         await Promise.all(
-          needsUpdate.map((j) =>
+          needsUpdate.map((j: any) =>
             supabase
               .from('elenco')
               .update({ salario: calcularSalario(j.valor) })
@@ -338,7 +345,7 @@ export default function ElencoPage() {
         )
       }
 
-      const elencoComRegra = (elencoData || []).map((j) => ({
+      const elencoComRegra = (elencoData || []).map((j: any) => ({
         ...j,
         salario: calcularSalario(j.valor),
       })) as Jogador[]
@@ -353,8 +360,10 @@ export default function ElencoPage() {
           .eq('id_time', id_time)
           .single()
         if (!e3 && esc) {
-          titularesSalvos = Array.isArray(esc.titulares) ? esc.titulares : []
-          fixada = !!esc.fixada
+          titularesSalvos = Array.isArray((esc as any).titulares)
+            ? (esc as any).titulares
+            : []
+          fixada = !!(esc as any).fixada
         }
       } catch {}
 
@@ -364,8 +373,9 @@ export default function ElencoPage() {
         .slice(0, 11)
 
       setElenco(elencoComRegra)
-      setSaldo(Number(timeData?.saldo || 0))
-      setNomeTime(timeData?.nome || '')
+      setSaldo(Number((timeData as any)?.saldo || 0))
+      setNomeTime(String((timeData as any)?.nome || ''))
+      setLogoTime(String((timeData as any)?.logo || '')) // ✅
       setSelecionados([])
       setTitulares(titularesValidos)
       setEscalaFixada(fixada)
@@ -379,7 +389,68 @@ export default function ElencoPage() {
 
   useEffect(() => {
     fetchElenco()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /** ===== Derivados ===== */
+  const valorTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + Number(j.valor || 0), 0),
+    [elenco]
+  )
+  const salarioTotal = useMemo(
+    () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
+    [elenco]
+  )
+  const mediaOverall = useMemo(
+    () =>
+      elenco.length > 0
+        ? elenco.reduce((acc, j) => acc + Number(j.overall || 0), 0) / elenco.length
+        : 0,
+    [elenco]
+  )
+
+  const elencoFiltrado = useMemo(() => {
+    let arr = elenco.filter(
+      (j) =>
+        (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
+        (!filtroPosicao || j.posicao === filtroPosicao) &&
+        (!nomeDebounced ||
+          j.nome.toLowerCase().includes(nomeDebounced.toLowerCase())) &&
+        (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
+        (!soVendiveis || Number(j.jogos || 0) >= 3)
+    )
+
+    arr.sort((a, b) => {
+      if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
+      if (ordenacao === 'overall')
+        return Number(b.overall || 0) - Number(a.overall || 0)
+      if (ordenacao === 'salario')
+        return calcularSalario(b.valor) - calcularSalario(a.valor)
+      if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
+      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
+      if (ordenacao === 'posicao')
+        return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
+      return 0
+    })
+
+    return arr
+  }, [
+    elenco,
+    filtroNacionalidade,
+    filtroPosicao,
+    nomeDebounced,
+    filtroOverall,
+    soVendiveis,
+    ordenacao,
+  ])
+
+  const limparFiltros = () => {
+    setFiltroNome('')
+    setFiltroOverall(0)
+    setSoVendiveis(false)
+    setFiltroNacionalidade(null)
+    setFiltroPosicao(null)
+  }
 
   /** ===== Ações em massa ===== */
   const toggleSelecionado = (id: string) => {
@@ -511,77 +582,6 @@ export default function ElencoPage() {
     await fetchElenco()
   }
 
-  /** ===== Derivados ===== */
-  const valorTotal = useMemo(
-    () => elenco.reduce((acc, j) => acc + Number(j.valor || 0), 0),
-    [elenco]
-  )
-  const salarioTotal = useMemo(
-    () => elenco.reduce((acc, j) => acc + calcularSalario(j.valor), 0),
-    [elenco]
-  )
-  const mediaOverall = useMemo(
-    () =>
-      elenco.length > 0
-        ? elenco.reduce((acc, j) => acc + Number(j.overall || 0), 0) / elenco.length
-        : 0,
-    [elenco]
-  )
-
-  const elencoFiltrado = useMemo(() => {
-    let arr = elenco.filter(
-      (j) =>
-        (!filtroNacionalidade || j.nacionalidade === filtroNacionalidade) &&
-        (!filtroPosicao || j.posicao === filtroPosicao) &&
-        (!nomeDebounced ||
-          j.nome.toLowerCase().includes(nomeDebounced.toLowerCase())) &&
-        (!filtroOverall || Number(j.overall || 0) >= filtroOverall) &&
-        (!soVendiveis || Number(j.jogos || 0) >= 3)
-    )
-
-    arr.sort((a, b) => {
-      if (ordenacao === 'valor') return Number(b.valor || 0) - Number(a.valor || 0)
-      if (ordenacao === 'overall')
-        return Number(b.overall || 0) - Number(a.overall || 0)
-      if (ordenacao === 'salario')
-        return calcularSalario(b.valor) - calcularSalario(a.valor)
-      if (ordenacao === 'jogos') return Number(b.jogos || 0) - Number(a.jogos || 0)
-      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR')
-      if (ordenacao === 'posicao')
-        return (a.posicao || '').localeCompare(b.posicao || '', 'pt-BR')
-      return 0
-    })
-
-    return arr
-  }, [
-    elenco,
-    filtroNacionalidade,
-    filtroPosicao,
-    nomeDebounced,
-    filtroOverall,
-    soVendiveis,
-    ordenacao,
-  ])
-
-  const limparFiltros = () => {
-    setFiltroNome('')
-    setFiltroOverall(0)
-    setSoVendiveis(false)
-    setFiltroNacionalidade(null)
-    setFiltroPosicao(null)
-  }
-
-  /** ===== Skeleton ===== */
-  const SkeletonCard = () => (
-    <div className="animate-pulse bg-white/[0.04] p-4 rounded-2xl border border-white/10">
-      <div className="h-20 w-20 rounded-full bg-white/10 mx-auto mb-3" />
-      <div className="h-4 bg-white/10 rounded w-3/4 mx-auto mb-2" />
-      <div className="h-3 bg-white/10 rounded w-1/2 mx-auto mb-4" />
-      <div className="h-6 bg-white/10 rounded w-full mb-2" />
-      <div className="h-6 bg-white/10 rounded w-5/6 mb-2" />
-    </div>
-  )
-
   /** ===== Salvar / Fixar Escalação ===== */
   const salvarEscalacao = async () => {
     if (escalaFixada) return
@@ -641,6 +641,17 @@ export default function ElencoPage() {
     }
   }
 
+  /** ===== Skeleton ===== */
+  const SkeletonCard = () => (
+    <div className="animate-pulse bg-white/[0.04] p-4 rounded-2xl border border-white/10">
+      <div className="h-20 w-20 rounded-full bg-white/10 mx-auto mb-3" />
+      <div className="h-4 bg-white/10 rounded w-3/4 mx-auto mb-2" />
+      <div className="h-3 bg-white/10 rounded w-1/2 mx-auto mb-4" />
+      <div className="h-6 bg-white/10 rounded w-full mb-2" />
+      <div className="h-6 bg-white/10 rounded w-5/6 mb-2" />
+    </div>
+  )
+
   /** ===== Loading ===== */
   if (loading) {
     return (
@@ -664,26 +675,50 @@ export default function ElencoPage() {
   return (
     <div className="min-h-screen text-white bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/10 via-gray-950 to-gray-950">
       <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-        {/* Header */}
+        {/* ===== Header (MELHORADO + LOGO) ===== */}
         <header className="sticky top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-gray-950/85 backdrop-blur supports-[backdrop-filter]:bg-gray-950/65 border-b border-white/10">
+          {/* Linha principal */}
           <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight truncate">
-                👥 Elenco do{' '}
-                <span className="text-emerald-400">{nomeTime || '—'}</span>
-                <span className="text-xs sm:text-sm text-gray-400 ml-2">
-                  ({elenco.length})
-                </span>
-              </h1>
-              <p className="text-xs sm:text-sm text-gray-400 mt-0.5">
-                Gerencie elenco, selecione titulares e anuncie no mercado.
-              </p>
+            {/* Esquerda: logo + nome */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative h-11 w-11 sm:h-12 sm:w-12 rounded-2xl overflow-hidden border border-white/10 bg-white/[0.04] shrink-0">
+                {logoTime ? (
+                  <img
+                    src={logoTime}
+                    alt={`Logo ${nomeTime || 'Time'}`}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                ) : (
+                  <div className="h-full w-full grid place-items-center text-white/60 text-xs font-extrabold">
+                    {nomeTime ? nomeTime.slice(0, 2).toUpperCase() : 'LF'}
+                  </div>
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight truncate">
+                    Elenco do <span className="text-emerald-400">{nomeTime || '—'}</span>
+                  </h1>
+                  <span className="hidden sm:inline text-xs sm:text-sm text-gray-400 shrink-0">
+                    ({elenco.length})
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-gray-400 mt-0.5 truncate">
+                  Gerencie elenco, selecione titulares e anuncie no mercado.
+                </p>
+              </div>
             </div>
 
+            {/* Direita: saldo + botões */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="hidden sm:block rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
-                💳 <b className="ml-1">{formatBRL(saldo)}</b>
+              <div className="hidden sm:flex items-center gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm">
+                <span className="opacity-90">💳</span>
+                <b className="tracking-tight">{formatBRL(saldo)}</b>
               </div>
+
               <button
                 type="button"
                 onClick={fetchElenco}
@@ -693,10 +728,20 @@ export default function ElencoPage() {
               >
                 🔄
               </button>
+
+              <button
+                type="button"
+                onClick={() => setShowFiltersMobile(true)}
+                className="sm:hidden px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.10] text-sm border border-white/10"
+                aria-label="Abrir filtros"
+                title="Filtros"
+              >
+                🧰
+              </button>
             </div>
           </div>
 
-          {/* Mobile quick bar */}
+          {/* Barra rápida MOBILE: busca + saldo */}
           <div className="mt-3 flex gap-2 sm:hidden">
             <input
               type="text"
@@ -706,13 +751,9 @@ export default function ElencoPage() {
               className="flex-1 px-3 py-2 rounded-xl text-black"
               aria-label="Buscar por nome"
             />
-            <button
-              type="button"
-              onClick={() => setShowFiltersMobile(true)}
-              className="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.10] text-sm border border-white/10"
-            >
-              🧰
-            </button>
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm whitespace-nowrap">
+              💳 <b className="ml-1">{formatBRL(saldo)}</b>
+            </div>
           </div>
 
           {/* Stat cards */}
@@ -828,19 +869,34 @@ export default function ElencoPage() {
           {/* Filtros ativos (chips) */}
           <div className="mt-3 flex flex-wrap gap-2">
             {filtroNome && (
-              <ActiveFilterChip label={`Nome: "${filtroNome}"`} onClear={() => setFiltroNome('')} />
+              <ActiveFilterChip
+                label={`Nome: "${filtroNome}"`}
+                onClear={() => setFiltroNome('')}
+              />
             )}
             {filtroOverall > 0 && (
-              <ActiveFilterChip label={`OVR ≥ ${filtroOverall}`} onClear={() => setFiltroOverall(0)} />
+              <ActiveFilterChip
+                label={`OVR ≥ ${filtroOverall}`}
+                onClear={() => setFiltroOverall(0)}
+              />
             )}
             {soVendiveis && (
-              <ActiveFilterChip label="Vendíveis (≥ 3 jogos)" onClear={() => setSoVendiveis(false)} />
+              <ActiveFilterChip
+                label="Vendíveis (≥ 3 jogos)"
+                onClear={() => setSoVendiveis(false)}
+              />
             )}
             {filtroNacionalidade && (
-              <ActiveFilterChip label={`Nac: ${filtroNacionalidade}`} onClear={() => setFiltroNacionalidade(null)} />
+              <ActiveFilterChip
+                label={`Nac: ${filtroNacionalidade}`}
+                onClear={() => setFiltroNacionalidade(null)}
+              />
             )}
             {filtroPosicao && (
-              <ActiveFilterChip label={`Pos: ${filtroPosicao}`} onClear={() => setFiltroPosicao(null)} />
+              <ActiveFilterChip
+                label={`Pos: ${filtroPosicao}`}
+                onClear={() => setFiltroPosicao(null)}
+              />
             )}
           </div>
         </header>
@@ -848,7 +904,11 @@ export default function ElencoPage() {
         {/* Sheet de filtros (MOBILE) */}
         {showFiltersMobile && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm">
-            <div className="absolute inset-0" onClick={() => setShowFiltersMobile(false)} aria-hidden />
+            <div
+              className="absolute inset-0"
+              onClick={() => setShowFiltersMobile(false)}
+              aria-hidden
+            />
             <div className="absolute bottom-0 left-0 right-0 rounded-t-3xl bg-gray-950 border-t border-white/10 p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
               <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-700 mb-3" />
               <div className="flex items-center justify-between mb-2">
@@ -915,7 +975,11 @@ export default function ElencoPage() {
                   </div>
                 </div>
 
-                {(filtroNome || filtroOverall || soVendiveis || filtroNacionalidade || filtroPosicao) && (
+                {(filtroNome ||
+                  filtroOverall ||
+                  soVendiveis ||
+                  filtroNacionalidade ||
+                  filtroPosicao) && (
                   <button
                     type="button"
                     onClick={limparFiltros}
@@ -937,7 +1001,9 @@ export default function ElencoPage() {
                           : 'bg-gray-700 cursor-not-allowed'
                       }`}
                   >
-                    {salvandoEscalacao ? 'Salvando...' : `Salvar Escalação (${titulares.length}/11)`}
+                    {salvandoEscalacao
+                      ? 'Salvando...'
+                      : `Salvar Escalação (${titulares.length}/11)`}
                   </button>
                 ) : (
                   <button
@@ -1053,9 +1119,7 @@ export default function ElencoPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      limparSelecao()
-                    }}
+                    onClick={limparSelecao}
                     className="flex-1 sm:flex-none bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 px-3 py-2 rounded-2xl text-sm font-semibold"
                   >
                     Limpar
@@ -1092,14 +1156,14 @@ export default function ElencoPage() {
           <div className="mt-5 grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
             {elencoFiltrado.map((jogador) => (
               <div key={jogador.id} className="relative">
-                {/* Badge titular (visual, opcional) */}
+                {/* Badge titular */}
                 {titulares.includes(jogador.id) && (
                   <span className="absolute -top-2 -left-2 z-10 text-xs font-extrabold px-2 py-1 rounded-full bg-amber-500/20 border border-amber-500/30">
                     ⭐ Titular
                   </span>
                 )}
 
-                {/* Overlay rápido de ações (clicar no card já é do componente) */}
+                {/* Ações rápidas */}
                 <div className="absolute -top-2 -right-2 z-10 flex gap-1">
                   <button
                     type="button"
@@ -1184,7 +1248,9 @@ export default function ElencoPage() {
                       <td className="px-3 py-3">{j.posicao}</td>
                       <td className="px-3 py-3 font-bold">{j.overall ?? 0}</td>
                       <td className="px-3 py-3">{j.jogos ?? 0}</td>
-                      <td className="px-3 py-3">{formatBRL(calcularSalario(j.valor))}</td>
+                      <td className="px-3 py-3">
+                        {formatBRL(calcularSalario(j.valor))}
+                      </td>
                       <td className="px-3 py-3 font-semibold">{formatBRL(j.valor)}</td>
                       <td className="px-3 py-3">
                         <div className="flex justify-end gap-2">
@@ -1244,3 +1310,4 @@ export default function ElencoPage() {
     </div>
   )
 }
+
