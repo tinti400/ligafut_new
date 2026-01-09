@@ -71,12 +71,12 @@ type TimeFull = {
 }
 
 /* ================= REGRAS FINANCEIRAS (COPA — PADRÃO) ================= */
-const COPA_PARTICIPACAO_POR_JOGO = 10_000_000
-const COPA_VITORIA = 18_000_000
-const COPA_EMPATE = 9_000_000
-const COPA_DERROTA = 5_000_000
-const COPA_GOL_MARCADO = 880_000
-const COPA_GOL_SOFRIDO = 160_000
+const COPA_PARTICIPACAO_POR_JOGO = 3_000_000
+const COPA_VITORIA = 8_000_000
+const COPA_EMPATE = 4_000_000
+const COPA_DERROTA = 2_500_000
+const COPA_GOL_MARCADO = 400_000
+const COPA_GOL_SOFRIDO = 40_000
 
 /* ================= FASE DE GRUPOS CONFIG ================= */
 const GRUPOS = ['A', 'B', 'C', 'D'] as const
