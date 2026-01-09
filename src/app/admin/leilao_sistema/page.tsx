@@ -5,7 +5,6 @@ import { createClient } from '@supabase/supabase-js'
 import classNames from 'classnames'
 import toast, { Toaster } from 'react-hot-toast'
 
-// ✅ Ajuste o caminho se o seu componente estiver em outro lugar
 import CardJogadorLeilao from '@/components/CardJogadorLeilao'
 
 const supabase = createClient(
@@ -51,7 +50,7 @@ export default function LeilaoSistemaPage() {
   const [burst, setBurst] = useState<Record<string, boolean>>({})
   const [erroTela, setErroTela] = useState<string | null>(null)
 
-  // sincronização de relógio
+  // sincronização relógio
   const [serverOffsetMs, setServerOffsetMs] = useState<number>(0)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -67,7 +66,7 @@ export default function LeilaoSistemaPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [finalizando, setFinalizando] = useState<Record<string, boolean>>({})
 
-  // efeitos por botão
+  // efeitos por leilão (vira ReactNode pro card)
   const [efeito, setEfeito] = useState<
     Record<string, { tipo: 'sad' | 'morno' | 'empolgado' | 'fogo' | 'explosao'; key: number }>
   >({})
@@ -84,7 +83,7 @@ export default function LeilaoSistemaPage() {
     }, DUR[tipo])
   }
 
-  // -------- utils ----------
+  // ---------- utils ----------
   const isUuid = (s: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
@@ -220,8 +219,8 @@ export default function LeilaoSistemaPage() {
     if (!error && data) {
       const map: Record<string, string> = {}
       for (const t of data) {
-        const url = normalizeUrl(t.logo_url)
-        if (t.nome && url) map[t.nome] = url
+        const url = normalizeUrl((t as any).logo_url)
+        if ((t as any).nome && url) map[(t as any).nome] = url
       }
       setLogos(map)
     }
@@ -258,7 +257,7 @@ export default function LeilaoSistemaPage() {
       .limit(MAX_ATIVOS)
 
     if (!error && data) {
-      let arr = data.map((l: any) => ({ ...l, imagem_url: pickImagemUrl(l) || null })) as Leilao[]
+      let arr = (data as any[]).map((l: any) => ({ ...l, imagem_url: pickImagemUrl(l) || null })) as Leilao[]
 
       // fixa ordem
       if (!inicializadoRef.current || orderRef.current.length === 0) {
@@ -268,7 +267,11 @@ export default function LeilaoSistemaPage() {
         const idxMap = new Map(orderRef.current.map((id, i) => [id, i]))
         arr = arr
           .slice()
-          .sort((a, b) => (idxMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (idxMap.get(b.id) ?? Number.MAX_SAFE_INTEGER))
+          .sort(
+            (a, b) =>
+              (idxMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+              (idxMap.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+          )
       }
 
       // toasts + efeitos por polling
@@ -295,7 +298,12 @@ export default function LeilaoSistemaPage() {
 
       // snapshot
       const snapshot: Record<string, { valor: number; vencedor?: string | null; nome: string }> = {}
-      for (const l of arr) snapshot[l.id] = { valor: Number(l.valor_atual ?? 0), vencedor: l.nome_time_vencedor, nome: l.nome }
+      for (const l of arr)
+        snapshot[l.id] = {
+          valor: Number(l.valor_atual ?? 0),
+          vencedor: l.nome_time_vencedor,
+          nome: l.nome,
+        }
       prevLeiloesRef.current = snapshot
       inicializadoRef.current = true
 
@@ -319,6 +327,7 @@ export default function LeilaoSistemaPage() {
 
   useEffect(() => {
     garantirIdTimeValido()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nomeTime, idTime])
 
   // detectar admin
@@ -359,9 +368,13 @@ export default function LeilaoSistemaPage() {
 
       try {
         if (idTime && isUuid(idTime) && !cancelled) {
-          const { data } = await supabase.from('times').select('is_admin, admin, role').eq('id', idTime).maybeSingle()
-          const roleStr = String(data?.role || '').toLowerCase()
-          if (isTrue(data?.is_admin) || isTrue(data?.admin) || roleStr === 'admin') {
+          const { data } = await supabase
+            .from('times')
+            .select('is_admin, admin, role')
+            .eq('id', idTime)
+            .maybeSingle()
+          const roleStr = String((data as any)?.role || '').toLowerCase()
+          if (isTrue((data as any)?.is_admin) || isTrue((data as any)?.admin) || roleStr === 'admin') {
             setIsAdmin(true)
             return
           }
@@ -472,6 +485,45 @@ export default function LeilaoSistemaPage() {
     setTimeout(() => setTremores((prev) => ({ ...prev, [leilaoId]: false })), 150)
   }
 
+  // efeitos (vira overlay pro card novo)
+  const efeitoOverlay = (leilaoId: string) => {
+    const e = efeito[leilaoId]
+    if (!e) return null
+
+    const common = 'pointer-events-none absolute inset-0 flex items-center justify-center select-none'
+    const key = `${leilaoId}-${e.key}`
+
+    if (e.tipo === 'sad')
+      return (
+        <div key={key} className={common}>
+          <div className="lf-float-slow text-3xl">😐</div>
+        </div>
+      )
+    if (e.tipo === 'morno')
+      return (
+        <div key={key} className={common}>
+          <div className="lf-pop text-3xl">✨</div>
+        </div>
+      )
+    if (e.tipo === 'empolgado')
+      return (
+        <div key={key} className={common}>
+          <div className="lf-confetti text-3xl">🎉</div>
+        </div>
+      )
+    if (e.tipo === 'fogo')
+      return (
+        <div key={key} className={common}>
+          <div className="lf-fire text-3xl">🔥</div>
+        </div>
+      )
+    return (
+      <div key={key} className={common}>
+        <div className="lf-ring text-3xl">💥</div>
+      </div>
+    )
+  }
+
   // ações admin
   const excluirDoLeilao = async (leilaoId: string) => {
     if (!isAdmin) {
@@ -495,7 +547,7 @@ export default function LeilaoSistemaPage() {
     try {
       const { data, error } = await supabase.from('leiloes_sistema').select('fim').eq('id', leilaoId).single()
       if (error) throw new Error('Erro ao validar fim do leilão.')
-      const fimMs = toMs(data?.fim)
+      const fimMs = toMs((data as any)?.fim)
       const agoraSrv = nowServerMs()
       if (fimMs - agoraSrv > 0) {
         toast.error('Ainda não chegou a 0s no servidor.')
@@ -545,13 +597,13 @@ export default function LeilaoSistemaPage() {
         .eq('id', leilaoId)
         .single()
       if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
-      if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
+      if ((atual as any).status !== 'ativo') throw new Error('Leilão não está mais ativo.')
 
-      const fimMs = toMs(atual.fim)
+      const fimMs = toMs((atual as any).fim)
       const agoraSrv = nowServerMs()
       if (isNaN(fimMs) || fimMs - agoraSrv <= 0) throw new Error('Leilão encerrado.')
 
-      const incremento = novoValor - Number(atual.valor_atual ?? valorAtual)
+      const incremento = novoValor - Number((atual as any).valor_atual ?? valorAtual)
       if (incremento < INCREMENTO_MINIMO) throw new Error(`O lance deve ser pelo menos ${brl(INCREMENTO_MINIMO)} acima.`)
 
       const { error } = await supabase.rpc('dar_lance_no_leilao', {
@@ -604,9 +656,9 @@ export default function LeilaoSistemaPage() {
         .eq('id', leilaoId)
         .single()
       if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
-      if (atual.status !== 'ativo') throw new Error('Leilão não está mais ativo.')
+      if ((atual as any).status !== 'ativo') throw new Error('Leilão não está mais ativo.')
 
-      const fimMs = toMs(atual.fim)
+      const fimMs = toMs((atual as any).fim)
       const agoraSrv = nowServerMs()
       if (isNaN(fimMs) || fimMs - agoraSrv <= 0) throw new Error('Leilão encerrado.')
 
@@ -652,7 +704,8 @@ export default function LeilaoSistemaPage() {
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-400 shadow ring-1 ring-emerald-400/30" />
               <h1 className="text-lg font-semibold tracking-tight">
-                Leilão do Sistema <span className="ml-2 align-middle text-[11px] text-zinc-400">relógio sincronizado</span>
+                Leilão do Sistema{' '}
+                <span className="ml-2 align-middle text-[11px] text-zinc-400">relógio sincronizado</span>
               </h1>
             </div>
 
@@ -714,7 +767,8 @@ export default function LeilaoSistemaPage() {
 
               const totalMs = Math.max(0, tempoFinal - tempoInicio)
               const remMs = Math.max(0, tempoFinal - serverNow)
-              const pctRestante = totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
+              const pctRestante =
+                totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
 
               const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
               const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
@@ -722,128 +776,187 @@ export default function LeilaoSistemaPage() {
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
 
-              const disabledPorIdentidade = !!travadoPorIdentidade
               const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
-              const disabledPorTempo = tempoRestante === 0
-
-              const barraCor =
-                tempoRestante === 0 ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
 
               return (
-                <div key={leilao.id} className="relative group">
-                  {/* ✅ AGORA USANDO O CardJogadorLeilao */}
-                  <CardJogadorLeilao
-                    // identificação
-                    leilaoId={leilao.id}
-                    titulo={`Leilão #${index + 1}`}
-                    encerrado={disabledPorTempo}
-                    tempoRestanteTexto={tempoRestante === 0 ? 'Encerrado' : formatarTempo(tempoRestante)}
-                    pctRestante={pctRestante}
-                    barraClassName={barraCor}
-                    tremor={!!tremores[leilao.id]}
-                    burst={!!burst[leilao.id]}
-                    efeito={efeito[leilao.id]}
-                    isAdmin={isAdmin}
-                    onExcluir={() => excluirDoLeilao(leilao.id)}
-                    onFinalizar={() => finalizarLeilao(leilao.id)}
-                    finalizarDisabled={!!finalizando[leilao.id] || tempoRestante > 0}
-                    finalizarLoading={!!finalizando[leilao.id]}
-                    // jogador
-                    jogador={{
-                      nome: leilao.nome,
-                      posicao: leilao.posicao,
-                      overall: leilao.overall,
-                      nacionalidade: leilao.nacionalidade ?? null,
-                      imagem_url: leilao.imagem_url ?? null,
-                      link_sofifa: leilao.link_sofifa ?? null,
-                      valor_atual: leilao.valor_atual,
-                      tierClassName: tierBadge(leilao.valor_atual),
-                    }}
-                    // vencedor
-                    vencedor={
-                      leilao.nome_time_vencedor
-                        ? {
-                            nome: leilao.nome_time_vencedor,
-                            logoUrl: logoVencedor,
-                          }
-                        : null
-                    }
-                    // lance manual
-                    lanceManual={{
-                      value: propostas[leilao.id] ?? String(minimoPermitido),
-                      minimo: minimoPermitido,
-                      invalido: !isFinite(valorPropostoNum) || valorPropostoNum < minimoPermitido,
-                      saldoInsuficiente: saldo !== null && valorPropostoNum > Number(saldo),
-                      disabled: disabledPorIdentidade,
-                      onChange: (raw) => {
-                        const onlyDigits = raw.replace(/[^\d]/g, '')
-                        setPropostas((prev) => ({ ...prev, [leilao.id]: onlyDigits }))
-                      },
-                      onSubmit: () => darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNum),
-                      submitDisabled:
-                        disabledPorIdentidade ||
-                        disabledPorCooldown ||
-                        disabledPorTempo ||
-                        !isFinite(valorPropostoNum) ||
-                        valorPropostoNum < minimoPermitido ||
-                        (saldo !== null && valorPropostoNum > Number(saldo)),
-                      onSetMinimo: () =>
-                        setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido) })),
-                      brl,
-                    }}
-                    // increments
-                    incrementos={{
-                      list: [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000] as const,
-                      disabledBase: disabledPorIdentidade || disabledPorCooldown || disabledPorTempo,
-                      saldo: saldo,
-                      valorAtual: leilao.valor_atual,
-                      onClick: (inc) => darLance(leilao.id, leilao.valor_atual, inc),
-                    }}
-                  />
-
-                  {tempoRestante === 0 && (
-                    <div className="pointer-events-none absolute -right-2 -top-2 rotate-3 rounded-lg border border-red-900/50 bg-red-950/70 px-2 py-1 text-[10px] font-semibold text-red-200 shadow">
-                      ENCERRADO
-                    </div>
-                  )}
-                </div>
+                <CardJogadorLeilao
+                  key={leilao.id}
+                  leilao={leilao}
+                  index={index}
+                  travadoPorIdentidade={travadoPorIdentidade}
+                  saldo={saldo}
+                  isAdmin={isAdmin}
+                  tempoRestante={tempoRestante}
+                  pctRestante={pctRestante}
+                  disabledPorCooldown={disabledPorCooldown}
+                  tremendo={!!tremores[leilao.id]}
+                  burst={!!burst[leilao.id]}
+                  efeitoOverlay={efeitoOverlay(leilao.id)}
+                  minimoPermitido={minimoPermitido}
+                  valorProposto={propostas[leilao.id] ?? String(minimoPermitido)}
+                  setValorProposto={(v) => {
+                    const onlyDigits = String(v || '').replace(/[^\d]/g, '')
+                    setPropostas((prev) => ({ ...prev, [leilao.id]: onlyDigits }))
+                  }}
+                  logoVencedor={logoVencedor}
+                  onDarLanceManual={(valorPropostoNumCard) =>
+                    darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNumCard)
+                  }
+                  onDarLanceInc={(inc) => darLance(leilao.id, leilao.valor_atual, inc)}
+                  onResetMinimo={() =>
+                    setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido + 20_000_000) }))
+                  }
+                  onExcluir={isAdmin ? () => excluirDoLeilao(leilao.id) : undefined}
+                  onFinalizar={isAdmin ? () => finalizarLeilao(leilao.id) : undefined}
+                  finalizando={!!finalizando[leilao.id]}
+                />
               )
             })}
           </div>
         )}
       </section>
 
-      {/* keyframes (mantidos) */}
+      {/* keyframes */}
       <style jsx>{`
         @keyframes fadeout {
-          0% { opacity: 1; transform: scale(1) translateY(0); }
-          100% { opacity: 0; transform: scale(1.3) translateY(-10px); }
+          0% {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+          100% {
+            opacity: 0;
+            transform: scale(1.3) translateY(-10px);
+          }
         }
-        @keyframes lfFloat { 0% { transform: translateY(8px) scale(.98); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(-36px) scale(1); opacity: 0; } }
-        .lf-float-slow { animation: lfFloat 1s ease-out forwards; }
+        @keyframes lfFloat {
+          0% {
+            transform: translateY(8px) scale(0.98);
+            opacity: 0;
+          }
+          30% {
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(-36px) scale(1);
+            opacity: 0;
+          }
+        }
+        .lf-float-slow {
+          animation: lfFloat 1s ease-out forwards;
+        }
 
-        @keyframes lfPop { 0% { transform: scale(.6); opacity: 0; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
-        .lf-pop { animation: lfPop 1.1s cubic-bezier(.2, .8, .2, 1) forwards; }
+        @keyframes lfPop {
+          0% {
+            transform: scale(0.6);
+            opacity: 0;
+          }
+          50% {
+            transform: scale(1.1);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 0;
+          }
+        }
+        .lf-pop {
+          animation: lfPop 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
 
-        @keyframes lfConfetti { 0% { transform: translateY(-6px) rotate(-8deg); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(26px) rotate(12deg); opacity: 0; } }
-        .lf-confetti { animation: lfConfetti 1.4s ease-out forwards; }
+        @keyframes lfConfetti {
+          0% {
+            transform: translateY(-6px) rotate(-8deg);
+            opacity: 0;
+          }
+          20% {
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(26px) rotate(12deg);
+            opacity: 0;
+          }
+        }
+        .lf-confetti {
+          animation: lfConfetti 1.4s ease-out forwards;
+        }
 
-        @keyframes lfRise { 0% { transform: translateY(8px) scale(.9); opacity: .2; } 25% { opacity: .8; } 100% { transform: translateY(-28px) scale(1.05); opacity: 0; } }
-        @keyframes lfFlicker { 0%, 100% { filter: drop-shadow(0 0 0px #ef4444); } 50% { filter: drop-shadow(0 0 8px #f59e0b); } }
-        .lf-fire { animation: lfRise 1.8s ease-out forwards, lfFlicker .6s ease-in-out infinite; }
+        @keyframes lfRise {
+          0% {
+            transform: translateY(8px) scale(0.9);
+            opacity: 0.2;
+          }
+          25% {
+            opacity: 0.8;
+          }
+          100% {
+            transform: translateY(-28px) scale(1.05);
+            opacity: 0;
+          }
+        }
+        @keyframes lfFlicker {
+          0%,
+          100% {
+            filter: drop-shadow(0 0 0px #ef4444);
+          }
+          50% {
+            filter: drop-shadow(0 0 8px #f59e0b);
+          }
+        }
+        .lf-fire {
+          animation: lfRise 1.8s ease-out forwards, lfFlicker 0.6s ease-in-out infinite;
+        }
 
-        @keyframes lfBurst { 0% { transform: scale(.7); opacity: 0; } 35% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
-        .lf-burst { animation: lfBurst 1.4s cubic-bezier(.2,.8,.2,1) forwards; }
+        @keyframes lfBurst {
+          0% {
+            transform: scale(0.7);
+            opacity: 0;
+          }
+          35% {
+            transform: scale(1.15);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 0;
+          }
+        }
+        .lf-burst {
+          animation: lfBurst 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
 
-        @keyframes lfSparkle { 0% { transform: translateY(0) scale(.8) rotate(0deg); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(-26px) scale(1.1) rotate(15deg); opacity: 0; } }
-        .lf-sparkle { animation: lfSparkle 1.6s ease-out forwards; }
+        @keyframes lfSparkle {
+          0% {
+            transform: translateY(0) scale(0.8) rotate(0deg);
+            opacity: 0;
+          }
+          30% {
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(-26px) scale(1.1) rotate(15deg);
+            opacity: 0;
+          }
+        }
+        .lf-sparkle {
+          animation: lfSparkle 1.6s ease-out forwards;
+        }
 
-        @keyframes lfRing { 0% { transform: translate(-50%, -50%) scale(.6); opacity: .4; } 80% { opacity: .2; } 100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; } }
-        .lf-ring { animation: lfRing 2.2s ease-out forwards; }
-
-        .ad-100 { animation-delay: .1s !important; }
-        .ad-150 { animation-delay: .15s !important; }
-        .ad-200 { animation-delay: .2s !important; }
+        @keyframes lfRing {
+          0% {
+            transform: translate(-50%, -50%) scale(0.6);
+            opacity: 0.4;
+          }
+          80% {
+            opacity: 0.2;
+          }
+          100% {
+            transform: translate(-50%, -50%) scale(1.3);
+            opacity: 0;
+          }
+        }
+        .lf-ring {
+          animation: lfRing 2.2s ease-out forwards;
+        }
       `}</style>
 
       <div className="h-6 md:h-8" />
@@ -851,11 +964,3 @@ export default function LeilaoSistemaPage() {
   )
 }
 
-// ==== estilos auxiliares usados no tierBadge ====
-function tierBadge(valor: number) {
-  if (valor >= 1_500_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
-  if (valor >= 1_000_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
-  if (valor >= 500_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
-  if (valor >= 250_000_000) return 'text-amber-300 border-amber-900/40 bg-amber-950/30'
-  return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
-}
