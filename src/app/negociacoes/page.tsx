@@ -687,14 +687,22 @@ export default function NegociacoesPage() {
                       <CardJogadorNegociacao
   jogador={{
     id: jogador.id,
-    id_time: jogador.id_time, // ✅ FIX (obrigatório no tipo JogadorNegociacao)
+    id_time: jogador.id_time,
     nome: jogador.nome,
     posicao: jogador.posicao,
-    overall: jogador.overall ?? 0,
-    valor: jogador.valor ?? 0,
-    imagem_url: jogador.imagem_url ?? null,
-    jogos: jogador.jogos ?? 0, // (opcional, mas útil pro card)
+    overall: jogador.overall,
+    valor: jogador.valor,
+    imagem_url: jogador.imagem_url,
+    jogos: jogador.jogos, // ✅ agora existe no tipo
   }}
+  temPendentes={temPendentes}
+  qtdPendentes={qtdPendentes}
+  onExcluirPendentes={() => excluirTodasDoJogador(jogador.id)}
+  onFazerProposta={() => {
+    setJogadorSelecionadoId(jogador.id)
+    // ...seu fluxo
+  }}
+
                         selecionado={sel}
                         pendenciasCount={qtdPendentes}
                         onClick={() => {
