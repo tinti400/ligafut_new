@@ -30,7 +30,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
 const TEMPORADA = process.env.NEXT_PUBLIC_TEMPORADA || '2025-26'
+
+// ✅ NOVO NOME DA TABELA (ANTES: copa_fase_liga)
+const TABELA_GRUPOS = 'copa_fase_grupos'
+
+// mata-mata (mantém)
+const TABELA_MM = 'copa_mata_mata'
 
 /* ================= TYPES ================= */
 type Jogo = {
@@ -81,7 +88,8 @@ const TOTAL_TIMES = GRUPOS.length * TIMES_POR_GRUPO // 20
 const RODADAS_GRUPO = 5 // 5 times => 5 rodadas (2 jogos + 1 bye por rodada)
 
 /* ================= HELPERS (fora do componente) ================= */
-const clampInt = (n: number) => (Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n))
+const clampInt = (n: number) =>
+  Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n)
 
 async function safeSelectTimes(minimal = false) {
   const tries = minimal
@@ -93,6 +101,7 @@ async function safeSelectTimes(minimal = false) {
         'id,nome,logo_url',
         '*',
       ]
+
   for (const s of tries) {
     const { data, error } = await supabase.from('times').select(s)
     if (!error) return data as any[]
@@ -208,7 +217,6 @@ function sortearGrupos(
 
   const tentativaMax = 300
   for (let tentativa = 1; tentativa <= tentativaMax; tentativa++) {
-    // copia potes “embaralhados” por tentativa
     const p1 = shuffle(porPote[1])
     const p2 = shuffle(porPote[2])
     const p3 = shuffle(porPote[3])
@@ -222,7 +230,6 @@ function sortearGrupos(
 
     if (!evitarMesmoPais) return grupos
 
-    // valida: no grupo não repetir associacao (quando existir)
     const ok = GRUPOS.every(g => {
       const ass = grupos[g].map(t => t.associacao).filter(Boolean) as string[]
       return new Set(ass).size === ass.length
@@ -231,7 +238,7 @@ function sortearGrupos(
     if (ok) return grupos
   }
 
-  // fallback: retorna sem restrição
+  // fallback
   const grupos: Record<(typeof GRUPOS)[number], TimeFull[]> = { A: [], B: [], C: [], D: [] }
   const p = atribuirPotes5(participantes)
   const byPote: Record<number, TimeFull[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
@@ -244,7 +251,10 @@ function sortearGrupos(
 }
 
 type BadgeTone = 'zinc' | 'emerald' | 'sky' | 'violet' | 'amber'
-const Badge: React.FC<{ tone?: BadgeTone; children: React.ReactNode }> = ({ children, tone = 'zinc' }) => {
+const Badge: React.FC<{ tone?: BadgeTone; children: React.ReactNode }> = ({
+  children,
+  tone = 'zinc',
+}) => {
   const cls =
     {
       zinc: 'bg-white/5 text-zinc-200 border-white/10',
@@ -254,7 +264,9 @@ const Badge: React.FC<{ tone?: BadgeTone; children: React.ReactNode }> = ({ chil
       amber: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
     }[tone] || 'bg-white/5 text-zinc-200 border-white/10'
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold border ${cls}`}>
+    <span
+      className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold border ${cls}`}
+    >
       {children}
     </span>
   )
@@ -275,17 +287,16 @@ export default function FaseGruposPage() {
   const [temColunaTemporada, setTemColunaTemporada] = useState<boolean>(true)
   const [temColunaGrupo, setTemColunaGrupo] = useState<boolean>(true)
 
-  // flags de schema financeiro extra
   const [temExtrasFinanceiros, setTemExtrasFinanceiros] = useState<boolean>(true)
 
-  // UI
   const [secoesAbertas, setSecoesAbertas] = useState<Record<string, boolean>>({})
   const topRef = useRef<HTMLDivElement | null>(null)
 
-  // ===== Mata-mata (Quartas)
   const [gerandoMM, setGerandoMM] = useState(false)
   const [abrirModalMM, setAbrirModalMM] = useState(false)
-  const [chavesMM, setChavesMM] = useState<{ casaId: string; foraId: string; label: string }[]>([])
+  const [chavesMM, setChavesMM] = useState<
+    { casaId: string; foraId: string; label: string }[]
+  >([])
 
   useEffect(() => {
     ;(async () => {
@@ -295,21 +306,22 @@ export default function FaseGruposPage() {
       await Promise.all([carregarTimesBase(), buscarJogos()])
       setLoading(false)
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function detectarColunaTemporada() {
-    const { error } = await supabase.from('copa_fase_liga').select('id,temporada').limit(1)
+    const { error } = await supabase.from(TABELA_GRUPOS).select('id,temporada').limit(1)
     setTemColunaTemporada(!error)
   }
 
   async function detectarColunaGrupo() {
-    const { error } = await supabase.from('copa_fase_liga').select('id,grupo').limit(1)
+    const { error } = await supabase.from(TABELA_GRUPOS).select('id,grupo').limit(1)
     setTemColunaGrupo(!error)
   }
 
   async function detectarColunasExtras() {
     const { error } = await supabase
-      .from('copa_fase_liga')
+      .from(TABELA_GRUPOS)
       .select(
         'id,renda,publico,receita_mandante,receita_visitante,salarios_mandante,salarios_visitante,premiacao_mandante,premiacao_visitante'
       )
@@ -322,7 +334,8 @@ export default function FaseGruposPage() {
     const novo: Record<string, TimeMini> = {}
     rows.forEach((t: any) => {
       const nome = t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id)
-      const logo = t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png'
+      const logo =
+        t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png'
       const associacao = t.associacao ?? t.pais ?? null
       novo[t.id] = { nome, logo_url: logo, associacao }
     })
@@ -330,14 +343,18 @@ export default function FaseGruposPage() {
   }
 
   async function buscarJogos() {
-    let q = supabase.from('copa_fase_liga').select('*')
+    let q = supabase.from(TABELA_GRUPOS).select('*')
     if (temColunaTemporada) q = q.eq('temporada', TEMPORADA)
 
     const { data, error } = temColunaGrupo
-      ? await q.order('grupo', { ascending: true }).order('rodada', { ascending: true }).order('id', { ascending: true })
+      ? await q
+          .order('grupo', { ascending: true })
+          .order('rodada', { ascending: true })
+          .order('id', { ascending: true })
       : await q.order('rodada', { ascending: true }).order('id', { ascending: true })
 
     if (error) {
+      console.error(error)
       toast.error('Erro ao buscar jogos')
       return
     }
@@ -370,7 +387,11 @@ export default function FaseGruposPage() {
   async function calcularPublicoERendaPeloEstadio(
     mandanteId: string
   ): Promise<{ publico: number; renda: number; erro?: string }> {
-    const { data: est, error } = await supabase.from('estadios').select('*').eq('id_time', mandanteId).maybeSingle()
+    const { data: est, error } = await supabase
+      .from('estadios')
+      .select('*')
+      .eq('id_time', mandanteId)
+      .maybeSingle()
 
     if (error || !est) {
       return {
@@ -384,12 +405,15 @@ export default function FaseGruposPage() {
     const capacidade = Number(est.capacidade || 18000)
 
     const ref = referencePrices(nivel)
-    const prices: PriceMap = (Object.keys(sectorProportion) as Sector[]).reduce((acc, s) => {
-      const col = `preco_${s}`
-      const v = Number(est[col])
-      acc[s] = Number.isFinite(v) && v > 0 ? Math.round(v) : ref[s]
-      return acc
-    }, {} as PriceMap)
+    const prices: PriceMap = (Object.keys(sectorProportion) as Sector[]).reduce(
+      (acc, s) => {
+        const col = `preco_${s}`
+        const v = Number(est[col])
+        acc[s] = Number.isFinite(v) && v > 0 ? Math.round(v) : ref[s]
+        return acc
+      },
+      {} as PriceMap
+    )
 
     const ctx: EstadioContext = {
       importance: asImportance(est.ctx_importancia),
@@ -397,11 +421,21 @@ export default function FaseGruposPage() {
       weather: asWeather(est.ctx_clima),
       dayType: asDayType(est.ctx_dia),
       dayTime: asDayTime(est.ctx_horario),
-      opponentStrength: Number.isFinite(Number(est.ctx_forca_adv)) ? Number(est.ctx_forca_adv) : 70,
-      moraleTec: Number.isFinite(Number(est.ctx_moral_tec)) ? Number(est.ctx_moral_tec) : 7.5,
-      moraleTor: Number.isFinite(Number(est.ctx_moral_tor)) ? Number(est.ctx_moral_tor) : 60,
-      sociosPct: Number.isFinite(Number(est.socio_percentual)) ? Number(est.socio_percentual) : 15,
-      sociosPreco: Number.isFinite(Number(est.socio_preco)) ? Number(est.socio_preco) : 25,
+      opponentStrength: Number.isFinite(Number(est.ctx_forca_adv))
+        ? Number(est.ctx_forca_adv)
+        : 70,
+      moraleTec: Number.isFinite(Number(est.ctx_moral_tec))
+        ? Number(est.ctx_moral_tec)
+        : 7.5,
+      moraleTor: Number.isFinite(Number(est.ctx_moral_tor))
+        ? Number(est.ctx_moral_tor)
+        : 60,
+      sociosPct: Number.isFinite(Number(est.socio_percentual))
+        ? Number(est.socio_percentual)
+        : 15,
+      sociosPreco: Number.isFinite(Number(est.socio_preco))
+        ? Number(est.socio_preco)
+        : 25,
       infraScore: Number.isFinite(Number(est.infra_score)) ? Number(est.infra_score) : 55,
       level: nivel,
     }
@@ -504,11 +538,14 @@ export default function FaseGruposPage() {
         associacao: t.associacao ?? t.pais ?? null,
       }))
 
+      // ⚠️ SE ISSO TE DEIXAR COM < 20 TIMES, NÃO VAI GERAR. Apague se não quiser.
+      participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
 
       if (participantes.length < TOTAL_TIMES) {
         toast.error(`Preciso de ${TOTAL_TIMES} times para 4 grupos de 5. Achei ${participantes.length}.`)
         return
       }
+
       if (participantes.length > TOTAL_TIMES) {
         const ord = [...participantes].sort((a, b) => {
           const oa = a.overall ?? 0
@@ -536,16 +573,19 @@ export default function FaseGruposPage() {
         return
       }
 
+      // limpa tabela (temporada ou tudo)
       if (temColunaTemporada) {
-        const { error: delErr } = await supabase.from('copa_fase_liga').delete().eq('temporada', TEMPORADA)
+        const { error: delErr } = await supabase.from(TABELA_GRUPOS).delete().eq('temporada', TEMPORADA)
         if (delErr) {
-          toast.error('Erro ao limpar jogos da temporada.')
+          console.error(delErr)
+          toast.error(`Erro ao limpar jogos da temporada. (${delErr.message})`)
           return
         }
       } else {
-        const { error: delErr } = await supabase.from('copa_fase_liga').delete().neq('id', -1)
+        const { error: delErr } = await supabase.from(TABELA_GRUPOS).delete().neq('id', -1)
         if (delErr) {
-          toast.error('Erro ao limpar tabela de jogos.')
+          console.error(delErr)
+          toast.error(`Erro ao limpar tabela de jogos. (${delErr.message})`)
           return
         }
       }
@@ -561,10 +601,10 @@ export default function FaseGruposPage() {
         bonus_pago: false,
       }))
 
-      const { error: insErr } = await supabase.from('copa_fase_liga').insert(rowsInsert)
+      const { error: insErr } = await supabase.from(TABELA_GRUPOS).insert(rowsInsert)
       if (insErr) {
         console.error(insErr)
-        toast.error('Erro ao inserir confrontos dos grupos.')
+        toast.error(`Erro ao inserir confrontos dos grupos. (${insErr.message})`)
         return
       }
 
@@ -591,10 +631,12 @@ export default function FaseGruposPage() {
   async function salvarAjusteResultado(jogo: Jogo, gm: number, gv: number, silencioso = false) {
     if (!isAdmin) return
     const { error } = await supabase
-      .from('copa_fase_liga')
+      .from(TABELA_GRUPOS)
       .update({ gols_time1: gm, gols_time2: gv, bonus_pago: true })
       .eq('id', jogo.id)
+
     if (error) {
+      console.error(error)
       toast.error('Erro ao ajustar placar')
       return
     }
@@ -608,15 +650,18 @@ export default function FaseGruposPage() {
     setSalvandoId(jogo.id)
 
     const { data: existente, error: erroVer } = await supabase
-      .from('copa_fase_liga')
+      .from(TABELA_GRUPOS)
       .select('bonus_pago')
       .eq('id', jogo.id)
       .single()
+
     if (erroVer) {
+      console.error(erroVer)
       toast.error('Erro ao verificar status do jogo')
       setSalvandoId(null)
       return
     }
+
     if (existente?.bonus_pago) {
       await salvarAjusteResultado(jogo, jogo.gols_time1 ?? 0, jogo.gols_time2 ?? 0, true)
       setSalvandoId(null)
@@ -662,6 +707,7 @@ export default function FaseGruposPage() {
         data: new Date().toISOString(),
       },
     ])
+
     await supabase.from('bid').insert([
       {
         tipo_evento: 'bonus_participacao_copa',
@@ -713,6 +759,7 @@ export default function FaseGruposPage() {
       gols_time2: jogo.gols_time2,
       bonus_pago: true,
     }
+
     const patchExtras: any = temExtrasFinanceiros
       ? {
           renda,
@@ -727,10 +774,12 @@ export default function FaseGruposPage() {
       : {}
 
     const { error: erroPlacar } = await supabase
-      .from('copa_fase_liga')
+      .from(TABELA_GRUPOS)
       .update({ ...patchBase, ...patchExtras })
       .eq('id', jogo.id)
+
     if (erroPlacar) {
+      console.error(erroPlacar)
       toast.error('Erro ao salvar/registrar finanças')
       setSalvandoId(null)
       return
@@ -814,8 +863,9 @@ export default function FaseGruposPage() {
       })
     }
 
-    const { error: erroLimpar } = await supabase.from('copa_fase_liga').update(patch).eq('id', jogo.id)
+    const { error: erroLimpar } = await supabase.from(TABELA_GRUPOS).update(patch).eq('id', jogo.id)
     if (erroLimpar) {
+      console.error(erroLimpar)
       toast.error('Erro ao limpar resultado')
       setSalvandoId(null)
       return
@@ -923,12 +973,11 @@ export default function FaseGruposPage() {
         { casaId: D1, foraId: C2, label: 'QF4 — D1 x C2' },
       ]
 
-      const TABELA_MM = 'copa_mata_mata'
+      // tenta limpar quartas
+      const del = temColunaTemporada
+        ? await supabase.from(TABELA_MM).delete().eq('fase', 'quartas').eq('temporada', TEMPORADA)
+        : await supabase.from(TABELA_MM).delete().eq('fase', 'quartas')
 
-      let del = await supabase.from(TABELA_MM).delete().eq('fase', 'quartas')
-      if (temColunaTemporada) del = await supabase.from(TABELA_MM).delete().eq('fase', 'quartas').eq('temporada', TEMPORADA)
-
-      // @ts-ignore
       if (del?.error) {
         toast('⚠️ Não consegui limpar/usar tabela copa_mata_mata. Verifique se ela existe no banco.', { icon: 'ℹ️' })
         setChavesMM(chaves)
@@ -974,7 +1023,10 @@ export default function FaseGruposPage() {
   const jogosFiltrados = useMemo(
     () =>
       jogos.filter(
-        j => filtroTime === 'Todos' || timesMap[j.time1]?.nome === filtroTime || timesMap[j.time2]?.nome === filtroTime
+        j =>
+          filtroTime === 'Todos' ||
+          timesMap[j.time1]?.nome === filtroTime ||
+          timesMap[j.time2]?.nome === filtroTime
       ),
     [jogos, filtroTime, timesMap]
   )
@@ -1003,7 +1055,6 @@ export default function FaseGruposPage() {
     return ids.size
   }, [jogos])
 
-  /* ===== Small UI components ===== */
   const ScoreInput = ({
     value,
     onChange,
@@ -1061,7 +1112,9 @@ export default function FaseGruposPage() {
             {title}
             {subtitle}
           </div>
-          <span className="text-zinc-400 group-hover:text-white">{open ? <FiChevronUp /> : <FiChevronDown />}</span>
+          <span className="text-zinc-400 group-hover:text-white">
+            {open ? <FiChevronUp /> : <FiChevronDown />}
+          </span>
         </button>
       </div>
     )
@@ -1100,9 +1153,6 @@ export default function FaseGruposPage() {
                 />
                 <FiTarget /> Evitar mesmo país (grupos)
               </label>
-
-              {/* ✅ BOTÃO OCULTO (sem erro TS) */}
-              <button onClick={() => setGerando(true)} className="hidden" aria-hidden />
 
               <button
                 onClick={() => {
@@ -1187,7 +1237,8 @@ export default function FaseGruposPage() {
           </div>
         ) : listaGrupos.length === 0 ? (
           <div className="rounded-xl border border-white/10 bg-white/5 p-10 text-center text-zinc-200">
-            Nenhum jogo para exibir. Clique em <span className="font-semibold text-white">Gerar Fase de Grupos</span>.
+            Nenhum jogo para exibir. Clique em{' '}
+            <span className="font-semibold text-white">Gerar Fase de Grupos</span>.
           </div>
         ) : (
           listaGrupos.map(grupo => {
@@ -1213,7 +1264,9 @@ export default function FaseGruposPage() {
                     {/* Tabela do grupo */}
                     <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-bold text-amber-300">Classificação — Grupo {grupo}</h3>
+                        <h3 className="text-sm font-bold text-amber-300">
+                          Classificação — Grupo {grupo}
+                        </h3>
                         <Badge tone="sky">Top 2 avançam</Badge>
                       </div>
 
@@ -1239,7 +1292,9 @@ export default function FaseGruposPage() {
                               return (
                                 <tr
                                   key={r.id}
-                                  className={`border-b border-white/5 ${isTop2 ? 'bg-emerald-500/5' : ''}`}
+                                  className={`border-b border-white/5 ${
+                                    isTop2 ? 'bg-emerald-500/5' : ''
+                                  }`}
                                 >
                                   <td className="py-2">{idx + 1}</td>
                                   <td className="py-2">
@@ -1249,7 +1304,9 @@ export default function FaseGruposPage() {
                                         className="h-6 w-6 rounded-full border bg-white object-cover"
                                         alt=""
                                       />
-                                      <span className="font-semibold">{timesMap[r.id]?.nome || r.id}</span>
+                                      <span className="font-semibold">
+                                        {timesMap[r.id]?.nome || r.id}
+                                      </span>
                                       {isTop2 && <Badge tone="emerald">Classifica</Badge>}
                                     </div>
                                   </td>
@@ -1308,15 +1365,25 @@ export default function FaseGruposPage() {
                                   <ScoreInput
                                     value={jogo.gols_time1}
                                     onChange={v =>
-                                      setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time1: v } : j)))
+                                      setJogos(prev =>
+                                        prev.map(j =>
+                                          j.id === jogo.id ? { ...j, gols_time1: v } : j
+                                        )
+                                      )
                                     }
                                     disabled={!isAdmin}
                                   />
-                                  <span className="px-2 text-lg font-extrabold text-zinc-300">x</span>
+                                  <span className="px-2 text-lg font-extrabold text-zinc-300">
+                                    x
+                                  </span>
                                   <ScoreInput
                                     value={jogo.gols_time2}
                                     onChange={v =>
-                                      setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time2: v } : j)))
+                                      setJogos(prev =>
+                                        prev.map(j =>
+                                          j.id === jogo.id ? { ...j, gols_time2: v } : j
+                                        )
+                                      )
                                     }
                                     disabled={!isAdmin}
                                   />
@@ -1402,7 +1469,9 @@ export default function FaseGruposPage() {
         {/* Preview das chaves de Quartas geradas */}
         {chavesMM.length > 0 && (
           <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4">
-            <h3 className="text-sm font-bold text-amber-300 mb-2">Mata-mata — Quartas (gerado a partir dos grupos)</h3>
+            <h3 className="text-sm font-bold text-amber-300 mb-2">
+              Mata-mata — Quartas (gerado a partir dos grupos)
+            </h3>
             <ul className="grid md:grid-cols-2 gap-2 text-sm">
               {chavesMM.map((c, i) => (
                 <li
@@ -1410,7 +1479,8 @@ export default function FaseGruposPage() {
                   className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-between"
                 >
                   <span>
-                    <b>{c.label}:</b> {timesMap[c.casaId]?.nome || c.casaId} × {timesMap[c.foraId]?.nome || c.foraId}
+                    <b>{c.label}:</b> {timesMap[c.casaId]?.nome || c.casaId} ×{' '}
+                    {timesMap[c.foraId]?.nome || c.foraId}
                   </span>
                 </li>
               ))}
