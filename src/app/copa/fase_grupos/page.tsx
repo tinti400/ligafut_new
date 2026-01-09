@@ -504,8 +504,6 @@ export default function FaseGruposPage() {
         associacao: t.associacao ?? t.pais ?? null,
       }))
 
-      // ✅ opcional: remover Palmeiras (se quiser, apaga essas 2 linhas)
-      participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
 
       if (participantes.length < TOTAL_TIMES) {
         toast.error(`Preciso de ${TOTAL_TIMES} times para 4 grupos de 5. Achei ${participantes.length}.`)
