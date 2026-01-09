@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import ImagemComFallback from '@/components/ImagemComFallback'
-import CardJogadorNegociacao from '@/components/CardJogadorNegociacao'
+
+// ✅ IMPORTA O TYPE DO COMPONENTE (evita erros tipo "jogos não existe")
+import CardJogadorNegociacao, { type JogadorNegociacao } from '@/components/CardJogadorNegociacao'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +14,7 @@ const supabase = createClient(
 )
 
 type Time = { id: string; nome: string }
+
 type Jogador = {
   id: string
   id_time: string
@@ -79,6 +82,7 @@ export default function NegociacoesPage() {
     async function buscarTimes() {
       if (!id_time) return
       setCarregandoTimes(true)
+
       const { data, error } = await supabase
         .from('times')
         .select('id, nome')
@@ -103,7 +107,9 @@ export default function NegociacoesPage() {
         setCarregandoElencos(false)
         return
       }
+
       const { data, error } = await supabase.from('elenco').select('*').eq('id_time', timeSelecionado)
+
       if (error) {
         console.error(error)
         toast.error('Erro ao carregar elenco do adversário.')
@@ -551,7 +557,11 @@ export default function NegociacoesPage() {
               className={InputBase}
             />
 
-            <select value={timeSelecionado} onChange={(e) => setTimeSelecionado(e.target.value)} className={`mt-3 ${InputBase}`}>
+            <select
+              value={timeSelecionado}
+              onChange={(e) => setTimeSelecionado(e.target.value)}
+              className={`mt-3 ${InputBase}`}
+            >
               <option value="">-- Selecione um time --</option>
               {timesFiltrados.map((time) => (
                 <option key={time.id} value={time.id}>
@@ -643,7 +653,9 @@ export default function NegociacoesPage() {
                 <h2 className="text-base sm:text-lg font-semibold">
                   👥 Jogadores do {timeSelecionado ? 'time selecionado' : 'adversário'}
                 </h2>
-                <p className="text-xs text-zinc-500">Clique em <b>Fazer proposta</b> no card para abrir o painel.</p>
+                <p className="text-xs text-zinc-500">
+                  Clique em <b>Fazer proposta</b> no card para abrir o painel.
+                </p>
               </div>
               {carregandoElencos && <span className="text-xs text-zinc-400">carregando elenco…</span>}
             </div>
@@ -681,44 +693,49 @@ export default function NegociacoesPage() {
                   const temPendentes = existePendenteDoJogador(jogador.id)
                   const qtdPendentes = pendentesDoJogador(jogador.id).length
 
+                  // ✅ monta um JogadorNegociacao COMPLETO (id_time + jogos)
+                  const jogadorCard: JogadorNegociacao = {
+                    id: jogador.id,
+                    id_time: jogador.id_time,
+                    nome: jogador.nome,
+                    posicao: jogador.posicao,
+                    overall: jogador.overall ?? 0,
+                    valor: jogador.valor ?? 0,
+                    imagem_url: jogador.imagem_url ?? null,
+                    jogos: jogador.jogos ?? 0,
+                  }
+
                   return (
                     <div key={jogador.id} className="w-full flex flex-col items-center">
-                      {/* CARD EA */}
                       <CardJogadorNegociacao
-  jogador={{
-    id: jogador.id,
-    id_time: jogador.id_time,
-    nome: jogador.nome,
-    posicao: jogador.posicao,
-    overall: jogador.overall,
-    valor: jogador.valor,
-    imagem_url: jogador.imagem_url,
-    jogos: jogador.jogos, // ✅ agora existe no tipo
-  }}
-  temPendentes={temPendentes}
-  qtdPendentes={qtdPendentes}
-  onExcluirPendentes={() => excluirTodasDoJogador(jogador.id)}
-  onFazerProposta={() => {
-    setJogadorSelecionadoId(jogador.id)
-    // ...seu fluxo
-  }}
-
+                        jogador={jogadorCard}
                         selecionado={sel}
-                        pendenciasCount={qtdPendentes}
-                        onClick={() => {
-                          setJogadorSelecionadoId((prev) => (prev === jogador.id ? '' : jogador.id))
-                          setTipoProposta((prev) => ({ ...prev, [jogador.id]: prev[jogador.id] ?? 'dinheiro' }))
-                        }}
+                        temPendentes={temPendentes}
+                        qtdPendentes={qtdPendentes}
+                        onExcluirPendentes={temPendentes ? () => excluirTodasDoJogador(jogador.id) : undefined}
+                        loadingExcluir={false}
+                        loadingAbrir={false}
                         onFazerProposta={() => {
                           setJogadorSelecionadoId(jogador.id)
                           setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
                           setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
                           setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
                         }}
-                        onCancelarPendencias={temPendentes ? () => excluirTodasDoJogador(jogador.id) : undefined}
+                        subtitulo={null}
                       />
 
-                      {/* PAINEL ABAIXO DO CARD */}
+                      {/* Painel abaixo do card (abre/fecha clicando no card via estado sel) */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJogadorSelecionadoId((prev) => (prev === jogador.id ? '' : jogador.id))
+                          setTipoProposta((prev) => ({ ...prev, [jogador.id]: prev[jogador.id] ?? 'dinheiro' }))
+                        }}
+                        className="mt-2 text-[11px] text-zinc-400 underline hover:no-underline"
+                      >
+                        {sel ? 'Fechar painel' : 'Abrir painel'}
+                      </button>
+
                       {sel && (
                         <div className="mt-4 w-full max-w-[320px] rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-4">
                           {temPendentes && (
@@ -766,9 +783,7 @@ export default function NegociacoesPage() {
                                   type="number"
                                   className={`${InputBase} mt-1`}
                                   value={valorProposta[jogador.id] || ''}
-                                  onChange={(e) =>
-                                    setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))
-                                  }
+                                  onChange={(e) => setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))}
                                   placeholder="Ex: 10000000"
                                 />
                               </div>
@@ -837,8 +852,7 @@ export default function NegociacoesPage() {
 
                                           <div className="min-w-0">
                                             <div className="truncate text-[13px] font-semibold">
-                                              {j.nome}{' '}
-                                              <span className="text-zinc-400 font-medium">• {j.posicao}</span>
+                                              {j.nome} <span className="text-zinc-400 font-medium">• {j.posicao}</span>
                                             </div>
                                             <div className="text-[12px] text-zinc-400">{formatBRL(j.valor)}</div>
                                           </div>
