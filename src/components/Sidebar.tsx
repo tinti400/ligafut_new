@@ -696,7 +696,7 @@ export default function Sidebar() {
                       <NavLink href="/copa/fase_liga">📊 Fase Liga</NavLink>
                       <NavLink href="/copa/classificacao">📈 Classificação</NavLink>
                       <NavLink href="/copa/playoff">🎯 Playoff</NavLink>
-                      <NavLink href="/copa/oitavas">🥇 Oitavas</NavLink>
+                      <NavLink href="/copa/mata-mata">🥇 Oitavas</NavLink>
                       <NavLink href="/copa/quartas">🥈 Quartas</NavLink>
                       <NavLink href="/copa/semi">🥉 Semifinal</NavLink>
                       <NavLink href="/copa/final">🏅 Final</NavLink>
