@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react'
 import classNames from 'classnames'
 
-type Leilao = {
+export type Leilao = {
   id: string
   nome: string
   posicao: string
@@ -17,7 +17,7 @@ type Leilao = {
   criado_em: string
 }
 
-type Props = {
+export type CardJogadorLeilaoProps = {
   leilao: Leilao
   index: number
 
@@ -77,29 +77,31 @@ function tierBadge(valor: number) {
   return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
 }
 
-export default function CardJogadorLeilao({
-  leilao,
-  index,
-  travadoPorIdentidade,
-  saldo,
-  isAdmin,
-  tempoRestante,
-  pctRestante,
-  disabledPorCooldown,
-  tremendo,
-  burst,
-  efeitoOverlay,
-  minimoPermitido,
-  valorProposto,
-  setValorProposto,
-  logoVencedor,
-  onDarLanceManual,
-  onDarLanceInc,
-  onResetMinimo,
-  onExcluir,
-  onFinalizar,
-  finalizando,
-}: Props) {
+export default function CardJogadorLeilao(props: CardJogadorLeilaoProps) {
+  const {
+    leilao,
+    index,
+    travadoPorIdentidade,
+    saldo,
+    isAdmin,
+    tempoRestante,
+    pctRestante,
+    disabledPorCooldown,
+    tremendo,
+    burst,
+    efeitoOverlay,
+    minimoPermitido,
+    valorProposto,
+    setValorProposto,
+    logoVencedor,
+    onDarLanceManual,
+    onDarLanceInc,
+    onResetMinimo,
+    onExcluir,
+    onFinalizar,
+    finalizando,
+  } = props
+
   const encerrado = tempoRestante === 0
 
   const valorPropostoNum = useMemo(() => {
@@ -141,7 +143,12 @@ export default function CardJogadorLeilao({
 
   return (
     <div className="relative group">
-      <div className={classNames('rounded-2xl bg-gradient-to-br p-[1px] shadow-[0_0_0_1px_rgba(0,0,0,.5)]', CARD_GRADIENTS[gradIdx])}>
+      <div
+        className={classNames(
+          'rounded-2xl bg-gradient-to-br p-[1px] shadow-[0_0_0_1px_rgba(0,0,0,.5)]',
+          CARD_GRADIENTS[gradIdx]
+        )}
+      >
         <article
           className={classNames(
             'relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
@@ -155,6 +162,7 @@ export default function CardJogadorLeilao({
               onClick={onExcluir}
               className="absolute right-3 top-3 rounded-lg border border-red-900/40 bg-red-950/40 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
               title="Excluir do leilão (admin)"
+              type="button"
             >
               🗑️ Excluir
             </button>
@@ -170,7 +178,10 @@ export default function CardJogadorLeilao({
 
           {/* barra tempo */}
           <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
-            <div className={classNames('h-full transition-[width] duration-1000', barraCor)} style={{ width: `${pctRestante}%` }} />
+            <div
+              className={classNames('h-full transition-[width] duration-1000', barraCor)}
+              style={{ width: `${pctRestante}%` }}
+            />
           </div>
 
           {/* topo */}
@@ -179,7 +190,9 @@ export default function CardJogadorLeilao({
             <span
               className={classNames(
                 'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px]',
-                encerrado ? 'border-red-900/60 bg-red-950/40 text-red-200' : 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
+                encerrado
+                  ? 'border-red-900/60 bg-red-950/40 text-red-200'
+                  : 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
               )}
             >
               {encerrado ? 'Encerrado' : 'Termina em'}
@@ -214,9 +227,13 @@ export default function CardJogadorLeilao({
 
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                 <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">{leilao.posicao}</span>
-                <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">⭐ OVR {leilao.overall}</span>
+                <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                  ⭐ OVR {leilao.overall}
+                </span>
                 {leilao.nacionalidade && (
-                  <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">🌍 {leilao.nacionalidade}</span>
+                  <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                    🌍 {leilao.nacionalidade}
+                  </span>
                 )}
 
                 {leilao.nome_time_vencedor && (
@@ -250,15 +267,18 @@ export default function CardJogadorLeilao({
                 pattern="[0-9]*"
                 className={classNames(
                   'w-full rounded-xl border bg-zinc-950/60 px-3 py-2 text-sm tabular-nums outline-none',
-                  invalido ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30' : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
+                  invalido
+                    ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30'
+                    : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
                 )}
-                value={valorProposto}
+                value={valorProposto ?? ''}
                 onChange={(e) => setValorProposto(e.target.value.replace(/[^\d]/g, ''))}
                 placeholder={String(minimoPermitido)}
                 disabled={!!travadoPorIdentidade}
               />
 
               <button
+                type="button"
                 onClick={() => onDarLanceManual(valorPropostoNum)}
                 disabled={!!travadoPorIdentidade || disabledPorCooldown || invalido || encerrado}
                 className={classNames(
@@ -299,13 +319,16 @@ export default function CardJogadorLeilao({
                 return (
                   <button
                     key={inc}
+                    type="button"
                     onClick={() => onDarLanceInc(inc)}
                     disabled={disabled}
                     className={classNames(
                       'rounded-xl px-3 py-2 text-xs font-bold tabular-nums transition',
                       'border bg-zinc-950/60 hover:bg-zinc-900',
                       'focus:outline-none focus:ring-2 focus:ring-emerald-400/30',
-                      disabled ? 'border-zinc-800 text-zinc-500 opacity-60' : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
+                      disabled
+                        ? 'border-zinc-800 text-zinc-500 opacity-60'
+                        : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
                     )}
                     title={disabled ? 'Indisponível no momento' : undefined}
                   >
@@ -331,6 +354,7 @@ export default function CardJogadorLeilao({
           {isAdmin && onFinalizar && (
             <div className="mt-4">
               <button
+                type="button"
                 onClick={onFinalizar}
                 disabled={!!finalizando || !encerrado}
                 className={classNames(
