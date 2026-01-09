@@ -1,242 +1,358 @@
-'use client'
+'use 'use client'
 
-import { getTipoCarta } from '@/utils/cardUtils'
+import React, { useMemo } from 'react'
+import classNames from 'classnames'
 
-/* ================= TIPOS ================= */
-
-type Jogador = {
-  id?: string | number
+type Leilao = {
+  id: string
   nome: string
-  overall?: number | string | null
   posicao: string
+  overall: number
   nacionalidade?: string | null
   imagem_url?: string | null
-  foto?: string | null
-  valor?: number | null
+  link_sofifa?: string | null
+  valor_atual: number
+  nome_time_vencedor?: string | null
+  fim: string
+  criado_em: string
 }
 
-type CardJogadorProps = {
-  jogador: Jogador
+type Props = {
+  leilao: Leilao
+  index: number
 
-  modo?: 'mercado' | 'elenco' | 'leilao'
-  selecionado?: boolean
+  // identidade / status
+  travadoPorIdentidade?: string | null
+  saldo: number | null
+  isAdmin: boolean
 
-  onComprar?: () => void
-  loadingComprar?: boolean
-  mercadoFechado?: boolean
+  // tempo (já sincronizado fora)
+  tempoRestante: number
+  pctRestante: number
 
-  onToggleSelecionado?: () => void
+  // ui state
+  disabledPorCooldown: boolean
+  tremendo?: boolean
+  burst?: boolean
+  efeitoOverlay?: React.ReactNode
+
+  // propostas
+  minimoPermitido: number
+  valorProposto: string
+  setValorProposto: (v: string) => void
+
+  // logos
+  logoVencedor?: string
+
+  // ações
+  onDarLanceManual: (valorPropostoNum: number) => void
+  onDarLanceInc: (inc: number) => void
+  onResetMinimo: () => void
+
+  // admin
+  onExcluir?: () => void
+  onFinalizar?: () => void
+  finalizando?: boolean
 }
 
-/* ================= UTIL ================= */
+const INCS = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000] as const
 
-// 🇧🇷 map simples → pode expandir depois
-const bandeiras: Record<string, string> = {
-  Brasil: 'br',
-  Argentina: 'ar',
-  Portugal: 'pt',
-  Espanha: 'es',
-  França: 'fr',
-  Alemanha: 'de',
-  Itália: 'it',
-  Inglaterra: 'gb',
-  Holanda: 'nl',
+const brl = (v?: number | null) =>
+  typeof v === 'number'
+    ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+    : '—'
+
+const formatarTempo = (segundos: number) => {
+  const h = Math.floor(segundos / 3600)
+  const min = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0')
+  const sec = Math.max(0, Math.floor(segundos % 60)).toString().padStart(2, '0')
+  return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
 }
 
-/** gera um pattern leve de texto "LIGAFUT" (sem imagem externa) */
-const textPatternSvg = (text = 'LIGAFUT') => {
-  const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="260" height="200">
-    <rect width="100%" height="100%" fill="transparent"/>
-    <g transform="rotate(-18 130 100)">
-      <text x="10" y="70" font-family="Arial" font-size="28" font-weight="800"
-        fill="rgba(255,255,255,0.10)" letter-spacing="3">${text}</text>
-      <text x="10" y="130" font-family="Arial" font-size="28" font-weight="800"
-        fill="rgba(255,255,255,0.06)" letter-spacing="3">${text}</text>
-      <text x="10" y="190" font-family="Arial" font-size="28" font-weight="800"
-        fill="rgba(255,255,255,0.04)" letter-spacing="3">${text}</text>
-    </g>
-  </svg>`
-  const enc = encodeURIComponent(svg).replace(/'/g, '%27').replace(/"/g, '%22')
-  return `data:image/svg+xml;charset=utf-8,${enc}`
+function tierBadge(valor: number) {
+  if (valor >= 1_500_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
+  if (valor >= 1_000_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
+  if (valor >= 500_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
+  if (valor >= 250_000_000) return 'text-amber-300 border-amber-900/40 bg-amber-950/30'
+  return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
 }
 
-/* ================= COMPONENTE ================= */
+export default function CardJogadorLeilao({
+  leilao,
+  index,
+  travadoPorIdentidade,
+  saldo,
+  isAdmin,
+  tempoRestante,
+  pctRestante,
+  disabledPorCooldown,
+  tremendo,
+  burst,
+  efeitoOverlay,
+  minimoPermitido,
+  valorProposto,
+  setValorProposto,
+  logoVencedor,
+  onDarLanceManual,
+  onDarLanceInc,
+  onResetMinimo,
+  onExcluir,
+  onFinalizar,
+  finalizando,
+}: Props) {
+  const encerrado = tempoRestante === 0
 
-export default function CardJogador({
-  jogador,
-  modo = 'mercado',
-  selecionado = false,
-  onComprar,
-  loadingComprar = false,
-  mercadoFechado = false,
-  onToggleSelecionado,
-}: CardJogadorProps) {
-  const overallNumero = Number(jogador.overall ?? 0)
-  const tipoCarta = getTipoCarta(overallNumero)
+  const valorPropostoNum = useMemo(() => {
+    const n = Math.floor(Number(valorProposto || 0))
+    return n
+  }, [valorProposto])
 
-  /* ===== Salário (0,75%) ===== */
-  const salario =
-    typeof jogador.valor === 'number'
-      ? Math.round(jogador.valor * 0.0075)
-      : null
+  const invalido =
+    !isFinite(valorPropostoNum) ||
+    valorPropostoNum < minimoPermitido ||
+    (saldo !== null && valorPropostoNum > Number(saldo))
 
-  /* ===== Bandeira ===== */
-  const flagCode = jogador.nacionalidade
-    ? bandeiras[jogador.nacionalidade]
-    : null
+  const barraCor = encerrado ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
 
-  /* ===== Gradiente EA FC ===== */
-  const gradiente =
-    tipoCarta === 'bronze'
-      ? 'bg-gradient-to-b from-[#8b5a2b] via-[#b37a45] to-[#3a2416] text-yellow-100'
-      : tipoCarta === 'prata'
-      ? 'bg-gradient-to-b from-[#f3f4f6] via-[#9ca3af] to-[#4b5563] text-gray-900'
-      : 'bg-gradient-to-b from-[#fff2a8] via-[#f6c453] to-[#b88900] text-black'
+  const CARD_GRADIENTS = [
+    'from-emerald-500/40 via-emerald-400/25 to-emerald-300/20',
+    'from-emerald-400/45 via-teal-400/30 to-cyan-400/20',
+    'from-teal-400/45 via-cyan-400/30 to-sky-400/20',
+    'from-cyan-400/45 via-sky-400/30 to-blue-400/20',
+    'from-sky-400/45 via-blue-500/30 to-indigo-500/20',
+    'from-blue-500/45 via-indigo-500/30 to-violet-500/20',
+    'from-indigo-500/45 via-violet-500/30 to-fuchsia-500/20',
+    'from-violet-500/45 via-fuchsia-500/30 to-pink-500/20',
+    'from-fuchsia-500/45 via-pink-500/30 to-rose-500/20',
+    'from-pink-500/45 via-rose-500/30 to-red-500/20',
+    'from-rose-500/45 via-red-500/30 to-orange-500/20',
+    'from-red-500/45 via-orange-500/30 to-amber-500/20',
+    'from-orange-500/45 via-amber-500/30 to-yellow-500/20',
+    'from-amber-500/45 via-yellow-400/30 to-lime-400/20',
+    'from-yellow-400/45 via-lime-400/30 to-emerald-400/20',
+  ] as const
 
-  const pattern = textPatternSvg('LIGAFUT')
+  const gradIndexForValor = (v: number) => {
+    const idx = Math.floor((v || 0) / 50_000_000)
+    return Math.max(0, Math.min(idx, CARD_GRADIENTS.length - 1))
+  }
+
+  const gradIdx = gradIndexForValor(leilao.valor_atual)
 
   return (
-    <div
-      className={[
-        'relative',
-        'w-[220px] h-[340px]',
-        'rounded-[18px]',
-        'overflow-hidden',
-        'shadow-2xl',
-        'transition-transform duration-300 hover:scale-[1.04]',
-        gradiente,
-        selecionado ? 'ring-4 ring-emerald-400/70' : '',
-        loadingComprar ? 'opacity-70 pointer-events-none' : '',
-      ].join(' ')}
-    >
-      {/* ===== FUNDO: brilho EA ===== */}
-      <div className="pointer-events-none absolute inset-0 opacity-[0.10] bg-[radial-gradient(circle_at_top,_#fff,_transparent_70%)]" />
+    <div className="relative group">
+      <div className={classNames('rounded-2xl bg-gradient-to-br p-[1px] shadow-[0_0_0_1px_rgba(0,0,0,.5)]', CARD_GRADIENTS[gradIdx])}>
+        <article
+          className={classNames(
+            'relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
+            'hover:border-emerald-600/30 hover:bg-zinc-900/70',
+            tremendo ? 'animate-[pulse_0.3s_ease_1] ring-1 ring-emerald-500/30' : ''
+          )}
+        >
+          {/* admin: excluir */}
+          {isAdmin && onExcluir && (
+            <button
+              onClick={onExcluir}
+              className="absolute right-3 top-3 rounded-lg border border-red-900/40 bg-red-950/40 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
+              title="Excluir do leilão (admin)"
+            >
+              🗑️ Excluir
+            </button>
+          )}
 
-      {/* ===== FUNDO: pattern LIGAFUT ===== */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.25] mix-blend-overlay"
-        style={{
-          backgroundImage: `url("${pattern}")`,
-          backgroundRepeat: 'repeat',
-          backgroundSize: '260px 200px',
-        }}
-      />
+          {/* burst / overlay */}
+          {burst && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="animate-[fadeout_0.7s_ease_forwards] select-none text-2xl">💥✨🔥</div>
+            </div>
+          )}
+          {efeitoOverlay}
 
-      {/* ===== FUNDO: watermark logo (imagem do /public) ===== */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <img
-          src="/watermarks/ligafut26.png"
-          alt="Watermark LigaFut"
-          className="w-[92%] opacity-[0.12] blur-[0.2px] select-none"
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
-
-      {/* ===== VINHETA (deixa com cara EAFC) ===== */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_25%,rgba(255,255,255,0.18),rgba(0,0,0,0.35)_55%,rgba(0,0,0,0.55)_100%)]" />
-
-      {/* ===== OVR / POSIÇÃO ===== */}
-      <div className="absolute left-3 top-3 z-10 leading-none">
-        <div className="text-[32px] font-extrabold drop-shadow-[0_2px_0_rgba(0,0,0,0.35)]">
-          {overallNumero}
-        </div>
-        <div className="text-[11px] font-bold uppercase drop-shadow-[0_1px_0_rgba(0,0,0,0.35)]">
-          {jogador.posicao}
-        </div>
-      </div>
-
-      {/* ===== BANDEIRA ===== */}
-      {flagCode && (
-        <div className="absolute left-3 top-[64px] z-10">
-          <img
-            src={`https://flagcdn.com/w40/${flagCode}.png`}
-            alt={jogador.nacionalidade ?? ''}
-            className="w-6 h-4 rounded-sm shadow"
-            loading="lazy"
-            decoding="async"
-          />
-        </div>
-      )}
-
-      {/* ===== CHECKBOX (ELENCO) ===== */}
-      {modo !== 'mercado' && onToggleSelecionado && (
-        <div className="absolute right-3 top-3 z-20">
-          <button
-            type="button"
-            onClick={onToggleSelecionado}
-            className={[
-              'flex h-8 w-8 items-center justify-center rounded-xl',
-              'border border-black/20 bg-black/30 backdrop-blur-sm',
-              'shadow-md',
-              selecionado ? 'ring-2 ring-emerald-400/70' : '',
-            ].join(' ')}
-            title="Selecionar"
-          >
-            <span className="text-white text-sm font-extrabold">
-              {selecionado ? '✓' : '+'}
-            </span>
-          </button>
-        </div>
-      )}
-
-      {/* ===== IMAGEM ===== */}
-      <div className="flex justify-center pt-12 relative z-10">
-        <img
-          src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
-          alt={jogador.nome}
-          className="h-[185px] object-contain drop-shadow-[0_14px_26px_rgba(0,0,0,0.65)]"
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
-
-      {/* ===== INFO (faixa mais bonita) ===== */}
-      <div className="absolute bottom-0 w-full z-10">
-        <div className="mx-2 mb-2 rounded-2xl border border-white/20 bg-black/35 backdrop-blur px-3 py-3 text-center shadow-lg">
-          <div className="text-sm font-extrabold uppercase tracking-wide truncate drop-shadow-[0_1px_0_rgba(0,0,0,0.35)]">
-            {jogador.nome}
+          {/* barra tempo */}
+          <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
+            <div className={classNames('h-full transition-[width] duration-1000', barraCor)} style={{ width: `${pctRestante}%` }} />
           </div>
 
-          {/* SALÁRIO */}
-          {salario !== null && (
-            <div className="mt-0.5 text-[11px] text-white/85">
-              💼 Salário: <b>R$ {salario.toLocaleString('pt-BR')}</b>
-            </div>
-          )}
+          {/* topo */}
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-300">Leilão #{index + 1}</h2>
+            <span
+              className={classNames(
+                'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px]',
+                encerrado ? 'border-red-900/60 bg-red-950/40 text-red-200' : 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
+              )}
+            >
+              {encerrado ? 'Encerrado' : 'Termina em'}
+              {!encerrado && <b className="tabular-nums">{formatarTempo(tempoRestante)}</b>}
+            </span>
+          </div>
 
-          {/* VALOR */}
-          {typeof jogador.valor === 'number' && (
-            <div className="mt-1 text-sm font-extrabold text-emerald-200 drop-shadow-[0_1px_0_rgba(0,0,0,0.35)]">
-              💰 R$ {jogador.valor.toLocaleString('pt-BR')}
+          {/* corpo */}
+          <div className="mt-3 flex items-center gap-4">
+            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
+              {leilao.imagem_url ? (
+                <img
+                  src={leilao.imagem_url}
+                  alt={leilao.nome}
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                  onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                />
+              ) : (
+                <div className="h-full w-full bg-zinc-900" />
+              )}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="truncate text-base font-semibold leading-5">{leilao.nome}</p>
+                <span className={classNames('rounded-md border px-2 py-0.5 text-xs', tierBadge(leilao.valor_atual))}>
+                  {brl(leilao.valor_atual)}
+                </span>
+              </div>
+
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">{leilao.posicao}</span>
+                <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">⭐ OVR {leilao.overall}</span>
+                {leilao.nacionalidade && (
+                  <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">🌍 {leilao.nacionalidade}</span>
+                )}
+
+                {leilao.nome_time_vencedor && (
+                  <span className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
+                    👑
+                    {logoVencedor ? (
+                      <img
+                        src={logoVencedor}
+                        alt={leilao.nome_time_vencedor}
+                        className="h-4 w-4 rounded-full object-cover"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                      />
+                    ) : (
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 text-[9px] text-zinc-200">
+                        {leilao.nome_time_vencedor.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                    <span>{leilao.nome_time_vencedor}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* lance manual */}
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <input
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className={classNames(
+                  'w-full rounded-xl border bg-zinc-950/60 px-3 py-2 text-sm tabular-nums outline-none',
+                  invalido ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30' : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
+                )}
+                value={valorProposto}
+                onChange={(e) => setValorProposto(e.target.value.replace(/[^\d]/g, ''))}
+                placeholder={String(minimoPermitido)}
+                disabled={!!travadoPorIdentidade}
+              />
+
+              <button
+                onClick={() => onDarLanceManual(valorPropostoNum)}
+                disabled={!!travadoPorIdentidade || disabledPorCooldown || invalido || encerrado}
+                className={classNames(
+                  'shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition',
+                  !!travadoPorIdentidade || disabledPorCooldown || invalido || encerrado
+                    ? 'cursor-not-allowed border border-zinc-800 bg-zinc-900/60 text-zinc-500'
+                    : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
+                )}
+              >
+                Dar lance
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400">
+              <span>
+                Mínimo permitido: <b className="tabular-nums text-zinc-200">{brl(minimoPermitido)}</b>
+              </span>
+              <button
+                type="button"
+                onClick={onResetMinimo}
+                className="rounded-lg border border-emerald-900/40 bg-emerald-950/40 px-2 py-1 font-semibold text-emerald-200 hover:bg-emerald-900/40"
+              >
+                +20mi (mínimo)
+              </button>
+            </div>
+          </div>
+
+          {/* incrementos */}
+          <div className="mt-4">
+            <div className="grid grid-cols-3 gap-2">
+              {INCS.map((inc) => {
+                const disabled =
+                  !!travadoPorIdentidade ||
+                  disabledPorCooldown ||
+                  encerrado ||
+                  (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
+
+                return (
+                  <button
+                    key={inc}
+                    onClick={() => onDarLanceInc(inc)}
+                    disabled={disabled}
+                    className={classNames(
+                      'rounded-xl px-3 py-2 text-xs font-bold tabular-nums transition',
+                      'border bg-zinc-950/60 hover:bg-zinc-900',
+                      'focus:outline-none focus:ring-2 focus:ring-emerald-400/30',
+                      disabled ? 'border-zinc-800 text-zinc-500 opacity-60' : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
+                    )}
+                    title={disabled ? 'Indisponível no momento' : undefined}
+                  >
+                    + {(inc / 1_000_000).toLocaleString()} mi
+                  </button>
+                )
+              })}
+            </div>
+
+            {leilao.link_sofifa && (
+              <a
+                href={leilao.link_sofifa}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block text-xs text-cyan-300 underline hover:text-cyan-200"
+              >
+                🔗 Ver no Sofifa
+              </a>
+            )}
+          </div>
+
+          {/* finalizar admin */}
+          {isAdmin && onFinalizar && (
+            <div className="mt-4">
+              <button
+                onClick={onFinalizar}
+                disabled={!!finalizando || !encerrado}
+                className={classNames(
+                  'w-full rounded-xl px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2',
+                  !!finalizando || !encerrado
+                    ? 'bg-zinc-900/60 text-zinc-400 border border-zinc-800 cursor-not-allowed'
+                    : 'bg-red-600/90 text-white hover:bg-red-600 border border-red-700/40 focus:ring-red-400/30'
+                )}
+                title={!encerrado ? 'Aguarde o relógio do servidor zerar' : 'Finaliza e marca como leiloado'}
+              >
+                {finalizando ? 'Finalizando…' : 'Finalizar Leilão'}
+              </button>
             </div>
           )}
-        </div>
+        </article>
       </div>
 
-      {/* ===== BOTÃO MERCADO ===== */}
-      {modo === 'mercado' && onComprar && (
-        <div className="absolute bottom-[-56px] left-0 w-full px-3 z-10">
-          <button
-            onClick={onComprar}
-            disabled={loadingComprar || mercadoFechado}
-            className={[
-              'w-full rounded-xl py-2 text-sm font-bold transition-all',
-              loadingComprar || mercadoFechado
-                ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-                : 'bg-green-600 text-white hover:bg-green-700 hover:scale-[1.03]',
-            ].join(' ')}
-          >
-            {loadingComprar
-              ? 'Comprando...'
-              : mercadoFechado
-              ? 'Mercado fechado'
-              : 'Comprar'}
-          </button>
+      {encerrado && (
+        <div className="pointer-events-none absolute -right-2 -top-2 rotate-3 rounded-lg border border-red-900/50 bg-red-950/70 px-2 py-1 text-[10px] font-semibold text-red-200 shadow">
+          ENCERRADO
         </div>
       )}
     </div>
   )
 }
-
