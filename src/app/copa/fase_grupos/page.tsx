@@ -333,7 +333,6 @@ export default function FaseGruposPage() {
     let q = supabase.from('copa_fase_liga').select('*')
     if (temColunaTemporada) q = q.eq('temporada', TEMPORADA)
 
-    // ordem por grupo->rodada->id (se existir grupo)
     const { data, error } = temColunaGrupo
       ? await q.order('grupo', { ascending: true }).order('rodada', { ascending: true }).order('id', { ascending: true })
       : await q.order('rodada', { ascending: true }).order('id', { ascending: true })
@@ -345,7 +344,6 @@ export default function FaseGruposPage() {
 
     setJogos((data || []) as Jogo[])
 
-    // abre A e B por padrão, ou as duas primeiras chaves
     const chaves = new Set<string>()
     ;(data || []).forEach((j: any) => chaves.add((j.grupo ?? `Rodada ${j.rodada}`) as string))
     const first = Array.from(chaves).slice(0, 2)
@@ -355,8 +353,6 @@ export default function FaseGruposPage() {
   }
 
   async function atualizarClassificacao() {
-    // se você já tem rpc pronto, mantém.
-    // (pode ser outro nome no seu banco, mas deixei igual pra não quebrar)
     const { error } = await supabase.rpc('atualizar_classificacao_copa')
     if (error) {
       console.error(error)
@@ -371,7 +367,9 @@ export default function FaseGruposPage() {
   const asDayType = (s: any): 'semana' | 'fim' => (s === 'fim' ? 'fim' : 'semana')
   const asDayTime = (s: any): 'dia' | 'noite' => (s === 'dia' ? 'dia' : 'noite')
 
-  async function calcularPublicoERendaPeloEstadio(mandanteId: string): Promise<{ publico: number; renda: number; erro?: string }> {
+  async function calcularPublicoERendaPeloEstadio(
+    mandanteId: string
+  ): Promise<{ publico: number; renda: number; erro?: string }> {
     const { data: est, error } = await supabase.from('estadios').select('*').eq('id_time', mandanteId).maybeSingle()
 
     if (error || !est) {
@@ -462,7 +460,6 @@ export default function FaseGruposPage() {
     if (gols_pro == null || gols_contra == null) return 0
 
     const base = gols_pro > gols_contra ? COPA_VITORIA : gols_pro < gols_contra ? COPA_DERROTA : COPA_EMPATE
-
     const valor = Math.round(base + gols_pro * COPA_GOL_MARCADO - gols_contra * COPA_GOL_SOFRIDO)
 
     await supabase.rpc('atualizar_saldo', { id_time: timeId, valor })
@@ -510,13 +507,11 @@ export default function FaseGruposPage() {
       // ✅ opcional: remover Palmeiras (se quiser, apaga essas 2 linhas)
       participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
 
-      // precisa ter exatamente 20 (4 grupos x 5)
       if (participantes.length < TOTAL_TIMES) {
         toast.error(`Preciso de ${TOTAL_TIMES} times para 4 grupos de 5. Achei ${participantes.length}.`)
         return
       }
       if (participantes.length > TOTAL_TIMES) {
-        // remove os “mais fracos” para fechar em 20
         const ord = [...participantes].sort((a, b) => {
           const oa = a.overall ?? 0
           const ob = b.overall ?? 0
@@ -531,7 +526,6 @@ export default function FaseGruposPage() {
 
       const grupos = sortearGrupos(participantes, evitarMesmoPais)
 
-      // gera jogos: 5 rodadas por grupo
       const calendario: CalendarioGrupoItem[] = []
       GRUPOS.forEach(g => {
         const ids = grupos[g].map(t => t.id)
@@ -544,7 +538,6 @@ export default function FaseGruposPage() {
         return
       }
 
-      // limpa tabela (temporada ou tudo)
       if (temColunaTemporada) {
         const { error: delErr } = await supabase.from('copa_fase_liga').delete().eq('temporada', TEMPORADA)
         if (delErr) {
@@ -559,7 +552,6 @@ export default function FaseGruposPage() {
         }
       }
 
-      // insere os jogos
       const rowsInsert = calendario.map(j => ({
         ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
         ...(temColunaGrupo ? { grupo: j.grupo } : {}),
@@ -581,7 +573,6 @@ export default function FaseGruposPage() {
       await atualizarClassificacao()
       await buscarJogos()
 
-      // log no BID
       await supabase.from('bid').insert([
         {
           tipo_evento: 'Sistema',
@@ -598,10 +589,13 @@ export default function FaseGruposPage() {
     }
   }
 
-  /* ===================== Salvar / Ajuste / Excluir (iguais, só mantém) ===================== */
+  /* ===================== Salvar / Ajuste / Excluir ===================== */
   async function salvarAjusteResultado(jogo: Jogo, gm: number, gv: number, silencioso = false) {
     if (!isAdmin) return
-    const { error } = await supabase.from('copa_fase_liga').update({ gols_time1: gm, gols_time2: gv, bonus_pago: true }).eq('id', jogo.id)
+    const { error } = await supabase
+      .from('copa_fase_liga')
+      .update({ gols_time1: gm, gols_time2: gv, bonus_pago: true })
+      .eq('id', jogo.id)
     if (error) {
       toast.error('Erro ao ajustar placar')
       return
@@ -615,7 +609,11 @@ export default function FaseGruposPage() {
     if (!isAdmin) return
     setSalvandoId(jogo.id)
 
-    const { data: existente, error: erroVer } = await supabase.from('copa_fase_liga').select('bonus_pago').eq('id', jogo.id).single()
+    const { data: existente, error: erroVer } = await supabase
+      .from('copa_fase_liga')
+      .select('bonus_pago')
+      .eq('id', jogo.id)
+      .single()
     if (erroVer) {
       toast.error('Erro ao verificar status do jogo')
       setSalvandoId(null)
@@ -730,7 +728,10 @@ export default function FaseGruposPage() {
         }
       : {}
 
-    const { error: erroPlacar } = await supabase.from('copa_fase_liga').update({ ...patchBase, ...patchExtras }).eq('id', jogo.id)
+    const { error: erroPlacar } = await supabase
+      .from('copa_fase_liga')
+      .update({ ...patchBase, ...patchExtras })
+      .eq('id', jogo.id)
     if (erroPlacar) {
       toast.error('Erro ao salvar/registrar finanças')
       setSalvandoId(null)
@@ -851,7 +852,7 @@ export default function FaseGruposPage() {
     }
 
     jogos.forEach(j => {
-      const g = (j.grupo ?? 'A') as string // fallback
+      const g = (j.grupo ?? 'A') as string
       ensure(g, j.time1)
       ensure(g, j.time2)
 
@@ -902,14 +903,12 @@ export default function FaseGruposPage() {
     }
     setGerandoMM(true)
     try {
-      // valida se tem 4 grupos com pelo menos 2 classificados
       const gruposOk = GRUPOS.every(g => (classificacaoPorGrupo[g]?.length ?? 0) >= 2)
       if (!gruposOk) {
         toast.error('Preciso de pelo menos 2 times classificados em cada grupo (A–D).')
         return
       }
 
-      // top2 de cada
       const A1 = classificacaoPorGrupo['A'][0].id
       const A2 = classificacaoPorGrupo['A'][1].id
       const B1 = classificacaoPorGrupo['B'][0].id
@@ -919,7 +918,6 @@ export default function FaseGruposPage() {
       const D1 = classificacaoPorGrupo['D'][0].id
       const D2 = classificacaoPorGrupo['D'][1].id
 
-      // chaveamento padrão “linkado”
       const chaves = [
         { casaId: A1, foraId: B2, label: 'QF1 — A1 x B2' },
         { casaId: B1, foraId: A2, label: 'QF2 — B1 x A2' },
@@ -927,19 +925,14 @@ export default function FaseGruposPage() {
         { casaId: D1, foraId: C2, label: 'QF4 — D1 x C2' },
       ]
 
-      // grava em copa_mata_mata (se você já usa outro nome, troca aqui)
-      // schema sugerido: id(uuid), fase(text), ordem(int), id_time1, id_time2, time1, time2, gols_time1, gols_time2, temporada
       const TABELA_MM = 'copa_mata_mata'
 
-      // tenta limpar a fase "quartas" da temporada
       let del = await supabase.from(TABELA_MM).delete().eq('fase', 'quartas')
       if (temColunaTemporada) del = await supabase.from(TABELA_MM).delete().eq('fase', 'quartas').eq('temporada', TEMPORADA)
-      // não para se der erro (pode não existir ainda)
+
       // @ts-ignore
       if (del?.error) {
-        // se a tabela não existir, avisa
         toast('⚠️ Não consegui limpar/usar tabela copa_mata_mata. Verifique se ela existe no banco.', { icon: 'ℹ️' })
-        // mesmo assim, mostra as chaves na tela
         setChavesMM(chaves)
         return
       }
@@ -982,11 +975,12 @@ export default function FaseGruposPage() {
   /* ===== UI DERIVED ===== */
   const jogosFiltrados = useMemo(
     () =>
-      jogos.filter(j => filtroTime === 'Todos' || timesMap[j.time1]?.nome === filtroTime || timesMap[j.time2]?.nome === filtroTime),
+      jogos.filter(
+        j => filtroTime === 'Todos' || timesMap[j.time1]?.nome === filtroTime || timesMap[j.time2]?.nome === filtroTime
+      ),
     [jogos, filtroTime, timesMap]
   )
 
-  // agrupa por grupo -> rodada
   const jogosPorGrupoRodada = useMemo(() => {
     const map: Record<string, Record<number, Jogo[]>> = {}
     jogosFiltrados.forEach(j => {
@@ -1012,7 +1006,15 @@ export default function FaseGruposPage() {
   }, [jogos])
 
   /* ===== Small UI components ===== */
-  const ScoreInput = ({ value, onChange, disabled }: { value: number | null; onChange: (v: number) => void; disabled?: boolean }) => (
+  const ScoreInput = ({
+    value,
+    onChange,
+    disabled,
+  }: {
+    value: number | null
+    onChange: (v: number) => void
+    disabled?: boolean
+  }) => (
     <div className="group flex items-center gap-1 rounded-full bg-zinc-50/5 border border-zinc-700 px-1 shadow-inner">
       <button
         className="p-1 rounded-full hover:bg-zinc-800 disabled:opacity-40"
@@ -1041,7 +1043,15 @@ export default function FaseGruposPage() {
     </div>
   )
 
-  const SectionHeader = ({ keyName, title, subtitle }: { keyName: string; title: React.ReactNode; subtitle?: React.ReactNode }) => {
+  const SectionHeader = ({
+    keyName,
+    title,
+    subtitle,
+  }: {
+    keyName: string
+    title: React.ReactNode
+    subtitle?: React.ReactNode
+  }) => {
     const open = !!secoesAbertas[keyName]
     return (
       <div className="sticky top-[64px] z-20">
@@ -1060,7 +1070,10 @@ export default function FaseGruposPage() {
   }
 
   return (
-    <div ref={topRef} className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black text-white">
+    <div
+      ref={topRef}
+      className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black text-white"
+    >
       {/* Sticky toolbar */}
       <div className="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-black/50 bg-black/70 border-b border-white/10">
         <div className="mx-auto max-w-7xl px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1081,21 +1094,24 @@ export default function FaseGruposPage() {
           {isAdmin && (
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
-                <input type="checkbox" className="accent-emerald-500" checked={evitarMesmoPais} onChange={e => setEvitarMesmoPais(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="accent-emerald-500"
+                  checked={evitarMesmoPais}
+                  onChange={e => setEvitarMesmoPais(e.target.checked)}
+                />
                 <FiTarget /> Evitar mesmo país (grupos)
               </label>
 
-              <button
-                onClick={() => setGerando(true) || null}
-                className="hidden"
-                aria-hidden
-              />
+              {/* ✅ BOTÃO OCULTO (sem erro TS) */}
+              <button onClick={() => setGerando(true)} className="hidden" aria-hidden />
 
               <button
                 onClick={() => {
-                  // abre modal simples por confirm
                   const ok = confirm(
-                    `Gerar Fase de Grupos?\n\nIsso apaga os jogos ${temColunaTemporada ? `da temporada "${TEMPORADA}"` : 'atuais'} e cria 4 grupos com 5 times.\n\n⚠️ Palmeiras está sendo excluído no código (remova se não quiser).`
+                    `Gerar Fase de Grupos?\n\nIsso apaga os jogos ${
+                      temColunaTemporada ? `da temporada "${TEMPORADA}"` : 'atuais'
+                    } e cria 4 grupos com 5 times.\n\n⚠️ Palmeiras está sendo excluído no código (remova se não quiser).`
                   )
                   if (ok) gerarFaseGrupos()
                 }}
@@ -1154,7 +1170,10 @@ export default function FaseGruposPage() {
               ))}
             </select>
             {filtroTime !== 'Todos' && (
-              <button onClick={() => setFiltroTime('Todos')} className="text-xs rounded-md border border-white/10 bg-white/5 px-2 py-1 hover:bg-white/10">
+              <button
+                onClick={() => setFiltroTime('Todos')}
+                className="text-xs rounded-md border border-white/10 bg-white/5 px-2 py-1 hover:bg-white/10"
+              >
                 Limpar
               </button>
             )}
@@ -1174,7 +1193,9 @@ export default function FaseGruposPage() {
           </div>
         ) : (
           listaGrupos.map(grupo => {
-            const rodadas = Object.keys(jogosPorGrupoRodada[grupo] || {}).map(Number).sort((a, b) => a - b)
+            const rodadas = Object.keys(jogosPorGrupoRodada[grupo] || {})
+              .map(Number)
+              .sort((a, b) => a - b)
             const keyName = `GRUPO-${grupo}`
             return (
               <section key={grupo} className="mb-8">
@@ -1218,11 +1239,18 @@ export default function FaseGruposPage() {
                             {(classificacaoPorGrupo[grupo] || []).map((r, idx) => {
                               const isTop2 = idx < 2
                               return (
-                                <tr key={r.id} className={`border-b border-white/5 ${isTop2 ? 'bg-emerald-500/5' : ''}`}>
+                                <tr
+                                  key={r.id}
+                                  className={`border-b border-white/5 ${isTop2 ? 'bg-emerald-500/5' : ''}`}
+                                >
                                   <td className="py-2">{idx + 1}</td>
                                   <td className="py-2">
                                     <div className="flex items-center gap-2">
-                                      <img src={timesMap[r.id]?.logo_url || '/default.png'} className="h-6 w-6 rounded-full border bg-white object-cover" alt="" />
+                                      <img
+                                        src={timesMap[r.id]?.logo_url || '/default.png'}
+                                        className="h-6 w-6 rounded-full border bg-white object-cover"
+                                        alt=""
+                                      />
                                       <span className="font-semibold">{timesMap[r.id]?.nome || r.id}</span>
                                       {isTop2 && <Badge tone="emerald">Classifica</Badge>}
                                     </div>
@@ -1245,7 +1273,10 @@ export default function FaseGruposPage() {
 
                     {/* Rodadas */}
                     {rodadas.map(rodada => (
-                      <div key={rodada} className="rounded-xl border border-white/10 bg-gradient-to-br from-zinc-900/70 to-zinc-950/70 p-4">
+                      <div
+                        key={rodada}
+                        className="rounded-xl border border-white/10 bg-gradient-to-br from-zinc-900/70 to-zinc-950/70 p-4"
+                      >
                         <div className="mb-3 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Badge tone="violet">Rodada</Badge>
@@ -1256,12 +1287,21 @@ export default function FaseGruposPage() {
 
                         <div className="grid gap-3">
                           {(jogosPorGrupoRodada[grupo]?.[rodada] || []).map(jogo => (
-                            <div key={jogo.id} className="relative rounded-xl border border-white/10 bg-black/20 p-4 hover:border-white/20 transition">
+                            <div
+                              key={jogo.id}
+                              className="relative rounded-xl border border-white/10 bg-black/20 p-4 hover:border-white/20 transition"
+                            >
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 {/* Time 1 */}
                                 <div className="flex min-w-[220px] items-center gap-3">
-                                  <img src={timesMap[jogo.time1]?.logo_url || '/default.png'} alt="" className="h-10 w-10 rounded-full border bg-white object-cover" />
-                                  <span className="max-w-[180px] truncate font-semibold">{timesMap[jogo.time1]?.nome || jogo.time1}</span>
+                                  <img
+                                    src={timesMap[jogo.time1]?.logo_url || '/default.png'}
+                                    alt=""
+                                    className="h-10 w-10 rounded-full border bg-white object-cover"
+                                  />
+                                  <span className="max-w-[180px] truncate font-semibold">
+                                    {timesMap[jogo.time1]?.nome || jogo.time1}
+                                  </span>
                                   <Badge>Mandante</Badge>
                                 </div>
 
@@ -1269,13 +1309,17 @@ export default function FaseGruposPage() {
                                 <div className="flex items-center gap-2">
                                   <ScoreInput
                                     value={jogo.gols_time1}
-                                    onChange={v => setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time1: v } : j)))}
+                                    onChange={v =>
+                                      setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time1: v } : j)))
+                                    }
                                     disabled={!isAdmin}
                                   />
                                   <span className="px-2 text-lg font-extrabold text-zinc-300">x</span>
                                   <ScoreInput
                                     value={jogo.gols_time2}
-                                    onChange={v => setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time2: v } : j)))}
+                                    onChange={v =>
+                                      setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time2: v } : j)))
+                                    }
                                     disabled={!isAdmin}
                                   />
                                 </div>
@@ -1283,8 +1327,14 @@ export default function FaseGruposPage() {
                                 {/* Time 2 */}
                                 <div className="flex min-w-[220px] items-center justify-end gap-3">
                                   <Badge tone="sky">Visitante</Badge>
-                                  <span className="max-w-[180px] truncate font-semibold text-right">{timesMap[jogo.time2]?.nome || jogo.time2}</span>
-                                  <img src={timesMap[jogo.time2]?.logo_url || '/default.png'} alt="" className="h-10 w-10 rounded-full border bg-white object-cover" />
+                                  <span className="max-w-[180px] truncate font-semibold text-right">
+                                    {timesMap[jogo.time2]?.nome || jogo.time2}
+                                  </span>
+                                  <img
+                                    src={timesMap[jogo.time2]?.logo_url || '/default.png'}
+                                    alt=""
+                                    className="h-10 w-10 rounded-full border bg-white object-cover"
+                                  />
                                 </div>
 
                                 {/* Ações */}
@@ -1317,17 +1367,27 @@ export default function FaseGruposPage() {
                                 {jogo.renda != null && jogo.publico != null ? (
                                   <div className="flex items-center gap-3">
                                     <span>
-                                      🎟️ Público: <span className="tabular-nums text-zinc-200">{Number(jogo.publico).toLocaleString()}</span>
+                                      🎟️ Público:{' '}
+                                      <span className="tabular-nums text-zinc-200">
+                                        {Number(jogo.publico).toLocaleString()}
+                                      </span>
                                     </span>
                                     <span>
-                                      💰 Renda: <span className="tabular-nums text-zinc-200">R$ {Number(jogo.renda).toLocaleString()}</span>
+                                      💰 Renda:{' '}
+                                      <span className="tabular-nums text-zinc-200">
+                                        R$ {Number(jogo.renda).toLocaleString()}
+                                      </span>
                                     </span>
                                   </div>
                                 ) : (
                                   <div className="text-zinc-500">Sem relatório financeiro ainda</div>
                                 )}
 
-                                {jogo.bonus_pago ? <Badge tone="emerald">Finanças lançadas</Badge> : <Badge tone="zinc">Aguardando lançamento</Badge>}
+                                {jogo.bonus_pago ? (
+                                  <Badge tone="emerald">Finanças lançadas</Badge>
+                                ) : (
+                                  <Badge tone="zinc">Aguardando lançamento</Badge>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1347,7 +1407,10 @@ export default function FaseGruposPage() {
             <h3 className="text-sm font-bold text-amber-300 mb-2">Mata-mata — Quartas (gerado a partir dos grupos)</h3>
             <ul className="grid md:grid-cols-2 gap-2 text-sm">
               {chavesMM.map((c, i) => (
-                <li key={i} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-between">
+                <li
+                  key={i}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-between"
+                >
                   <span>
                     <b>{c.label}:</b> {timesMap[c.casaId]?.nome || c.casaId} × {timesMap[c.foraId]?.nome || c.foraId}
                   </span>
@@ -1366,9 +1429,7 @@ export default function FaseGruposPage() {
             <p className="mb-6 text-zinc-200">
               Isso pega o <b>Top 2</b> de cada grupo e cria as quartas:
               <br />
-              <span className="text-zinc-300">
-                A1×B2, B1×A2, C1×D2, D1×C2
-              </span>
+              <span className="text-zinc-300">A1×B2, B1×A2, C1×D2, D1×C2</span>
               <br />
               Será salvo em <code>copa_mata_mata</code> (fase=quartas).
             </p>
@@ -1395,4 +1456,3 @@ export default function FaseGruposPage() {
     </div>
   )
 }
-
