@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react'
 import classNames from 'classnames'
 
-export type Leilao = {
+type Leilao = {
   id: string
   nome: string
   posicao: string
@@ -17,7 +17,7 @@ export type Leilao = {
   criado_em: string
 }
 
-export type CardJogadorLeilaoProps = {
+type Props = {
   leilao: Leilao
   index: number
 
@@ -69,39 +69,46 @@ const formatarTempo = (segundos: number) => {
   return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
 }
 
-function tierBadge(valor: number) {
-  if (valor >= 1_500_000_000) return 'text-fuchsia-300 border-fuchsia-900/40 bg-fuchsia-950/30'
-  if (valor >= 1_000_000_000) return 'text-blue-300 border-blue-900/40 bg-blue-950/30'
-  if (valor >= 500_000_000) return 'text-emerald-300 border-emerald-900/40 bg-emerald-950/30'
-  if (valor >= 250_000_000) return 'text-amber-300 border-amber-900/40 bg-amber-950/30'
-  return 'text-emerald-200 border-emerald-900/30 bg-emerald-950/20'
+function badgeTier(valor: number) {
+  if (valor >= 1_500_000_000) return 'bg-fuchsia-500/15 text-fuchsia-200 ring-fuchsia-500/25'
+  if (valor >= 1_000_000_000) return 'bg-blue-500/15 text-blue-200 ring-blue-500/25'
+  if (valor >= 500_000_000) return 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/25'
+  if (valor >= 250_000_000) return 'bg-amber-500/15 text-amber-200 ring-amber-500/25'
+  return 'bg-emerald-500/10 text-emerald-200 ring-emerald-500/20'
 }
 
-export default function CardJogadorLeilao(props: CardJogadorLeilaoProps) {
-  const {
-    leilao,
-    index,
-    travadoPorIdentidade,
-    saldo,
-    isAdmin,
-    tempoRestante,
-    pctRestante,
-    disabledPorCooldown,
-    tremendo,
-    burst,
-    efeitoOverlay,
-    minimoPermitido,
-    valorProposto,
-    setValorProposto,
-    logoVencedor,
-    onDarLanceManual,
-    onDarLanceInc,
-    onResetMinimo,
-    onExcluir,
-    onFinalizar,
-    finalizando,
-  } = props
+function posBadge(pos: string) {
+  const p = (pos || '').toUpperCase()
+  // opcional: padroniza algumas posições
+  if (p === 'ZAGUEIRO') return 'ZAG'
+  if (p === 'GOLEIRO') return 'GL'
+  if (p === 'MEIO CAMPO') return 'MC'
+  return p
+}
 
+export default function CardJogadorLeilao({
+  leilao,
+  index,
+  travadoPorIdentidade,
+  saldo,
+  isAdmin,
+  tempoRestante,
+  pctRestante,
+  disabledPorCooldown,
+  tremendo,
+  burst,
+  efeitoOverlay,
+  minimoPermitido,
+  valorProposto,
+  setValorProposto,
+  logoVencedor,
+  onDarLanceManual,
+  onDarLanceInc,
+  onResetMinimo,
+  onExcluir,
+  onFinalizar,
+  finalizando,
+}: Props) {
   const encerrado = tempoRestante === 0
 
   const valorPropostoNum = useMemo(() => {
@@ -116,174 +123,151 @@ export default function CardJogadorLeilao(props: CardJogadorLeilaoProps) {
 
   const barraCor = encerrado ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
 
-  const CARD_GRADIENTS = [
-    'from-emerald-500/40 via-emerald-400/25 to-emerald-300/20',
-    'from-emerald-400/45 via-teal-400/30 to-cyan-400/20',
-    'from-teal-400/45 via-cyan-400/30 to-sky-400/20',
-    'from-cyan-400/45 via-sky-400/30 to-blue-400/20',
-    'from-sky-400/45 via-blue-500/30 to-indigo-500/20',
-    'from-blue-500/45 via-indigo-500/30 to-violet-500/20',
-    'from-indigo-500/45 via-violet-500/30 to-fuchsia-500/20',
-    'from-violet-500/45 via-fuchsia-500/30 to-pink-500/20',
-    'from-fuchsia-500/45 via-pink-500/30 to-rose-500/20',
-    'from-pink-500/45 via-rose-500/30 to-red-500/20',
-    'from-rose-500/45 via-red-500/30 to-orange-500/20',
-    'from-red-500/45 via-orange-500/30 to-amber-500/20',
-    'from-orange-500/45 via-amber-500/30 to-yellow-500/20',
-    'from-amber-500/45 via-yellow-400/30 to-lime-400/20',
-    'from-yellow-400/45 via-lime-400/30 to-emerald-400/20',
-  ] as const
-
-  const gradIndexForValor = (v: number) => {
-    const idx = Math.floor((v || 0) / 50_000_000)
-    return Math.max(0, Math.min(idx, CARD_GRADIENTS.length - 1))
-  }
-
-  const gradIdx = gradIndexForValor(leilao.valor_atual)
+  const disabledLance =
+    !!travadoPorIdentidade || disabledPorCooldown || encerrado || invalido || (saldo !== null && valorPropostoNum > Number(saldo))
 
   return (
-    <div className="relative group">
+    <div className="relative">
+      {/* Carta */}
       <div
         className={classNames(
-          'rounded-2xl bg-gradient-to-br p-[1px] shadow-[0_0_0_1px_rgba(0,0,0,.5)]',
-          CARD_GRADIENTS[gradIdx]
+          'relative overflow-hidden rounded-[28px] border border-zinc-800/70 bg-gradient-to-b from-zinc-100/10 to-zinc-950/70 shadow-xl backdrop-blur',
+          tremendo ? 'ring-2 ring-emerald-400/40' : ''
         )}
+        style={{ aspectRatio: '3 / 4', minHeight: 360 }}
       >
-        <article
-          className={classNames(
-            'relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur transition',
-            'hover:border-emerald-600/30 hover:bg-zinc-900/70',
-            tremendo ? 'animate-[pulse_0.3s_ease_1] ring-1 ring-emerald-500/30' : ''
-          )}
-        >
-          {/* admin: excluir */}
-          {isAdmin && onExcluir && (
-            <button
-              onClick={onExcluir}
-              className="absolute right-3 top-3 rounded-lg border border-red-900/40 bg-red-950/40 px-2 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
-              title="Excluir do leilão (admin)"
-              type="button"
-            >
-              🗑️ Excluir
-            </button>
-          )}
+        {/* barra tempo */}
+        <div className="absolute left-4 right-4 top-4 h-2 overflow-hidden rounded-full bg-zinc-800/70">
+          <div className={classNames('h-full transition-[width] duration-1000', barraCor)} style={{ width: `${pctRestante}%` }} />
+        </div>
 
-          {/* burst / overlay */}
-          {burst && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="animate-[fadeout_0.7s_ease_forwards] select-none text-2xl">💥✨🔥</div>
-            </div>
-          )}
-          {efeitoOverlay}
-
-          {/* barra tempo */}
-          <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
-            <div
-              className={classNames('h-full transition-[width] duration-1000', barraCor)}
-              style={{ width: `${pctRestante}%` }}
-            />
+        {/* topo: overall + pos */}
+        <div className="absolute left-5 top-8 z-10">
+          <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">
+            {Number(leilao.overall ?? 0)}
           </div>
-
-          {/* topo */}
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-zinc-300">Leilão #{index + 1}</h2>
-            <span
-              className={classNames(
-                'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px]',
-                encerrado
-                  ? 'border-red-900/60 bg-red-950/40 text-red-200'
-                  : 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
-              )}
-            >
-              {encerrado ? 'Encerrado' : 'Termina em'}
-              {!encerrado && <b className="tabular-nums">{formatarTempo(tempoRestante)}</b>}
+          <div className="mt-1 inline-flex items-center gap-2">
+            <span className="rounded-lg bg-sky-500/20 px-2 py-1 text-[11px] font-bold text-sky-200 ring-1 ring-sky-500/25">
+              {posBadge(leilao.posicao)}
             </span>
+
+            {leilao.nacionalidade && (
+              <span className="rounded-lg bg-zinc-900/50 px-2 py-1 text-[11px] font-semibold text-zinc-200 ring-1 ring-zinc-700/40">
+                {leilao.nacionalidade}
+              </span>
+            )}
           </div>
+        </div>
 
-          {/* corpo */}
-          <div className="mt-3 flex items-center gap-4">
-            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
-              {leilao.imagem_url ? (
-                <img
-                  src={leilao.imagem_url}
-                  alt={leilao.nome}
-                  className="h-full w-full object-cover"
-                  referrerPolicy="no-referrer"
-                  loading="lazy"
-                  onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                />
-              ) : (
-                <div className="h-full w-full bg-zinc-900" />
-              )}
-            </div>
+        {/* admin excluir */}
+        {isAdmin && onExcluir && (
+          <button
+            onClick={onExcluir}
+            className="absolute right-4 top-8 z-10 rounded-xl border border-red-900/40 bg-red-950/40 px-3 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
+            title="Excluir do leilão (admin)"
+          >
+            🗑️ Excluir
+          </button>
+        )}
 
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-base font-semibold leading-5">{leilao.nome}</p>
-                <span className={classNames('rounded-md border px-2 py-0.5 text-xs', tierBadge(leilao.valor_atual))}>
-                  {brl(leilao.valor_atual)}
-                </span>
-              </div>
+        {/* imagem central (estilo carta) */}
+        <div className="absolute inset-x-0 top-16 flex justify-center px-6">
+          <div className="relative h-[220px] w-full overflow-hidden rounded-3xl bg-zinc-900/40 ring-1 ring-zinc-800/50">
+            {leilao.imagem_url ? (
+              <img
+                src={leilao.imagem_url}
+                alt={leilao.nome}
+                className="h-full w-full object-cover object-top"
+                referrerPolicy="no-referrer"
+                loading="lazy"
+                onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+              />
+            ) : (
+              <div className="h-full w-full bg-zinc-900" />
+            )}
 
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">{leilao.posicao}</span>
-                <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
-                  ⭐ OVR {leilao.overall}
-                </span>
-                {leilao.nacionalidade && (
-                  <span className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
-                    🌍 {leilao.nacionalidade}
+            {/* overlay do vencedor (coroa) */}
+            {leilao.nome_time_vencedor && (
+              <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-2xl bg-zinc-950/70 px-2 py-1 text-[11px] text-zinc-100 ring-1 ring-zinc-700/40">
+                👑
+                {logoVencedor ? (
+                  <img
+                    src={logoVencedor}
+                    alt={leilao.nome_time_vencedor}
+                    className="h-4 w-4 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                  />
+                ) : (
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 text-[9px]">
+                    {leilao.nome_time_vencedor.slice(0, 2).toUpperCase()}
                   </span>
                 )}
-
-                {leilao.nome_time_vencedor && (
-                  <span className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-0.5">
-                    👑
-                    {logoVencedor ? (
-                      <img
-                        src={logoVencedor}
-                        alt={leilao.nome_time_vencedor}
-                        className="h-4 w-4 rounded-full object-cover"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                      />
-                    ) : (
-                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 text-[9px] text-zinc-200">
-                        {leilao.nome_time_vencedor.slice(0, 2).toUpperCase()}
-                      </span>
-                    )}
-                    <span>{leilao.nome_time_vencedor}</span>
-                  </span>
-                )}
+                <span className="max-w-[120px] truncate">{leilao.nome_time_vencedor}</span>
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* faixa nome (como carta) */}
+        <div className="absolute inset-x-0 top-[300px] px-6">
+          <div className="rounded-2xl bg-zinc-950/55 px-4 py-2 ring-1 ring-zinc-800/50">
+            <div className="truncate text-center text-sm font-extrabold uppercase tracking-wide text-zinc-100">
+              {leilao.nome}
+            </div>
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <a
+                href={leilao.link_sofifa || '#'}
+                target={leilao.link_sofifa ? '_blank' : undefined}
+                rel="noopener noreferrer"
+                className={classNames(
+                  'inline-flex items-center gap-2 text-[11px] font-semibold',
+                  leilao.link_sofifa ? 'text-sky-200 hover:text-sky-100' : 'text-zinc-500 pointer-events-none'
+                )}
+              >
+                🔗 SoFIFA
+              </a>
+
+              <span className={classNames('rounded-xl px-2 py-1 text-[11px] font-bold ring-1', badgeTier(leilao.valor_atual))}>
+                {brl(leilao.valor_atual)}
+              </span>
+            </div>
+
+            {/* tempo */}
+            <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-300">
+              <span className="opacity-80">Leilão #{index + 1}</span>
+              <span className={encerrado ? 'text-red-200' : 'text-emerald-200'}>
+                {encerrado ? 'Encerrado' : `Termina em ${formatarTempo(tempoRestante)}`}
+              </span>
             </div>
           </div>
+        </div>
 
-          {/* lance manual */}
-          <div className="mt-4 space-y-2">
+        {/* área de lances (base da carta) */}
+        <div className="absolute inset-x-0 bottom-4 px-6">
+          <div className="rounded-2xl bg-zinc-950/60 p-3 ring-1 ring-zinc-800/50">
+            {/* input + botão */}
             <div className="flex items-center gap-2">
               <input
                 inputMode="numeric"
                 pattern="[0-9]*"
                 className={classNames(
                   'w-full rounded-xl border bg-zinc-950/60 px-3 py-2 text-sm tabular-nums outline-none',
-                  invalido
-                    ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30'
-                    : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
+                  invalido ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30' : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
                 )}
-                value={valorProposto ?? ''}
+                value={valorProposto}
                 onChange={(e) => setValorProposto(e.target.value.replace(/[^\d]/g, ''))}
                 placeholder={String(minimoPermitido)}
                 disabled={!!travadoPorIdentidade}
               />
 
               <button
-                type="button"
                 onClick={() => onDarLanceManual(valorPropostoNum)}
-                disabled={!!travadoPorIdentidade || disabledPorCooldown || invalido || encerrado}
+                disabled={disabledLance}
                 className={classNames(
-                  'shrink-0 rounded-xl px-4 py-2 text-sm font-semibold transition',
-                  !!travadoPorIdentidade || disabledPorCooldown || invalido || encerrado
+                  'shrink-0 rounded-xl px-4 py-2 text-sm font-extrabold transition',
+                  disabledLance
                     ? 'cursor-not-allowed border border-zinc-800 bg-zinc-900/60 text-zinc-500'
                     : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
                 )}
@@ -292,23 +276,22 @@ export default function CardJogadorLeilao(props: CardJogadorLeilaoProps) {
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400">
+            {/* mínimo + botão +20mi */}
+            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-zinc-300">
               <span>
-                Mínimo permitido: <b className="tabular-nums text-zinc-200">{brl(minimoPermitido)}</b>
+                Mínimo: <b className="tabular-nums text-zinc-100">{brl(minimoPermitido)}</b>
               </span>
               <button
                 type="button"
                 onClick={onResetMinimo}
-                className="rounded-lg border border-emerald-900/40 bg-emerald-950/40 px-2 py-1 font-semibold text-emerald-200 hover:bg-emerald-900/40"
+                className="rounded-xl border border-emerald-900/40 bg-emerald-950/40 px-3 py-1 font-bold text-emerald-200 hover:bg-emerald-900/40"
               >
                 +20mi (mínimo)
               </button>
             </div>
-          </div>
 
-          {/* incrementos */}
-          <div className="mt-4">
-            <div className="grid grid-cols-3 gap-2">
+            {/* incrementos */}
+            <div className="mt-3 grid grid-cols-3 gap-2">
               {INCS.map((inc) => {
                 const disabled =
                   !!travadoPorIdentidade ||
@@ -319,18 +302,13 @@ export default function CardJogadorLeilao(props: CardJogadorLeilaoProps) {
                 return (
                   <button
                     key={inc}
-                    type="button"
                     onClick={() => onDarLanceInc(inc)}
                     disabled={disabled}
                     className={classNames(
-                      'rounded-xl px-3 py-2 text-xs font-bold tabular-nums transition',
+                      'rounded-xl px-2 py-2 text-[12px] font-extrabold tabular-nums transition',
                       'border bg-zinc-950/60 hover:bg-zinc-900',
-                      'focus:outline-none focus:ring-2 focus:ring-emerald-400/30',
-                      disabled
-                        ? 'border-zinc-800 text-zinc-500 opacity-60'
-                        : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
+                      disabled ? 'border-zinc-800 text-zinc-500 opacity-60' : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
                     )}
-                    title={disabled ? 'Indisponível no momento' : undefined}
                   >
                     + {(inc / 1_000_000).toLocaleString()} mi
                   </button>
@@ -338,45 +316,46 @@ export default function CardJogadorLeilao(props: CardJogadorLeilaoProps) {
               })}
             </div>
 
-            {leilao.link_sofifa && (
-              <a
-                href={leilao.link_sofifa}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-block text-xs text-cyan-300 underline hover:text-cyan-200"
-              >
-                🔗 Ver no Sofifa
-              </a>
-            )}
-          </div>
-
-          {/* finalizar admin */}
-          {isAdmin && onFinalizar && (
-            <div className="mt-4">
+            {/* finalizar admin apenas quando encerrado */}
+            {isAdmin && onFinalizar && encerrado && (
               <button
-                type="button"
                 onClick={onFinalizar}
-                disabled={!!finalizando || !encerrado}
+                disabled={!!finalizando}
                 className={classNames(
-                  'w-full rounded-xl px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2',
-                  !!finalizando || !encerrado
-                    ? 'bg-zinc-900/60 text-zinc-400 border border-zinc-800 cursor-not-allowed'
-                    : 'bg-red-600/90 text-white hover:bg-red-600 border border-red-700/40 focus:ring-red-400/30'
+                  'mt-3 w-full rounded-xl border px-3 py-2 text-sm font-extrabold transition focus:outline-none focus:ring-2',
+                  !!finalizando
+                    ? 'border-zinc-800 bg-zinc-900/60 text-zinc-400 cursor-not-allowed'
+                    : 'border-red-700/40 bg-red-600/90 text-white hover:bg-red-600 focus:ring-red-400/30'
                 )}
-                title={!encerrado ? 'Aguarde o relógio do servidor zerar' : 'Finaliza e marca como leiloado'}
               >
                 {finalizando ? 'Finalizando…' : 'Finalizar Leilão'}
               </button>
-            </div>
-          )}
-        </article>
+            )}
+          </div>
+        </div>
+
+        {/* burst/overlay */}
+        {burst && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="animate-[fadeout_0.7s_ease_forwards] select-none text-3xl">💥✨🔥</div>
+          </div>
+        )}
+        {efeitoOverlay}
+
+        {/* etiqueta encerrado */}
+        {encerrado && (
+          <div className="pointer-events-none absolute left-5 top-14 rotate-[-6deg] rounded-xl border border-red-900/50 bg-red-950/70 px-3 py-1 text-[11px] font-extrabold text-red-200 shadow">
+            ENCERRADO
+          </div>
+        )}
       </div>
 
-      {encerrado && (
-        <div className="pointer-events-none absolute -right-2 -top-2 rotate-3 rounded-lg border border-red-900/50 bg-red-950/70 px-2 py-1 text-[10px] font-semibold text-red-200 shadow">
-          ENCERRADO
-        </div>
-      )}
+      <style jsx>{`
+        @keyframes fadeout {
+          0% { opacity: 1; transform: scale(1) translateY(0); }
+          100% { opacity: 0; transform: scale(1.3) translateY(-10px); }
+        }
+      `}</style>
     </div>
   )
 }
