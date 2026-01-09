@@ -693,7 +693,7 @@ export default function Sidebar() {
                   />
                   {abrirCopa && (
                     <div className="ml-3 mt-1 space-y-1 text-sm">
-                      <NavLink href="/copa/fase_liga">📊 Fase Liga</NavLink>
+                      <NavLink href="/copa/fase_grupos">📊 Fase Liga</NavLink>
                       <NavLink href="/copa/classificacao">📈 Classificação</NavLink>
                       <NavLink href="/copa/playoff">🎯 Playoff</NavLink>
                       <NavLink href="/copa/mata-mata">🥇 Oitavas</NavLink>
