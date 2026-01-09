@@ -21,35 +21,28 @@ type Props = {
   leilao: Leilao
   index: number
 
-  // identidade / status
   travadoPorIdentidade?: string | null
   saldo: number | null
   isAdmin: boolean
 
-  // tempo (já sincronizado fora)
   tempoRestante: number
   pctRestante: number
 
-  // ui state
   disabledPorCooldown: boolean
   tremendo?: boolean
   burst?: boolean
   efeitoOverlay?: React.ReactNode
 
-  // propostas
   minimoPermitido: number
   valorProposto: string
   setValorProposto: (v: string) => void
 
-  // logos
   logoVencedor?: string
 
-  // ações
   onDarLanceManual: (valorPropostoNum: number) => void
   onDarLanceInc: (inc: number) => void
   onResetMinimo: () => void
 
-  // admin
   onExcluir?: () => void
   onFinalizar?: () => void
   finalizando?: boolean
@@ -79,34 +72,42 @@ function cartaTierByOverall(overall: number) {
 function cartaClasses(overall: number) {
   const tier = cartaTierByOverall(Number(overall || 0))
 
-  // ✅ Gradiente + borda (bem “cara de carta”)
+  // ✅ fundo (bem visível) + overlay “tinta” + borda
   if (tier === 'bronze') {
     return {
+      // fundo principal da carta
+      bg: 'bg-gradient-to-b from-[#4a2b14] via-[#1a1210] to-zinc-950',
+      // “tinta” por cima pra dar cara de bronze (radial + brilho)
+      tint: 'from-[#b87333]/22 via-transparent to-transparent',
+      tint2: 'from-[#ffd9b8]/10 via-transparent to-transparent',
+      border: 'border-[#b87333]/45',
       ring: 'ring-[#b87333]/25',
-      border: 'border-[#b87333]/35',
-      topGlow: 'from-[#b87333]/20 via-zinc-900/20 to-zinc-950/70',
-      badge: 'bg-[#b87333]/15 text-[#ffd9b8] ring-[#b87333]/25',
-      accent: 'text-[#ffd9b8]',
+      badge: 'bg-[#b87333]/18 text-[#ffe3c9] ring-[#b87333]/25',
+      accent: 'text-[#ffe3c9]',
     }
   }
 
   if (tier === 'prata') {
     return {
+      bg: 'bg-gradient-to-b from-[#2a2f38] via-[#12161d] to-zinc-950',
+      tint: 'from-zinc-200/18 via-transparent to-transparent',
+      tint2: 'from-white/10 via-transparent to-transparent',
+      border: 'border-zinc-200/35',
       ring: 'ring-zinc-200/20',
-      border: 'border-zinc-300/25',
-      topGlow: 'from-zinc-200/15 via-zinc-900/20 to-zinc-950/70',
-      badge: 'bg-zinc-200/15 text-zinc-100 ring-zinc-200/25',
+      badge: 'bg-zinc-200/16 text-zinc-100 ring-zinc-200/25',
       accent: 'text-zinc-100',
     }
   }
 
   // ouro
   return {
+    bg: 'bg-gradient-to-b from-[#3a2c07] via-[#15120a] to-zinc-950',
+    tint: 'from-[#f5c84b]/22 via-transparent to-transparent',
+    tint2: 'from-[#ffe9a6]/10 via-transparent to-transparent',
+    border: 'border-[#f5c84b]/45',
     ring: 'ring-[#f5c84b]/25',
-    border: 'border-[#f5c84b]/35',
-    topGlow: 'from-[#f5c84b]/18 via-zinc-900/20 to-zinc-950/70',
-    badge: 'bg-[#f5c84b]/15 text-[#ffe9a6] ring-[#f5c84b]/25',
-    accent: 'text-[#ffe9a6]',
+    badge: 'bg-[#f5c84b]/18 text-[#fff0b6] ring-[#f5c84b]/25',
+    accent: 'text-[#fff0b6]',
   }
 }
 
@@ -151,10 +152,7 @@ export default function CardJogadorLeilao({
 }: Props) {
   const encerrado = tempoRestante === 0
 
-  const valorPropostoNum = useMemo(() => {
-    const n = Math.floor(Number(valorProposto || 0))
-    return n
-  }, [valorProposto])
+  const valorPropostoNum = useMemo(() => Math.floor(Number(valorProposto || 0)), [valorProposto])
 
   const invalido =
     !isFinite(valorPropostoNum) ||
@@ -174,19 +172,24 @@ export default function CardJogadorLeilao({
 
   return (
     <div className="relative">
-      {/* Carta */}
       <div
         className={classNames(
-          'relative overflow-hidden rounded-[28px] border bg-gradient-to-b shadow-xl backdrop-blur',
+          'relative overflow-hidden rounded-[28px] border shadow-xl backdrop-blur',
+          c.bg,
           c.border,
-          c.topGlow,
-          'from-zinc-100/10 to-zinc-950/70',
           tremendo ? 'ring-2 ring-emerald-400/40' : classNames('ring-1', c.ring)
         )}
         style={{ aspectRatio: '3 / 4', minHeight: 380 }}
       >
+        {/* ✅ camadas que fazem o fundo ficar BRONZE/PRATA/OURO de verdade */}
+        <div className="pointer-events-none absolute inset-0">
+          <div className={classNames('absolute -top-24 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full blur-2xl bg-radial', `bg-gradient-to-b ${c.tint}`)} />
+          <div className={classNames('absolute -bottom-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full blur-3xl bg-radial', `bg-gradient-to-b ${c.tint2}`)} />
+          <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/35" />
+        </div>
+
         {/* barra tempo */}
-        <div className="absolute left-4 right-4 top-4 h-2 overflow-hidden rounded-full bg-zinc-800/70">
+        <div className="absolute left-4 right-4 top-4 h-2 overflow-hidden rounded-full bg-black/30 ring-1 ring-white/5">
           <div className={classNames('h-full transition-[width] duration-1000', barraCor)} style={{ width: `${pctRestante}%` }} />
         </div>
 
@@ -195,18 +198,18 @@ export default function CardJogadorLeilao({
           <div className={classNames('text-4xl font-extrabold tracking-tight drop-shadow', c.accent)}>
             {Number(leilao.overall ?? 0)}
           </div>
+
           <div className="mt-1 inline-flex items-center gap-2">
             <span className="rounded-lg bg-sky-500/20 px-2 py-1 text-[11px] font-bold text-sky-200 ring-1 ring-sky-500/25">
               {posBadge(leilao.posicao)}
             </span>
 
             {leilao.nacionalidade && (
-              <span className="rounded-lg bg-zinc-900/50 px-2 py-1 text-[11px] font-semibold text-zinc-200 ring-1 ring-zinc-700/40">
+              <span className="rounded-lg bg-black/25 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10">
                 {leilao.nacionalidade}
               </span>
             )}
 
-            {/* ✅ badge do tier (bronze/prata/ouro) */}
             <span className={classNames('rounded-lg px-2 py-1 text-[11px] font-extrabold ring-1', c.badge)}>
               {cartaTierByOverall(Number(leilao.overall || 0)).toUpperCase()}
             </span>
@@ -218,31 +221,29 @@ export default function CardJogadorLeilao({
           <button
             onClick={onExcluir}
             className="absolute right-4 top-8 z-10 rounded-xl border border-red-900/40 bg-red-950/40 px-3 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
-            title="Excluir do leilão (admin)"
           >
             🗑️ Excluir
           </button>
         )}
 
-        {/* ✅ imagem central (AGORA INTEIRA) */}
+        {/* ✅ imagem central (INTEIRA) */}
         <div className="absolute inset-x-0 top-16 flex justify-center px-6">
-          <div className="relative h-[260px] w-full overflow-hidden rounded-3xl bg-zinc-900/35 ring-1 ring-zinc-800/50">
+          <div className="relative h-[260px] w-full overflow-hidden rounded-3xl bg-black/20 ring-1 ring-white/10">
             {leilao.imagem_url ? (
               <img
                 src={leilao.imagem_url}
                 alt={leilao.nome}
-                className="h-full w-full object-contain object-center bg-zinc-900"
+                className="h-full w-full object-contain object-center"
                 referrerPolicy="no-referrer"
                 loading="lazy"
                 onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
               />
             ) : (
-              <div className="h-full w-full bg-zinc-900" />
+              <div className="h-full w-full bg-black/20" />
             )}
 
-            {/* overlay do vencedor (coroa) */}
             {leilao.nome_time_vencedor && (
-              <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-2xl bg-zinc-950/70 px-2 py-1 text-[11px] text-zinc-100 ring-1 ring-zinc-700/40">
+              <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-2xl bg-black/55 px-2 py-1 text-[11px] text-zinc-100 ring-1 ring-white/10">
                 👑
                 {logoVencedor ? (
                   <img
@@ -263,9 +264,9 @@ export default function CardJogadorLeilao({
           </div>
         </div>
 
-        {/* ✅ faixa nome (SUBIU) */}
+        {/* nome (um pouco acima da área de lance) */}
         <div className="absolute inset-x-0 top-[285px] px-6">
-          <div className="rounded-2xl bg-zinc-950/55 px-4 py-2 ring-1 ring-zinc-800/50">
+          <div className="rounded-2xl bg-black/35 px-4 py-2 ring-1 ring-white/10">
             <div className="truncate text-center text-sm font-extrabold uppercase tracking-wide text-zinc-100">
               {leilao.nome}
             </div>
@@ -288,8 +289,7 @@ export default function CardJogadorLeilao({
               </span>
             </div>
 
-            {/* tempo */}
-            <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-300">
+            <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-200/90">
               <span className="opacity-80">Leilão #{index + 1}</span>
               <span className={encerrado ? 'text-red-200' : 'text-emerald-200'}>
                 {encerrado ? 'Encerrado' : `Termina em ${formatarTempo(tempoRestante)}`}
@@ -298,16 +298,15 @@ export default function CardJogadorLeilao({
           </div>
         </div>
 
-        {/* área de lances (base da carta) */}
+        {/* área de lances */}
         <div className="absolute inset-x-0 bottom-4 px-6">
-          <div className="rounded-2xl bg-zinc-950/60 p-3 ring-1 ring-zinc-800/50">
-            {/* input + botão */}
+          <div className="rounded-2xl bg-black/35 p-3 ring-1 ring-white/10">
             <div className="flex items-center gap-2">
               <input
                 inputMode="numeric"
                 pattern="[0-9]*"
                 className={classNames(
-                  'w-full rounded-xl border bg-zinc-950/60 px-3 py-2 text-sm tabular-nums outline-none',
+                  'w-full rounded-xl border bg-black/25 px-3 py-2 text-sm tabular-nums outline-none',
                   invalido ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30' : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
                 )}
                 value={valorProposto}
@@ -322,7 +321,7 @@ export default function CardJogadorLeilao({
                 className={classNames(
                   'shrink-0 rounded-xl px-4 py-2 text-sm font-extrabold transition',
                   disabledLance
-                    ? 'cursor-not-allowed border border-zinc-800 bg-zinc-900/60 text-zinc-500'
+                    ? 'cursor-not-allowed border border-white/10 bg-black/25 text-zinc-400'
                     : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
                 )}
               >
@@ -330,8 +329,7 @@ export default function CardJogadorLeilao({
               </button>
             </div>
 
-            {/* mínimo + botão +20mi */}
-            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-zinc-300">
+            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-zinc-200/90">
               <span>
                 Mínimo: <b className="tabular-nums text-zinc-100">{brl(minimoPermitido)}</b>
               </span>
@@ -344,7 +342,6 @@ export default function CardJogadorLeilao({
               </button>
             </div>
 
-            {/* incrementos */}
             <div className="mt-3 grid grid-cols-3 gap-2">
               {INCS.map((inc) => {
                 const disabled =
@@ -360,8 +357,8 @@ export default function CardJogadorLeilao({
                     disabled={disabled}
                     className={classNames(
                       'rounded-xl px-2 py-2 text-[12px] font-extrabold tabular-nums transition',
-                      'border bg-zinc-950/60 hover:bg-zinc-900',
-                      disabled ? 'border-zinc-800 text-zinc-500 opacity-60' : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
+                      'border bg-black/25 hover:bg-black/35',
+                      disabled ? 'border-white/10 text-zinc-400 opacity-60' : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
                     )}
                   >
                     + {(inc / 1_000_000).toLocaleString()} mi
@@ -370,7 +367,6 @@ export default function CardJogadorLeilao({
               })}
             </div>
 
-            {/* finalizar admin apenas quando encerrado */}
             {isAdmin && onFinalizar && encerrado && (
               <button
                 onClick={onFinalizar}
@@ -378,7 +374,7 @@ export default function CardJogadorLeilao({
                 className={classNames(
                   'mt-3 w-full rounded-xl border px-3 py-2 text-sm font-extrabold transition focus:outline-none focus:ring-2',
                   !!finalizando
-                    ? 'border-zinc-800 bg-zinc-900/60 text-zinc-400 cursor-not-allowed'
+                    ? 'border-white/10 bg-black/25 text-zinc-400 cursor-not-allowed'
                     : 'border-red-700/40 bg-red-600/90 text-white hover:bg-red-600 focus:ring-red-400/30'
                 )}
               >
@@ -388,7 +384,6 @@ export default function CardJogadorLeilao({
           </div>
         </div>
 
-        {/* burst/overlay */}
         {burst && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="animate-[fadeout_0.7s_ease_forwards] select-none text-3xl">💥✨🔥</div>
@@ -396,7 +391,6 @@ export default function CardJogadorLeilao({
         )}
         {efeitoOverlay}
 
-        {/* etiqueta encerrado */}
         {encerrado && (
           <div className="pointer-events-none absolute left-5 top-14 rotate-[-6deg] rounded-xl border border-red-900/50 bg-red-950/70 px-3 py-1 text-[11px] font-extrabold text-red-200 shadow">
             ENCERRADO
@@ -413,3 +407,4 @@ export default function CardJogadorLeilao({
     </div>
   )
 }
+
