@@ -693,13 +693,8 @@ export default function Sidebar() {
                   />
                   {abrirCopa && (
                     <div className="ml-3 mt-1 space-y-1 text-sm">
-                      <NavLink href="/copa/fase_grupos">📊 Fase Liga</NavLink>
-                      <NavLink href="/copa/classificacao">📈 Classificação</NavLink>
-                      <NavLink href="/copa/playoff">🎯 Playoff</NavLink>
-                      <NavLink href="/copa/mata-mata">🥇 Oitavas</NavLink>
-                      <NavLink href="/copa/quartas">🥈 Quartas</NavLink>
-                      <NavLink href="/copa/semi">🥉 Semifinal</NavLink>
-                      <NavLink href="/copa/final">🏅 Final</NavLink>
+                      <NavLink href="/copa/fase_grupos">📊 Fase grupos</NavLink>
+                      <NavLink href="/copa/mata-mata">🥇 Mata mata</NavLink>
                       <NavLink href="/copa/historico-campeoes">🏆 Histórico de Campeões</NavLink>
                       <NavLink href="/copa/admin">🛠️ Admin Copa</NavLink>
                     </div>
