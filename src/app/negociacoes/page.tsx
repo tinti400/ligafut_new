@@ -55,13 +55,11 @@ export default function NegociacoesPage() {
   const [id_time, setIdTime] = useState<string | null>(null)
   const [nome_time, setNomeTime] = useState<string | null>(null)
 
-  // Pendentes + nomes dos jogadores
   const [pendentes, setPendentes] = useState<PropostaPendente[]>([])
   const [mapJogadorNome, setMapJogadorNome] = useState<Record<string, string>>({})
   const [carregandoPendentes, setCarregandoPendentes] = useState(false)
   const [excluindo, setExcluindo] = useState<Record<string, boolean>>({})
 
-  // UI loading
   const [carregandoTimes, setCarregandoTimes] = useState(false)
   const [carregandoElencos, setCarregandoElencos] = useState(false)
 
@@ -76,7 +74,6 @@ export default function NegociacoesPage() {
     }
   }, [])
 
-  // Carrega lista de times (exceto o meu)
   useEffect(() => {
     async function buscarTimes() {
       if (!id_time) return
@@ -96,7 +93,6 @@ export default function NegociacoesPage() {
     buscarTimes()
   }, [id_time])
 
-  // Carrega elenco do time alvo
   useEffect(() => {
     async function buscarElencoAdversario() {
       setCarregandoElencos(true)
@@ -105,10 +101,7 @@ export default function NegociacoesPage() {
         setCarregandoElencos(false)
         return
       }
-      const { data, error } = await supabase
-        .from('elenco')
-        .select('*')
-        .eq('id_time', timeSelecionado)
+      const { data, error } = await supabase.from('elenco').select('*').eq('id_time', timeSelecionado)
       if (error) {
         console.error(error)
         toast.error('Erro ao carregar elenco do adversário.')
@@ -119,14 +112,10 @@ export default function NegociacoesPage() {
     buscarElencoAdversario()
   }, [timeSelecionado])
 
-  // Carrega elenco do meu time (para ofertas)
   useEffect(() => {
     async function buscarElencoMeuTime() {
       if (!id_time) return
-      const { data, error } = await supabase
-        .from('elenco')
-        .select('*')
-        .eq('id_time', id_time)
+      const { data, error } = await supabase.from('elenco').select('*').eq('id_time', id_time)
       if (error) {
         console.error(error)
         toast.error('Erro ao carregar elenco do seu time.')
@@ -136,7 +125,6 @@ export default function NegociacoesPage() {
     buscarElencoMeuTime()
   }, [id_time])
 
-  // Carrega pendentes (do meu time); se tiver timeSelecionado, filtra por alvo
   useEffect(() => {
     fetchPendentes()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,9 +133,12 @@ export default function NegociacoesPage() {
   const fetchPendentes = async () => {
     if (!id_time) return
     setCarregandoPendentes(true)
+
     let query = supabase
       .from('propostas_app')
-      .select('id, jogador_id, tipo_proposta, valor_oferecido, percentual, jogadores_oferecidos, status, created_at, id_time_alvo')
+      .select(
+        'id, jogador_id, tipo_proposta, valor_oferecido, percentual, jogadores_oferecidos, status, created_at, id_time_alvo'
+      )
       .eq('id_time_origem', id_time)
       .eq('status', 'pendente')
       .order('created_at', { ascending: false })
@@ -165,19 +156,13 @@ export default function NegociacoesPage() {
     const pend = (data || []) as PropostaPendente[]
     setPendentes(pend)
 
-    // Monta nomes dos jogadores
-    const ids = Array.from(new Set(pend.map(p => p.jogador_id).filter(Boolean)))
+    const ids = Array.from(new Set(pend.map((p) => p.jogador_id).filter(Boolean)))
     if (ids.length) {
-      const { data: jogadores, error: errJog } = await supabase
-        .from('elenco')
-        .select('id, nome')
-        .in('id', ids)
+      const { data: jogadores, error: errJog } = await supabase.from('elenco').select('id, nome').in('id', ids)
       if (!errJog && jogadores) {
         const map: Record<string, string> = {}
-        for (const j of jogadores as {id: string; nome: string}[]) {
-          map[j.id] = j.nome
-        }
-        setMapJogadorNome(prev => ({ ...prev, ...map }))
+        for (const j of jogadores as { id: string; nome: string }[]) map[j.id] = j.nome
+        setMapJogadorNome((prev) => ({ ...prev, ...map }))
       }
     }
 
@@ -206,25 +191,20 @@ export default function NegociacoesPage() {
     if (v < INT32_MIN) return INT32_MIN
     return v
   }
-  const formatBRL = (v: number | null | undefined) =>
-    `R$ ${Number(v || 0).toLocaleString('pt-BR')}`
-
+  const formatBRL = (v: number | null | undefined) => `R$ ${Number(v || 0).toLocaleString('pt-BR')}`
   const formatDataCurta = (iso: string) => {
     try {
       const d = new Date(iso)
       return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-    } catch { return iso }
+    } catch {
+      return iso
+    }
   }
 
-  // bloqueia ofertar jogador com < 3 jogos
   const elencoOfertavel = useMemo(() => {
-    return (elencoMeuTime || []).map((j) => ({
-      ...j,
-      podeOferecer: (j.jogos ?? 0) >= 3
-    }))
+    return (elencoMeuTime || []).map((j) => ({ ...j, podeOferecer: (j.jogos ?? 0) >= 3 }))
   }, [elencoMeuTime])
 
-  // Toggle seleção no checklist estilizado
   const toggleOferecido = (alvoId: string, jogadorId: string, podeOferecer: boolean) => {
     if (!podeOferecer) return
     setJogadoresOferecidos((prev) => {
@@ -235,51 +215,39 @@ export default function NegociacoesPage() {
     })
   }
 
-  // ===== EXCLUIR PROPOSTA(S) =====
   const excluirProposta = async (id: string) => {
     if (!id_time) return
     if (!window.confirm('Tem certeza que deseja excluir esta proposta?')) return
-    setExcluindo(prev => ({ ...prev, [id]: true }))
-    const { error } = await supabase
-      .from('propostas_app')
-      .delete()
-      .eq('id', id)
-      .eq('id_time_origem', id_time)
-      .eq('status', 'pendente')
+    setExcluindo((prev) => ({ ...prev, [id]: true }))
+    const { error } = await supabase.from('propostas_app').delete().eq('id', id).eq('id_time_origem', id_time).eq('status', 'pendente')
 
     if (error) {
       console.error(error)
       toast.error('Erro ao excluir proposta.')
     } else {
-      setPendentes(prev => prev.filter(p => p.id !== id))
+      setPendentes((prev) => prev.filter((p) => p.id !== id))
       toast.success('Proposta excluída.')
     }
-    setExcluindo(prev => ({ ...prev, [id]: false }))
+    setExcluindo((prev) => ({ ...prev, [id]: false }))
   }
 
   const excluirTodasDoJogador = async (jogadorId: string) => {
     if (!id_time) return
-    const ids = pendentes.filter(p => p.jogador_id === jogadorId).map(p => p.id)
+    const ids = pendentes.filter((p) => p.jogador_id === jogadorId).map((p) => p.id)
     if (!ids.length) return
     if (!window.confirm(`Cancelar ${ids.length} proposta(s) para este jogador?`)) return
 
-    const { error } = await supabase
-      .from('propostas_app')
-      .delete()
-      .in('id', ids)
-      .eq('id_time_origem', id_time)
-      .eq('status', 'pendente')
+    const { error } = await supabase.from('propostas_app').delete().in('id', ids).eq('id_time_origem', id_time).eq('status', 'pendente')
 
     if (error) {
       console.error(error)
       toast.error('Erro ao cancelar propostas.')
     } else {
-      setPendentes(prev => prev.filter(p => !ids.includes(p.id)))
+      setPendentes((prev) => prev.filter((p) => !ids.includes(p.id)))
       toast.success('Propostas canceladas.')
     }
   }
 
-  // ===== ENVIAR PROPOSTA =====
   const enviarProposta = async (jogadorAlvo: Jogador) => {
     const tipo = (tipoProposta[jogadorAlvo.id] || 'dinheiro') as TipoProposta
     const valorStr = valorProposta[jogadorAlvo.id] || ''
@@ -293,7 +261,6 @@ export default function NegociacoesPage() {
 
     if (!window.confirm('Confirmar envio da proposta?')) return
 
-    // Snapshot dos oferecidos (somente meus e com >=3 jogos)
     let oferecidosDetalhes: any[] = []
     if (idsOferecidos.length) {
       const idsValidos = elencoOfertavel
@@ -305,11 +272,7 @@ export default function NegociacoesPage() {
       }
 
       if (idsValidos.length) {
-        const { data } = await supabase
-          .from('elenco')
-          .select('id, nome, valor, posicao, overall, id_time, jogos')
-          .in('id', idsValidos)
-
+        const { data } = await supabase.from('elenco').select('id, nome, valor, posicao, overall, id_time, jogos').in('id', idsValidos)
         oferecidosDetalhes = (data || []).map((d: any) => ({
           id: d.id,
           nome: d.nome,
@@ -317,83 +280,49 @@ export default function NegociacoesPage() {
           posicao: d.posicao,
           overall: d.overall,
           id_time: d.id_time,
-          jogos: d.jogos ?? 0
+          jogos: d.jogos ?? 0,
         }))
       }
     }
 
-    // Converte valores numéricos
     const valorNumerico = parseNumberOrNull(valorStr)
     const percentualNum = tipo === 'comprar_percentual' ? parseNumberOrNull(percStr) : null
 
-    // Validações por tipo
     if (tipo === 'dinheiro') {
-      if (valorNumerico == null || valorNumerico < 0) {
-        alert('Informe um valor válido.')
-        return
-      }
+      if (valorNumerico == null || valorNumerico < 0) return alert('Informe um valor válido.')
     }
     if (tipo === 'comprar_percentual') {
-      if (valorNumerico == null || valorNumerico < 0) {
-        alert('Informe um valor válido.')
-        return
-      }
-      if (percentualNum == null || percentualNum <= 0 || percentualNum > 100) {
-        alert('Percentual inválido (1 a 100).')
-        return
-      }
+      if (valorNumerico == null || valorNumerico < 0) return alert('Informe um valor válido.')
+      if (percentualNum == null || percentualNum <= 0 || percentualNum > 100) return alert('Percentual inválido (1 a 100).')
     }
     if (tipo === 'troca_simples') {
-      if (oferecidosDetalhes.length === 0) {
-        alert('Selecione ao menos 1 jogador para a troca.')
-        return
-      }
+      if (oferecidosDetalhes.length === 0) return alert('Selecione ao menos 1 jogador para a troca.')
     }
     if (tipo === 'troca_composta') {
-      if (oferecidosDetalhes.length === 0) {
-        alert('Selecione ao menos 1 jogador (o dinheiro é opcional).')
-        return
-      }
+      if (oferecidosDetalhes.length === 0) return alert('Selecione ao menos 1 jogador (o dinheiro é opcional).')
     }
 
-    // Nome do time alvo
-    const { data: timeAlvoData } = await supabase
-      .from('times')
-      .select('nome')
-      .eq('id', jogadorAlvo.id_time)
-      .single()
+    const { data: timeAlvoData } = await supabase.from('times').select('nome').eq('id', jogadorAlvo.id_time).single()
 
-    // Regras para valor_oferecido
     let valor_oferecido: number | null = null
-    if (tipo === 'dinheiro' || tipo === 'comprar_percentual') {
-      valor_oferecido = toInt32OrNull(valorNumerico)
-    } else if (tipo === 'troca_composta') {
-      valor_oferecido = valorNumerico != null && valorNumerico > 0 ? toInt32OrNull(valorNumerico) : null
-    } else {
-      valor_oferecido = null
-    }
+    if (tipo === 'dinheiro' || tipo === 'comprar_percentual') valor_oferecido = toInt32OrNull(valorNumerico)
+    else if (tipo === 'troca_composta') valor_oferecido = valorNumerico != null && valorNumerico > 0 ? toInt32OrNull(valorNumerico) : null
 
     const payload = {
       id_time_origem: id_time,
       nome_time_origem: nome_time,
       id_time_alvo: jogadorAlvo.id_time,
       nome_time_alvo: timeAlvoData?.nome || 'Indefinido',
-
       jogador_id: jogadorAlvo.id,
       tipo_proposta: tipo,
-
-      valor_oferecido, // int4 | null
-
-      percentual_desejado: tipo === 'comprar_percentual' ? (percentualNum || 0) : 0,
-      percentual:          tipo === 'comprar_percentual' ? (percentualNum || 0) : 0,
-
+      valor_oferecido,
+      percentual_desejado: tipo === 'comprar_percentual' ? percentualNum || 0 : 0,
+      percentual: tipo === 'comprar_percentual' ? percentualNum || 0 : 0,
       jogadores_oferecidos: oferecidosDetalhes || [],
-
       status: 'pendente',
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     } as const
 
-    // Valida UUIDs
     if (!isUUID(payload.id_time_origem) || !isUUID(payload.id_time_alvo) || !isUUID(payload.jogador_id)) {
       alert('IDs inválidos (uuid). Recarregue e faça login novamente.')
       return
@@ -401,10 +330,7 @@ export default function NegociacoesPage() {
 
     setEnviando((prev) => ({ ...prev, [jogadorAlvo.id]: true }))
     try {
-      const { error: insertErr } = await supabase
-        .from('propostas_app')
-        .insert([payload])
-
+      const { error: insertErr } = await supabase.from('propostas_app').insert([payload])
       if (insertErr) {
         console.error('❌ INSERT propostas_app', insertErr)
         toast.error(`Erro ao enviar a proposta: ${insertErr.message}`)
@@ -413,76 +339,96 @@ export default function NegociacoesPage() {
 
       toast.success('✅ Proposta enviada!')
 
-      // Reset dos campos do jogador
       setJogadorSelecionadoId('')
       setTipoProposta((prev) => ({ ...prev, [jogadorAlvo.id]: 'dinheiro' }))
       setValorProposta((prev) => ({ ...prev, [jogadorAlvo.id]: '' }))
       setPercentualDesejado((prev) => ({ ...prev, [jogadorAlvo.id]: '' }))
       setJogadoresOferecidos((prev) => ({ ...prev, [jogadorAlvo.id]: [] }))
-
-      // Atualiza pendentes (para já aparecer o cancelar)
       fetchPendentes()
     } finally {
       setEnviando((prev) => ({ ...prev, [jogadorAlvo.id]: false }))
     }
   }
 
-  const existePendenteDoJogador = (jogadorId: string) =>
-    pendentes.some(p => p.jogador_id === jogadorId)
+  const existePendenteDoJogador = (jogadorId: string) => pendentes.some((p) => p.jogador_id === jogadorId)
+  const pendentesDoJogador = (jogadorId: string) => pendentes.filter((p) => p.jogador_id === jogadorId)
 
-  const pendentesDoJogador = (jogadorId: string) =>
-    pendentes.filter(p => p.jogador_id === jogadorId)
+  // ===== UI Helpers =====
+  const InputBase =
+    'w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-emerald-600/60 focus:border-emerald-600/40'
 
-  // ====== UI ======
+  const ButtonBase =
+    'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-emerald-600/60 disabled:opacity-60 disabled:cursor-not-allowed'
+
   const EmptyState = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-    <div className="border border-zinc-800 bg-zinc-900/40 rounded-xl p-8 text-center w-full">
-      <div className="text-xl font-semibold text-zinc-200">{title}</div>
-      {subtitle && <div className="text-sm text-zinc-400 mt-1">{subtitle}</div>}
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-8 text-center">
+      <div className="text-lg font-semibold text-zinc-200">{title}</div>
+      {subtitle && <div className="mt-1 text-sm text-zinc-400">{subtitle}</div>}
     </div>
   )
 
   const SkeletonCard = () => (
-    <div className="border border-zinc-800 rounded-lg p-4 w-full sm:w-[280px] bg-zinc-900 animate-pulse">
-      <div className="w-16 h-16 rounded-full bg-zinc-800 mx-auto mb-3" />
-      <div className="h-3 bg-zinc-800 rounded mb-2" />
-      <div className="h-3 bg-zinc-800 rounded w-3/5 mx-auto mb-3" />
-      <div className="h-3 bg-zinc-800 rounded w-2/5 mx-auto" />
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4 animate-pulse">
+      <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-zinc-800" />
+      <div className="mb-2 h-3 rounded bg-zinc-800" />
+      <div className="mx-auto mb-3 h-3 w-3/5 rounded bg-zinc-800" />
+      <div className="mx-auto h-3 w-2/5 rounded bg-zinc-800" />
     </div>
   )
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white pb-[env(safe-area-inset-bottom)]">
+    <main className="min-h-screen text-white">
+      {/* Fundo premium */}
+      <div className="fixed inset-0 -z-10 bg-black">
+        <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_10%_0%,rgba(16,185,129,.18),transparent_60%),radial-gradient(900px_500px_at_90%_10%,rgba(59,130,246,.10),transparent_60%),radial-gradient(900px_600px_at_50%_100%,rgba(244,63,94,.08),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.75),rgba(0,0,0,.92),rgba(0,0,0,.98))]" />
+      </div>
+
       {/* Topbar */}
-      <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-black/50 bg-black/30 border-b border-zinc-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
-          <h1 className="text-lg sm:text-2xl font-bold tracking-tight">📩 Negociações</h1>
-          <div className="text-xs sm:text-sm text-zinc-300">
-            {nome_time ? <span className="px-2 sm:px-3 py-1 rounded-full bg-emerald-700/20 border border-emerald-700/40">Seu time: <b>{nome_time}</b></span> : '—'}
+      <header className="sticky top-0 z-30 border-b border-zinc-800/70 bg-black/40 backdrop-blur">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight">
+              📩 Negociações
+              <span className="ml-2 text-xs sm:text-sm font-semibold text-zinc-400">Entre clubes</span>
+            </h1>
+            <div className="text-[11px] sm:text-xs text-zinc-500">
+              Envie propostas • Trocas • Percentual • Controle suas pendências
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            {nome_time ? (
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-700/15 px-3 py-1 text-xs sm:text-sm text-emerald-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,.6)]" />
+                Seu time: <b className="text-white">{nome_time}</b>
+              </span>
+            ) : (
+              <span className="text-xs text-zinc-400">—</span>
+            )}
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
         {/* Painéis Mobile */}
         <div className="lg:hidden space-y-3">
-          <details className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3" open>
+          <details className="rounded-2xl border border-zinc-800/70 bg-zinc-950/40 p-3" open>
             <summary className="list-none flex items-center justify-between cursor-pointer">
               <h2 className="text-base font-semibold">🎯 Selecionar Time</h2>
-              <span className="text-sm text-zinc-400">abrir/fechar</span>
+              <span className="text-sm text-zinc-500">abrir/fechar</span>
             </summary>
+
             <div className="mt-3 space-y-3">
               <input
                 type="text"
                 placeholder="🔎 Buscar time por nome"
                 value={filtro}
                 onChange={(e) => setFiltro(e.target.value)}
-                className="border p-3 rounded w-full bg-zinc-900 border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                className={InputBase}
               />
-              <select
-                value={timeSelecionado}
-                onChange={(e) => setTimeSelecionado(e.target.value)}
-                className="border p-3 rounded w-full bg-zinc-900 border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
-              >
+
+              <select value={timeSelecionado} onChange={(e) => setTimeSelecionado(e.target.value)} className={InputBase}>
                 <option value="">-- Selecione um time --</option>
                 {timesFiltrados.map((time) => (
                   <option key={time.id} value={time.id}>
@@ -490,10 +436,14 @@ export default function NegociacoesPage() {
                   </option>
                 ))}
               </select>
+
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { setFiltro(''); setTimeSelecionado('') }}
-                  className="px-3 py-2 text-sm rounded-lg border border-zinc-700 hover:bg-zinc-800 w-full"
+                  onClick={() => {
+                    setFiltro('')
+                    setTimeSelecionado('')
+                  }}
+                  className={`${ButtonBase} w-full border border-zinc-800 bg-zinc-950/40 hover:bg-zinc-900/60`}
                 >
                   Limpar seleção
                 </button>
@@ -502,12 +452,15 @@ export default function NegociacoesPage() {
             </div>
           </details>
 
-          <details className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+          <details className="rounded-2xl border border-zinc-800/70 bg-zinc-950/40 p-3">
             <summary className="list-none flex items-center justify-between cursor-pointer">
-              <h2 className="text-base font-semibold">🕒 Minhas propostas pendentes</h2>
+              <h2 className="text-base font-semibold">🕒 Minhas pendências</h2>
               <button
-                onClick={(e) => { e.preventDefault(); fetchPendentes() }}
-                className="text-xs px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
+                onClick={(e) => {
+                  e.preventDefault()
+                  fetchPendentes()
+                }}
+                className="text-xs px-2 py-1 rounded-lg border border-zinc-800 hover:bg-zinc-900/60"
                 title="Atualizar"
               >
                 Atualizar
@@ -517,8 +470,8 @@ export default function NegociacoesPage() {
             <div className="mt-3">
               {carregandoPendentes ? (
                 <div className="space-y-2">
-                  <div className="h-10 bg-zinc-900 rounded border border-zinc-800 animate-pulse" />
-                  <div className="h-10 bg-zinc-900 rounded border border-zinc-800 animate-pulse" />
+                  <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
+                  <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
                 </div>
               ) : pendentes.length === 0 ? (
                 <EmptyState title="Nenhuma proposta pendente" subtitle="Envie uma proposta para ver aqui." />
@@ -527,12 +480,16 @@ export default function NegociacoesPage() {
                   {pendentes.map((p) => {
                     const nome = mapJogadorNome[p.jogador_id] || 'Jogador'
                     return (
-                      <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2">
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 hover:bg-zinc-900/40 transition"
+                      >
                         <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">
-                            {nome} <span className="text-zinc-400">• {p.tipo_proposta.replace('_', ' ')}</span>
+                          <div className="text-sm font-semibold truncate">
+                            {nome}{' '}
+                            <span className="ml-1 text-zinc-400 font-medium">• {p.tipo_proposta.replaceAll('_', ' ')}</span>
                           </div>
-                          <div className="text-[11px] text-zinc-400">
+                          <div className="text-[11px] text-zinc-500">
                             {p.valor_oferecido != null ? `Valor: ${formatBRL(p.valor_oferecido)}` : 'Sem valor'}
                             {p.percentual ? ` • %: ${p.percentual}%` : ''}
                             {' • '} {formatDataCurta(p.created_at)}
@@ -541,8 +498,8 @@ export default function NegociacoesPage() {
                         <button
                           onClick={() => excluirProposta(p.id)}
                           disabled={!!excluindo[p.id]}
-                          className={`text-xs px-3 py-1.5 rounded-lg ${
-                            excluindo[p.id] ? 'bg-zinc-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
+                          className={`${ButtonBase} ${
+                            excluindo[p.id] ? 'bg-zinc-800' : 'bg-red-600 hover:bg-red-700'
                           }`}
                           title="Excluir proposta"
                         >
@@ -559,22 +516,19 @@ export default function NegociacoesPage() {
 
         {/* Lateral Desktop */}
         <aside className="hidden lg:flex lg:flex-col lg:col-span-4 space-y-4">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-            <h2 className="text-lg font-semibold mb-3">🎯 Selecionar Time Alvo</h2>
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-4">
+            <h2 className="text-lg font-semibold mb-1">🎯 Selecionar Time Alvo</h2>
+            <p className="text-xs text-zinc-500 mb-3">Escolha um clube para listar o elenco e enviar proposta.</p>
 
             <input
               type="text"
               placeholder="🔎 Buscar time por nome"
               value={filtro}
               onChange={(e) => setFiltro(e.target.value)}
-              className="border p-2 rounded w-full bg-zinc-900 border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              className={InputBase}
             />
 
-            <select
-              value={timeSelecionado}
-              onChange={(e) => setTimeSelecionado(e.target.value)}
-              className="mt-3 border p-2 rounded w-full bg-zinc-900 border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
-            >
+            <select value={timeSelecionado} onChange={(e) => setTimeSelecionado(e.target.value)} className={`mt-3 ${InputBase}`}>
               <option value="">-- Selecione um time --</option>
               {timesFiltrados.map((time) => (
                 <option key={time.id} value={time.id}>
@@ -585,8 +539,11 @@ export default function NegociacoesPage() {
 
             <div className="mt-3 flex items-center gap-2">
               <button
-                onClick={() => { setFiltro(''); setTimeSelecionado('') }}
-                className="px-3 py-1.5 text-sm rounded-lg border border-zinc-700 hover:bg-zinc-800"
+                onClick={() => {
+                  setFiltro('')
+                  setTimeSelecionado('')
+                }}
+                className={`${ButtonBase} border border-zinc-800 bg-zinc-950/40 hover:bg-zinc-900/60`}
               >
                 Limpar seleção
               </button>
@@ -594,13 +551,16 @@ export default function NegociacoesPage() {
             </div>
           </div>
 
-          {/* Pendentes */}
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-4">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold">🕒 Minhas propostas pendentes</h2>
+              <div>
+                <h2 className="text-lg font-semibold">🕒 Minhas pendências</h2>
+                <p className="text-xs text-zinc-500">Propostas pendentes que você pode cancelar.</p>
+              </div>
+
               <button
                 onClick={fetchPendentes}
-                className="text-xs px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800"
+                className="text-xs px-2 py-1 rounded-lg border border-zinc-800 hover:bg-zinc-900/60"
                 title="Atualizar"
               >
                 Atualizar
@@ -609,22 +569,26 @@ export default function NegociacoesPage() {
 
             {carregandoPendentes ? (
               <div className="space-y-2">
-                <div className="h-9 bg-zinc-900 rounded border border-zinc-800 animate-pulse" />
-                <div className="h-9 bg-zinc-900 rounded border border-zinc-800 animate-pulse" />
+                <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
+                <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
               </div>
             ) : pendentes.length === 0 ? (
               <EmptyState title="Nenhuma proposta pendente" subtitle="Envie uma proposta para ver aqui." />
             ) : (
-              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                 {pendentes.map((p) => {
                   const nome = mapJogadorNome[p.jogador_id] || 'Jogador'
                   return (
-                    <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2">
+                    <div
+                      key={p.id}
+                      className="group flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 hover:bg-zinc-900/40 transition"
+                    >
                       <div className="min-w-0">
-                        <div className="text-sm font-medium truncate">
-                          {nome} <span className="text-zinc-400">• {p.tipo_proposta.replace('_', ' ')}</span>
+                        <div className="text-sm font-semibold truncate">
+                          {nome}{' '}
+                          <span className="ml-1 text-zinc-400 font-medium">• {p.tipo_proposta.replaceAll('_', ' ')}</span>
                         </div>
-                        <div className="text-[11px] text-zinc-400">
+                        <div className="text-[11px] text-zinc-500">
                           {p.valor_oferecido != null ? `Valor: ${formatBRL(p.valor_oferecido)}` : 'Sem valor'}
                           {p.percentual ? ` • %: ${p.percentual}%` : ''}
                           {' • '} {formatDataCurta(p.created_at)}
@@ -633,8 +597,8 @@ export default function NegociacoesPage() {
                       <button
                         onClick={() => excluirProposta(p.id)}
                         disabled={!!excluindo[p.id]}
-                        className={`text-xs px-3 py-1.5 rounded-lg ${
-                          excluindo[p.id] ? 'bg-zinc-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
+                        className={`${ButtonBase} ${
+                          excluindo[p.id] ? 'bg-zinc-800' : 'bg-red-600 hover:bg-red-700'
                         }`}
                         title="Excluir proposta"
                       >
@@ -650,9 +614,16 @@ export default function NegociacoesPage() {
 
         {/* Conteúdo principal */}
         <section className="lg:col-span-8">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 sm:p-4">
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-3 sm:p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base sm:text-lg font-semibold">👥 Jogadores do {timeSelecionado ? 'time selecionado' : 'adversário'}</h2>
+              <div>
+                <h2 className="text-base sm:text-lg font-semibold">
+                  👥 Jogadores do {timeSelecionado ? 'time selecionado' : 'adversário'}
+                </h2>
+                <p className="text-xs text-zinc-500">
+                  Clique em <b>Fazer Proposta</b> para abrir o painel do jogador.
+                </p>
+              </div>
               {carregandoElencos && <span className="text-xs text-zinc-400">carregando elenco…</span>}
             </div>
 
@@ -660,7 +631,9 @@ export default function NegociacoesPage() {
               <EmptyState title="Selecione um time para listar os jogadores" />
             ) : carregandoElencos ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-                {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <SkeletonCard key={i} />
+                ))}
               </div>
             ) : elencoAdversario.length === 0 ? (
               <EmptyState title="Este time não possui jogadores cadastrados." />
@@ -679,8 +652,7 @@ export default function NegociacoesPage() {
                   const invalidoPercentual = precisaPercentual && (percStr === '' || isNaN(Number(percStr)))
 
                   const precisaJogadores = tp === 'troca_simples' || tp === 'troca_composta'
-                  const jogadoresSelecionados =
-                    jogadoresOferecidos[jogador.id] && jogadoresOferecidos[jogador.id].length > 0
+                  const jogadoresSelecionados = jogadoresOferecidos[jogador.id] && jogadoresOferecidos[jogador.id].length > 0
                   const jogadoresVazios = precisaJogadores && !jogadoresSelecionados
 
                   const disableEnviar = valorInvalido || invalidoPercentual || jogadoresVazios
@@ -688,127 +660,158 @@ export default function NegociacoesPage() {
                   const qtdPendentes = pendentesDoJogador(jogador.id).length
 
                   return (
-                    <div key={jogador.id} className="border border-zinc-800 rounded-xl p-4 w-full bg-[linear-gradient(to_bottom_right,rgba(39,39,42,.6),rgba(24,24,27,.7))] shadow-sm hover:shadow-lg hover:border-zinc-700 transition">
-                      <ImagemComFallback
-                        src={jogador.imagem_url ?? '/jogador_padrao.png'}
-                        alt={jogador.nome}
-                        width={64}
-                        height={64}
-                        className="w-16 h-16 rounded-full object-cover mb-3 mx-auto ring-2 ring-zinc-700"
-                      />
-                      <div className="text-center font-semibold">{jogador.nome}</div>
-                      <div className="text-xs text-center text-zinc-300">
-                        {jogador.posicao} • Overall {jogador.overall ?? '-'}
-                      </div>
-                      <div className="text-xs text-center text-emerald-400 font-bold mb-3">
-                        {formatBRL(jogador.valor)}
-                      </div>
+                    <div
+                      key={jogador.id}
+                      className="relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-950/40 p-4 shadow-[0_0_0_1px_rgba(255,255,255,.02)] hover:border-zinc-700 hover:bg-zinc-950/55 transition"
+                    >
+                      {/* brilho no canto */}
+                      <div className="pointer-events-none absolute -top-24 -right-24 h-56 w-56 rounded-full bg-emerald-500/10 blur-3xl" />
+                      <div className="pointer-events-none absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-500/10 blur-3xl" />
 
-                      {/* Banner de pendentes para este jogador */}
-                      {temPendentes && (
-                        <div className="text-[11px] mb-3 bg-amber-500/10 border border-amber-600/40 text-amber-300 rounded-lg p-2">
-                          {qtdPendentes} proposta(s) pendente(s) para este jogador.
-                          <button
-                            onClick={() => excluirTodasDoJogador(jogador.id)}
-                            className="ml-2 text-[11px] underline hover:no-underline"
-                            title="Cancelar todas as propostas deste jogador"
-                          >
-                            Cancelar todas
-                          </button>
+                      <div className="flex items-start gap-3">
+                        <ImagemComFallback
+                          src={jogador.imagem_url ?? '/jogador_padrao.png'}
+                          alt={jogador.nome}
+                          width={64}
+                          height={64}
+                          className="w-16 h-16 rounded-2xl object-cover ring-1 ring-zinc-700/60 shadow"
+                        />
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-base font-extrabold tracking-tight">{jogador.nome}</div>
+                              <div className="mt-0.5 text-xs text-zinc-400">
+                                <span className="inline-flex items-center gap-2">
+                                  <span className="rounded-full border border-zinc-800 bg-zinc-950/40 px-2 py-0.5">
+                                    {jogador.posicao}
+                                  </span>
+                                  <span className="rounded-full border border-zinc-800 bg-zinc-950/40 px-2 py-0.5">
+                                    OVR <b className="text-white">{jogador.overall ?? '-'}</b>
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-[11px] text-zinc-500">Valor</div>
+                              <div className="text-sm font-extrabold text-emerald-300">{formatBRL(jogador.valor)}</div>
+                            </div>
+                          </div>
+
+                          {/* pendentes */}
+                          {temPendentes && (
+                            <div className="mt-3 rounded-2xl border border-amber-600/30 bg-amber-500/10 px-3 py-2 text-amber-200">
+                              <div className="text-[12px] font-semibold">
+                                {qtdPendentes} proposta(s) pendente(s)
+                                <button
+                                  onClick={() => excluirTodasDoJogador(jogador.id)}
+                                  className="ml-2 text-[12px] underline hover:no-underline"
+                                >
+                                  Cancelar todas
+                                </button>
+                              </div>
+                              <div className="text-[11px] text-amber-200/70">Evite spammar o mesmo jogador 😉</div>
+                            </div>
+                          )}
+
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              className={`${ButtonBase} flex-1 bg-emerald-600 hover:bg-emerald-700`}
+                              onClick={() => {
+                                setJogadorSelecionadoId(jogador.id)
+                                setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
+                                setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
+                                setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
+                              }}
+                            >
+                              💬 Fazer Proposta
+                            </button>
+
+                            {temPendentes && (
+                              <button
+                                onClick={() => excluirTodasDoJogador(jogador.id)}
+                                className={`${ButtonBase} bg-red-600 hover:bg-red-700`}
+                                title="Cancelar todas as propostas deste jogador"
+                              >
+                                🗑️
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      )}
-
-                      <div className="flex gap-2">
-                        <button
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-3 py-2 rounded"
-                          onClick={() => {
-                            setJogadorSelecionadoId(jogador.id)
-                            setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-                            setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
-                            setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
-                          }}
-                        >
-                          💬 Fazer Proposta
-                        </button>
-                        {temPendentes && (
-                          <button
-                            onClick={() => excluirTodasDoJogador(jogador.id)}
-                            className="px-3 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
-                            title="Cancelar todas as propostas deste jogador"
-                          >
-                            Excluir
-                          </button>
-                        )}
                       </div>
 
                       {sel && (
-                        <div className="mt-4 text-xs border-t border-zinc-800 pt-3 space-y-3">
+                        <div className="mt-4 border-t border-zinc-800/80 pt-4 space-y-3">
                           <div>
-                            <label className="font-semibold block mb-1">Tipo de proposta</label>
+                            <label className="text-xs font-semibold text-zinc-300">Tipo de proposta</label>
                             <select
-                              className="border p-3 w-full bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                              className={`${InputBase} mt-1`}
                               value={tp}
-                              onChange={(e) =>
-                                setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value as TipoProposta }))
-                              }
+                              onChange={(e) => setTipoProposta((prev) => ({ ...prev, [jogador.id]: e.target.value as TipoProposta }))}
                             >
                               <option value="dinheiro">💰 Apenas dinheiro</option>
                               <option value="troca_simples">🔁 Troca simples</option>
                               <option value="troca_composta">💶 Troca + dinheiro (opcional)</option>
                               <option value="comprar_percentual">📈 Comprar percentual</option>
                             </select>
+
+                            <div className="mt-1 text-[11px] text-zinc-500">
+                              Dica: em <b>Troca</b>, selecione os jogadores do seu elenco com <b>≥ 3 jogos</b>.
+                            </div>
                           </div>
 
                           {(tp === 'dinheiro' || tp === 'troca_composta' || tp === 'comprar_percentual') && (
                             <div>
-                              <label className="font-semibold">
+                              <label className="text-xs font-semibold text-zinc-300">
                                 Valor oferecido (R$){tp === 'troca_composta' ? ' — opcional' : ''}:
                               </label>
                               <input
                                 type="number"
-                                className="border p-3 w-full mt-1 bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                                className={`${InputBase} mt-1`}
                                 value={valorProposta[jogador.id] || ''}
-                                onChange={(e) =>
-                                  setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))
-                                }
+                                onChange={(e) => setValorProposta((prev) => ({ ...prev, [jogador.id]: e.target.value }))}
+                                placeholder="Ex: 10000000"
                               />
                             </div>
                           )}
 
                           {tp === 'comprar_percentual' && (
                             <div>
-                              <label className="font-semibold">Percentual desejado (%)</label>
+                              <label className="text-xs font-semibold text-zinc-300">Percentual desejado (%)</label>
                               <input
                                 type="number"
                                 min={1}
                                 max={100}
-                                className="border p-3 w-full mt-1 bg-zinc-900 border-zinc-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                                className={`${InputBase} mt-1`}
                                 value={percentualDesejado[jogador.id] || ''}
-                                onChange={(e) =>
-                                  setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: e.target.value }))
-                                }
+                                onChange={(e) => setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: e.target.value }))}
+                                placeholder="Ex: 30"
                               />
                             </div>
                           )}
 
                           {(tp === 'troca_simples' || tp === 'troca_composta') && (
-                            <div>
-                              <label className="font-semibold block mb-2">
-                                Jogadores oferecidos (mín. 1 / ≥ 3 jogos)
-                              </label>
+                            <div className="rounded-2xl border border-zinc-800/70 bg-zinc-950/30 p-3">
+                              <div className="flex items-end justify-between gap-2">
+                                <label className="text-xs font-semibold text-zinc-300">Jogadores oferecidos (mín. 1 / ≥ 3 jogos)</label>
+                                <div className="text-[11px] text-zinc-500">
+                                  Selecionados: <b className="text-white">{(jogadoresOferecidos[jogador.id] || []).length}</b>
+                                </div>
+                              </div>
 
-                              {/* Checklist em grid com miniatura */}
-                              <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-1">
+                              <div className="mt-2 grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-1">
                                 {elencoOfertavel.map((j) => {
-                                  const marcado =
-                                    (jogadoresOferecidos[jogador.id] || []).includes(j.id)
+                                  const marcado = (jogadoresOferecidos[jogador.id] || []).includes(j.id)
                                   const disabled = !j.podeOferecer
 
                                   return (
                                     <label
                                       key={j.id}
-                                      className={`flex items-center justify-between gap-2 rounded-lg p-2 border ${
-                                        marcado ? 'border-emerald-500 bg-emerald-900/15' : 'border-zinc-800 bg-zinc-900'
+                                      className={`flex items-center justify-between gap-2 rounded-2xl p-2 border transition ${
+                                        marcado
+                                          ? 'border-emerald-500/60 bg-emerald-900/15'
+                                          : 'border-zinc-800/70 bg-zinc-950/40 hover:bg-zinc-900/40'
                                       } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                       onClick={() => toggleOferecido(jogador.id, j.id, j.podeOferecer)}
                                     >
@@ -820,26 +823,29 @@ export default function NegociacoesPage() {
                                           disabled={disabled}
                                           className="accent-emerald-600 shrink-0"
                                         />
+
                                         <ImagemComFallback
                                           src={j.imagem_url ?? '/jogador_padrao.png'}
                                           alt={j.nome}
                                           width={28}
                                           height={28}
-                                          className="w-7 h-7 rounded-full object-cover ring-1 ring-zinc-700 shrink-0"
+                                          className="w-8 h-8 rounded-xl object-cover ring-1 ring-zinc-700/60 shrink-0"
                                         />
-                                        <div className="flex flex-col min-w-0">
-                                          <span className="font-semibold text-white text-[13px] leading-4 truncate">
-                                            {j.nome} <span className="text-zinc-300">• {j.posicao}</span>
-                                          </span>
-                                          <span className="text-[12px] text-zinc-300">{formatBRL(j.valor)}</span>
+
+                                        <div className="min-w-0">
+                                          <div className="truncate text-[13px] font-semibold">
+                                            {j.nome}{' '}
+                                            <span className="text-zinc-400 font-medium">• {j.posicao}</span>
+                                          </div>
+                                          <div className="text-[12px] text-zinc-400">{formatBRL(j.valor)}</div>
                                         </div>
                                       </div>
 
                                       <span
-                                        className={`text-[11px] px-2 py-0.5 rounded-full ${
+                                        className={`text-[11px] px-2 py-0.5 rounded-full border ${
                                           j.podeOferecer
-                                            ? 'bg-emerald-700 text-white'
-                                            : 'bg-zinc-700 text-zinc-300'
+                                            ? 'border-emerald-600/40 bg-emerald-700/20 text-emerald-200'
+                                            : 'border-zinc-700 bg-zinc-800/40 text-zinc-300'
                                         }`}
                                         title={j.podeOferecer ? 'Apto para troca' : 'Menos de 3 jogos'}
                                       >
@@ -855,13 +861,22 @@ export default function NegociacoesPage() {
                           <button
                             onClick={() => enviarProposta(jogador)}
                             disabled={disableEnviar || !!enviando[jogador.id]}
-                            className={`
-                              w-full text-white font-bold py-3 rounded mt-1 text-sm
-                              ${disableEnviar || enviando[jogador.id] ? 'bg-zinc-700 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}
-                            `}
+                            className={`${ButtonBase} w-full py-3 text-sm font-extrabold ${
+                              disableEnviar || enviando[jogador.id]
+                                ? 'bg-zinc-800'
+                                : 'bg-emerald-600 hover:bg-emerald-700 shadow-[0_0_0_1px_rgba(16,185,129,.25)]'
+                            }`}
                           >
-                            {enviando[jogador.id] ? 'Enviando...' : '✅ Enviar Proposta'}
+                            {enviando[jogador.id] ? 'Enviando…' : '✅ Enviar Proposta'}
                           </button>
+
+                          {(valorInvalido || invalidoPercentual || jogadoresVazios) && (
+                            <div className="text-[11px] text-zinc-500">
+                              {valorInvalido && '• Informe um valor numérico. '}
+                              {invalidoPercentual && '• Informe um percentual válido (1 a 100). '}
+                              {jogadoresVazios && '• Selecione ao menos 1 jogador para troca. '}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
