@@ -685,14 +685,16 @@ export default function NegociacoesPage() {
                     <div key={jogador.id} className="w-full flex flex-col items-center">
                       {/* CARD EA */}
                       <CardJogadorNegociacao
-                        jogador={{
-                          id: jogador.id,
-                          nome: jogador.nome,
-                          posicao: jogador.posicao,
-                          overall: jogador.overall ?? 0,
-                          valor: jogador.valor ?? 0,
-                          imagem_url: jogador.imagem_url ?? null,
-                        }}
+  jogador={{
+    id: jogador.id,
+    id_time: jogador.id_time, // ✅ FIX (obrigatório no tipo JogadorNegociacao)
+    nome: jogador.nome,
+    posicao: jogador.posicao,
+    overall: jogador.overall ?? 0,
+    valor: jogador.valor ?? 0,
+    imagem_url: jogador.imagem_url ?? null,
+    jogos: jogador.jogos ?? 0, // (opcional, mas útil pro card)
+  }}
                         selecionado={sel}
                         pendenciasCount={qtdPendentes}
                         onClick={() => {
