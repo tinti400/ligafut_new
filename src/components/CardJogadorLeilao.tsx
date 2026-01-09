@@ -69,7 +69,48 @@ const formatarTempo = (segundos: number) => {
   return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
 }
 
-function badgeTier(valor: number) {
+/** ================== TIER DO CARD (BRONZE/PRATA/OURO) ================== */
+function cartaTierByOverall(overall: number) {
+  if (overall <= 64) return 'bronze'
+  if (overall <= 74) return 'prata'
+  return 'ouro'
+}
+
+function cartaClasses(overall: number) {
+  const tier = cartaTierByOverall(Number(overall || 0))
+
+  // ✅ Gradiente + borda (bem “cara de carta”)
+  if (tier === 'bronze') {
+    return {
+      ring: 'ring-[#b87333]/25',
+      border: 'border-[#b87333]/35',
+      topGlow: 'from-[#b87333]/20 via-zinc-900/20 to-zinc-950/70',
+      badge: 'bg-[#b87333]/15 text-[#ffd9b8] ring-[#b87333]/25',
+      accent: 'text-[#ffd9b8]',
+    }
+  }
+
+  if (tier === 'prata') {
+    return {
+      ring: 'ring-zinc-200/20',
+      border: 'border-zinc-300/25',
+      topGlow: 'from-zinc-200/15 via-zinc-900/20 to-zinc-950/70',
+      badge: 'bg-zinc-200/15 text-zinc-100 ring-zinc-200/25',
+      accent: 'text-zinc-100',
+    }
+  }
+
+  // ouro
+  return {
+    ring: 'ring-[#f5c84b]/25',
+    border: 'border-[#f5c84b]/35',
+    topGlow: 'from-[#f5c84b]/18 via-zinc-900/20 to-zinc-950/70',
+    badge: 'bg-[#f5c84b]/15 text-[#ffe9a6] ring-[#f5c84b]/25',
+    accent: 'text-[#ffe9a6]',
+  }
+}
+
+function badgeTierValor(valor: number) {
   if (valor >= 1_500_000_000) return 'bg-fuchsia-500/15 text-fuchsia-200 ring-fuchsia-500/25'
   if (valor >= 1_000_000_000) return 'bg-blue-500/15 text-blue-200 ring-blue-500/25'
   if (valor >= 500_000_000) return 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/25'
@@ -79,7 +120,6 @@ function badgeTier(valor: number) {
 
 function posBadge(pos: string) {
   const p = (pos || '').toUpperCase()
-  // opcional: padroniza algumas posições
   if (p === 'ZAGUEIRO') return 'ZAG'
   if (p === 'GOLEIRO') return 'GL'
   if (p === 'MEIO CAMPO') return 'MC'
@@ -124,17 +164,26 @@ export default function CardJogadorLeilao({
   const barraCor = encerrado ? 'bg-red-500' : tempoRestante <= 15 ? 'bg-amber-400' : 'bg-emerald-500'
 
   const disabledLance =
-    !!travadoPorIdentidade || disabledPorCooldown || encerrado || invalido || (saldo !== null && valorPropostoNum > Number(saldo))
+    !!travadoPorIdentidade ||
+    disabledPorCooldown ||
+    encerrado ||
+    invalido ||
+    (saldo !== null && valorPropostoNum > Number(saldo))
+
+  const c = cartaClasses(Number(leilao.overall || 0))
 
   return (
     <div className="relative">
       {/* Carta */}
       <div
         className={classNames(
-          'relative overflow-hidden rounded-[28px] border border-zinc-800/70 bg-gradient-to-b from-zinc-100/10 to-zinc-950/70 shadow-xl backdrop-blur',
-          tremendo ? 'ring-2 ring-emerald-400/40' : ''
+          'relative overflow-hidden rounded-[28px] border bg-gradient-to-b shadow-xl backdrop-blur',
+          c.border,
+          c.topGlow,
+          'from-zinc-100/10 to-zinc-950/70',
+          tremendo ? 'ring-2 ring-emerald-400/40' : classNames('ring-1', c.ring)
         )}
-        style={{ aspectRatio: '3 / 4', minHeight: 360 }}
+        style={{ aspectRatio: '3 / 4', minHeight: 380 }}
       >
         {/* barra tempo */}
         <div className="absolute left-4 right-4 top-4 h-2 overflow-hidden rounded-full bg-zinc-800/70">
@@ -143,7 +192,7 @@ export default function CardJogadorLeilao({
 
         {/* topo: overall + pos */}
         <div className="absolute left-5 top-8 z-10">
-          <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">
+          <div className={classNames('text-4xl font-extrabold tracking-tight drop-shadow', c.accent)}>
             {Number(leilao.overall ?? 0)}
           </div>
           <div className="mt-1 inline-flex items-center gap-2">
@@ -156,6 +205,11 @@ export default function CardJogadorLeilao({
                 {leilao.nacionalidade}
               </span>
             )}
+
+            {/* ✅ badge do tier (bronze/prata/ouro) */}
+            <span className={classNames('rounded-lg px-2 py-1 text-[11px] font-extrabold ring-1', c.badge)}>
+              {cartaTierByOverall(Number(leilao.overall || 0)).toUpperCase()}
+            </span>
           </div>
         </div>
 
@@ -170,14 +224,14 @@ export default function CardJogadorLeilao({
           </button>
         )}
 
-        {/* imagem central (estilo carta) */}
+        {/* ✅ imagem central (AGORA INTEIRA) */}
         <div className="absolute inset-x-0 top-16 flex justify-center px-6">
-          <div className="relative h-[220px] w-full overflow-hidden rounded-3xl bg-zinc-900/40 ring-1 ring-zinc-800/50">
+          <div className="relative h-[260px] w-full overflow-hidden rounded-3xl bg-zinc-900/35 ring-1 ring-zinc-800/50">
             {leilao.imagem_url ? (
               <img
                 src={leilao.imagem_url}
                 alt={leilao.nome}
-                className="h-full w-full object-cover object-top"
+                className="h-full w-full object-contain object-center bg-zinc-900"
                 referrerPolicy="no-referrer"
                 loading="lazy"
                 onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
@@ -209,8 +263,8 @@ export default function CardJogadorLeilao({
           </div>
         </div>
 
-        {/* faixa nome (como carta) */}
-        <div className="absolute inset-x-0 top-[300px] px-6">
+        {/* ✅ faixa nome (SUBIU) */}
+        <div className="absolute inset-x-0 top-[285px] px-6">
           <div className="rounded-2xl bg-zinc-950/55 px-4 py-2 ring-1 ring-zinc-800/50">
             <div className="truncate text-center text-sm font-extrabold uppercase tracking-wide text-zinc-100">
               {leilao.nome}
@@ -229,7 +283,7 @@ export default function CardJogadorLeilao({
                 🔗 SoFIFA
               </a>
 
-              <span className={classNames('rounded-xl px-2 py-1 text-[11px] font-bold ring-1', badgeTier(leilao.valor_atual))}>
+              <span className={classNames('rounded-xl px-2 py-1 text-[11px] font-bold ring-1', badgeTierValor(leilao.valor_atual))}>
                 {brl(leilao.valor_atual)}
               </span>
             </div>
