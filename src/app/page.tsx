@@ -32,6 +32,12 @@ type TimeRow = {
   saldo?: number | null
   total_salarios?: number | null
   escudo_url?: string | null
+
+  // campos opcionais (se existirem, melhor)
+  divisao?: string | number | null
+  divisao_nome?: string | null
+  divisao_id?: string | number | null
+  divisao_numero?: string | number | null
 }
 
 type BidEvent = {
@@ -95,7 +101,7 @@ function HeroUT({
       transition={{ duration: 0.5 }}
       className="relative overflow-hidden rounded-[28px] border border-white/10 bg-black/40 shadow-2xl backdrop-blur-md"
     >
-      {/* Neon + grid */}
+      {/* neon + grid */}
       <div className="absolute inset-0 opacity-55 [background:radial-gradient(circle_at_top,rgba(34,197,94,0.22),transparent_55%)]" />
       <div className="absolute inset-0 opacity-35 [background:radial-gradient(circle_at_bottom_left,rgba(168,85,247,0.18),transparent_60%)]" />
       <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(to_right,rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:36px_36px]" />
@@ -161,7 +167,7 @@ function HeroUT({
             </div>
           </div>
 
-          {/* Card do time logado + pause */}
+          {/* card do gerente */}
           <div className="w-full md:w-[360px] shrink-0">
             <div className="relative rounded-3xl border border-white/10 bg-black/35 p-4 shadow-xl overflow-hidden">
               <div className="absolute inset-0 opacity-40 [background:radial-gradient(circle_at_top,rgba(34,197,94,0.20),transparent_60%)]" />
@@ -261,24 +267,26 @@ export default function HomePage() {
         setLoading(true)
         setErro(null)
 
-        // 1) Times
+        // 1) Times (inclui campos de divisão se existirem)
         const timesRes = await supabase
           .from('times')
-          .select('id, nome, saldo, total_salarios, escudo_url')
+          .select('id, nome, saldo, total_salarios, escudo_url, divisao, divisao_nome, divisao_id, divisao_numero')
 
         if (timesRes.error) throw new Error('Falha ao carregar times')
 
         const timesData = (timesRes.data || []) as TimeRow[]
         setTimes(timesData)
 
-        // pega meu time pelo nome (igual você já fazia)
-        const meu = timesData.find((t) => (t.nome || '').toLowerCase() === (nomeTime || '').toLowerCase())
+        // meu time pelo nome (igual você já usa)
+        const meu = timesData.find(
+          (t) => (t.nome || '').toLowerCase() === (nomeTime || '').toLowerCase()
+        )
         setSaldoAtual(Number(meu?.saldo ?? 0))
         setTotalSalariosMeuTime(Number(meu?.total_salarios ?? 0))
 
         // 2) BID
         const bidRes = await supabase
-          .from('BID')
+          .from('bid')
           .select(
             'id, descricao, data_evento, tipo_evento, id_time1, id_time2, valor, jogador_id, jogador_nome, jogador_imagem_url'
           )
@@ -288,7 +296,7 @@ export default function HomePage() {
         if (bidRes.error) throw new Error('Falha ao carregar BID')
         setEventosBID((bidRes.data || []) as BidEvent[])
 
-        // 3) Últimos jogos (se não existir tabela/colunas, não derruba o home)
+        // 3) Últimos jogos (se não existir, não quebra)
         const jogosRes = await supabase
           .from('jogos')
           .select(
@@ -299,12 +307,11 @@ export default function HomePage() {
 
         if (!jogosRes.error) setUltimosJogos((jogosRes.data || []) as JogoRow[])
 
-        // 4) Contagem de jogadores (se você tiver tabela jogadores)
+        // 4) Contagem de jogadores (se não existir, não quebra)
         const jogadoresRes = await supabase.from('jogadores').select('id', { count: 'exact', head: true })
         if (!jogadoresRes.error) setJogadoresCount(Number(jogadoresRes.count ?? 0))
 
-        // 5) posição (se você tiver tabela classificacao ou similar)
-        // Se não tiver, mantém "—" sem quebrar
+        // 5) posição (se não existir, não quebra)
         const posRes = await supabase
           .from('classificacao')
           .select('posicao')
@@ -323,8 +330,8 @@ export default function HomePage() {
   // ===== realtime BID (INSERT)
   useEffect(() => {
     const ch = supabase
-      .channel('BID-inserts-home')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'BID' }, (payload) => {
+      .channel('bid-inserts-home')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bid' }, (payload) => {
         setEventosBID((prev) => [payload.new as BidEvent, ...prev].slice(0, 10))
         setIndexAtual(0)
       })
@@ -381,7 +388,6 @@ export default function HomePage() {
   const eventoAtual = eventosBID[indexAtual]
   const jogoAtual = ultimosJogos[indexJogo]
 
-  /** ============ UI helpers ============ */
   const StatCard = ({
     title,
     value,
@@ -557,22 +563,45 @@ export default function HomePage() {
     )
   }
 
+  // ===== Times por divisão (somente logos)
+  const timesPorDivisao = useMemo(() => {
+    const getDiv = (t: any) =>
+      t.divisao_nome ??
+      t.divisao ??
+      t.divisao_id ??
+      t.divisao_numero ??
+      'Divisão 1'
+
+    const grupos = (times || []).reduce<Record<string, TimeRow[]>>((acc, t: any) => {
+      const key = String(getDiv(t))
+      if (!acc[key]) acc[key] = []
+      acc[key].push(t as TimeRow)
+      return acc
+    }, {})
+
+    const ordem = Object.keys(grupos).sort((a, b) => {
+      const na = Number(a.replace(/\D/g, '')) || 999
+      const nb = Number(b.replace(/\D/g, '')) || 999
+      if (na !== nb) return na - nb
+      return a.localeCompare(b)
+    })
+
+    return { grupos, ordem }
+  }, [times])
+
   return (
-    <main
-      className="relative min-h-screen text-white bg-cover bg-center"
-      style={{ backgroundImage: `url('/campo-futebol-dark.jpg')` }}
-    >
+    <main className="relative min-h-screen text-white bg-cover bg-center" style={{ backgroundImage: `url('/campo-futebol-dark.jpg')` }}>
       <div className="absolute inset-0 bg-black/80" />
 
       <div className="relative z-10 w-full max-w-6xl mx-auto px-4 py-4">
-        {/* Erro topo (igual toast) */}
+        {/* erro */}
         {erro && (
           <div className="mb-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
             ❌ {erro}
           </div>
         )}
 
-        {/* HERO UT */}
+        {/* HERO */}
         <HeroUT
           nomeTime={nomeTime}
           logado={logado}
@@ -580,7 +609,7 @@ export default function HomePage() {
           onTogglePaused={() => setPaused((p) => !p)}
           onGoMercado={() => router.push('/mercado')}
           onGoElenco={() => router.push('/elenco')}
-          onGoBID={() => router.push('/bid')}
+          onGoBID={() => router.push('/BID')} // ✅ BID em MAIÚSCULO
         />
 
         {/* Top stats */}
@@ -590,6 +619,68 @@ export default function HomePage() {
           <StatCard title="Posição" value={posicao || '—'} Icon={FaMapMarkerAlt} tone="yellow" />
           <StatCard title="Total Salários" value={formatarValor(totalSalariosMeuTime)} Icon={FaChartLine} tone="purple" />
         </div>
+
+        {/* ================= TIMES POR DIVISÕES (LOGOS) ================= */}
+        <section className="mt-4 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl backdrop-blur-md">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base md:text-lg font-extrabold">🏟️ Times</h2>
+
+            {/* botão opcional */}
+            <button
+              onClick={() => router.push('/BID')}
+              className="text-xs font-black px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10"
+              title="Abrir BID"
+            >
+              Abrir BID
+            </button>
+          </div>
+
+          <p className="mt-1 text-xs text-white/60">
+            Logos organizados por divisão.
+          </p>
+
+          <div className="mt-4 space-y-6">
+            {timesPorDivisao.ordem.map((div) => {
+              const lista = (timesPorDivisao.grupos[div] || []).slice().sort((a, b) => a.nome.localeCompare(b.nome))
+              const titulo = String(div).toLowerCase().includes('div') ? div : `Divisão ${div}`
+
+              return (
+                <div key={div}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-extrabold text-white/90">{titulo}</div>
+                    <div className="text-xs text-white/60">{lista.length} times</div>
+                  </div>
+
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
+                    {lista.map((t) => (
+                      <div
+                        key={t.id}
+                        className="group relative flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-black/25 p-2 hover:bg-white/5 transition"
+                        title={t.nome}
+                      >
+                        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition [background:radial-gradient(circle_at_top,rgba(34,197,94,0.18),transparent_60%)] rounded-2xl" />
+
+                        {t.escudo_url ? (
+                          <img
+                            src={t.escudo_url}
+                            alt={t.nome}
+                            className="relative w-10 h-10 md:w-12 md:h-12 object-contain drop-shadow"
+                          />
+                        ) : (
+                          <div className="relative w-10 h-10 rounded-xl bg-white/10" />
+                        )}
+
+                        <div className="mt-1 text-[10px] text-white/70 truncate w-full text-center opacity-0 group-hover:opacity-100 transition">
+                          {t.nome}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
 
         {/* BID + Jogos */}
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -633,9 +724,7 @@ export default function HomePage() {
               ) : eventosBID.length ? (
                 <>
                   <TransferCard ev={eventoAtual} />
-                  <div className="mt-2 text-sm text-yellow-200/90 italic line-clamp-2">
-                    {eventoAtual?.descricao}
-                  </div>
+                  <div className="mt-2 text-sm text-yellow-200/90 italic line-clamp-2">{eventoAtual?.descricao}</div>
 
                   <div className="flex gap-1.5 justify-center mt-3">
                     {eventosBID.map((_, i) => (
@@ -704,8 +793,20 @@ export default function HomePage() {
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <CardRanking titulo="Top 3 Mais Saldo" lista={top.saldoDesc} cor="text-green-300" Icone={FaMoneyBillWave} />
           <CardRanking titulo="Top 3 Menos Saldo" lista={top.saldoAsc} cor="text-red-300" Icone={FaArrowDown} />
-          <CardRanking titulo="Top 3 Maiores Salários" lista={top.salDesc} cor="text-yellow-200" Icone={FaChartLine} usaSalario />
-          <CardRanking titulo="Top 3 Menores Salários" lista={top.salAsc} cor="text-blue-300" Icone={FaArrowUp} usaSalario />
+          <CardRanking
+            titulo="Top 3 Maiores Salários"
+            lista={top.salDesc}
+            cor="text-yellow-200"
+            Icone={FaChartLine}
+            usaSalario
+          />
+          <CardRanking
+            titulo="Top 3 Menores Salários"
+            lista={top.salAsc}
+            cor="text-blue-300"
+            Icone={FaArrowUp}
+            usaSalario
+          />
         </div>
 
         {/* FAB Admin */}
