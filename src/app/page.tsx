@@ -278,7 +278,7 @@ export default function HomePage() {
 
         // 2) BID
         const bidRes = await supabase
-          .from('bid')
+          .from('BID')
           .select(
             'id, descricao, data_evento, tipo_evento, id_time1, id_time2, valor, jogador_id, jogador_nome, jogador_imagem_url'
           )
@@ -323,8 +323,8 @@ export default function HomePage() {
   // ===== realtime BID (INSERT)
   useEffect(() => {
     const ch = supabase
-      .channel('bid-inserts-home')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bid' }, (payload) => {
+      .channel('BID-inserts-home')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'BID' }, (payload) => {
         setEventosBID((prev) => [payload.new as BidEvent, ...prev].slice(0, 10))
         setIndexAtual(0)
       })
