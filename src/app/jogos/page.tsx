@@ -1,4 +1,3 @@
- 
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -68,6 +67,26 @@ type TimeDados = {
   id: string
   divisao: number
   historico: HistoricoJogo[]
+}
+
+/** ===================== OCR / Goals ===================== */
+type GoalFromVision = {
+  player: string
+  minute: number
+  side?: 'home' | 'away' | null // lado no print
+  // resolvido
+  team_id?: string | null
+  team_nome?: string | null
+  confidence?: number | null
+  raw?: string | null
+}
+
+type VisionResult = {
+  ok: boolean
+  score?: { home: number; away: number } | null
+  goals?: GoalFromVision[]
+  warning?: string | null
+  debug?: any
 }
 
 /** ===================== Util ===================== */
@@ -297,7 +316,7 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
 
   let historico: HistoricoJogo[] = []
   partidas?.forEach((rodada) => {
-    rodada.jogos.forEach((jogo: any) => {
+    ;(rodada.jogos || []).forEach((jogo: any) => {
       if (
         (jogo.mandante === timeId || jogo.visitante === timeId) &&
         jogo.gols_mandante !== undefined &&
@@ -436,6 +455,13 @@ export default function Jogos() {
   // gerar temporada
   const [gerando, setGerando] = useState(false)
 
+  // OCR UI (📸 upload)
+  const [ocrOpenKey, setOcrOpenKey] = useState<string | null>(null)
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrFiles, setOcrFiles] = useState<File[]>([])
+  const [ocrResult, setOcrResult] = useState<VisionResult | null>(null)
+  const [ocrResolvedGoals, setOcrResolvedGoals] = useState<GoalFromVision[]>([])
+
   const carregarDados = async () => {
     const { data: times } = await supabase.from('times').select('id, nome, logo_url')
     const map: Record<string, Time> = {}
@@ -459,7 +485,119 @@ export default function Jogos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [temporada, divisao])
 
-  // ================== NOVO: gerar temporada genérico (inclui T4) ==================
+  const limparOCR = () => {
+    setOcrFiles([])
+    setOcrResult(null)
+    setOcrResolvedGoals([])
+  }
+
+  // match_id estável (pode trocar depois por um id real seu)
+  const matchIdOf = (rodadaId: string, index: number) => `${rodadaId}:${index}`
+
+  const resolveTeamBySide = (g: GoalFromVision, mandanteId: string, visitanteId: string) => {
+    if (g.side === 'home') return mandanteId
+    if (g.side === 'away') return visitanteId
+    return null
+  }
+
+  async function salvarGolsNoBanco(
+    match_id: string,
+    rodadaNumero: number,
+    mandanteId: string,
+    visitanteId: string,
+    goals: GoalFromVision[]
+  ) {
+    // dedupe: match_id + team_id + player + minute
+    const payload = goals
+      .map((g) => {
+        const team_id = g.team_id || resolveTeamBySide(g, mandanteId, visitanteId)
+        return {
+          match_id,
+          temporada,
+          divisao,
+          rodada_numero: rodadaNumero,
+          mandante_id: mandanteId,
+          visitante_id: visitanteId,
+          team_id,
+          player: (g.player || '').trim(),
+          minute: Number(g.minute),
+          source: 'vision',
+          raw_text: g.raw || null,
+        }
+      })
+      .filter((x) => x.team_id && x.player && Number.isFinite(x.minute))
+
+    if (!payload.length) {
+      toast.error('Nenhum gol válido para salvar.')
+      return
+    }
+
+    // upsert precisa de UNIQUE no banco (match_id, team_id, player, minute)
+    const { error } = await supabase
+      .from('match_goals')
+      .upsert(payload, { onConflict: 'match_id,team_id,player,minute' })
+
+    if (error) {
+      console.error(error)
+      toast.error('Erro ao salvar gols (confira UNIQUE + RLS).')
+      return
+    }
+
+    toast.success(`✅ Gols salvos! Duplicados foram ignorados automaticamente.`)
+  }
+
+  async function rodarVisionOCR(mandanteId: string, visitanteId: string) {
+    if (!ocrFiles.length) return
+    try {
+      setOcrLoading(true)
+      toast.loading('Lendo imagem(s) com Google Vision...', { id: 'ocr' })
+
+      const base64Images: string[] = []
+      for (const f of ocrFiles) {
+        const b64 = await fileToBase64(f)
+        base64Images.push(b64)
+      }
+
+      const res = await fetch('/api/parse-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imagesBase64: base64Images }),
+      })
+      const json = (await res.json()) as VisionResult
+
+      if (!res.ok || !json?.ok) {
+        throw new Error((json as any)?.error || 'Falha no OCR')
+      }
+
+      setOcrResult(json)
+
+      // resolve time_id pelo lado
+      const resolved = (json.goals || []).map((g) => {
+        const team_id = resolveTeamBySide(g, mandanteId, visitanteId)
+        const team_nome = team_id ? timesMap[team_id]?.nome : null
+        return { ...g, team_id, team_nome }
+      })
+
+      // dedupe local
+      const seen = new Set<string>()
+      const unique = resolved.filter((g) => {
+        const key = `${g.team_id || 'x'}|${(g.player || '').toLowerCase()}|${g.minute}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+      setOcrResolvedGoals(unique)
+
+      toast.success('✅ OCR concluído! Confira e confirme.', { id: 'ocr' })
+    } catch (e: any) {
+      toast.error(`❌ ${e?.message || e}`, { id: 'ocr' })
+    } finally {
+      setOcrLoading(false)
+    }
+  }
+
+  // ================== gerar temporada (inclui T4) ==================
   const gerarTemporada = async (temp: number) => {
     if (!isAdmin) return
     if (!confirm(`Gerar jogos da Temporada ${temp} para as Divisões 1, 2 e 3 (ida+volta)?`)) return
@@ -486,7 +624,9 @@ export default function Jogos() {
       const b = await resB.json()
       if (!resB.ok || !b?.ok) throw new Error(b?.erro || 'Falha ao gerar jogos')
 
-      toast.success(`✅ Temporada ${temp} gerada! Rodadas: ${b.total_rodadas} | Jogos: ${b.total_jogos}`, { id: 'gerar-t' })
+      toast.success(`✅ Temporada ${temp} gerada! Rodadas: ${b.total_rodadas} | Jogos: ${b.total_jogos}`, {
+        id: 'gerar-t',
+      })
       setTemporada(temp)
       await carregarDados()
     } catch (e: any) {
@@ -501,7 +641,12 @@ export default function Jogos() {
     if (isSalvando) return
     setIsSalvando(true)
 
-    const { data: rodadaDB, error: erroR } = await supabase.from('rodadas').select('jogos, numero').eq('id', rodadaId).single()
+    const { data: rodadaDB, error: erroR } = await supabase
+      .from('rodadas')
+      .select('jogos, numero')
+      .eq('id', rodadaId)
+      .single()
+
     if (erroR || !rodadaDB) {
       toast.error('Erro ao buscar rodada!')
       setIsSalvando(false)
@@ -603,7 +748,10 @@ export default function Jogos() {
     // estado local
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
-    const { feitos, total } = contagemDaRodada({ ...(rodadas.find((r) => r.id === rodadaId) as Rodada), jogos: novaLista })
+    const { feitos, total } = contagemDaRodada({
+      ...(rodadas.find((r) => r.id === rodadaId) as Rodada),
+      jogos: novaLista,
+    })
     const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
     const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
@@ -618,11 +766,22 @@ export default function Jogos() {
   }
 
   /** =============== AJUSTE DE RESULTADO (sem repetir finanças) =============== */
-  const salvarAjusteResultado = async (rodadaId: string, index: number, gm: number, gv: number, silencioso = false) => {
+  const salvarAjusteResultado = async (
+    rodadaId: string,
+    index: number,
+    gm: number,
+    gv: number,
+    silencioso = false
+  ) => {
     if (isSalvando) return
     setIsSalvando(true)
 
-    const { data: rodadaDB, error: erroR } = await supabase.from('rodadas').select('jogos, numero').eq('id', rodadaId).single()
+    const { data: rodadaDB, error: erroR } = await supabase
+      .from('rodadas')
+      .select('jogos, numero')
+      .eq('id', rodadaId)
+      .single()
+
     if (erroR || !rodadaDB) {
       toast.error('Erro ao buscar rodada!')
       setIsSalvando(false)
@@ -647,7 +806,10 @@ export default function Jogos() {
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
     if (!silencioso) {
-      const { feitos, total } = contagemDaRodada({ ...(rodadas.find((r) => r.id === rodadaId) as Rodada), jogos: novaLista })
+      const { feitos, total } = contagemDaRodada({
+        ...(rodadas.find((r) => r.id === rodadaId) as Rodada),
+        jogos: novaLista,
+      })
       toast.success(`✏️ Resultado atualizado! ${feitos}/${total} jogos desta rodada com placar (sem repetir bônus).`)
     }
 
@@ -698,8 +860,12 @@ export default function Jogos() {
           ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -totalCreditosVisitante })
           : Promise.resolve(),
 
-        salariosMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante }) : Promise.resolve(),
-        salariosVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante }) : Promise.resolve(),
+        salariosMandante
+          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante })
+          : Promise.resolve(),
+        salariosVisitante
+          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante })
+          : Promise.resolve(),
       ])
 
       // 2) movimentações (registro completo)
@@ -887,7 +1053,9 @@ export default function Jogos() {
     : rodadas
         .map((rodada) => ({
           ...rodada,
-          jogos: rodada.jogos.filter((jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado),
+          jogos: rodada.jogos.filter(
+            (jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado
+          ),
         }))
         .filter((rodada) => rodada.jogos.length > 0)
 
@@ -1019,11 +1187,16 @@ export default function Jogos() {
                   const temPlacar = isPlacarPreenchido(jogo)
                   const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
 
+                  const ocrKey = `${rodada.id}:${index}`
+                  const ocrOpen = ocrOpenKey === ocrKey
+
                   return (
                     <article
                       key={index}
                       className={`rounded-2xl border px-4 py-3 transition ${
-                        temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]' : 'border-white/10 bg-white/5 hover:bg-white/7'
+                        temPlacar
+                          ? 'border-emerald-700/40 bg-emerald-500/[0.06]'
+                          : 'border-white/10 bg-white/5 hover:bg-white/7'
                       }`}
                     >
                       <div className="grid grid-cols-12 items-center gap-2">
@@ -1031,7 +1204,11 @@ export default function Jogos() {
                         <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
                           {mandante?.logo_url && (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                            <img
+                              src={mandante.logo_url}
+                              alt="logo"
+                              className="h-6 w-6 rounded-full ring-1 ring-white/10"
+                            />
                           )}
                           <span className="font-medium text-right truncate text-white">{mandante?.nome || '???'}</span>
                         </div>
@@ -1058,7 +1235,11 @@ export default function Jogos() {
                           <span className="font-medium text-left truncate text-white">{visitante?.nome || '???'}</span>
                           {visitante?.logo_url && (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                            <img
+                              src={visitante.logo_url}
+                              alt="logo"
+                              className="h-6 w-6 rounded-full ring-1 ring-white/10"
+                            />
                           )}
 
                           {/* Ações (apenas admin) */}
@@ -1078,6 +1259,18 @@ export default function Jogos() {
                                 📝
                               </button>
 
+                              {/* 📸 OCR */}
+                              <button
+                                onClick={() => {
+                                  setOcrOpenKey((prev) => (prev === ocrKey ? null : ocrKey))
+                                  limparOCR()
+                                }}
+                                className="text-sm text-sky-300 hover:text-sky-200"
+                                title="Ler gols por foto (Google Vision)"
+                              >
+                                📸
+                              </button>
+
                               {temPlacar && (
                                 <button
                                   onClick={() => excluirResultado(rodada.id, index)}
@@ -1094,7 +1287,9 @@ export default function Jogos() {
                             <div className="flex gap-2 ml-2">
                               {!jogo.bonus_pago ? (
                                 <button
-                                  onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                  onClick={() =>
+                                    salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))
+                                  }
                                   disabled={isSalvando}
                                   className="text-sm text-green-400 font-semibold hover:text-green-300"
                                   title="Salvar e processar finanças + patrocínios"
@@ -1103,7 +1298,9 @@ export default function Jogos() {
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                  onClick={() =>
+                                    salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))
+                                  }
                                   disabled={isSalvando}
                                   className="text-sm text-green-400 font-semibold hover:text-green-300"
                                   title="Salvar ajuste (sem repetir bônus)"
@@ -1125,6 +1322,129 @@ export default function Jogos() {
                           )}
                         </div>
                       </div>
+
+                      {/* ✅ OCR panel (upload) */}
+                      {isAdmin && ocrOpen && (
+                        <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-semibold text-white/90">📸 Ler gols do print (Google Vision)</div>
+                            <div className="ml-auto text-xs text-white/60">
+                              dica: mande 1–3 prints do mesmo jogo (o sistema ignora gols duplicados)
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              onChange={(e) => {
+                                const files = Array.from(e.target.files || [])
+                                setOcrFiles(files)
+                                setOcrResult(null)
+                                setOcrResolvedGoals([])
+                              }}
+                              className="text-sm text-white/80"
+                            />
+
+                            <button
+                              onClick={() => rodarVisionOCR(jogo.mandante, jogo.visitante)}
+                              disabled={ocrLoading || !ocrFiles.length}
+                              className={`px-3 py-2 rounded-lg text-sm font-semibold border ${
+                                ocrLoading || !ocrFiles.length
+                                  ? 'bg-gray-700 border-white/10 text-white/60'
+                                  : 'bg-sky-600 border-sky-500/50 text-black hover:bg-sky-500'
+                              }`}
+                            >
+                              {ocrLoading ? 'Lendo…' : '🔎 Ler gols'}
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                limparOCR()
+                                setOcrOpenKey(null)
+                              }}
+                              className="px-3 py-2 rounded-lg text-sm font-semibold border border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                            >
+                              Fechar
+                            </button>
+                          </div>
+
+                          {ocrResult?.score && (
+                            <div className="mt-3 text-sm text-white/80">
+                              <span className="font-semibold">Placar detectado:</span>{' '}
+                              <span className="text-white">
+                                {mandante?.nome || 'Mandante'} {ocrResult.score.home} x {ocrResult.score.away}{' '}
+                                {visitante?.nome || 'Visitante'}
+                              </span>
+                              <span className="ml-2 text-xs text-white/50">(não aplica automaticamente no placar)</span>
+                            </div>
+                          )}
+
+                          {!!ocrResolvedGoals.length && (
+                            <div className="mt-3">
+                              <div className="text-sm font-semibold text-white/90">
+                                Gols detectados (confira antes de salvar)
+                              </div>
+
+                              <div className="mt-2 space-y-1">
+                                {ocrResolvedGoals.map((g, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1"
+                                  >
+                                    <span className="text-xs text-white/60 w-10">⏱ {g.minute}'</span>
+                                    <span className="text-sm text-white flex-1 truncate">{g.player}</span>
+                                    <span className="text-xs text-white/70">
+                                      {g.team_nome
+                                        ? `(${g.team_nome})`
+                                        : g.side
+                                          ? `(${g.side === 'home' ? 'mandante' : 'visitante'})`
+                                          : '(time?)'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <button
+                                  onClick={async () => {
+                                    const match_id = matchIdOf(rodada.id, index)
+                                    await salvarGolsNoBanco(
+                                      match_id,
+                                      rodada.numero,
+                                      jogo.mandante,
+                                      jogo.visitante,
+                                      ocrResolvedGoals
+                                    )
+                                    limparOCR()
+                                    setOcrOpenKey(null)
+                                  }}
+                                  className="px-3 py-2 rounded-lg text-sm font-semibold border bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500"
+                                >
+                                  ✅ Confirmar e salvar gols
+                                </button>
+
+                                <button
+                                  onClick={() => {
+                                    limparOCR()
+                                    toast('Limpo. Envie outras fotos se quiser.', { icon: '🧹' })
+                                  }}
+                                  className="px-3 py-2 rounded-lg text-sm font-semibold border border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                                >
+                                  Limpar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {!ocrLoading && ocrResult && !ocrResolvedGoals.length && (
+                            <div className="mt-3 text-sm text-white/70">
+                              Nenhum gol detectado. Tente outro print (de preferência o painel de “Eventos/Gols”).
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Rodapé do jogo */}
                       <div className="mt-1 flex flex-wrap items-center gap-2 justify-end">
@@ -1150,7 +1470,6 @@ export default function Jogos() {
     </div>
   )
 }
-
 
 /** ===================== Helpers OCR ===================== */
 function fileToBase64(file: File): Promise<string> {
