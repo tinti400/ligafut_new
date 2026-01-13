@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
@@ -38,7 +38,7 @@ type Jogo = {
   premiacao_mandante?: number
   premiacao_visitante?: number
 
-  // 🔥 novos: bônus de patrocinadores (para estorno)
+  // 🔥 bônus de patrocinadores (para estorno)
   premiacao_patrocinios_mandante?: number
   premiacao_patrocinios_visitante?: number
 }
@@ -69,26 +69,6 @@ type TimeDados = {
   historico: HistoricoJogo[]
 }
 
-/** ===================== OCR / Goals ===================== */
-type GoalFromVision = {
-  player: string
-  minute: number
-  side?: 'home' | 'away' | null // lado no print
-  // já resolvido:
-  team_id?: string | null
-  team_nome?: string | null
-  confidence?: number | null
-  raw?: string | null
-}
-
-type VisionResult = {
-  ok: boolean
-  score?: { home: number; away: number } | null
-  goals?: GoalFromVision[]
-  warning?: string | null
-  debug?: any
-}
-
 /** ===================== Util ===================== */
 const formatarBRL = (v?: number | null) =>
   (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })
@@ -101,7 +81,7 @@ function calcularPremiacao(time: TimeDados): number {
   const ultimaPartida = historico[historico.length - 1]
   const regras = {
     1: { vitoria: 9_000_000, empate: 6_000_000, derrota: 2_500_000, gol: 150_000, gol_sofrido: 30_000 },
-    2: { vitoria: 5_000, empate: 3_000_000, derrota: 1_750_000, gol: 90_000, gol_sofrido: 20_000 },
+    2: { vitoria: 5_000_000, empate: 3_000_000, derrota: 1_750_000, gol: 90_000, gol_sofrido: 20_000 },
     3: { vitoria: 2_000_000, empate: 500_000, derrota: 200_000, gol: 30_000, gol_sofrido: 10_000 },
   } as const
 
@@ -124,7 +104,6 @@ function calcularPremiacao(time: TimeDados): number {
   const venceuTodas = ultimos5.length === 5 && ultimos5.every((j) => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
 
-  // aplica o +50%
   return Math.round(premiacao * BONUS_MULTIPLIER)
 }
 
@@ -150,6 +129,54 @@ const contagemGlobal = (rodadas: Rodada[], timeSelecionado?: string) => {
   const total = lista.reduce((acc, r) => acc + r.jogos.length, 0)
   const feitos = lista.reduce((acc, r) => acc + r.jogos.filter(isPlacarPreenchido).length, 0)
   return { feitos, total }
+}
+
+function clamp(n: number, min = 0, max = 99) {
+  return Math.max(min, Math.min(max, n))
+}
+
+function StepperGol({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: number
+  onChange: (v: number) => void
+  ariaLabel: string
+}) {
+  return (
+    <div className="inline-flex items-center rounded-xl border border-white/15 bg-white/5 overflow-hidden shadow-sm">
+      <button
+        type="button"
+        onClick={() => onChange(clamp((value ?? 0) - 1))}
+        className="h-10 w-10 grid place-items-center text-white/90 hover:bg-white/10 active:bg-white/15"
+        aria-label={`${ariaLabel} diminuir`}
+        title="Diminuir"
+      >
+        <span className="text-xl leading-none">−</span>
+      </button>
+
+      <input
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(clamp(Number(e.target.value || 0)))}
+        className="h-10 w-14 text-center text-white font-extrabold text-lg bg-transparent outline-none
+                   [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        aria-label={ariaLabel}
+      />
+
+      <button
+        type="button"
+        onClick={() => onChange(clamp((value ?? 0) + 1))}
+        className="h-10 w-10 grid place-items-center text-white/90 hover:bg-white/10 active:bg-white/15"
+        aria-label={`${ariaLabel} aumentar`}
+        title="Aumentar"
+      >
+        <span className="text-xl leading-none">+</span>
+      </button>
+    </div>
+  )
 }
 
 // soma salários sem registrar (fallback p/ estorno de jogos antigos)
@@ -264,11 +291,12 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
 
   const divisao = timeData.divisao
 
+  // pega todas as rodadas e monta histórico
   const { data: partidas } = await supabase.from('rodadas').select('jogos')
 
   let historico: HistoricoJogo[] = []
   partidas?.forEach((rodada) => {
-    ;(rodada.jogos || []).forEach((jogo: any) => {
+    rodada.jogos.forEach((jogo: any) => {
       if (
         (jogo.mandante === timeId || jogo.visitante === timeId) &&
         jogo.gols_mandante !== undefined &&
@@ -285,7 +313,8 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
     })
   })
 
-  const resultadoAtual: 'vitoria' | 'empate' | 'derrota' = gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
+  const resultadoAtual: 'vitoria' | 'empate' | 'derrota' =
+    gols_pro > gols_contra ? 'vitoria' : gols_pro < gols_contra ? 'derrota' : 'empate'
   historico.push({ gols_pro, gols_contra, resultado: resultadoAtual })
 
   const valor = calcularPremiacao({ id: timeId, divisao, historico })
@@ -319,10 +348,14 @@ async function obterPatrociniosDoTime(timeId: string) {
 
   if (!esc) return []
 
-  const ids = [esc.id_patrocinio_master, esc.id_patrocinio_fornecedor, esc.id_patrocinio_secundario].filter(Boolean) as string[]
+  const ids = [esc.id_patrocinio_master, esc.id_patrocinio_fornecedor, esc.id_patrocinio_secundario].filter(
+    Boolean
+  ) as string[]
+
   if (!ids.length) return []
 
   const { data: pats } = await supabase.from('patrocinios').select('id, nome, categoria, regra').in('id', ids)
+
   return pats || []
 }
 
@@ -402,13 +435,6 @@ export default function Jogos() {
   // gerar temporada
   const [gerando, setGerando] = useState(false)
 
-  // OCR UI
-  const [ocrOpenKey, setOcrOpenKey] = useState<string | null>(null)
-  const [ocrLoading, setOcrLoading] = useState(false)
-  const [ocrFiles, setOcrFiles] = useState<File[]>([])
-  const [ocrResult, setOcrResult] = useState<VisionResult | null>(null)
-  const [ocrResolvedGoals, setOcrResolvedGoals] = useState<GoalFromVision[]>([])
-
   const carregarDados = async () => {
     const { data: times } = await supabase.from('times').select('id, nome, logo_url')
     const map: Record<string, Time> = {}
@@ -432,112 +458,6 @@ export default function Jogos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [temporada, divisao])
 
-  const limparOCR = () => {
-    setOcrFiles([])
-    setOcrResult(null)
-    setOcrResolvedGoals([])
-  }
-
-  // match_id estável (pode trocar depois por um id real seu)
-  const matchIdOf = (rodadaId: string, index: number) => `${rodadaId}:${index}`
-
-  const resolveTeamBySide = (g: GoalFromVision, mandanteId: string, visitanteId: string) => {
-    if (g.side === 'home') return mandanteId
-    if (g.side === 'away') return visitanteId
-    return null
-  }
-
-  async function salvarGolsNoBanco(match_id: string, rodadaNumero: number, mandanteId: string, visitanteId: string, goals: GoalFromVision[]) {
-    // dedupe: match_id + team_id + player + minute
-    const payload = goals
-      .map((g) => {
-        const team_id = g.team_id || resolveTeamBySide(g, mandanteId, visitanteId)
-        return {
-          match_id,
-          temporada,
-          divisao,
-          rodada_numero: rodadaNumero,
-          mandante_id: mandanteId,
-          visitante_id: visitanteId,
-          team_id,
-          player: (g.player || '').trim(),
-          minute: Number(g.minute),
-          source: 'vision',
-          raw_text: g.raw || null,
-        }
-      })
-      .filter((x) => x.team_id && x.player && Number.isFinite(x.minute))
-
-    if (!payload.length) {
-      toast.error('Nenhum gol válido para salvar.')
-      return
-    }
-
-    // upsert precisa de UNIQUE no banco (match_id, team_id, player, minute)
-    const { error } = await supabase
-      .from('match_goals')
-      .upsert(payload, { onConflict: 'match_id,team_id,player,minute' })
-
-    if (error) {
-      console.error(error)
-      toast.error('Erro ao salvar gols (confira UNIQUE + RLS).')
-      return
-    }
-
-    toast.success(`✅ Gols salvos! Duplicados foram ignorados automaticamente.`)
-  }
-
-  async function rodarVisionOCR(mandanteId: string, visitanteId: string) {
-    if (!ocrFiles.length) return
-    try {
-      setOcrLoading(true)
-      toast.loading('Lendo imagem(s) com Google Vision...', { id: 'ocr' })
-
-      const base64Images: string[] = []
-      for (const f of ocrFiles) {
-        const b64 = await fileToBase64(f)
-        base64Images.push(b64)
-      }
-
-      const res = await fetch('/api/parse-goals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imagesBase64: base64Images }),
-      })
-      const json = (await res.json()) as VisionResult
-
-      if (!res.ok || !json?.ok) {
-        throw new Error((json as any)?.error || 'Falha no OCR')
-      }
-
-      setOcrResult(json)
-
-      // resolve time_id pelo lado
-      const resolved = (json.goals || []).map((g) => {
-        const team_id = resolveTeamBySide(g, mandanteId, visitanteId)
-        const team_nome = team_id ? timesMap[team_id]?.nome : null
-        return { ...g, team_id, team_nome }
-      })
-
-      // dedupe local (mesmo antes do banco)
-      const seen = new Set<string>()
-      const unique = resolved.filter((g) => {
-        const key = `${g.team_id || 'x'}|${(g.player || '').toLowerCase()}|${g.minute}`
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
-
-      setOcrResolvedGoals(unique)
-
-      toast.success('✅ OCR concluído! Confira e confirme.', { id: 'ocr' })
-    } catch (e: any) {
-      toast.error(`❌ ${e?.message || e}`, { id: 'ocr' })
-    } finally {
-      setOcrLoading(false)
-    }
-  }
-
   // ================== NOVO: gerar temporada genérico (inclui T4) ==================
   const gerarTemporada = async (temp: number) => {
     if (!isAdmin) return
@@ -546,6 +466,7 @@ export default function Jogos() {
       setGerando(true)
       toast.loading(`Iniciando Temporada ${temp}...`, { id: 'gerar-t' })
 
+      // 1) cria/zera classificação da temporada
       const resA = await fetch('/api/iniciar-temporada', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -554,6 +475,7 @@ export default function Jogos() {
       const a = await resA.json()
       if (!resA.ok || !a?.ok) throw new Error(a?.erro || 'Falha ao iniciar temporada')
 
+      // 2) gera rodadas/jogos
       toast.loading(`Gerando rodadas/jogos da T${temp}...`, { id: 'gerar-t' })
       const resB = await fetch('/api/gerar-jogos-temporada', {
         method: 'POST',
@@ -626,18 +548,22 @@ export default function Jogos() {
     const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gm, gv)
     const bonusPatroVis = await pagarBonusPatrociniosPorJogo(visitanteId, gv, gm)
 
-    // BID de receita
+    // BID de receita (registrar o TOTAL que entrou por time)
     await supabase.from('bid').insert([
       {
         tipo_evento: 'receita_partida',
-        descricao: `Receita da partida (renda + bônus liga + bônus patrocínios${bonusPatroMand.detalheTexto ? ' — ' + bonusPatroMand.detalheTexto : ''})`,
+        descricao: `Receita da partida (renda + bônus liga + bônus patrocínios${
+          bonusPatroMand.detalheTexto ? ' — ' + bonusPatroMand.detalheTexto : ''
+        })`,
         id_time1: mandanteId,
         valor: receitaMandante + premiacaoMandante + bonusPatroMand.total,
         data_evento: new Date().toISOString(),
       },
       {
         tipo_evento: 'receita_partida',
-        descricao: `Receita da partida (renda + bônus liga + bônus patrocínios${bonusPatroVis.detalheTexto ? ' — ' + bonusPatroVis.detalheTexto : ''})`,
+        descricao: `Receita da partida (renda + bônus liga + bônus patrocínios${
+          bonusPatroVis.detalheTexto ? ' — ' + bonusPatroVis.detalheTexto : ''
+        })`,
         id_time1: visitanteId,
         valor: receitaVisitante + premiacaoVisitante + bonusPatroVis.total,
         data_evento: new Date().toISOString(),
@@ -709,7 +635,6 @@ export default function Jogos() {
       return
     }
 
-    // mantém renda/publico/bonus_pago e totais já pagos, só ajusta placar
     const gmNum = Number.isFinite(gm) ? gm : 0
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = { ...jogo, gols_mandante: gmNum, gols_visitante: gvNum, bonus_pago: true }
@@ -730,9 +655,9 @@ export default function Jogos() {
     setIsSalvando(false)
   }
 
-  /** =============== Excluir placar (com ESTORNO) =============== */
+  /** =============== Excluir placar (com REEMBOLSO TOTAL) =============== */
   const excluirResultado = async (rodadaId: string, index: number) => {
-    if (!confirm('Deseja excluir o resultado deste jogo? Isso fará estorno automático de todas as finanças.')) return
+    if (!confirm('Deseja excluir o resultado deste jogo? Isso fará estorno automático de TODAS as finanças.')) return
     const rodada = rodadas.find((r) => r.id === rodadaId)
     if (!rodada) return
 
@@ -744,53 +669,185 @@ export default function Jogos() {
     const visitanteId = jogo.visitante
 
     if (jogo.bonus_pago) {
-      // valores para reverter (com fallback p/ jogos antigos)
-      const receitaMandante = jogo.receita_mandante ?? (jogo.renda ? jogo.renda * 0.95 : 0)
-      const receitaVisitante = jogo.receita_visitante ?? (jogo.renda ? jogo.renda * 0.05 : 0)
+      // ✅ HARDENING: garante estorno total mesmo se algum campo não estiver salvo
+      const renda = jogo.renda ?? 0
+
+      const receitaMandante = jogo.receita_mandante ?? (renda ? renda * 0.95 : 0)
+      const receitaVisitante = jogo.receita_visitante ?? (renda ? renda * 0.05 : 0)
+
       const salariosMandante = jogo.salarios_mandante ?? (await somarSalarios(mandanteId))
       const salariosVisitante = jogo.salarios_visitante ?? (await somarSalarios(visitanteId))
+
       const premiacaoMandante = jogo.premiacao_mandante ?? 0
       const premiacaoVisitante = jogo.premiacao_visitante ?? 0
+
       const bonusPatroMandante = jogo.premiacao_patrocinios_mandante ?? 0
       const bonusPatroVisitante = jogo.premiacao_patrocinios_visitante ?? 0
 
-      // 1) Reverter saldos
+      // totais de créditos do jogo (tudo que entrou)
+      const totalCreditosMandante = receitaMandante + premiacaoMandante + bonusPatroMandante
+      const totalCreditosVisitante = receitaVisitante + premiacaoVisitante + bonusPatroVisitante
+
+      // 1) Reverter saldos (TUDO)
       await Promise.all([
-        receitaMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante }) : Promise.resolve(),
-        receitaVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante }) : Promise.resolve(),
+        totalCreditosMandante
+          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -totalCreditosMandante })
+          : Promise.resolve(),
+        totalCreditosVisitante
+          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -totalCreditosVisitante })
+          : Promise.resolve(),
+
         salariosMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante }) : Promise.resolve(),
         salariosVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante }) : Promise.resolve(),
-        premiacaoMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante }) : Promise.resolve(),
-        premiacaoVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante }) : Promise.resolve(),
-        bonusPatroMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -bonusPatroMandante }) : Promise.resolve(),
-        bonusPatroVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -bonusPatroVisitante }) : Promise.resolve(),
       ])
 
-      // 2) movimentações
+      // 2) movimentações (registro completo)
       const movs: any[] = []
-      if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida', data: now })
-      if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida', data: now })
-      if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários da partida', data: now })
-      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários da partida', data: now })
-      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de bônus por desempenho (liga)', data: now })
-      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de bônus por desempenho (liga)', data: now })
-      if (bonusPatroMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroMandante, descricao: 'Estorno de bônus de patrocinadores', data: now })
-      if (bonusPatroVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroVisitante, descricao: 'Estorno de bônus de patrocinadores', data: now })
+
+      if (receitaMandante)
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_receita',
+          valor: receitaMandante,
+          descricao: 'Estorno receita (renda do estádio) da partida',
+          data: now,
+        })
+      if (receitaVisitante)
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_receita',
+          valor: receitaVisitante,
+          descricao: 'Estorno receita (renda do estádio) da partida',
+          data: now,
+        })
+
+      if (premiacaoMandante)
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_premiacao',
+          valor: premiacaoMandante,
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          data: now,
+        })
+      if (premiacaoVisitante)
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_premiacao',
+          valor: premiacaoVisitante,
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          data: now,
+        })
+
+      if (bonusPatroMandante)
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_bonus_patrocinio',
+          valor: bonusPatroMandante,
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          data: now,
+        })
+      if (bonusPatroVisitante)
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_bonus_patrocinio',
+          valor: bonusPatroVisitante,
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          data: now,
+        })
+
+      if (salariosMandante)
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_salario',
+          valor: salariosMandante,
+          descricao: 'Estorno de salários (devolução) da partida',
+          data: now,
+        })
+      if (salariosVisitante)
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_salario',
+          valor: salariosVisitante,
+          descricao: 'Estorno de salários (devolução) da partida',
+          data: now,
+        })
+
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
-      // 3) BID
+      // 3) BID (espelho completo)
       const bids: any[] = []
-      if (receitaMandante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
-      if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
-      if (salariosMandante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários)', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
-      if (salariosVisitante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários)', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
-      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (liga)', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
-      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus por desempenho (liga)', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
-      if (bonusPatroMandante) bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores', id_time1: mandanteId, valor: -bonusPatroMandante, data_evento: now })
-      if (bonusPatroVisitante) bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores', id_time1: visitanteId, valor: -bonusPatroVisitante, data_evento: now })
+
+      if (receitaMandante)
+        bids.push({
+          tipo_evento: 'estorno_receita_partida',
+          descricao: 'Estorno da receita (renda do estádio) da partida',
+          id_time1: mandanteId,
+          valor: -receitaMandante,
+          data_evento: now,
+        })
+      if (receitaVisitante)
+        bids.push({
+          tipo_evento: 'estorno_receita_partida',
+          descricao: 'Estorno da receita (renda do estádio) da partida',
+          id_time1: visitanteId,
+          valor: -receitaVisitante,
+          data_evento: now,
+        })
+
+      if (premiacaoMandante)
+        bids.push({
+          tipo_evento: 'estorno_bonus',
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          id_time1: mandanteId,
+          valor: -premiacaoMandante,
+          data_evento: now,
+        })
+      if (premiacaoVisitante)
+        bids.push({
+          tipo_evento: 'estorno_bonus',
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          id_time1: visitanteId,
+          valor: -premiacaoVisitante,
+          data_evento: now,
+        })
+
+      if (bonusPatroMandante)
+        bids.push({
+          tipo_evento: 'estorno_bonus_patrocinio',
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          id_time1: mandanteId,
+          valor: -bonusPatroMandante,
+          data_evento: now,
+        })
+      if (bonusPatroVisitante)
+        bids.push({
+          tipo_evento: 'estorno_bonus_patrocinio',
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          id_time1: visitanteId,
+          valor: -bonusPatroVisitante,
+          data_evento: now,
+        })
+
+      if (salariosMandante)
+        bids.push({
+          tipo_evento: 'estorno_despesas',
+          descricao: 'Estorno de despesas (salários) da partida',
+          id_time1: mandanteId,
+          valor: +salariosMandante,
+          data_evento: now,
+        })
+      if (salariosVisitante)
+        bids.push({
+          tipo_evento: 'estorno_despesas',
+          descricao: 'Estorno de despesas (salários) da partida',
+          id_time1: visitanteId,
+          valor: +salariosVisitante,
+          data_evento: now,
+        })
+
       if (bids.length) await supabase.from('bid').insert(bids)
 
-      // 4) jogos -1 no elenco
+      // 4) jogos -1 no elenco (reverte estatística)
       await ajustarJogosElenco(mandanteId, -1)
       await ajustarJogosElenco(visitanteId, -1)
     }
@@ -816,9 +873,11 @@ export default function Jogos() {
 
     await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
     await fetch(`/api/classificacao?temporada=${temporada}`)
+    await fetch('/api/atualizar-moral')
 
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
-    toast.success('🗑️ Resultado removido e estorno financeiro concluído.')
+
+    toast.success('🗑️ Resultado removido e reembolso TOTAL concluído (renda + salários + premiação + patrocínios).')
   }
 
   /** =============== Filtro por time (opcional) =============== */
@@ -860,7 +919,9 @@ export default function Jogos() {
                 onClick={() => setTemporada(temp)}
                 aria-pressed={temporada === temp}
                 className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${
-                  temporada === temp ? 'bg-emerald-600 text-white ring-1 ring-emerald-300' : 'text-white/80 hover:bg-white/10'
+                  temporada === temp
+                    ? 'bg-emerald-600 text-white ring-1 ring-emerald-300'
+                    : 'text-white/80 hover:bg-white/10'
                 }`}
               >
                 Temporada {temp}
@@ -910,7 +971,9 @@ export default function Jogos() {
                 onClick={() => gerarTemporada(temporada)}
                 disabled={gerando}
                 className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
-                  gerando ? 'bg-gray-700 border-white/10 text-white/70' : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
+                  gerando
+                    ? 'bg-gray-700 border-white/10 text-white/70'
+                    : 'bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500'
                 }`}
                 title={`Cria a classificação e gera todas as rodadas (divisões 1–3) da Temporada ${temporada}`}
               >
@@ -921,7 +984,9 @@ export default function Jogos() {
                 onClick={() => gerarTemporada(4)}
                 disabled={gerando}
                 className={`ml-2 px-4 py-2 rounded-xl font-semibold border ${
-                  gerando ? 'bg-gray-700 border-white/10 text-white/70' : 'bg-sky-600 border-sky-500/50 text-black hover:bg-sky-500'
+                  gerando
+                    ? 'bg-gray-700 border-white/10 text-white/70'
+                    : 'bg-sky-600 border-sky-500/50 text-black hover:bg-sky-500'
                 }`}
                 title="Gerar imediatamente a Temporada 4 (ida+volta nas divisões 1–3)"
               >
@@ -953,9 +1018,6 @@ export default function Jogos() {
                   const temPlacar = isPlacarPreenchido(jogo)
                   const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
 
-                  const ocrKey = `${rodada.id}:${index}`
-                  const ocrOpen = ocrOpenKey === ocrKey
-
                   return (
                     <article
                       key={index}
@@ -970,30 +1032,16 @@ export default function Jogos() {
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
                           )}
-                          <span className="font-medium text-right truncate">{mandante?.nome || '???'}</span>
+                          <span className="font-medium text-right truncate text-white">{mandante?.nome || '???'}</span>
                         </div>
 
                         {/* Placar */}
                         <div className="col-span-2 md:col-span-4 text-center">
                           {estaEditando ? (
                             <div className="flex items-center justify-center gap-2">
-                              <input
-                                type="number"
-                                defaultValue={jogo.gols_mandante ?? 0}
-                                onChange={(e) => setGolsMandante(Number(e.target.value))}
-                                className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0"
-                                min={0}
-                              />
-                              <span className="text-white/70 font-semibold">x</span>
-                              <input
-                                type="number"
-                                defaultValue={jogo.gols_visitante ?? 0}
-                                onChange={(e) => setGolsVisitante(Number(e.target.value))}
-                                className="w-12 text-black text-center rounded-lg px-2 py-1"
-                                placeholder="0"
-                                min={0}
-                              />
+                              <StepperGol value={golsMandante} onChange={setGolsMandante} ariaLabel="Gols do mandante" />
+                              <span className="text-white/80 font-extrabold text-lg">x</span>
+                              <StepperGol value={golsVisitante} onChange={setGolsVisitante} ariaLabel="Gols do visitante" />
                             </div>
                           ) : temPlacar ? (
                             <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
@@ -1006,7 +1054,7 @@ export default function Jogos() {
 
                         {/* Visitante + ações */}
                         <div className="col-span-5 md:col-span-4 flex items-center justify-start gap-2">
-                          <span className="font-medium text-left truncate">{visitante?.nome || '???'}</span>
+                          <span className="font-medium text-left truncate text-white">{visitante?.nome || '???'}</span>
                           {visitante?.logo_url && (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
@@ -1029,23 +1077,11 @@ export default function Jogos() {
                                 📝
                               </button>
 
-                              {/* OCR */}
-                              <button
-                                onClick={() => {
-                                  setOcrOpenKey((prev) => (prev === ocrKey ? null : ocrKey))
-                                  limparOCR()
-                                }}
-                                className="text-sm text-sky-300 hover:text-sky-200"
-                                title="Ler gols por foto (Google Vision)"
-                              >
-                                📸
-                              </button>
-
                               {temPlacar && (
                                 <button
                                   onClick={() => excluirResultado(rodada.id, index)}
                                   className="text-sm text-red-400 hover:text-red-300"
-                                  title="Remover resultado (com estorno)"
+                                  title="Remover resultado (com reembolso total)"
                                 >
                                   🗑️
                                 </button>
@@ -1089,113 +1125,6 @@ export default function Jogos() {
                         </div>
                       </div>
 
-                      {/* OCR panel */}
-                      {isAdmin && ocrOpen && (
-                        <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="text-sm font-semibold text-white/90">📸 Ler gols do print (Google Vision)</div>
-                            <div className="ml-auto text-xs text-white/60">
-                              dica: mande 1–3 prints do mesmo jogo (o sistema ignora gols duplicados)
-                            </div>
-                          </div>
-
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              onChange={(e) => {
-                                const files = Array.from(e.target.files || [])
-                                setOcrFiles(files)
-                                setOcrResult(null)
-                                setOcrResolvedGoals([])
-                              }}
-                              className="text-sm text-white/80"
-                            />
-
-                            <button
-                              onClick={() => rodarVisionOCR(jogo.mandante, jogo.visitante)}
-                              disabled={ocrLoading || !ocrFiles.length}
-                              className={`px-3 py-2 rounded-lg text-sm font-semibold border ${
-                                ocrLoading || !ocrFiles.length
-                                  ? 'bg-gray-700 border-white/10 text-white/60'
-                                  : 'bg-sky-600 border-sky-500/50 text-black hover:bg-sky-500'
-                              }`}
-                            >
-                              {ocrLoading ? 'Lendo…' : '🔎 Ler gols'}
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                limparOCR()
-                                setOcrOpenKey(null)
-                              }}
-                              className="px-3 py-2 rounded-lg text-sm font-semibold border border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                            >
-                              Fechar
-                            </button>
-                          </div>
-
-                          {ocrResult?.score && (
-                            <div className="mt-3 text-sm text-white/80">
-                              <span className="font-semibold">Placar detectado:</span>{' '}
-                              <span className="text-white">
-                                {mandante?.nome || 'Mandante'} {ocrResult.score.home} x {ocrResult.score.away} {visitante?.nome || 'Visitante'}
-                              </span>
-                              <span className="ml-2 text-xs text-white/50">(não aplica automaticamente no placar)</span>
-                            </div>
-                          )}
-
-                          {!!ocrResolvedGoals.length && (
-                            <div className="mt-3">
-                              <div className="text-sm font-semibold text-white/90">Gols detectados (confira antes de salvar)</div>
-
-                              <div className="mt-2 space-y-1">
-                                {ocrResolvedGoals.map((g, i) => (
-                                  <div key={i} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1">
-                                    <span className="text-xs text-white/60 w-10">⏱ {g.minute}'</span>
-                                    <span className="text-sm text-white flex-1 truncate">{g.player}</span>
-                                    <span className="text-xs text-white/70">
-                                      {g.team_nome ? `(${g.team_nome})` : g.side ? `(${g.side === 'home' ? 'mandante' : 'visitante'})` : '(time?)'}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <button
-                                  onClick={async () => {
-                                    const match_id = matchIdOf(rodada.id, index)
-                                    await salvarGolsNoBanco(match_id, rodada.numero, jogo.mandante, jogo.visitante, ocrResolvedGoals)
-                                    limparOCR()
-                                    setOcrOpenKey(null)
-                                  }}
-                                  className="px-3 py-2 rounded-lg text-sm font-semibold border bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500"
-                                >
-                                  ✅ Confirmar e salvar gols
-                                </button>
-
-                                <button
-                                  onClick={() => {
-                                    limparOCR()
-                                    toast('Limpo. Envie outras fotos se quiser.', { icon: '🧹' })
-                                  }}
-                                  className="px-3 py-2 rounded-lg text-sm font-semibold border border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                                >
-                                  Limpar
-                                </button>
-                              </div>
-                            </div>
-                          )}
-
-                          {!ocrLoading && ocrResult && !ocrResolvedGoals.length && (
-                            <div className="mt-3 text-sm text-white/70">
-                              Nenhum gol detectado. Tente outro print (de preferência o painel de “Eventos/Gols”).
-                            </div>
-                          )}
-                        </div>
-                      )}
-
                       {/* Rodapé do jogo */}
                       <div className="mt-1 flex flex-wrap items-center gap-2 justify-end">
                         {jogo.renda && jogo.publico && (
@@ -1219,19 +1148,4 @@ export default function Jogos() {
       </div>
     </div>
   )
-}
-
-/** ===================== Helpers OCR ===================== */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Falha ao ler arquivo'))
-    reader.onload = () => {
-      const result = reader.result as string
-      // result => data:image/png;base64,xxxx
-      const base64 = result.split(',')[1] || ''
-      resolve(base64)
-    }
-    reader.readAsDataURL(file)
-  })
 }
