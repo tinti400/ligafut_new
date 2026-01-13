@@ -1,3 +1,4 @@
+ 
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -1149,3 +1150,21 @@ export default function Jogos() {
     </div>
   )
 }
+
+
+/** ===================== Helpers OCR ===================== */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Falha ao ler arquivo'))
+    reader.onload = () => {
+      const result = reader.result as string
+      // result => data:image/png;base64,xxxx
+      const base64 = result.split(',')[1] || ''
+      resolve(base64)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+ 
