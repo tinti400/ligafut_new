@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
@@ -74,11 +74,11 @@ const formatarBRL = (v?: number | null) =>
   (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })
 
 /** ===================== Regras de premiação (liga) ===================== */
-const BONUS_MULTIPLIER = 1.5 // +50% em todos os bônus por partida
-
+/** ✅ REMOVIDO: BONUS_MULTIPLIER (sem +50%) */
 function calcularPremiacao(time: TimeDados): number {
   const { divisao, historico } = time
   const ultimaPartida = historico[historico.length - 1]
+
   const regras = {
     1: { vitoria: 9_000_000, empate: 6_000_000, derrota: 2_500_000, gol: 150_000, gol_sofrido: 30_000 },
     2: { vitoria: 5_000_000, empate: 3_000_000, derrota: 1_750_000, gol: 90_000, gol_sofrido: 20_000 },
@@ -104,7 +104,7 @@ function calcularPremiacao(time: TimeDados): number {
   const venceuTodas = ultimos5.length === 5 && ultimos5.every((j) => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
 
-  return Math.round(premiacao * BONUS_MULTIPLIER)
+  return Math.round(premiacao) // ✅ sem multiplicador
 }
 
 /** ===================== Helpers ===================== */
@@ -443,12 +443,11 @@ async function extrairPlacarDoPrint(file: File): Promise<{
 } | null> {
   const base64 = await fileToBase64(file)
 
-  // ✅ FIX: payload correto pro /api/parse-goals
   const res = await fetch('/api/parse-goals', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      images: [{ base64 }], // ✅ o backend espera isso
+      images: [{ base64 }],
     }),
   })
 
@@ -457,12 +456,6 @@ async function extrairPlacarDoPrint(file: File): Promise<{
     throw new Error(json?.error || 'Falha ao ler placar')
   }
 
-  /**
-   * ✅ FIX: deixa robusto
-   * Seu backend pode estar retornando:
-   *  A) { ok:true, goals:[{team:'M'|'V', ...}] }
-   *  B) { ok:true, data:{ mandante, visitante, placar:{mandante, visitante}, gols:[...] } }
-   */
   // Caso A)
   if (Array.isArray(json.goals)) {
     const gm = json.goals.filter((g: any) => g?.team === 'M').length
@@ -565,7 +558,9 @@ export default function Jogos() {
       const b = await resB.json()
       if (!resB.ok || !b?.ok) throw new Error(b?.erro || 'Falha ao gerar jogos')
 
-      toast.success(`✅ Temporada ${temp} gerada! Rodadas: ${b.total_rodadas} | Jogos: ${b.total_jogos}`, { id: 'gerar-t' })
+      toast.success(`✅ Temporada ${temp} gerada! Rodadas: ${b.total_rodadas} | Jogos: ${b.total_jogos}`, {
+        id: 'gerar-t',
+      })
       setTemporada(temp)
       await carregarDados()
     } catch (e: any) {
@@ -622,6 +617,7 @@ export default function Jogos() {
     const salariosMandante = await descontarSalariosComRegistro(mandanteId)
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
+    // ✅ agora sem multiplicador (já ajustado dentro do calcularPremiacao)
     const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
     const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
@@ -677,7 +673,10 @@ export default function Jogos() {
 
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
-    const { feitos, total } = contagemDaRodada({ ...(rodadas.find((r) => r.id === rodadaId) as Rodada), jogos: novaLista })
+    const { feitos, total } = contagemDaRodada({
+      ...(rodadas.find((r) => r.id === rodadaId) as Rodada),
+      jogos: novaLista,
+    })
     const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
     const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
@@ -732,7 +731,10 @@ export default function Jogos() {
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
     if (!silencioso) {
-      const { feitos, total } = contagemDaRodada({ ...(rodadas.find((r) => r.id === rodadaId) as Rodada), jogos: novaLista })
+      const { feitos, total } = contagemDaRodada({
+        ...(rodadas.find((r) => r.id === rodadaId) as Rodada),
+        jogos: novaLista,
+      })
       toast.success(`✏️ Resultado atualizado! ${feitos}/${total} jogos desta rodada com placar (sem repetir bônus).`)
     }
 
@@ -789,40 +791,136 @@ export default function Jogos() {
 
       const movs: any[] = []
       if (receitaMandante)
-        movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita (renda do estádio) da partida', data: now })
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_receita',
+          valor: receitaMandante,
+          descricao: 'Estorno receita (renda do estádio) da partida',
+          data: now,
+        })
       if (receitaVisitante)
-        movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita (renda do estádio) da partida', data: now })
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_receita',
+          valor: receitaVisitante,
+          descricao: 'Estorno receita (renda do estádio) da partida',
+          data: now,
+        })
       if (premiacaoMandante)
-        movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de premiação (partida + gols) da liga', data: now })
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_premiacao',
+          valor: premiacaoMandante,
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          data: now,
+        })
       if (premiacaoVisitante)
-        movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de premiação (partida + gols) da liga', data: now })
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_premiacao',
+          valor: premiacaoVisitante,
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          data: now,
+        })
       if (bonusPatroMandante)
-        movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroMandante, descricao: 'Estorno de bônus de patrocinadores da partida', data: now })
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_bonus_patrocinio',
+          valor: bonusPatroMandante,
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          data: now,
+        })
       if (bonusPatroVisitante)
-        movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroVisitante, descricao: 'Estorno de bônus de patrocinadores da partida', data: now })
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_bonus_patrocinio',
+          valor: bonusPatroVisitante,
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          data: now,
+        })
       if (salariosMandante)
-        movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (devolução) da partida', data: now })
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_salario',
+          valor: salariosMandante,
+          descricao: 'Estorno de salários (devolução) da partida',
+          data: now,
+        })
       if (salariosVisitante)
-        movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (devolução) da partida', data: now })
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_salario',
+          valor: salariosVisitante,
+          descricao: 'Estorno de salários (devolução) da partida',
+          data: now,
+        })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
       const bids: any[] = []
       if (receitaMandante)
-        bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita (renda do estádio) da partida', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_receita_partida',
+          descricao: 'Estorno da receita (renda do estádio) da partida',
+          id_time1: mandanteId,
+          valor: -receitaMandante,
+          data_evento: now,
+        })
       if (receitaVisitante)
-        bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita (renda do estádio) da partida', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_receita_partida',
+          descricao: 'Estorno da receita (renda do estádio) da partida',
+          id_time1: visitanteId,
+          valor: -receitaVisitante,
+          data_evento: now,
+        })
       if (premiacaoMandante)
-        bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de premiação (partida + gols) da liga', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_bonus',
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          id_time1: mandanteId,
+          valor: -premiacaoMandante,
+          data_evento: now,
+        })
       if (premiacaoVisitante)
-        bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de premiação (partida + gols) da liga', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_bonus',
+          descricao: 'Estorno de premiação (partida + gols) da liga',
+          id_time1: visitanteId,
+          valor: -premiacaoVisitante,
+          data_evento: now,
+        })
       if (bonusPatroMandante)
-        bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores da partida', id_time1: mandanteId, valor: -bonusPatroMandante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_bonus_patrocinio',
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          id_time1: mandanteId,
+          valor: -bonusPatroMandante,
+          data_evento: now,
+        })
       if (bonusPatroVisitante)
-        bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores da partida', id_time1: visitanteId, valor: -bonusPatroVisitante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_bonus_patrocinio',
+          descricao: 'Estorno de bônus de patrocinadores da partida',
+          id_time1: visitanteId,
+          valor: -bonusPatroVisitante,
+          data_evento: now,
+        })
       if (salariosMandante)
-        bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) da partida', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_despesas',
+          descricao: 'Estorno de despesas (salários) da partida',
+          id_time1: mandanteId,
+          valor: +salariosMandante,
+          data_evento: now,
+        })
       if (salariosVisitante)
-        bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) da partida', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
+        bids.push({
+          tipo_evento: 'estorno_despesas',
+          descricao: 'Estorno de despesas (salários) da partida',
+          id_time1: visitanteId,
+          valor: +salariosVisitante,
+          data_evento: now,
+        })
       if (bids.length) await supabase.from('bid').insert(bids)
 
       await ajustarJogosElenco(mandanteId, -1)
@@ -877,7 +975,6 @@ export default function Jogos() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // ✅ evita problemas com input
     e.currentTarget.value = ''
 
     if (!ocrRodadaId || ocrIndex === null) return
@@ -902,7 +999,7 @@ export default function Jogos() {
     } catch (err: any) {
       toast.error(`❌ ${err?.message || err}`, { id: 'ocr' })
     } finally {
-      setOcrLendo(false) // ✅ FIX: sempre encerra "Lendo…"
+      setOcrLendo(false)
     }
   }
 
@@ -931,7 +1028,9 @@ export default function Jogos() {
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-300 to-sky-400 bg-clip-text text-transparent">
           📅 Jogos da LigaFut
         </h1>
-        <p className="text-sm text-white/60 mt-1">Lance resultados, processe finanças e acompanhe o andamento das rodadas.</p>
+        <p className="text-sm text-white/60 mt-1">
+          Lance resultados, processe finanças e acompanhe o andamento das rodadas.
+        </p>
       </header>
 
       {/* Painel de filtros (sticky) */}
@@ -1048,7 +1147,9 @@ export default function Jogos() {
                     <article
                       key={index}
                       className={`rounded-2xl border px-4 py-3 transition ${
-                        temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]' : 'border-white/10 bg-white/5 hover:bg-white/7'
+                        temPlacar
+                          ? 'border-emerald-700/40 bg-emerald-500/[0.06]'
+                          : 'border-white/10 bg-white/5 hover:bg-white/7'
                       }`}
                     >
                       <div className="grid grid-cols-12 items-center gap-2">
@@ -1056,7 +1157,11 @@ export default function Jogos() {
                         <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
                           {mandante?.logo_url && (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                            <img
+                              src={mandante.logo_url}
+                              alt="logo"
+                              className="h-6 w-6 rounded-full ring-1 ring-white/10"
+                            />
                           )}
                           <span className="font-medium text-right truncate text-white">{mandante?.nome || '???'}</span>
                         </div>
@@ -1065,9 +1170,17 @@ export default function Jogos() {
                         <div className="col-span-2 md:col-span-4 text-center">
                           {estaEditando ? (
                             <div className="flex items-center justify-center gap-2">
-                              <StepperGol value={golsMandante} onChange={setGolsMandante} ariaLabel="Gols do mandante" />
+                              <StepperGol
+                                value={golsMandante}
+                                onChange={setGolsMandante}
+                                ariaLabel="Gols do mandante"
+                              />
                               <span className="text-white/80 font-extrabold text-lg">x</span>
-                              <StepperGol value={golsVisitante} onChange={setGolsVisitante} ariaLabel="Gols do visitante" />
+                              <StepperGol
+                                value={golsVisitante}
+                                onChange={setGolsVisitante}
+                                ariaLabel="Gols do visitante"
+                              />
                             </div>
                           ) : temPlacar ? (
                             <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
@@ -1083,7 +1196,11 @@ export default function Jogos() {
                           <span className="font-medium text-left truncate text-white">{visitante?.nome || '???'}</span>
                           {visitante?.logo_url && (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
+                            <img
+                              src={visitante.logo_url}
+                              alt="logo"
+                              className="h-6 w-6 rounded-full ring-1 ring-white/10"
+                            />
                           )}
 
                           {/* Ações (apenas admin) */}
@@ -1098,7 +1215,9 @@ export default function Jogos() {
                                   if (jogo.bonus_pago) toast('Modo ajuste: edite e salve sem repetir bônus.', { icon: '✏️' })
                                 }}
                                 className="text-sm text-yellow-300 hover:text-yellow-200"
-                                title={jogo.bonus_pago ? 'Editar (ajuste sem repetir bônus)' : 'Editar (lançamento com finanças)'}
+                                title={
+                                  jogo.bonus_pago ? 'Editar (ajuste sem repetir bônus)' : 'Editar (lançamento com finanças)'
+                                }
                               >
                                 📝
                               </button>
@@ -1128,7 +1247,14 @@ export default function Jogos() {
                             <div className="flex gap-2 ml-2">
                               {!jogo.bonus_pago ? (
                                 <button
-                                  onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                  onClick={() =>
+                                    salvarPrimeiroLancamento(
+                                      rodada.id,
+                                      index,
+                                      Number(golsMandante),
+                                      Number(golsVisitante)
+                                    )
+                                  }
                                   disabled={isSalvando}
                                   className="text-sm text-green-400 font-semibold hover:text-green-300"
                                   title="Salvar e processar finanças + patrocínios"
@@ -1137,7 +1263,14 @@ export default function Jogos() {
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
+                                  onClick={() =>
+                                    salvarAjusteResultado(
+                                      rodada.id,
+                                      index,
+                                      Number(golsMandante),
+                                      Number(golsVisitante)
+                                    )
+                                  }
                                   disabled={isSalvando}
                                   className="text-sm text-green-400 font-semibold hover:text-green-300"
                                   title="Salvar ajuste (sem repetir bônus)"
@@ -1213,7 +1346,9 @@ export default function Jogos() {
 
               <div
                 className={`px-3 py-2 rounded-xl border ${
-                  ocrLendo ? 'border-amber-400/30 bg-amber-500/10 text-amber-200' : 'border-white/10 bg-white/5 text-white/60'
+                  ocrLendo
+                    ? 'border-amber-400/30 bg-amber-500/10 text-amber-200'
+                    : 'border-white/10 bg-white/5 text-white/60'
                 }`}
               >
                 {ocrLendo ? 'Lendo…' : 'Aguardando'}
@@ -1229,6 +1364,3 @@ export default function Jogos() {
     </div>
   )
 }
-
-
- 
