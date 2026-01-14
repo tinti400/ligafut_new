@@ -310,7 +310,6 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
 
   const divisao = timeData.divisao
 
-  // pega todas as rodadas e monta histórico (todas as temporadas/divisões — se quiser filtrar, dá pra ajustar)
   const { data: partidas } = await supabase.from('rodadas').select('jogos')
 
   let historico: HistoricoJogo[] = []
@@ -444,11 +443,13 @@ async function extrairPlacarDoPrint(file: File): Promise<{
 } | null> {
   const base64 = await fileToBase64(file)
 
-  // ✅ IMPORTANTE: endpoint correto (o seu erro 405 era /api/vision/gols)
+  // ✅ FIX: payload correto pro /api/parse-goals
   const res = await fetch('/api/parse-goals', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageBase64: base64 }),
+    body: JSON.stringify({
+      images: [{ base64 }], // ✅ o backend espera isso
+    }),
   })
 
   const json = await res.json().catch(() => null)
@@ -456,7 +457,26 @@ async function extrairPlacarDoPrint(file: File): Promise<{
     throw new Error(json?.error || 'Falha ao ler placar')
   }
 
-  // espera { ok:true, data:{ mandante, visitante, placar:{mandante, visitante}, gols:[...] } }
+  /**
+   * ✅ FIX: deixa robusto
+   * Seu backend pode estar retornando:
+   *  A) { ok:true, goals:[{team:'M'|'V', ...}] }
+   *  B) { ok:true, data:{ mandante, visitante, placar:{mandante, visitante}, gols:[...] } }
+   */
+  // Caso A)
+  if (Array.isArray(json.goals)) {
+    const gm = json.goals.filter((g: any) => g?.team === 'M').length
+    const gv = json.goals.filter((g: any) => g?.team === 'V').length
+    return {
+      mandante: '',
+      visitante: '',
+      gols_mandante: gm,
+      gols_visitante: gv,
+      gols: json.goals.map((g: any) => ({ nome: g?.name || g?.nome || '', minuto: g?.minute || g?.minuto })),
+    }
+  }
+
+  // Caso B)
   const d = json.data || {}
   const placar = d.placar || {}
   const gm = Number(placar.mandante ?? d.gols_mandante ?? 0)
@@ -589,31 +609,25 @@ export default function Jogos() {
     const mandanteId = jogo.mandante
     const visitanteId = jogo.visitante
 
-    // 🔥 público/renda via ESTÁDIO do mandante
     const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
     if (pr.erro) toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
     const publico = pr.publico
     const renda = pr.renda
 
-    // receita: 95% mandante / 5% visitante
     const receitaMandante = renda * 0.95
     const receitaVisitante = renda * 0.05
     await supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: receitaMandante })
     await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: receitaVisitante })
 
-    // salários (com registro)
     const salariosMandante = await descontarSalariosComRegistro(mandanteId)
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
-    // premiação por desempenho (liga) +50%
     const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
     const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
-    // 🔥 bônus de patrocinadores
     const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gm, gv)
     const bonusPatroVis = await pagarBonusPatrociniosPorJogo(visitanteId, gv, gm)
 
-    // BID (registrar o TOTAL que entrou por time)
     await supabase.from('bid').insert([
       {
         tipo_evento: 'receita_partida',
@@ -635,11 +649,9 @@ export default function Jogos() {
       },
     ])
 
-    // elenco (jogos +1)
     await ajustarJogosElenco(mandanteId, +1)
     await ajustarJogosElenco(visitanteId, +1)
 
-    // grava o jogo na rodada com os valores para estorno
     const gmNum = Number.isFinite(gm) ? gm : 0
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
@@ -757,11 +769,9 @@ export default function Jogos() {
       const bonusPatroMandante = jogo.premiacao_patrocinios_mandante ?? 0
       const bonusPatroVisitante = jogo.premiacao_patrocinios_visitante ?? 0
 
-      // totais de créditos do jogo (tudo que entrou)
       const totalCreditosMandante = receitaMandante + premiacaoMandante + bonusPatroMandante
       const totalCreditosVisitante = receitaVisitante + premiacaoVisitante + bonusPatroVisitante
 
-      // 1) Reverter saldos (TUDO)
       await Promise.all([
         totalCreditosMandante
           ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -totalCreditosMandante })
@@ -777,7 +787,6 @@ export default function Jogos() {
           : Promise.resolve(),
       ])
 
-      // 2) movimentações (registro completo)
       const movs: any[] = []
       if (receitaMandante)
         movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita (renda do estádio) da partida', data: now })
@@ -797,7 +806,6 @@ export default function Jogos() {
         movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (devolução) da partida', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
-      // 3) BID (espelho completo)
       const bids: any[] = []
       if (receitaMandante)
         bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita (renda do estádio) da partida', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
@@ -817,12 +825,10 @@ export default function Jogos() {
         bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) da partida', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
       if (bids.length) await supabase.from('bid').insert(bids)
 
-      // 4) jogos -1 no elenco (reverte estatística)
       await ajustarJogosElenco(mandanteId, -1)
       await ajustarJogosElenco(visitanteId, -1)
     }
 
-    // limpa placar e campos financeiros
     const novaLista = [...rodada.jogos]
     novaLista[index] = {
       ...novaLista[index],
@@ -856,7 +862,6 @@ export default function Jogos() {
     setOcrIndex(index)
     setOcrAberto(true)
     setOcrLendo(false)
-    // reset input file
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -871,7 +876,8 @@ export default function Jogos() {
   const onOCRFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    // ✅ evita o erro "Cannot set properties of null"
+
+    // ✅ evita problemas com input
     e.currentTarget.value = ''
 
     if (!ocrRodadaId || ocrIndex === null) return
@@ -886,7 +892,6 @@ export default function Jogos() {
       const gm = Number(out.gols_mandante ?? 0)
       const gv = Number(out.gols_visitante ?? 0)
 
-      // preenche direto no stepper do jogo selecionado
       setEditandoRodada(ocrRodadaId)
       setEditandoIndex(ocrIndex)
       setGolsMandante(Number.isFinite(gm) ? gm : 0)
@@ -896,7 +901,8 @@ export default function Jogos() {
       fecharOCR()
     } catch (err: any) {
       toast.error(`❌ ${err?.message || err}`, { id: 'ocr' })
-      setOcrLendo(false)
+    } finally {
+      setOcrLendo(false) // ✅ FIX: sempre encerra "Lendo…"
     }
   }
 
@@ -1223,5 +1229,6 @@ export default function Jogos() {
     </div>
   )
 }
+
 
  
