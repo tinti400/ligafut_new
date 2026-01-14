@@ -1,10 +1,19 @@
 import { NextResponse } from 'next/server'
 
-type GoalOut = { nome: string; minuto?: string }
-type GoalRaw = { minute: number; player: string }
+type Goal = { player: string; minute: number | null; side?: 'home' | 'away' }
+type ParseOut = {
+  ok: boolean
+  data?: {
+    mandante: string
+    visitante: string
+    placar: { mandante: number; visitante: number }
+    gols: Array<{ nome: string; minuto?: string | null }>
+  }
+  error?: string
+}
 
-function normName(s: string) {
-  return (s || '')
+function norm(s: string) {
+  return s
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^\p{L}\p{N}\s.]/gu, ' ')
@@ -13,218 +22,247 @@ function normName(s: string) {
     .toUpperCase()
 }
 
-function extractGoalsFromText(fullText: string): GoalRaw[] {
-  const lines = fullText
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
+const STOP_WORDS = [
+  'CARTAO',
+  'AMARELO',
+  'VERMELHO',
+  'SUBSTITUICAO',
+  'SUBSTITUICAO',
+  'ENTRA',
+  'SAI',
+  'LESIONADO',
+  'PENALTI',
+  'PENALTY',
+  'GOL CONTRA',
+  'OWN GOAL',
+  'FALTA',
+  'IMPEDIMENTO',
+  'VAR',
+  'EVENTOS',
+  'RESUMO',
+  'DEFESA',
+  'PASSES',
+  'FINALIZACOES',
+  'POSSE',
+]
 
-  const out: GoalRaw[] = []
+function looksLikePlayer(line: string) {
+  const t = norm(line)
+  if (t.length < 3) return false
+  if (STOP_WORDS.some(w => t.includes(w))) return false
+  // evita linhas só de números
+  if (/^\d+$/.test(t)) return false
+  // evita "2 - 0"
+  if (/^\d+\s*[-xX]\s*\d+$/.test(t)) return false
+  return true
+}
+
+// tenta achar placar: "2 - 0" ou "2x0"
+function extractScore(fullText: string) {
+  const t = fullText.replace(/\n/g, ' ')
+  const m = t.match(/(\d{1,2})\s*[-xX]\s*(\d{1,2})/)
+  if (!m) return null
+  return { mandante: Number(m[1]), visitante: Number(m[2]) }
+}
+
+// tenta achar times (bem simples — opcional)
+function extractTeams(fullText: string) {
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean)
+  // heurística: pegar palavras grandes de topo
+  // se não achar, retorna vazio e o front só usa placar
+  const joinedTop = lines.slice(0, 8).join(' ')
+  // exemplo: "FLAMENGO 2 - 0 JUVENTUS MOOCA"
+  const m = joinedTop.match(/([A-ZÀ-Ú0-9\s]{3,})\s+\d{1,2}\s*[-xX]\s*\d{1,2}\s+([A-ZÀ-Ú0-9\s]{3,})/i)
+  if (!m) return { mandante: '', visitante: '' }
+  return { mandante: m[1].trim(), visitante: m[2].trim() }
+}
+
+function extractGoalsWithMinute(fullText: string): Goal[] {
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean)
+  const out: Goal[] = []
 
   for (const ln of lines) {
-    // padrões: "87' B. Thomas" | "87’ Pelé" | "90 Pelé" | "90+2 Pelé"
-    const m = ln.match(/^(\d{1,3})(?:\s*\+\s*(\d{1,2}))?\s*[’'"]?\s+(.+)$/)
+    // formatos comuns:
+    // "67' J. Arroyo" | "67 J. Arroyo" | "67’ J. Arroyo"
+    const m = ln.match(/^(\d{1,3})\s*[’'"]?\s+(.+)$/)
     if (!m) continue
-
-    const baseMin = Number(m[1])
-    const plus = m[2] ? Number(m[2]) : 0
-    const minute = baseMin + (Number.isFinite(plus) ? plus : 0)
-
+    const minute = Number(m[1])
     if (!Number.isFinite(minute) || minute < 0 || minute > 130) continue
 
-    let player = (m[3] || '').trim()
-    player = player
-      .replace(/\b(GOL|GOAL|PENALTI|PENALTY|ASSIST|ASSISTENCIA|ASSISTÊNCIA)\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+    const raw = (m[2] || '').trim()
+    if (!looksLikePlayer(raw)) continue
 
-    if (player.length < 2) continue
-
-    out.push({ minute, player })
+    out.push({ minute, player: raw, side: undefined })
   }
 
-  // dedupe local (nome+minuto)
+  // dedupe por nome+minuto
   const seen = new Set<string>()
-  return out.filter((g) => {
-    const k = `${normName(g.player)}:${g.minute}`
+  return out.filter(g => {
+    const k = `${norm(g.player)}:${g.minute}`
     if (seen.has(k)) return false
     seen.add(k)
     return true
   })
 }
 
-/**
- * Heurística para tentar pegar:
- * - placar: "FLAMENGO 2 x 0 JUVENTUS" / "2-0" / "2 0"
- * - nomes dos times (strings ao redor)
- */
-function extractMatchFromText(fullText: string): {
-  mandante: string
-  visitante: string
-  gm: number | null
-  gv: number | null
-} {
-  const text = (fullText || '').replace(/\r/g, '')
-  const lines = text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
+// fallback: sem minuto, usar placar para limitar
+function buildGoalsWithoutMinute(fullText: string, needHome: number, needAway: number) {
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean)
 
-  // Tenta achar um padrão "A 2 x 0 B" na MESMA LINHA
-  const reSameLine = /(.{2,40}?)\s+(\d{1,2})\s*[xX\-:]\s*(\d{1,2})\s+(.{2,40})/
-  for (const ln of lines) {
-    const m = ln.match(reSameLine)
-    if (m) {
-      const a = m[1].trim()
-      const b = m[4].trim()
-      const gm = Number(m[2])
-      const gv = Number(m[3])
-      if (Number.isFinite(gm) && Number.isFinite(gv)) {
-        return { mandante: a, visitante: b, gm, gv }
+  // pega candidatos que parecem nomes
+  const players = lines.filter(looksLikePlayer)
+
+  // normaliza e mantém ordem
+  const normed = players.map(p => ({ raw: p, n: norm(p) }))
+
+  // agrupa por nome e mantém ordem de primeira aparição
+  const order: string[] = []
+  const counts = new Map<string, { raw: string; c: number }>()
+  for (const p of normed) {
+    if (!counts.has(p.n)) {
+      counts.set(p.n, { raw: p.raw, c: 0 })
+      order.push(p.n)
+    }
+    counts.get(p.n)!.c += 1
+  }
+
+  // 🔥 como decidir se é home/away sem minuto?
+  // Nesta tela, geralmente os eventos listados são do time que marcou,
+  // mas o print pode conter ambos. Então:
+  // - se placar visitante = 0, tudo que aparecer atribuimos ao mandante
+  // - se ambos >0, tentamos dividir proporcionalmente pela ordem (não perfeito, mas funciona)
+  const gols: Array<{ nome: string; minuto: null; side: 'home' | 'away' }> = []
+
+  if (needAway === 0 && needHome > 0) {
+    // tudo pro mandante até completar needHome
+    for (const key of order) {
+      const info = counts.get(key)!
+      while (info.c > 0 && gols.filter(g => g.side === 'home').length < needHome) {
+        gols.push({ nome: info.raw, minuto: null, side: 'home' })
+        info.c -= 1
       }
+      if (gols.filter(g => g.side === 'home').length >= needHome) break
     }
+    return gols
   }
 
-  // Tenta pegar "2 x 0" ou "2-0" e buscar nomes próximos
-  const reScore = /(\d{1,2})\s*[xX\-:]\s*(\d{1,2})/
-  for (let i = 0; i < lines.length; i++) {
-    const ln = lines[i]
-    const m = ln.match(reScore)
-    if (!m) continue
-
-    const gm = Number(m[1])
-    const gv = Number(m[2])
-    if (!Number.isFinite(gm) || !Number.isFinite(gv)) continue
-
-    // tenta usar linhas adjacentes como nomes
-    const prev = lines[i - 1] || ''
-    const next = lines[i + 1] || ''
-
-    // se a própria linha tiver mais texto além do placar, pode conter times
-    const cleaned = ln.replace(reScore, ' ').replace(/\s+/g, ' ').trim()
-    if (cleaned.length >= 4) {
-      // tenta dividir em duas partes
-      const parts = cleaned.split(/\s{2,}|\s+VS\s+|\s+vs\s+/).filter(Boolean)
-      if (parts.length >= 2) return { mandante: parts[0], visitante: parts[1], gm, gv }
+  // caso geral (ambos marcaram):
+  // vai preenchendo home e away alternando até bater os totais
+  let h = 0
+  let a = 0
+  for (const key of order) {
+    const info = counts.get(key)!
+    while (info.c > 0 && (h < needHome || a < needAway)) {
+      if (h < needHome) {
+        gols.push({ nome: info.raw, minuto: null, side: 'home' })
+        h++
+      } else if (a < needAway) {
+        gols.push({ nome: info.raw, minuto: null, side: 'away' })
+        a++
+      }
+      info.c -= 1
     }
-
-    if (prev.length >= 3 && next.length >= 3) return { mandante: prev, visitante: next, gm, gv }
-    if (prev.length >= 3) return { mandante: prev, visitante: '', gm, gv }
-    if (next.length >= 3) return { mandante: '', visitante: next, gm, gv }
-
-    return { mandante: '', visitante: '', gm, gv }
+    if (h >= needHome && a >= needAway) break
   }
-
-  return { mandante: '', visitante: '', gm: null, gv: null }
-}
-
-function toGoalOut(g: GoalRaw): GoalOut {
-  // minuto como string (padrão do seu front)
-  return { nome: g.player.trim(), minuto: String(g.minute) }
+  return gols
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({} as any))
+    const body = await req.json()
 
-    // ✅ aceita os DOIS formatos:
-    // 1) { imageBase64: "..." }
-    // 2) { images: [{ base64: "..." }, ...] }
-    const fromSingle = typeof body?.imageBase64 === 'string' ? body.imageBase64 : ''
-    const fromArray = Array.isArray(body?.images) ? body.images : []
-
-    const images: Array<{ base64: string }> = []
-    if (fromSingle) images.push({ base64: fromSingle })
-    for (const it of fromArray) {
-      if (it?.base64 && typeof it.base64 === 'string') images.push({ base64: it.base64 })
-    }
+    // ✅ aceita os 2 formatos:
+    // 1) { images: [{base64}] }
+    // 2) { imageBase64: "..." }
+    const imagesFromArray = (body?.images || []) as Array<{ base64: string }>
+    const one = typeof body?.imageBase64 === 'string' ? [{ base64: body.imageBase64 }] : []
+    const images = imagesFromArray.length ? imagesFromArray : one
 
     if (!images.length) {
-      // status 200 pra não “pintar vermelho” no console do navegador
-      return NextResponse.json({ ok: false, error: 'Sem imagem (envie imageBase64 ou images[]).' })
-    }
-
-    // evita payload absurdo (Vercel pode limitar)
-    // base64 cresce ~33%; 6_000_000 chars já costuma dar dor de cabeça
-    const tooBig = images.some((i) => (i.base64?.length || 0) > 6_000_000)
-    if (tooBig) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Imagem muito grande. Faça print mais “cortado” (só placar/eventos) ou reduza a resolução.',
-      })
+      return NextResponse.json({ ok: false, error: 'Sem imagens.' } satisfies ParseOut, { status: 400 })
     }
 
     const apiKey = process.env.GOOGLE_VISION_API_KEY
     if (!apiKey) {
-      // status 200 pra ficar “bonito” no console
-      return NextResponse.json({ ok: false, error: 'GOOGLE_VISION_API_KEY não configurada no Vercel.' })
+      return NextResponse.json({ ok: false, error: 'GOOGLE_VISION_API_KEY não configurada.' } satisfies ParseOut, { status: 500 })
     }
 
-    const goalsAll: GoalRaw[] = []
-    let bestText = ''
-    let bestTextLen = 0
+    let fullTextAll = ''
 
     for (const img of images) {
       const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          requests: [
-            {
-              image: { content: img.base64 },
-              // ✅ melhor para OCR de prints
-              features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-            },
-          ],
+          requests: [{ image: { content: img.base64 }, features: [{ type: 'TEXT_DETECTION' }] }],
         }),
       })
 
-      const json = await res.json().catch(() => null)
-
+      const json = await res.json()
       if (!res.ok) {
-        // status 200 com ok:false pra não virar 500 no console
-        const msg = json?.error?.message || `Falha Google Vision (HTTP ${res.status})`
-        return NextResponse.json({ ok: false, error: msg })
+        return NextResponse.json(
+          { ok: false, error: json?.error?.message || 'Falha Google Vision' } satisfies ParseOut,
+          { status: 500 }
+        )
       }
 
       const fullText = json?.responses?.[0]?.fullTextAnnotation?.text || ''
-      if (fullText.length > bestTextLen) {
-        bestText = fullText
-        bestTextLen = fullText.length
-      }
-
-      const goals = extractGoalsFromText(fullText)
-      goalsAll.push(...goals)
+      fullTextAll += '\n' + fullText
     }
 
-    // dedupe final (nome+minuto)
-    const seen = new Set<string>()
-    const merged = goalsAll.filter((g) => {
-      const k = `${normName(g.player)}:${g.minute}`
-      if (seen.has(k)) return false
-      seen.add(k)
-      return true
-    })
+    const placar = extractScore(fullTextAll)
+    if (!placar) {
+      return NextResponse.json(
+        { ok: false, error: 'Não consegui detectar o placar (ex: 2-0).' } satisfies ParseOut,
+        { status: 200 }
+      )
+    }
 
-    const { mandante, visitante, gm, gv } = extractMatchFromText(bestText)
+    const teams = extractTeams(fullTextAll)
+
+    // 1) tenta gols com minuto
+    let goals = extractGoalsWithMinute(fullTextAll)
+
+    // 2) se não achou minuto, usa fallback pelo placar
+    if (goals.length === 0) {
+      const needHome = placar.mandante
+      const needAway = placar.visitante
+      const fb = buildGoalsWithoutMinute(fullTextAll, needHome, needAway)
+      goals = fb.map(g => ({ player: g.nome, minute: null, side: g.side }))
+    }
+
+    // 3) limita gols para não explodir com ruído (NUNCA mais que o placar)
+    const limited: Goal[] = []
+    let h = 0
+    let a = 0
+    for (const g of goals) {
+      const side = g.side || (placar.visitante === 0 ? 'home' : undefined)
+      if (side === 'home') {
+        if (h >= placar.mandante) continue
+        limited.push({ ...g, side: 'home' })
+        h++
+      } else if (side === 'away') {
+        if (a >= placar.visitante) continue
+        limited.push({ ...g, side: 'away' })
+        a++
+      } else {
+        // se não sabe o lado, ainda limita pelo total geral
+        if (limited.length >= placar.mandante + placar.visitante) continue
+        limited.push(g)
+      }
+    }
 
     return NextResponse.json({
       ok: true,
       data: {
-        mandante,
-        visitante,
-        placar: {
-          mandante: gm ?? 0,
-          visitante: gv ?? 0,
-        },
-        gols: merged.map(toGoalOut),
-        // opcional p/ debug (se quiser mostrar no toast)
-        // rawText: bestText,
+        mandante: teams.mandante,
+        visitante: teams.visitante,
+        placar,
+        gols: limited.map(g => ({ nome: g.player, minuto: g.minute === null ? null : String(g.minute) })),
       },
-    })
+    } satisfies ParseOut)
   } catch (e: any) {
-    // só cai aqui em erro inesperado de verdade
-    return NextResponse.json({ ok: false, error: e?.message || String(e) })
+    return NextResponse.json({ ok: false, error: e?.message || String(e) } satisfies ParseOut, { status: 500 })
   }
 }
 
