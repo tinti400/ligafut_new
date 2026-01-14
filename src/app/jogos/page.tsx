@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
@@ -15,20 +15,12 @@ import {
   sectorProportion,
 } from '@/utils/estadioEngine'
 
-/** ===================== Supabase ===================== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 /** ===================== Tipos ===================== */
-type GolEvento = {
-  time?: string // id_time
-  jogador?: string
-  minuto?: number
-  detalhe?: string
-}
-
 type Jogo = {
   mandante: string
   visitante: string
@@ -37,9 +29,6 @@ type Jogo = {
   renda?: number
   publico?: number
   bonus_pago?: boolean
-
-  // opcional: eventos vindos do OCR
-  gols_eventos?: GolEvento[]
 
   // campos salvos para estorno
   receita_mandante?: number
@@ -66,7 +55,6 @@ type Time = {
   id: string
   nome: string
   logo_url: string
-  divisao?: number | null
 }
 
 type HistoricoJogo = {
@@ -111,6 +99,7 @@ function calcularPremiacao(time: TimeDados): number {
   premiacao += (ultimaPartida.gols_pro ?? 0) * regra.gol
   premiacao -= (ultimaPartida.gols_contra ?? 0) * regra.gol_sofrido
 
+  // bônus por 5 vitórias seguidas
   const ultimos5 = historico.slice(-5)
   const venceuTodas = ultimos5.length === 5 && ultimos5.every((j) => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
@@ -142,7 +131,7 @@ const contagemGlobal = (rodadas: Rodada[], timeSelecionado?: string) => {
   return { feitos, total }
 }
 
-/** ===================== Stepper (VISÍVEL no dark) ===================== */
+/** ===================== Stepper (visível no dark) ===================== */
 function clamp(n: number, min = 0, max = 99) {
   return Math.max(min, Math.min(max, n))
 }
@@ -158,47 +147,57 @@ function StepperGol({
 }) {
   return (
     <div
-      className="inline-flex items-center rounded-2xl border border-white/20 bg-white/10 overflow-hidden shadow
-                 ring-1 ring-white/10"
+      className="inline-flex items-center rounded-2xl border border-white/15 bg-black/35 overflow-hidden shadow-sm ring-1 ring-white/10"
+      aria-label={ariaLabel}
     >
       <button
         type="button"
         onClick={() => onChange(clamp((value ?? 0) - 1))}
-        className="h-11 w-11 grid place-items-center text-white hover:bg-white/15 active:bg-white/20"
+        className="h-11 w-11 grid place-items-center text-white hover:bg-white/10 active:bg-white/20"
         aria-label={`${ariaLabel} diminuir`}
         title="Diminuir"
       >
-        <span className="text-2xl leading-none font-black">−</span>
+        <span className="text-2xl leading-none">−</span>
       </button>
 
-      <div className="relative">
-        <input
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={Number.isFinite(value) ? value : 0}
-          onChange={(e) => onChange(clamp(Number(e.target.value || 0)))}
-          className="h-11 w-16 text-center text-white font-extrabold text-xl bg-black/30 outline-none
-                     border-x border-white/15
-                     [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-          aria-label={ariaLabel}
-        />
-        <div aria-hidden className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/10" />
-      </div>
+      <input
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(clamp(Number(e.target.value || 0)))}
+        className="h-11 w-16 text-center text-white font-extrabold text-xl bg-transparent outline-none
+                   [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        aria-label={ariaLabel}
+      />
 
       <button
         type="button"
         onClick={() => onChange(clamp((value ?? 0) + 1))}
-        className="h-11 w-11 grid place-items-center text-white hover:bg-white/15 active:bg-white/20"
+        className="h-11 w-11 grid place-items-center text-white hover:bg-white/10 active:bg-white/20"
         aria-label={`${ariaLabel} aumentar`}
         title="Aumentar"
       >
-        <span className="text-2xl leading-none font-black">+</span>
+        <span className="text-2xl leading-none">+</span>
       </button>
     </div>
   )
 }
 
-/** ===================== Helpers de banco ===================== */
+/** ===================== OCR (upload -> base64) ===================== */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Falha ao ler arquivo'))
+    reader.onload = () => {
+      const result = reader.result as string
+      const base64 = result.split(',')[1] || ''
+      resolve(base64)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+/** ===================== Finanças helpers ===================== */
 // soma salários sem registrar (fallback p/ estorno de jogos antigos)
 async function somarSalarios(timeId: string): Promise<number> {
   const { data } = await supabase.from('elenco').select('salario').eq('id_time', timeId)
@@ -311,7 +310,7 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
 
   const divisao = timeData.divisao
 
-  // pega todas as rodadas e monta histórico
+  // pega todas as rodadas e monta histórico (todas as temporadas/divisões — se quiser filtrar, dá pra ajustar)
   const { data: partidas } = await supabase.from('rodadas').select('jogos')
 
   let historico: HistoricoJogo[] = []
@@ -435,18 +434,41 @@ async function pagarBonusPatrociniosPorJogo(timeId: string, gols_pro: number, go
   return { total, detalheTexto: detalhes.join(' | ') }
 }
 
-/** ===================== Helpers OCR ===================== */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Falha ao ler arquivo'))
-    reader.onload = () => {
-      const result = reader.result as string
-      const base64 = result.split(',')[1] || ''
-      resolve(base64)
-    }
-    reader.readAsDataURL(file)
+/** ===================== OCR (Google Vision -> nosso endpoint) ===================== */
+async function extrairPlacarDoPrint(file: File): Promise<{
+  mandante: string
+  visitante: string
+  gols_mandante: number
+  gols_visitante: number
+  gols?: { nome: string; minuto?: string }[]
+} | null> {
+  const base64 = await fileToBase64(file)
+
+  // ✅ IMPORTANTE: endpoint correto (o seu erro 405 era /api/vision/gols)
+  const res = await fetch('/api/parse-goals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64: base64 }),
   })
+
+  const json = await res.json().catch(() => null)
+  if (!res.ok || !json?.ok) {
+    throw new Error(json?.error || 'Falha ao ler placar')
+  }
+
+  // espera { ok:true, data:{ mandante, visitante, placar:{mandante, visitante}, gols:[...] } }
+  const d = json.data || {}
+  const placar = d.placar || {}
+  const gm = Number(placar.mandante ?? d.gols_mandante ?? 0)
+  const gv = Number(placar.visitante ?? d.gols_visitante ?? 0)
+
+  return {
+    mandante: String(d.mandante || ''),
+    visitante: String(d.visitante || ''),
+    gols_mandante: Number.isFinite(gm) ? gm : 0,
+    gols_visitante: Number.isFinite(gv) ? gv : 0,
+    gols: Array.isArray(d.gols) ? d.gols : [],
+  }
 }
 
 /** ===================== Página ===================== */
@@ -465,14 +487,18 @@ export default function Jogos() {
   const [golsVisitante, setGolsVisitante] = useState<number>(0)
   const [isSalvando, setIsSalvando] = useState(false)
 
-  // OCR
-  const [lendoOCR, setLendoOCR] = useState(false)
-
   // gerar temporada
   const [gerando, setGerando] = useState(false)
 
+  // OCR modal
+  const [ocrAberto, setOcrAberto] = useState(false)
+  const [ocrRodadaId, setOcrRodadaId] = useState<string | null>(null)
+  const [ocrIndex, setOcrIndex] = useState<number | null>(null)
+  const [ocrLendo, setOcrLendo] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+
   const carregarDados = async () => {
-    const { data: times } = await supabase.from('times').select('id, nome, logo_url, divisao')
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url')
     const map: Record<string, Time> = {}
     times?.forEach((t) => {
       map[t.id] = { ...t, logo_url: t.logo_url || '' }
@@ -494,7 +520,7 @@ export default function Jogos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [temporada, divisao])
 
-  // ================== NOVO: gerar temporada genérico (inclui T4) ==================
+  // ================== gerar temporada ==================
   const gerarTemporada = async (temp: number) => {
     if (!isAdmin) return
     if (!confirm(`Gerar jogos da Temporada ${temp} para as Divisões 1, 2 e 3 (ida+volta)?`)) return
@@ -526,49 +552,6 @@ export default function Jogos() {
       toast.error(`❌ ${e.message || e}`, { id: 'gerar-t' })
     } finally {
       setGerando(false)
-    }
-  }
-
-  /** =============== OCR: ler placar do print e APLICAR NA EDIÇÃO =============== */
-  const lerGolsDoPrint = async (file: File) => {
-    try {
-      setLendoOCR(true)
-      toast.loading('🔎 Lendo print (Google Vision)...', { id: 'ocr' })
-
-      const base64 = await fileToBase64(file)
-
-      const res = await fetch('/api/vision/gols', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: base64,
-          // dica pro backend: pode ajudar na dedução
-          // idioma: 'pt',
-        }),
-      })
-
-      const json = await res.json().catch(() => null)
-
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.erro || 'Falha no OCR (resposta inválida).')
-      }
-
-      const gm = Number(json.gm)
-      const gv = Number(json.gv)
-
-      if (!Number.isFinite(gm) || !Number.isFinite(gv)) {
-        throw new Error('OCR não encontrou o placar (gm/gv).')
-      }
-
-      // ✅ só “preenche” o stepper (não salva sozinho)
-      setGolsMandante(clamp(gm))
-      setGolsVisitante(clamp(gv))
-
-      toast.success(`✅ OCR: ${gm} x ${gv} (preenchido no editor)`, { id: 'ocr' })
-    } catch (e: any) {
-      toast.error(`❌ ${e.message || e}`, { id: 'ocr' })
-    } finally {
-      setLendoOCR(false)
     }
   }
 
@@ -606,9 +589,6 @@ export default function Jogos() {
     const mandanteId = jogo.mandante
     const visitanteId = jogo.visitante
 
-    const gmNum = Number.isFinite(gm) ? gm : 0
-    const gvNum = Number.isFinite(gv) ? gv : 0
-
     // 🔥 público/renda via ESTÁDIO do mandante
     const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
     if (pr.erro) toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
@@ -626,14 +606,14 @@ export default function Jogos() {
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
     // premiação por desempenho (liga) +50%
-    const premiacaoMandante = await premiarPorJogo(mandanteId, gmNum, gvNum)
-    const premiacaoVisitante = await premiarPorJogo(visitanteId, gvNum, gmNum)
+    const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
+    const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
 
     // 🔥 bônus de patrocinadores
-    const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gmNum, gvNum)
-    const bonusPatroVis = await pagarBonusPatrociniosPorJogo(visitanteId, gvNum, gmNum)
+    const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gm, gv)
+    const bonusPatroVis = await pagarBonusPatrociniosPorJogo(visitanteId, gv, gm)
 
-    // BID de receita (registrar o TOTAL que entrou por time)
+    // BID (registrar o TOTAL que entrou por time)
     await supabase.from('bid').insert([
       {
         tipo_evento: 'receita_partida',
@@ -660,6 +640,8 @@ export default function Jogos() {
     await ajustarJogosElenco(visitanteId, +1)
 
     // grava o jogo na rodada com os valores para estorno
+    const gmNum = Number.isFinite(gm) ? gm : 0
+    const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
       ...jogo,
       gols_mandante: gmNum,
@@ -676,19 +658,11 @@ export default function Jogos() {
       premiacao_patrocinios_mandante: bonusPatroMand.total,
       premiacao_patrocinios_visitante: bonusPatroVis.total,
     }
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
 
-    const up = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
-    if (up.error) {
-      toast.error('Erro ao salvar placar no banco!')
-      setIsSalvando(false)
-      return
-    }
-
-    // serviços auxiliares
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
-    // estado local
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
     const { feitos, total } = contagemDaRodada({ ...(rodadas.find((r) => r.id === rodadaId) as Rodada), jogos: novaLista })
@@ -703,13 +677,16 @@ export default function Jogos() {
     setEditandoRodada(null)
     setEditandoIndex(null)
     setIsSalvando(false)
-
-    // ✅ garante refresh total
-    await carregarDados()
   }
 
   /** =============== AJUSTE DE RESULTADO (sem repetir finanças) =============== */
-  const salvarAjusteResultado = async (rodadaId: string, index: number, gm: number, gv: number, silencioso = false) => {
+  const salvarAjusteResultado = async (
+    rodadaId: string,
+    index: number,
+    gm: number,
+    gv: number,
+    silencioso = false
+  ) => {
     if (isSalvando) return
     setIsSalvando(true)
 
@@ -736,13 +713,7 @@ export default function Jogos() {
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = { ...jogo, gols_mandante: gmNum, gols_visitante: gvNum, bonus_pago: true }
 
-    const up = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
-    if (up.error) {
-      toast.error('Erro ao atualizar o resultado!')
-      setIsSalvando(false)
-      return
-    }
-
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
@@ -756,9 +727,6 @@ export default function Jogos() {
     setEditandoRodada(null)
     setEditandoIndex(null)
     setIsSalvando(false)
-
-    // ✅ garante refresh total
-    await carregarDados()
   }
 
   /** =============== Excluir placar (com REEMBOLSO TOTAL) =============== */
@@ -789,10 +757,11 @@ export default function Jogos() {
       const bonusPatroMandante = jogo.premiacao_patrocinios_mandante ?? 0
       const bonusPatroVisitante = jogo.premiacao_patrocinios_visitante ?? 0
 
+      // totais de créditos do jogo (tudo que entrou)
       const totalCreditosMandante = receitaMandante + premiacaoMandante + bonusPatroMandante
       const totalCreditosVisitante = receitaVisitante + premiacaoVisitante + bonusPatroVisitante
 
-      // 1) Reverter saldos (TUDO que entrou) + devolver salários
+      // 1) Reverter saldos (TUDO)
       await Promise.all([
         totalCreditosMandante
           ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -totalCreditosMandante })
@@ -800,7 +769,6 @@ export default function Jogos() {
         totalCreditosVisitante
           ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -totalCreditosVisitante })
           : Promise.resolve(),
-
         salariosMandante
           ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante })
           : Promise.resolve(),
@@ -811,148 +779,42 @@ export default function Jogos() {
 
       // 2) movimentações (registro completo)
       const movs: any[] = []
-
       if (receitaMandante)
-        movs.push({
-          id_time: mandanteId,
-          tipo: 'estorno_receita',
-          valor: receitaMandante,
-          descricao: 'Estorno receita (renda do estádio) da partida',
-          data: now,
-        })
+        movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita (renda do estádio) da partida', data: now })
       if (receitaVisitante)
-        movs.push({
-          id_time: visitanteId,
-          tipo: 'estorno_receita',
-          valor: receitaVisitante,
-          descricao: 'Estorno receita (renda do estádio) da partida',
-          data: now,
-        })
-
+        movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita (renda do estádio) da partida', data: now })
       if (premiacaoMandante)
-        movs.push({
-          id_time: mandanteId,
-          tipo: 'estorno_premiacao',
-          valor: premiacaoMandante,
-          descricao: 'Estorno de premiação (partida + gols) da liga',
-          data: now,
-        })
+        movs.push({ id_time: mandanteId, tipo: 'estorno_premiacao', valor: premiacaoMandante, descricao: 'Estorno de premiação (partida + gols) da liga', data: now })
       if (premiacaoVisitante)
-        movs.push({
-          id_time: visitanteId,
-          tipo: 'estorno_premiacao',
-          valor: premiacaoVisitante,
-          descricao: 'Estorno de premiação (partida + gols) da liga',
-          data: now,
-        })
-
+        movs.push({ id_time: visitanteId, tipo: 'estorno_premiacao', valor: premiacaoVisitante, descricao: 'Estorno de premiação (partida + gols) da liga', data: now })
       if (bonusPatroMandante)
-        movs.push({
-          id_time: mandanteId,
-          tipo: 'estorno_bonus_patrocinio',
-          valor: bonusPatroMandante,
-          descricao: 'Estorno de bônus de patrocinadores da partida',
-          data: now,
-        })
+        movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroMandante, descricao: 'Estorno de bônus de patrocinadores da partida', data: now })
       if (bonusPatroVisitante)
-        movs.push({
-          id_time: visitanteId,
-          tipo: 'estorno_bonus_patrocinio',
-          valor: bonusPatroVisitante,
-          descricao: 'Estorno de bônus de patrocinadores da partida',
-          data: now,
-        })
-
+        movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_patrocinio', valor: bonusPatroVisitante, descricao: 'Estorno de bônus de patrocinadores da partida', data: now })
       if (salariosMandante)
-        movs.push({
-          id_time: mandanteId,
-          tipo: 'estorno_salario',
-          valor: salariosMandante,
-          descricao: 'Estorno de salários (devolução) da partida',
-          data: now,
-        })
+        movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (devolução) da partida', data: now })
       if (salariosVisitante)
-        movs.push({
-          id_time: visitanteId,
-          tipo: 'estorno_salario',
-          valor: salariosVisitante,
-          descricao: 'Estorno de salários (devolução) da partida',
-          data: now,
-        })
-
+        movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (devolução) da partida', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
       // 3) BID (espelho completo)
       const bids: any[] = []
-
       if (receitaMandante)
-        bids.push({
-          tipo_evento: 'estorno_receita_partida',
-          descricao: 'Estorno da receita (renda do estádio) da partida',
-          id_time1: mandanteId,
-          valor: -receitaMandante,
-          data_evento: now,
-        })
+        bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita (renda do estádio) da partida', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
       if (receitaVisitante)
-        bids.push({
-          tipo_evento: 'estorno_receita_partida',
-          descricao: 'Estorno da receita (renda do estádio) da partida',
-          id_time1: visitanteId,
-          valor: -receitaVisitante,
-          data_evento: now,
-        })
-
+        bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita (renda do estádio) da partida', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
       if (premiacaoMandante)
-        bids.push({
-          tipo_evento: 'estorno_bonus',
-          descricao: 'Estorno de premiação (partida + gols) da liga',
-          id_time1: mandanteId,
-          valor: -premiacaoMandante,
-          data_evento: now,
-        })
+        bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de premiação (partida + gols) da liga', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
       if (premiacaoVisitante)
-        bids.push({
-          tipo_evento: 'estorno_bonus',
-          descricao: 'Estorno de premiação (partida + gols) da liga',
-          id_time1: visitanteId,
-          valor: -premiacaoVisitante,
-          data_evento: now,
-        })
-
+        bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de premiação (partida + gols) da liga', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
       if (bonusPatroMandante)
-        bids.push({
-          tipo_evento: 'estorno_bonus_patrocinio',
-          descricao: 'Estorno de bônus de patrocinadores da partida',
-          id_time1: mandanteId,
-          valor: -bonusPatroMandante,
-          data_evento: now,
-        })
+        bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores da partida', id_time1: mandanteId, valor: -bonusPatroMandante, data_evento: now })
       if (bonusPatroVisitante)
-        bids.push({
-          tipo_evento: 'estorno_bonus_patrocinio',
-          descricao: 'Estorno de bônus de patrocinadores da partida',
-          id_time1: visitanteId,
-          valor: -bonusPatroVisitante,
-          data_evento: now,
-        })
-
+        bids.push({ tipo_evento: 'estorno_bonus_patrocinio', descricao: 'Estorno de bônus de patrocinadores da partida', id_time1: visitanteId, valor: -bonusPatroVisitante, data_evento: now })
       if (salariosMandante)
-        bids.push({
-          tipo_evento: 'estorno_despesas',
-          descricao: 'Estorno de despesas (salários) da partida',
-          id_time1: mandanteId,
-          valor: +salariosMandante,
-          data_evento: now,
-        })
+        bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) da partida', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
       if (salariosVisitante)
-        bids.push({
-          tipo_evento: 'estorno_despesas',
-          descricao: 'Estorno de despesas (salários) da partida',
-          id_time1: visitanteId,
-          valor: +salariosVisitante,
-          data_evento: now,
-        })
-
+        bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) da partida', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
       if (bids.length) await supabase.from('bid').insert(bids)
 
       // 4) jogos -1 no elenco (reverte estatística)
@@ -969,7 +831,6 @@ export default function Jogos() {
       renda: undefined,
       publico: undefined,
       bonus_pago: false,
-      gols_eventos: undefined,
       receita_mandante: undefined,
       receita_visitante: undefined,
       salarios_mandante: undefined,
@@ -980,20 +841,63 @@ export default function Jogos() {
       premiacao_patrocinios_visitante: undefined,
     }
 
-    const up = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
-    if (up.error) {
-      toast.error('Erro ao remover resultado no banco!')
-      return
-    }
-
+    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
-    toast.success('🗑️ Resultado removido e reembolso TOTAL concluído (renda + salários + premiação + patrocínios).')
 
-    // ✅ garante refresh total
-    await carregarDados()
+    toast.success('🗑️ Resultado removido e reembolso TOTAL concluído (renda + salários + premiação + patrocínios).')
+  }
+
+  /** =============== OCR: abrir modal para um jogo específico =============== */
+  const abrirOCR = (rodadaId: string, index: number) => {
+    setOcrRodadaId(rodadaId)
+    setOcrIndex(index)
+    setOcrAberto(true)
+    setOcrLendo(false)
+    // reset input file
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const fecharOCR = () => {
+    setOcrAberto(false)
+    setOcrRodadaId(null)
+    setOcrIndex(null)
+    setOcrLendo(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const onOCRFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // ✅ evita o erro "Cannot set properties of null"
+    e.currentTarget.value = ''
+
+    if (!ocrRodadaId || ocrIndex === null) return
+
+    try {
+      setOcrLendo(true)
+      toast.loading('Lendo placar do print…', { id: 'ocr' })
+
+      const out = await extrairPlacarDoPrint(file)
+      if (!out) throw new Error('Não consegui extrair o placar.')
+
+      const gm = Number(out.gols_mandante ?? 0)
+      const gv = Number(out.gols_visitante ?? 0)
+
+      // preenche direto no stepper do jogo selecionado
+      setEditandoRodada(ocrRodadaId)
+      setEditandoIndex(ocrIndex)
+      setGolsMandante(Number.isFinite(gm) ? gm : 0)
+      setGolsVisitante(Number.isFinite(gv) ? gv : 0)
+
+      toast.success(`✅ Placar detectado: ${gm} x ${gv}`, { id: 'ocr' })
+      fecharOCR()
+    } catch (err: any) {
+      toast.error(`❌ ${err?.message || err}`, { id: 'ocr' })
+      setOcrLendo(false)
+    }
   }
 
   /** =============== Filtro por time (opcional) =============== */
@@ -1011,7 +915,7 @@ export default function Jogos() {
   const { feitos: feitosGlobais, total: totalGlobais } = contagemGlobal(rodadasFiltradas, timeSelecionado)
 
   return (
-    <div className="relative min-h-screen pb-12">
+    <div className="relative min-h-screen pb-12 text-white">
       {/* glows de fundo */}
       <div className="pointer-events-none absolute -top-40 -right-40 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 -left-40 h-72 w-72 rounded-full bg-sky-500/10 blur-3xl" />
@@ -1117,7 +1021,6 @@ export default function Jogos() {
       <div className="max-w-7xl mx-auto px-6 mt-6">
         {rodadasFiltradas.map((rodada) => {
           const { feitos, total } = contagemDaRodada(rodada)
-
           return (
             <section key={rodada.id} className="mb-6">
               <div className="flex items-center justify-between mb-3">
@@ -1139,9 +1042,7 @@ export default function Jogos() {
                     <article
                       key={index}
                       className={`rounded-2xl border px-4 py-3 transition ${
-                        temPlacar
-                          ? 'border-emerald-700/40 bg-emerald-500/[0.06]'
-                          : 'border-white/10 bg-white/5 hover:bg-white/7'
+                        temPlacar ? 'border-emerald-700/40 bg-emerald-500/[0.06]' : 'border-white/10 bg-white/5 hover:bg-white/7'
                       }`}
                     >
                       <div className="grid grid-cols-12 items-center gap-2">
@@ -1149,60 +1050,18 @@ export default function Jogos() {
                         <div className="col-span-5 md:col-span-4 flex items-center justify-end gap-2">
                           {mandante?.logo_url && (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={mandante.logo_url}
-                              alt="logo"
-                              className="h-6 w-6 rounded-full ring-1 ring-white/10"
-                            />
+                            <img src={mandante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
                           )}
                           <span className="font-medium text-right truncate text-white">{mandante?.nome || '???'}</span>
                         </div>
 
-                        {/* Placar / Editor */}
+                        {/* Placar */}
                         <div className="col-span-2 md:col-span-4 text-center">
                           {estaEditando ? (
-                            <div className="flex flex-col items-center justify-center gap-2">
-                              <div className="flex items-center justify-center gap-2">
-                                <StepperGol value={golsMandante} onChange={setGolsMandante} ariaLabel="Gols do mandante" />
-                                <span className="text-white/90 font-extrabold text-lg">x</span>
-                                <StepperGol
-                                  value={golsVisitante}
-                                  onChange={setGolsVisitante}
-                                  ariaLabel="Gols do visitante"
-                                />
-                              </div>
-
-                              {/* OCR bar (aparece só editando) */}
-                              <div className="flex flex-wrap items-center justify-center gap-2">
-                                <label className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-white/90 cursor-pointer hover:bg-white/15">
-                                  {lendoOCR ? 'Lendo…' : '📷 Ler gols do print (Google Vision)'}
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    disabled={lendoOCR}
-                                    onChange={async (e) => {
-                                      const f = e.target.files?.[0]
-                                      if (!f) return
-                                      await lerGolsDoPrint(f)
-                                      // ✅ permite reenviar o mesmo arquivo
-                                      e.currentTarget.value = ''
-                                    }}
-                                  />
-                                </label>
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setGolsMandante(0)
-                                    setGolsVisitante(0)
-                                  }}
-                                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-black/30 border border-white/15 text-white/80 hover:bg-black/40"
-                                  title="Zerar placar no editor"
-                                >
-                                  Limpar
-                                </button>
-                              </div>
+                            <div className="flex items-center justify-center gap-2">
+                              <StepperGol value={golsMandante} onChange={setGolsMandante} ariaLabel="Gols do mandante" />
+                              <span className="text-white/80 font-extrabold text-lg">x</span>
+                              <StepperGol value={golsVisitante} onChange={setGolsVisitante} ariaLabel="Gols do visitante" />
                             </div>
                           ) : temPlacar ? (
                             <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
@@ -1218,11 +1077,7 @@ export default function Jogos() {
                           <span className="font-medium text-left truncate text-white">{visitante?.nome || '???'}</span>
                           {visitante?.logo_url && (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={visitante.logo_url}
-                              alt="logo"
-                              className="h-6 w-6 rounded-full ring-1 ring-white/10"
-                            />
+                            <img src={visitante.logo_url} alt="logo" className="h-6 w-6 rounded-full ring-1 ring-white/10" />
                           )}
 
                           {/* Ações (apenas admin) */}
@@ -1242,6 +1097,15 @@ export default function Jogos() {
                                 📝
                               </button>
 
+                              {/* ✅ OCR */}
+                              <button
+                                onClick={() => abrirOCR(rodada.id, index)}
+                                className="text-xs px-2 py-1 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/90"
+                                title="Ler gols do print (OCR)"
+                              >
+                                📷 Ler gols
+                              </button>
+
                               {temPlacar && (
                                 <button
                                   onClick={() => excluirResultado(rodada.id, index)}
@@ -1258,22 +1122,18 @@ export default function Jogos() {
                             <div className="flex gap-2 ml-2">
                               {!jogo.bonus_pago ? (
                                 <button
-                                  onClick={() =>
-                                    salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))
-                                  }
+                                  onClick={() => salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
                                   disabled={isSalvando}
-                                  className="text-sm text-green-300 font-extrabold hover:text-green-200"
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
                                   title="Salvar e processar finanças + patrocínios"
                                 >
                                   💾
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() =>
-                                    salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))
-                                  }
+                                  onClick={() => salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))}
                                   disabled={isSalvando}
-                                  className="text-sm text-green-300 font-extrabold hover:text-green-200"
+                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
                                   title="Salvar ajuste (sem repetir bônus)"
                                 >
                                   ✅
@@ -1284,7 +1144,7 @@ export default function Jogos() {
                                   setEditandoRodada(null)
                                   setEditandoIndex(null)
                                 }}
-                                className="text-sm text-red-300 font-extrabold hover:text-red-200"
+                                className="text-sm text-red-400 font-semibold hover:text-red-300"
                                 title="Cancelar edição"
                               >
                                 ❌
@@ -1295,7 +1155,7 @@ export default function Jogos() {
                       </div>
 
                       {/* Rodapé do jogo */}
-                      <div className="mt-2 flex flex-wrap items-center gap-2 justify-end">
+                      <div className="mt-1 flex flex-wrap items-center gap-2 justify-end">
                         {jogo.renda && jogo.publico && (
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-300">
                             🎟️ {jogo.publico.toLocaleString()} • 💰 R$ {jogo.renda.toLocaleString()}
@@ -1315,6 +1175,51 @@ export default function Jogos() {
           )
         })}
       </div>
+
+      {/* ===================== Modal OCR ===================== */}
+      {ocrAberto && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-zinc-950 p-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-extrabold">📷 Ler gols do print</h3>
+                <p className="text-xs text-white/60">
+                  Envie o print (o sistema ignora gols duplicados). Após ler, ele preenche os steppers automaticamente.
+                </p>
+              </div>
+              <button
+                onClick={fecharOCR}
+                className="px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                onChange={onOCRFile}
+                disabled={ocrLendo}
+                className="block w-full text-sm text-white file:mr-3 file:rounded-xl file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-white hover:file:bg-white/15"
+              />
+
+              <div
+                className={`px-3 py-2 rounded-xl border ${
+                  ocrLendo ? 'border-amber-400/30 bg-amber-500/10 text-amber-200' : 'border-white/10 bg-white/5 text-white/60'
+                }`}
+              >
+                {ocrLendo ? 'Lendo…' : 'Aguardando'}
+              </div>
+            </div>
+
+            <div className="mt-3 text-xs text-white/50">
+              Dica: mande 1–3 prints do mesmo jogo (se quiser). Se der erro, tente um print mais “limpo” (sem blur/zoom).
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
