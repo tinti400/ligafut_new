@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useAdmin } from '@/hooks/useAdmin'
 import toast from 'react-hot-toast'
@@ -15,12 +15,20 @@ import {
   sectorProportion,
 } from '@/utils/estadioEngine'
 
+/** ===================== Supabase ===================== */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 /** ===================== Tipos ===================== */
+type GolEvento = {
+  time?: string // id_time
+  jogador?: string
+  minuto?: number
+  detalhe?: string
+}
+
 type Jogo = {
   mandante: string
   visitante: string
@@ -29,6 +37,9 @@ type Jogo = {
   renda?: number
   publico?: number
   bonus_pago?: boolean
+
+  // opcional: eventos vindos do OCR
+  gols_eventos?: GolEvento[]
 
   // campos salvos para estorno
   receita_mandante?: number
@@ -55,6 +66,7 @@ type Time = {
   id: string
   nome: string
   logo_url: string
+  divisao?: number | null
 }
 
 type HistoricoJogo = {
@@ -67,26 +79,6 @@ type TimeDados = {
   id: string
   divisao: number
   historico: HistoricoJogo[]
-}
-
-/** ===================== OCR / Goals ===================== */
-type GoalFromVision = {
-  player: string
-  minute: number
-  side?: 'home' | 'away' | null // lado no print
-  // resolvido
-  team_id?: string | null
-  team_nome?: string | null
-  confidence?: number | null
-  raw?: string | null
-}
-
-type VisionResult = {
-  ok: boolean
-  score?: { home: number; away: number } | null
-  goals?: GoalFromVision[]
-  warning?: string | null
-  debug?: any
 }
 
 /** ===================== Util ===================== */
@@ -119,7 +111,6 @@ function calcularPremiacao(time: TimeDados): number {
   premiacao += (ultimaPartida.gols_pro ?? 0) * regra.gol
   premiacao -= (ultimaPartida.gols_contra ?? 0) * regra.gol_sofrido
 
-  // bônus por 5 vitórias seguidas
   const ultimos5 = historico.slice(-5)
   const venceuTodas = ultimos5.length === 5 && ultimos5.every((j) => j.resultado === 'vitoria')
   if (venceuTodas) premiacao += 5_000_000
@@ -151,6 +142,7 @@ const contagemGlobal = (rodadas: Rodada[], timeSelecionado?: string) => {
   return { feitos, total }
 }
 
+/** ===================== Stepper (VISÍVEL no dark) ===================== */
 function clamp(n: number, min = 0, max = 99) {
   return Math.max(min, Math.min(max, n))
 }
@@ -165,40 +157,48 @@ function StepperGol({
   ariaLabel: string
 }) {
   return (
-    <div className="inline-flex items-center rounded-xl border border-white/15 bg-white/5 overflow-hidden shadow-sm">
+    <div
+      className="inline-flex items-center rounded-2xl border border-white/20 bg-white/10 overflow-hidden shadow
+                 ring-1 ring-white/10"
+    >
       <button
         type="button"
         onClick={() => onChange(clamp((value ?? 0) - 1))}
-        className="h-10 w-10 grid place-items-center text-white/90 hover:bg-white/10 active:bg-white/15"
+        className="h-11 w-11 grid place-items-center text-white hover:bg-white/15 active:bg-white/20"
         aria-label={`${ariaLabel} diminuir`}
         title="Diminuir"
       >
-        <span className="text-xl leading-none">−</span>
+        <span className="text-2xl leading-none font-black">−</span>
       </button>
 
-      <input
-        inputMode="numeric"
-        pattern="[0-9]*"
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(clamp(Number(e.target.value || 0)))}
-        className="h-10 w-14 text-center text-white font-extrabold text-lg bg-transparent outline-none
-                   [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-        aria-label={ariaLabel}
-      />
+      <div className="relative">
+        <input
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={Number.isFinite(value) ? value : 0}
+          onChange={(e) => onChange(clamp(Number(e.target.value || 0)))}
+          className="h-11 w-16 text-center text-white font-extrabold text-xl bg-black/30 outline-none
+                     border-x border-white/15
+                     [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          aria-label={ariaLabel}
+        />
+        <div aria-hidden className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/10" />
+      </div>
 
       <button
         type="button"
         onClick={() => onChange(clamp((value ?? 0) + 1))}
-        className="h-10 w-10 grid place-items-center text-white/90 hover:bg-white/10 active:bg-white/15"
+        className="h-11 w-11 grid place-items-center text-white hover:bg-white/15 active:bg-white/20"
         aria-label={`${ariaLabel} aumentar`}
         title="Aumentar"
       >
-        <span className="text-xl leading-none">+</span>
+        <span className="text-2xl leading-none font-black">+</span>
       </button>
     </div>
   )
 }
 
+/** ===================== Helpers de banco ===================== */
 // soma salários sem registrar (fallback p/ estorno de jogos antigos)
 async function somarSalarios(timeId: string): Promise<number> {
   const { data } = await supabase.from('elenco').select('salario').eq('id_time', timeId)
@@ -316,7 +316,7 @@ async function premiarPorJogo(timeId: string, gols_pro: number, gols_contra: num
 
   let historico: HistoricoJogo[] = []
   partidas?.forEach((rodada) => {
-    ;(rodada.jogos || []).forEach((jogo: any) => {
+    rodada.jogos.forEach((jogo: any) => {
       if (
         (jogo.mandante === timeId || jogo.visitante === timeId) &&
         jogo.gols_mandante !== undefined &&
@@ -375,7 +375,6 @@ async function obterPatrociniosDoTime(timeId: string) {
   if (!ids.length) return []
 
   const { data: pats } = await supabase.from('patrocinios').select('id, nome, categoria, regra').in('id', ids)
-
   return pats || []
 }
 
@@ -436,6 +435,20 @@ async function pagarBonusPatrociniosPorJogo(timeId: string, gols_pro: number, go
   return { total, detalheTexto: detalhes.join(' | ') }
 }
 
+/** ===================== Helpers OCR ===================== */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Falha ao ler arquivo'))
+    reader.onload = () => {
+      const result = reader.result as string
+      const base64 = result.split(',')[1] || ''
+      resolve(base64)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
 /** ===================== Página ===================== */
 export default function Jogos() {
   const { isAdmin, loading } = useAdmin()
@@ -452,18 +465,14 @@ export default function Jogos() {
   const [golsVisitante, setGolsVisitante] = useState<number>(0)
   const [isSalvando, setIsSalvando] = useState(false)
 
+  // OCR
+  const [lendoOCR, setLendoOCR] = useState(false)
+
   // gerar temporada
   const [gerando, setGerando] = useState(false)
 
-  // OCR UI (📸 upload)
-  const [ocrOpenKey, setOcrOpenKey] = useState<string | null>(null)
-  const [ocrLoading, setOcrLoading] = useState(false)
-  const [ocrFiles, setOcrFiles] = useState<File[]>([])
-  const [ocrResult, setOcrResult] = useState<VisionResult | null>(null)
-  const [ocrResolvedGoals, setOcrResolvedGoals] = useState<GoalFromVision[]>([])
-
   const carregarDados = async () => {
-    const { data: times } = await supabase.from('times').select('id, nome, logo_url')
+    const { data: times } = await supabase.from('times').select('id, nome, logo_url, divisao')
     const map: Record<string, Time> = {}
     times?.forEach((t) => {
       map[t.id] = { ...t, logo_url: t.logo_url || '' }
@@ -485,119 +494,7 @@ export default function Jogos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [temporada, divisao])
 
-  const limparOCR = () => {
-    setOcrFiles([])
-    setOcrResult(null)
-    setOcrResolvedGoals([])
-  }
-
-  // match_id estável (pode trocar depois por um id real seu)
-  const matchIdOf = (rodadaId: string, index: number) => `${rodadaId}:${index}`
-
-  const resolveTeamBySide = (g: GoalFromVision, mandanteId: string, visitanteId: string) => {
-    if (g.side === 'home') return mandanteId
-    if (g.side === 'away') return visitanteId
-    return null
-  }
-
-  async function salvarGolsNoBanco(
-    match_id: string,
-    rodadaNumero: number,
-    mandanteId: string,
-    visitanteId: string,
-    goals: GoalFromVision[]
-  ) {
-    // dedupe: match_id + team_id + player + minute
-    const payload = goals
-      .map((g) => {
-        const team_id = g.team_id || resolveTeamBySide(g, mandanteId, visitanteId)
-        return {
-          match_id,
-          temporada,
-          divisao,
-          rodada_numero: rodadaNumero,
-          mandante_id: mandanteId,
-          visitante_id: visitanteId,
-          team_id,
-          player: (g.player || '').trim(),
-          minute: Number(g.minute),
-          source: 'vision',
-          raw_text: g.raw || null,
-        }
-      })
-      .filter((x) => x.team_id && x.player && Number.isFinite(x.minute))
-
-    if (!payload.length) {
-      toast.error('Nenhum gol válido para salvar.')
-      return
-    }
-
-    // upsert precisa de UNIQUE no banco (match_id, team_id, player, minute)
-    const { error } = await supabase
-      .from('match_goals')
-      .upsert(payload, { onConflict: 'match_id,team_id,player,minute' })
-
-    if (error) {
-      console.error(error)
-      toast.error('Erro ao salvar gols (confira UNIQUE + RLS).')
-      return
-    }
-
-    toast.success(`✅ Gols salvos! Duplicados foram ignorados automaticamente.`)
-  }
-
-  async function rodarVisionOCR(mandanteId: string, visitanteId: string) {
-    if (!ocrFiles.length) return
-    try {
-      setOcrLoading(true)
-      toast.loading('Lendo imagem(s) com Google Vision...', { id: 'ocr' })
-
-      const base64Images: string[] = []
-      for (const f of ocrFiles) {
-        const b64 = await fileToBase64(f)
-        base64Images.push(b64)
-      }
-
-      const res = await fetch('/api/parse-goals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imagesBase64: base64Images }),
-      })
-      const json = (await res.json()) as VisionResult
-
-      if (!res.ok || !json?.ok) {
-        throw new Error((json as any)?.error || 'Falha no OCR')
-      }
-
-      setOcrResult(json)
-
-      // resolve time_id pelo lado
-      const resolved = (json.goals || []).map((g) => {
-        const team_id = resolveTeamBySide(g, mandanteId, visitanteId)
-        const team_nome = team_id ? timesMap[team_id]?.nome : null
-        return { ...g, team_id, team_nome }
-      })
-
-      // dedupe local
-      const seen = new Set<string>()
-      const unique = resolved.filter((g) => {
-        const key = `${g.team_id || 'x'}|${(g.player || '').toLowerCase()}|${g.minute}`
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
-
-      setOcrResolvedGoals(unique)
-
-      toast.success('✅ OCR concluído! Confira e confirme.', { id: 'ocr' })
-    } catch (e: any) {
-      toast.error(`❌ ${e?.message || e}`, { id: 'ocr' })
-    } finally {
-      setOcrLoading(false)
-    }
-  }
-
-  // ================== gerar temporada (inclui T4) ==================
+  // ================== NOVO: gerar temporada genérico (inclui T4) ==================
   const gerarTemporada = async (temp: number) => {
     if (!isAdmin) return
     if (!confirm(`Gerar jogos da Temporada ${temp} para as Divisões 1, 2 e 3 (ida+volta)?`)) return
@@ -605,7 +502,6 @@ export default function Jogos() {
       setGerando(true)
       toast.loading(`Iniciando Temporada ${temp}...`, { id: 'gerar-t' })
 
-      // 1) cria/zera classificação da temporada
       const resA = await fetch('/api/iniciar-temporada', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -614,7 +510,6 @@ export default function Jogos() {
       const a = await resA.json()
       if (!resA.ok || !a?.ok) throw new Error(a?.erro || 'Falha ao iniciar temporada')
 
-      // 2) gera rodadas/jogos
       toast.loading(`Gerando rodadas/jogos da T${temp}...`, { id: 'gerar-t' })
       const resB = await fetch('/api/gerar-jogos-temporada', {
         method: 'POST',
@@ -624,15 +519,56 @@ export default function Jogos() {
       const b = await resB.json()
       if (!resB.ok || !b?.ok) throw new Error(b?.erro || 'Falha ao gerar jogos')
 
-      toast.success(`✅ Temporada ${temp} gerada! Rodadas: ${b.total_rodadas} | Jogos: ${b.total_jogos}`, {
-        id: 'gerar-t',
-      })
+      toast.success(`✅ Temporada ${temp} gerada! Rodadas: ${b.total_rodadas} | Jogos: ${b.total_jogos}`, { id: 'gerar-t' })
       setTemporada(temp)
       await carregarDados()
     } catch (e: any) {
       toast.error(`❌ ${e.message || e}`, { id: 'gerar-t' })
     } finally {
       setGerando(false)
+    }
+  }
+
+  /** =============== OCR: ler placar do print e APLICAR NA EDIÇÃO =============== */
+  const lerGolsDoPrint = async (file: File) => {
+    try {
+      setLendoOCR(true)
+      toast.loading('🔎 Lendo print (Google Vision)...', { id: 'ocr' })
+
+      const base64 = await fileToBase64(file)
+
+      const res = await fetch('/api/vision/gols', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64,
+          // dica pro backend: pode ajudar na dedução
+          // idioma: 'pt',
+        }),
+      })
+
+      const json = await res.json().catch(() => null)
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.erro || 'Falha no OCR (resposta inválida).')
+      }
+
+      const gm = Number(json.gm)
+      const gv = Number(json.gv)
+
+      if (!Number.isFinite(gm) || !Number.isFinite(gv)) {
+        throw new Error('OCR não encontrou o placar (gm/gv).')
+      }
+
+      // ✅ só “preenche” o stepper (não salva sozinho)
+      setGolsMandante(clamp(gm))
+      setGolsVisitante(clamp(gv))
+
+      toast.success(`✅ OCR: ${gm} x ${gv} (preenchido no editor)`, { id: 'ocr' })
+    } catch (e: any) {
+      toast.error(`❌ ${e.message || e}`, { id: 'ocr' })
+    } finally {
+      setLendoOCR(false)
     }
   }
 
@@ -670,6 +606,9 @@ export default function Jogos() {
     const mandanteId = jogo.mandante
     const visitanteId = jogo.visitante
 
+    const gmNum = Number.isFinite(gm) ? gm : 0
+    const gvNum = Number.isFinite(gv) ? gv : 0
+
     // 🔥 público/renda via ESTÁDIO do mandante
     const pr = await calcularPublicoERendaPeloEstadio(mandanteId)
     if (pr.erro) toast('⚠️ ' + pr.erro, { icon: 'ℹ️' })
@@ -687,12 +626,12 @@ export default function Jogos() {
     const salariosVisitante = await descontarSalariosComRegistro(visitanteId)
 
     // premiação por desempenho (liga) +50%
-    const premiacaoMandante = await premiarPorJogo(mandanteId, gm, gv)
-    const premiacaoVisitante = await premiarPorJogo(visitanteId, gv, gm)
+    const premiacaoMandante = await premiarPorJogo(mandanteId, gmNum, gvNum)
+    const premiacaoVisitante = await premiarPorJogo(visitanteId, gvNum, gmNum)
 
     // 🔥 bônus de patrocinadores
-    const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gm, gv)
-    const bonusPatroVis = await pagarBonusPatrociniosPorJogo(visitanteId, gv, gm)
+    const bonusPatroMand = await pagarBonusPatrociniosPorJogo(mandanteId, gmNum, gvNum)
+    const bonusPatroVis = await pagarBonusPatrociniosPorJogo(visitanteId, gvNum, gmNum)
 
     // BID de receita (registrar o TOTAL que entrou por time)
     await supabase.from('bid').insert([
@@ -721,8 +660,6 @@ export default function Jogos() {
     await ajustarJogosElenco(visitanteId, +1)
 
     // grava o jogo na rodada com os valores para estorno
-    const gmNum = Number.isFinite(gm) ? gm : 0
-    const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
       ...jogo,
       gols_mandante: gmNum,
@@ -739,7 +676,13 @@ export default function Jogos() {
       premiacao_patrocinios_mandante: bonusPatroMand.total,
       premiacao_patrocinios_visitante: bonusPatroVis.total,
     }
-    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+
+    const up = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+    if (up.error) {
+      toast.error('Erro ao salvar placar no banco!')
+      setIsSalvando(false)
+      return
+    }
 
     // serviços auxiliares
     await fetch(`/api/classificacao?temporada=${temporada}`)
@@ -748,10 +691,7 @@ export default function Jogos() {
     // estado local
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
-    const { feitos, total } = contagemDaRodada({
-      ...(rodadas.find((r) => r.id === rodadaId) as Rodada),
-      jogos: novaLista,
-    })
+    const { feitos, total } = contagemDaRodada({ ...(rodadas.find((r) => r.id === rodadaId) as Rodada), jogos: novaLista })
     const mandanteNome = timesMap[mandanteId]?.nome || 'Mandante'
     const visitanteNome = timesMap[visitanteId]?.nome || 'Visitante'
 
@@ -763,16 +703,13 @@ export default function Jogos() {
     setEditandoRodada(null)
     setEditandoIndex(null)
     setIsSalvando(false)
+
+    // ✅ garante refresh total
+    await carregarDados()
   }
 
   /** =============== AJUSTE DE RESULTADO (sem repetir finanças) =============== */
-  const salvarAjusteResultado = async (
-    rodadaId: string,
-    index: number,
-    gm: number,
-    gv: number,
-    silencioso = false
-  ) => {
+  const salvarAjusteResultado = async (rodadaId: string, index: number, gm: number, gv: number, silencioso = false) => {
     if (isSalvando) return
     setIsSalvando(true)
 
@@ -799,23 +736,29 @@ export default function Jogos() {
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = { ...jogo, gols_mandante: gmNum, gols_visitante: gvNum, bonus_pago: true }
 
-    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+    const up = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+    if (up.error) {
+      toast.error('Erro ao atualizar o resultado!')
+      setIsSalvando(false)
+      return
+    }
+
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
     if (!silencioso) {
-      const { feitos, total } = contagemDaRodada({
-        ...(rodadas.find((r) => r.id === rodadaId) as Rodada),
-        jogos: novaLista,
-      })
+      const { feitos, total } = contagemDaRodada({ ...(rodadas.find((r) => r.id === rodadaId) as Rodada), jogos: novaLista })
       toast.success(`✏️ Resultado atualizado! ${feitos}/${total} jogos desta rodada com placar (sem repetir bônus).`)
     }
 
     setEditandoRodada(null)
     setEditandoIndex(null)
     setIsSalvando(false)
+
+    // ✅ garante refresh total
+    await carregarDados()
   }
 
   /** =============== Excluir placar (com REEMBOLSO TOTAL) =============== */
@@ -832,7 +775,6 @@ export default function Jogos() {
     const visitanteId = jogo.visitante
 
     if (jogo.bonus_pago) {
-      // ✅ HARDENING: garante estorno total mesmo se algum campo não estiver salvo
       const renda = jogo.renda ?? 0
 
       const receitaMandante = jogo.receita_mandante ?? (renda ? renda * 0.95 : 0)
@@ -847,11 +789,10 @@ export default function Jogos() {
       const bonusPatroMandante = jogo.premiacao_patrocinios_mandante ?? 0
       const bonusPatroVisitante = jogo.premiacao_patrocinios_visitante ?? 0
 
-      // totais de créditos do jogo (tudo que entrou)
       const totalCreditosMandante = receitaMandante + premiacaoMandante + bonusPatroMandante
       const totalCreditosVisitante = receitaVisitante + premiacaoVisitante + bonusPatroVisitante
 
-      // 1) Reverter saldos (TUDO)
+      // 1) Reverter saldos (TUDO que entrou) + devolver salários
       await Promise.all([
         totalCreditosMandante
           ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -totalCreditosMandante })
@@ -1028,6 +969,7 @@ export default function Jogos() {
       renda: undefined,
       publico: undefined,
       bonus_pago: false,
+      gols_eventos: undefined,
       receita_mandante: undefined,
       receita_visitante: undefined,
       salarios_mandante: undefined,
@@ -1038,13 +980,20 @@ export default function Jogos() {
       premiacao_patrocinios_visitante: undefined,
     }
 
-    await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+    const up = await supabase.from('rodadas').update({ jogos: novaLista }).eq('id', rodadaId)
+    if (up.error) {
+      toast.error('Erro ao remover resultado no banco!')
+      return
+    }
+
     await fetch(`/api/classificacao?temporada=${temporada}`)
     await fetch('/api/atualizar-moral')
 
     setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
-
     toast.success('🗑️ Resultado removido e reembolso TOTAL concluído (renda + salários + premiação + patrocínios).')
+
+    // ✅ garante refresh total
+    await carregarDados()
   }
 
   /** =============== Filtro por time (opcional) =============== */
@@ -1053,9 +1002,7 @@ export default function Jogos() {
     : rodadas
         .map((rodada) => ({
           ...rodada,
-          jogos: rodada.jogos.filter(
-            (jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado
-          ),
+          jogos: rodada.jogos.filter((jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado),
         }))
         .filter((rodada) => rodada.jogos.length > 0)
 
@@ -1170,6 +1117,7 @@ export default function Jogos() {
       <div className="max-w-7xl mx-auto px-6 mt-6">
         {rodadasFiltradas.map((rodada) => {
           const { feitos, total } = contagemDaRodada(rodada)
+
           return (
             <section key={rodada.id} className="mb-6">
               <div className="flex items-center justify-between mb-3">
@@ -1186,9 +1134,6 @@ export default function Jogos() {
                   const estaEditando = editandoRodada === rodada.id && editandoIndex === index
                   const temPlacar = isPlacarPreenchido(jogo)
                   const [gM, gV] = [jogo.gols_mandante ?? 0, jogo.gols_visitante ?? 0]
-
-                  const ocrKey = `${rodada.id}:${index}`
-                  const ocrOpen = ocrOpenKey === ocrKey
 
                   return (
                     <article
@@ -1213,13 +1158,51 @@ export default function Jogos() {
                           <span className="font-medium text-right truncate text-white">{mandante?.nome || '???'}</span>
                         </div>
 
-                        {/* Placar */}
+                        {/* Placar / Editor */}
                         <div className="col-span-2 md:col-span-4 text-center">
                           {estaEditando ? (
-                            <div className="flex items-center justify-center gap-2">
-                              <StepperGol value={golsMandante} onChange={setGolsMandante} ariaLabel="Gols do mandante" />
-                              <span className="text-white/80 font-extrabold text-lg">x</span>
-                              <StepperGol value={golsVisitante} onChange={setGolsVisitante} ariaLabel="Gols do visitante" />
+                            <div className="flex flex-col items-center justify-center gap-2">
+                              <div className="flex items-center justify-center gap-2">
+                                <StepperGol value={golsMandante} onChange={setGolsMandante} ariaLabel="Gols do mandante" />
+                                <span className="text-white/90 font-extrabold text-lg">x</span>
+                                <StepperGol
+                                  value={golsVisitante}
+                                  onChange={setGolsVisitante}
+                                  ariaLabel="Gols do visitante"
+                                />
+                              </div>
+
+                              {/* OCR bar (aparece só editando) */}
+                              <div className="flex flex-wrap items-center justify-center gap-2">
+                                <label className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-white/90 cursor-pointer hover:bg-white/15">
+                                  {lendoOCR ? 'Lendo…' : '📷 Ler gols do print (Google Vision)'}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    disabled={lendoOCR}
+                                    onChange={async (e) => {
+                                      const f = e.target.files?.[0]
+                                      if (!f) return
+                                      await lerGolsDoPrint(f)
+                                      // ✅ permite reenviar o mesmo arquivo
+                                      e.currentTarget.value = ''
+                                    }}
+                                  />
+                                </label>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setGolsMandante(0)
+                                    setGolsVisitante(0)
+                                  }}
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-black/30 border border-white/15 text-white/80 hover:bg-black/40"
+                                  title="Zerar placar no editor"
+                                >
+                                  Limpar
+                                </button>
+                              </div>
                             </div>
                           ) : temPlacar ? (
                             <span className="text-lg md:text-xl font-extrabold tracking-tight text-white">
@@ -1259,18 +1242,6 @@ export default function Jogos() {
                                 📝
                               </button>
 
-                              {/* 📸 OCR */}
-                              <button
-                                onClick={() => {
-                                  setOcrOpenKey((prev) => (prev === ocrKey ? null : ocrKey))
-                                  limparOCR()
-                                }}
-                                className="text-sm text-sky-300 hover:text-sky-200"
-                                title="Ler gols por foto (Google Vision)"
-                              >
-                                📸
-                              </button>
-
                               {temPlacar && (
                                 <button
                                   onClick={() => excluirResultado(rodada.id, index)}
@@ -1291,7 +1262,7 @@ export default function Jogos() {
                                     salvarPrimeiroLancamento(rodada.id, index, Number(golsMandante), Number(golsVisitante))
                                   }
                                   disabled={isSalvando}
-                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  className="text-sm text-green-300 font-extrabold hover:text-green-200"
                                   title="Salvar e processar finanças + patrocínios"
                                 >
                                   💾
@@ -1302,7 +1273,7 @@ export default function Jogos() {
                                     salvarAjusteResultado(rodada.id, index, Number(golsMandante), Number(golsVisitante))
                                   }
                                   disabled={isSalvando}
-                                  className="text-sm text-green-400 font-semibold hover:text-green-300"
+                                  className="text-sm text-green-300 font-extrabold hover:text-green-200"
                                   title="Salvar ajuste (sem repetir bônus)"
                                 >
                                   ✅
@@ -1313,7 +1284,7 @@ export default function Jogos() {
                                   setEditandoRodada(null)
                                   setEditandoIndex(null)
                                 }}
-                                className="text-sm text-red-400 font-semibold hover:text-red-300"
+                                className="text-sm text-red-300 font-extrabold hover:text-red-200"
                                 title="Cancelar edição"
                               >
                                 ❌
@@ -1323,131 +1294,8 @@ export default function Jogos() {
                         </div>
                       </div>
 
-                      {/* ✅ OCR panel (upload) */}
-                      {isAdmin && ocrOpen && (
-                        <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="text-sm font-semibold text-white/90">📸 Ler gols do print (Google Vision)</div>
-                            <div className="ml-auto text-xs text-white/60">
-                              dica: mande 1–3 prints do mesmo jogo (o sistema ignora gols duplicados)
-                            </div>
-                          </div>
-
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              onChange={(e) => {
-                                const files = Array.from(e.target.files || [])
-                                setOcrFiles(files)
-                                setOcrResult(null)
-                                setOcrResolvedGoals([])
-                              }}
-                              className="text-sm text-white/80"
-                            />
-
-                            <button
-                              onClick={() => rodarVisionOCR(jogo.mandante, jogo.visitante)}
-                              disabled={ocrLoading || !ocrFiles.length}
-                              className={`px-3 py-2 rounded-lg text-sm font-semibold border ${
-                                ocrLoading || !ocrFiles.length
-                                  ? 'bg-gray-700 border-white/10 text-white/60'
-                                  : 'bg-sky-600 border-sky-500/50 text-black hover:bg-sky-500'
-                              }`}
-                            >
-                              {ocrLoading ? 'Lendo…' : '🔎 Ler gols'}
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                limparOCR()
-                                setOcrOpenKey(null)
-                              }}
-                              className="px-3 py-2 rounded-lg text-sm font-semibold border border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                            >
-                              Fechar
-                            </button>
-                          </div>
-
-                          {ocrResult?.score && (
-                            <div className="mt-3 text-sm text-white/80">
-                              <span className="font-semibold">Placar detectado:</span>{' '}
-                              <span className="text-white">
-                                {mandante?.nome || 'Mandante'} {ocrResult.score.home} x {ocrResult.score.away}{' '}
-                                {visitante?.nome || 'Visitante'}
-                              </span>
-                              <span className="ml-2 text-xs text-white/50">(não aplica automaticamente no placar)</span>
-                            </div>
-                          )}
-
-                          {!!ocrResolvedGoals.length && (
-                            <div className="mt-3">
-                              <div className="text-sm font-semibold text-white/90">
-                                Gols detectados (confira antes de salvar)
-                              </div>
-
-                              <div className="mt-2 space-y-1">
-                                {ocrResolvedGoals.map((g, i) => (
-                                  <div
-                                    key={i}
-                                    className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1"
-                                  >
-                                    <span className="text-xs text-white/60 w-10">⏱ {g.minute}'</span>
-                                    <span className="text-sm text-white flex-1 truncate">{g.player}</span>
-                                    <span className="text-xs text-white/70">
-                                      {g.team_nome
-                                        ? `(${g.team_nome})`
-                                        : g.side
-                                          ? `(${g.side === 'home' ? 'mandante' : 'visitante'})`
-                                          : '(time?)'}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <button
-                                  onClick={async () => {
-                                    const match_id = matchIdOf(rodada.id, index)
-                                    await salvarGolsNoBanco(
-                                      match_id,
-                                      rodada.numero,
-                                      jogo.mandante,
-                                      jogo.visitante,
-                                      ocrResolvedGoals
-                                    )
-                                    limparOCR()
-                                    setOcrOpenKey(null)
-                                  }}
-                                  className="px-3 py-2 rounded-lg text-sm font-semibold border bg-emerald-600 border-emerald-500/50 text-black hover:bg-emerald-500"
-                                >
-                                  ✅ Confirmar e salvar gols
-                                </button>
-
-                                <button
-                                  onClick={() => {
-                                    limparOCR()
-                                    toast('Limpo. Envie outras fotos se quiser.', { icon: '🧹' })
-                                  }}
-                                  className="px-3 py-2 rounded-lg text-sm font-semibold border border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                                >
-                                  Limpar
-                                </button>
-                              </div>
-                            </div>
-                          )}
-
-                          {!ocrLoading && ocrResult && !ocrResolvedGoals.length && (
-                            <div className="mt-3 text-sm text-white/70">
-                              Nenhum gol detectado. Tente outro print (de preferência o painel de “Eventos/Gols”).
-                            </div>
-                          )}
-                        </div>
-                      )}
-
                       {/* Rodapé do jogo */}
-                      <div className="mt-1 flex flex-wrap items-center gap-2 justify-end">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 justify-end">
                         {jogo.renda && jogo.publico && (
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-300">
                             🎟️ {jogo.publico.toLocaleString()} • 💰 R$ {jogo.renda.toLocaleString()}
@@ -1469,21 +1317,6 @@ export default function Jogos() {
       </div>
     </div>
   )
-}
-
-/** ===================== Helpers OCR ===================== */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Falha ao ler arquivo'))
-    reader.onload = () => {
-      const result = reader.result as string
-      // result => data:image/png;base64,xxxx
-      const base64 = result.split(',')[1] || ''
-      resolve(base64)
-    }
-    reader.readAsDataURL(file)
-  })
 }
 
  
