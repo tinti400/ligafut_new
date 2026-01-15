@@ -207,7 +207,12 @@ function AvatarTime({ nome, logo }: { nome: string; logo?: string | null }) {
       />
     )
   }
-  const iniciais = nome.split(' ').slice(0, 2).map((s) => s[0]).join('').toUpperCase()
+  const iniciais = nome
+    .split(' ')
+    .slice(0, 2)
+    .map((s) => s[0])
+    .join('')
+    .toUpperCase()
   return (
     <div className="size-9 rounded-full bg-gray-800 text-gray-200 grid place-items-center ring-1 ring-white/10">
       <span className="text-xs font-extrabold">{iniciais || '?'}</span>
@@ -815,7 +820,9 @@ export default function BIDPage() {
         const { error: delErr } = await supabase.from('bid_reacoes').delete().eq('id', existente.id)
         if (delErr) throw delErr
       } else {
-        const { error: insErr } = await supabase.from('bid_reacoes').insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
+        const { error: insErr } = await supabase
+          .from('bid_reacoes')
+          .insert({ id_evento: idEvento, id_time: idTimeLogado, emoji })
         if (insErr) throw insErr
       }
 
@@ -877,7 +884,10 @@ export default function BIDPage() {
       <WatermarkBG />
 
       {/* brilho topo */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-emerald-500/10 via-transparent to-transparent" />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-emerald-500/10 via-transparent to-transparent"
+      />
 
       <div ref={topRef} />
       <div className="max-w-6xl mx-auto px-4 py-6 relative">
@@ -887,7 +897,9 @@ export default function BIDPage() {
             <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
               📰 BID — <span className="text-emerald-400">Boletim Informativo Diário</span>
             </h1>
-            <p className="text-xs md:text-sm text-gray-300/80 mt-1">Acompanhe transferências, empréstimos, rescisões e mais.</p>
+            <p className="text-xs md:text-sm text-gray-300/80 mt-1">
+              Acompanhe transferências, empréstimos, rescisões e mais.
+            </p>
           </div>
 
           {buscaAtiva && (
@@ -1192,38 +1204,40 @@ export default function BIDPage() {
                                   return jogador ? <CardJogador j={jogador} highlight={buscaAtiva ? debouncedBusca : ''} /> : null
                                 })()}
 
-                                {/* ✅ VALOR SEM CORTAR + DESIGN MELHOR */}
+                                {/* ✅ VALOR — PROFISSIONAL / DISCRETO */}
                                 {evento.valor != null && (
-                                  <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-black/35 to-black/20 p-3 shadow-sm">
+                                  <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3 shadow-sm">
                                     <div className="flex items-center justify-between gap-2">
-                                      <p className="text-xs text-gray-400">Movimentação</p>
-                                      <span className="text-[11px] px-2 py-0.5 rounded-full border border-yellow-400/25 bg-yellow-400/10 text-yellow-200/90">
-                                        {evento.valor >= 0 ? 'Entrada/Saída' : 'Mov.'
-                                      }</span>
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400">
+                                        Movimentação
+                                      </p>
+                                      <span className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-black/20 text-gray-200/90">
+                                        Entrada/Saída
+                                      </span>
                                     </div>
 
                                     <p
                                       className={classNames(
-                                        'mt-1 font-extrabold text-yellow-300 tracking-tight leading-tight tabular-nums',
-                                        // quebra sem cortar e mantém legível em telas pequenas
-                                        'break-words whitespace-normal'
+                                        'mt-1 font-semibold text-white tabular-nums',
+                                        'whitespace-nowrap overflow-hidden text-ellipsis'
                                       )}
-                                      style={{ fontSize: 'clamp(1.05rem, 2.9vw, 1.55rem)' }}
+                                      style={{ fontSize: 'clamp(1rem, 2.1vw, 1.22rem)' }}
                                       title={formatBRL(evento.valor)}
                                     >
                                       {formatBRL(evento.valor)}
                                     </p>
 
-                                    <div className="mt-2 h-px bg-gradient-to-r from-transparent via-yellow-500/20 to-transparent" />
-                                    <p className="mt-2 text-[11px] text-gray-300/80">
-                                      Dica: valores grandes agora aparecem completos (sem reticências).
+                                    <div className="mt-2 h-px bg-white/10" />
+
+                                    <p className="mt-2 text-[11px] text-gray-400">
+                                      Registro financeiro do evento
                                     </p>
                                   </div>
                                 )}
                               </div>
                             </div>
 
-                            {/* Reações (sempre visível) */}
+                            {/* Reações */}
                             <div className="mt-4 rounded-xl bg-black/25 border border-white/10 p-2.5">
                               <div className="flex flex-wrap items-center gap-2">
                                 {EMOJIS.map((e) => {
@@ -1431,3 +1445,4 @@ function ComentarioForm({
     </div>
   )
 }
+
