@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import * as XLSX from 'xlsx'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -23,6 +24,19 @@ type JogadorBase = {
   created_at?: string
 }
 
+type ExcelRow = {
+  nome?: any
+  posicao?: any
+  overall?: any
+  valor?: any
+  nacionalidade?: any
+  foto?: any
+  link_sofifa?: any
+  linkSofifa?: any
+  link?: any
+  sofifa?: any
+}
+
 const fmtBRL0 = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', {
     style: 'currency',
@@ -31,6 +45,23 @@ const fmtBRL0 = (n: number) =>
   })
 
 const onlyDigits = (s: string) => (s || '').replace(/[^\d]/g, '')
+
+const safeNum = (v: any) => {
+  const n = Number(String(v ?? '').replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+}
+
+const normStr = (v: any) => String(v ?? '').trim()
+
+const normLinkKey = (row: ExcelRow) => {
+  // aceita várias possibilidades de coluna
+  return (
+    normStr(row.link_sofifa) ||
+    normStr(row.linkSofifa) ||
+    normStr(row.link) ||
+    normStr(row.sofifa)
+  )
+}
 
 export default function AdminCadastroJogadoresPage() {
   // ===== form
@@ -41,6 +72,23 @@ export default function AdminCadastroJogadoresPage() {
   const [nacionalidade, setNacionalidade] = useState('')
   const [foto, setFoto] = useState('')
   const [linkSofifa, setLinkSofifa] = useState('')
+
+  // ===== excel import
+  const [excelRows, setExcelRows] = useState<ExcelRow[]>([])
+  const [excelPreview, setExcelPreview] = useState<
+    Array<{
+      nome: string
+      posicao: string
+      overall: number
+      valor: number
+      nacionalidade: string | null
+      foto: string | null
+      link_sofifa: string
+      ok: boolean
+      err?: string
+    }>
+  >([])
+  const [excelInfo, setExcelInfo] = useState<string>('')
 
   // ===== lists
   const [times, setTimes] = useState<Time[]>([])
@@ -73,7 +121,9 @@ export default function AdminCadastroJogadoresPage() {
     try {
       let query = supabase
         .from('jogadores_base')
-        .select('id,nome,posicao,overall,valor,nacionalidade,foto,link_sofifa,destino,id_time_destino,created_at')
+        .select(
+          'id,nome,posicao,overall,valor,nacionalidade,foto,link_sofifa,destino,id_time_destino,created_at'
+        )
         .order('created_at', { ascending: false })
         .limit(500)
 
@@ -109,7 +159,7 @@ export default function AdminCadastroJogadoresPage() {
     setLinkSofifa('')
   }
 
-  // ===== cadastrar
+  // ===== cadastrar (unitário)
   const cadastrar = async () => {
     setMsg(null)
 
@@ -118,7 +168,8 @@ export default function AdminCadastroJogadoresPage() {
     const link = linkSofifa.trim()
 
     if (!n || !p || !link) return showMsg('err', 'Preencha: Nome, Posição e Link SoFIFA.')
-    if (!Number.isFinite(overall) || overall < 1 || overall > 99) return showMsg('err', 'Overall inválido (1 a 99).')
+    if (!Number.isFinite(overall) || overall < 1 || overall > 99)
+      return showMsg('err', 'Overall inválido (1 a 99).')
     if (!Number.isFinite(valor) || valor < 0) return showMsg('err', 'Valor inválido.')
 
     setLoading(true)
@@ -135,7 +186,8 @@ export default function AdminCadastroJogadoresPage() {
       })
 
       if (error) {
-        if ((error as any).code === '23505') return showMsg('err', 'Esse jogador já foi cadastrado (link_sofifa duplicado).')
+        if ((error as any).code === '23505')
+          return showMsg('err', 'Esse jogador já foi cadastrado (link_sofifa duplicado).')
         throw error
       }
 
@@ -144,6 +196,167 @@ export default function AdminCadastroJogadoresPage() {
       await carregarJogadores()
     } catch (e: any) {
       showMsg('err', e?.message || 'Falha ao cadastrar jogador')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ===== Excel: ler arquivo e montar preview
+  const parseExcelFile = async (file: File) => {
+    setExcelInfo('')
+    setExcelRows([])
+    setExcelPreview([])
+
+    const ab = await file.arrayBuffer()
+    const wb = XLSX.read(ab, { type: 'array' })
+    const sheetName = wb.SheetNames?.[0]
+    if (!sheetName) {
+      showMsg('err', 'Planilha sem abas.')
+      return
+    }
+
+    const ws = wb.Sheets[sheetName]
+    const raw = XLSX.utils.sheet_to_json<ExcelRow>(ws, { defval: '' }) || []
+    setExcelRows(raw)
+
+    // montar preview + validação
+    const seen = new Set<string>()
+    const prev = raw.slice(0, 2000).map((r) => {
+      const nome = normStr((r as any).nome)
+      const posicao = normStr((r as any).posicao).toUpperCase()
+      const overall = Math.round(safeNum((r as any).overall))
+      const valor = Math.round(safeNum((r as any).valor))
+      const nacionalidade = normStr((r as any).nacionalidade) || null
+      const foto = normStr((r as any).foto) || null
+      const link_sofifa = normLinkKey(r)
+
+      let ok = true
+      let err = ''
+
+      if (!nome) {
+        ok = false
+        err = 'Sem nome'
+      } else if (!posicao) {
+        ok = false
+        err = 'Sem posição'
+      } else if (!link_sofifa) {
+        ok = false
+        err = 'Sem link_sofifa'
+      } else if (!Number.isFinite(overall) || overall < 1 || overall > 99) {
+        ok = false
+        err = 'Overall inválido'
+      } else if (!Number.isFinite(valor) || valor < 0) {
+        ok = false
+        err = 'Valor inválido'
+      }
+
+      // duplicidade dentro do arquivo
+      const key = link_sofifa.toLowerCase()
+      if (ok) {
+        if (seen.has(key)) {
+          ok = false
+          err = 'Duplicado na planilha'
+        } else {
+          seen.add(key)
+        }
+      }
+
+      return { nome, posicao, overall, valor, nacionalidade, foto, link_sofifa, ok, err }
+    })
+
+    const okCount = prev.filter((p) => p.ok).length
+    const badCount = prev.length - okCount
+    setExcelPreview(prev)
+    setExcelInfo(
+      `Arquivo: ${file.name} • Linhas lidas: ${raw.length} • Válidas (no preview): ${okCount} • Inválidas: ${badCount}`
+    )
+  }
+
+  // ===== Excel: importar em lote (upsert ignorando duplicados)
+  const importarExcel = async () => {
+    if (!excelRows.length) return showMsg('err', 'Selecione um arquivo Excel primeiro.')
+
+    setLoading(true)
+    setMsg(null)
+    try {
+      // normaliza + valida tudo (não só preview)
+      const seen = new Set<string>()
+      const valid: Array<{
+        nome: string
+        posicao: string
+        overall: number
+        valor: number
+        nacionalidade: string | null
+        foto: string | null
+        link_sofifa: string
+        destino: 'banco'
+      }> = []
+
+      let invalid = 0
+      for (const r of excelRows) {
+        const nome = normStr((r as any).nome)
+        const posicao = normStr((r as any).posicao).toUpperCase()
+        const overall = Math.round(safeNum((r as any).overall))
+        const valor = Math.round(safeNum((r as any).valor))
+        const nacionalidade = normStr((r as any).nacionalidade) || null
+        const foto = normStr((r as any).foto) || null
+        const link_sofifa = normLinkKey(r)
+
+        const key = link_sofifa.toLowerCase()
+
+        const ok =
+          !!nome &&
+          !!posicao &&
+          !!link_sofifa &&
+          Number.isFinite(overall) &&
+          overall >= 1 &&
+          overall <= 99 &&
+          Number.isFinite(valor) &&
+          valor >= 0 &&
+          !seen.has(key)
+
+        if (!ok) {
+          invalid++
+          continue
+        }
+
+        seen.add(key)
+        valid.push({ nome, posicao, overall, valor, nacionalidade, foto, link_sofifa, destino: 'banco' })
+      }
+
+      if (!valid.length) {
+        return showMsg('err', 'Nenhuma linha válida para importar.')
+      }
+
+      // IMPORTANTE:
+      // Isso pressupõe que existe UNIQUE em jogadores_base(link_sofifa).
+      // Com isso, ignoreDuplicates funciona e não quebra por duplicados.
+      let insertedApprox = 0
+
+      const chunkSize = 200
+      for (let i = 0; i < valid.length; i += chunkSize) {
+        const chunk = valid.slice(i, i + chunkSize)
+        const { error } = await supabase
+          .from('jogadores_base')
+          .upsert(chunk as any, { onConflict: 'link_sofifa', ignoreDuplicates: true })
+
+        if (error) throw error
+        insertedApprox += chunk.length
+      }
+
+      showMsg(
+        'ok',
+        `Importação concluída. Processadas: ${valid.length} • Ignoradas/Inválidas: ${invalid} • (Duplicados no banco foram ignorados)`
+      )
+
+      // limpa import
+      setExcelRows([])
+      setExcelPreview([])
+      setExcelInfo('')
+
+      await carregarJogadores()
+    } catch (e: any) {
+      showMsg('err', e?.message || 'Falha ao importar Excel')
     } finally {
       setLoading(false)
     }
@@ -172,11 +385,11 @@ export default function AdminCadastroJogadoresPage() {
         .from('jogadores_base')
         .update({ destino: 'mercado', id_time_destino: null })
         .eq('id', j.id)
-        .eq('destino', 'banco') // ✅ trava corrida
+        .eq('destino', 'banco')
       if (e2) throw e2
 
       showMsg('ok', `Enviado para o Mercado: ${j.nome}`)
-      await carregarJogadores() // ✅ some do banco
+      await carregarJogadores()
     } catch (e: any) {
       showMsg('err', e?.message || 'Falha ao enviar para o Mercado')
     } finally {
@@ -216,7 +429,7 @@ export default function AdminCadastroJogadoresPage() {
       if (e2) throw e2
 
       showMsg('ok', `Enviado para o Leilão: ${j.nome}`)
-      await carregarJogadores() // ✅ some do banco
+      await carregarJogadores()
     } catch (e: any) {
       showMsg('err', e?.message || 'Falha ao enviar para o Leilão')
     } finally {
@@ -254,7 +467,7 @@ export default function AdminCadastroJogadoresPage() {
 
       const nomeTime = times.find((t) => t.id === idTime)?.nome || 'time'
       showMsg('ok', `Enviado para o time ${nomeTime}: ${j.nome}`)
-      await carregarJogadores() // ✅ some do banco
+      await carregarJogadores()
     } catch (e: any) {
       showMsg('err', e?.message || 'Falha ao enviar para o time')
     } finally {
@@ -316,7 +529,110 @@ export default function AdminCadastroJogadoresPage() {
           </div>
         )}
 
-        {/* Cadastro */}
+        {/* ✅ Importar Excel */}
+        <div className="mt-6 rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="font-bold">Importar planilha (Excel)</h2>
+              <p className="text-sm text-white/70 mt-1">
+                Colunas esperadas: <span className="text-white">nome, posicao, overall, valor, nacionalidade, foto, link_sofifa</span>
+                <span className="text-white/60">
+                  {' '}
+                  (aceita também <b>linkSofifa</b> / <b>link</b> / <b>sofifa</b>)
+                </span>
+              </p>
+            </div>
+
+            <div className="text-xs text-white/60">
+              Dica: mantenha <b>link_sofifa</b> único (ideal ter UNIQUE no banco).
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3 flex-wrap">
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              disabled={loading}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (!f) return
+                parseExcelFile(f).catch((err) => showMsg('err', err?.message || 'Falha ao ler Excel'))
+              }}
+              className="text-sm"
+            />
+
+            <button
+              onClick={importarExcel}
+              disabled={loading || !excelRows.length}
+              className="rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 px-4 py-2 text-sm font-bold ring-1 ring-white/10"
+              title="Importa todas as linhas válidas para o Banco (destino=banco) e ignora duplicados por link_sofifa"
+            >
+              ⬆️ Importar para o Banco
+            </button>
+
+            {excelInfo && <span className="text-sm text-white/70">{excelInfo}</span>}
+          </div>
+
+          {!!excelPreview.length && (
+            <div className="mt-4 overflow-x-auto rounded-xl ring-1 ring-white/10">
+              <table className="w-full text-sm">
+                <thead className="text-white/70 bg-white/5">
+                  <tr className="border-b border-white/10">
+                    <th className="text-left py-2 px-3">#</th>
+                    <th className="text-left py-2 px-3">Nome</th>
+                    <th className="text-left py-2 px-3">Pos</th>
+                    <th className="text-left py-2 px-3">OVR</th>
+                    <th className="text-left py-2 px-3">Valor</th>
+                    <th className="text-left py-2 px-3">SoFIFA</th>
+                    <th className="text-left py-2 px-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {excelPreview.slice(0, 20).map((r, idx) => (
+                    <tr key={idx} className="border-b border-white/5">
+                      <td className="py-2 px-3 text-white/60">{idx + 1}</td>
+                      <td className="py-2 px-3 font-semibold">{r.nome || '-'}</td>
+                      <td className="py-2 px-3">{r.posicao || '-'}</td>
+                      <td className="py-2 px-3 tabular-nums">{r.overall || 0}</td>
+                      <td className="py-2 px-3 tabular-nums">{fmtBRL0(r.valor || 0)}</td>
+                      <td className="py-2 px-3">
+                        {r.link_sofifa ? (
+                          <a
+                            href={r.link_sofifa}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sky-300 hover:underline"
+                          >
+                            Link
+                          </a>
+                        ) : (
+                          <span className="text-white/50">-</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3">
+                        {r.ok ? (
+                          <span className="px-2 py-1 rounded-lg text-xs bg-emerald-600/15 text-emerald-200 ring-1 ring-emerald-400/25">
+                            OK
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 rounded-lg text-xs bg-rose-600/15 text-rose-200 ring-1 ring-rose-400/25">
+                            {r.err || 'Inválido'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="px-3 py-2 text-xs text-white/60">
+                Preview mostra as primeiras 20 linhas (validação completa ocorre na importação).
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Cadastro unitário */}
         <div className="mt-6 rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
           <h2 className="font-bold">Cadastrar novo jogador</h2>
 
@@ -559,3 +875,4 @@ export default function AdminCadastroJogadoresPage() {
     </div>
   )
 }
+
