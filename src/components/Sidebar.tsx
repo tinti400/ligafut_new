@@ -23,13 +23,13 @@ const clamp99 = (n: number) => (n > 99 ? '99+' : String(n))
 
 const HEADER_H = 76
 
-// ✅ Admin real via RPC do Supabase (deny-by-default)
+// ✅ Admin real via RPC do Supabase (Opção 1: só EMAIL)
 async function checarAdminPorEmail(email: string) {
-  const e = (email || '').trim().toLowerCase()
+  const e = String(email || '').trim().toLowerCase()
   if (!e) return false
   const { data, error } = await supabase.rpc('is_admin', { p_email: e })
   if (error) return false
-  return Boolean(data)
+  return data === true
 }
 
 export default function Sidebar() {
@@ -84,7 +84,10 @@ export default function Sidebar() {
       setAbrirElenco(localStorage.getItem('sb_g_elenco') === '1')
       setAbrirRoubo(localStorage.getItem('sb_g_roubo') === '1')
       setAbrirLeilao(localStorage.getItem('sb_g_leilao') === '1')
+
+      // ✅ se o usuário não for admin, esse estado será forçado pra false no check
       setAbrirAdmin(localStorage.getItem('sb_g_admin') === '1')
+
       setAbrirCopa(localStorage.getItem('sb_g_copa') === '1')
 
       const hv = localStorage.getItem('sb_header_visible')
@@ -138,18 +141,22 @@ export default function Sidebar() {
       })()
     setMoedas(safe(mLS))
 
-    // ✅ checar admin via email/usuario (deny by default)
+    // ✅ checar admin via EMAIL (Opção 1)
     ;(async () => {
       setCheckingAdmin(true)
       try {
         const s = localStorage.getItem('user') || localStorage.getItem('usuario')
         if (!s) {
           setIsAdmin(false)
-          setCheckingAdmin(false)
+          setAbrirAdmin(false)
+          persistGroup('admin', false)
           return
         }
         const u = JSON.parse(s)
-        const email = (u?.email || u?.usuario || '').trim()
+
+        // ⚠️ Opção 1: só email mesmo. Sem fallback p/ "usuario" (Thiago) porque isso quebra.
+        const email = String(u?.email || '').trim()
+
         const ok = await checarAdminPorEmail(email)
         setIsAdmin(ok)
 
@@ -689,7 +696,6 @@ export default function Sidebar() {
                   badge={<DotBadge n={countEnviadas} tone="emerald" />}
                 />
                 <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
-
                 <CollapsedItem href="/copa/final" label="Final" emoji="🏅" />
 
                 {/* ✅ Admin só se admin */}
@@ -794,14 +800,12 @@ export default function Sidebar() {
                       <NavLink href="/copa/fase_grupos">📊 Fase grupos</NavLink>
                       <NavLink href="/copa/mata-mata">🥇 Mata mata</NavLink>
                       <NavLink href="/copa/historico-campeoes">🏆 Histórico de Campeões</NavLink>
-
-                      {/* ❌ REMOVIDO: /copa/admin */}
-                      {/* <NavLink href="/copa/admin">🛠️ Admin Copa</NavLink> */}
+                      {/* ❌ Removido: Admin Copa */}
                     </div>
                   )}
                 </div>
 
-                {/* ===== Administração ===== */}
+                {/* ===== Administração (só admins) ===== */}
                 {isAdmin && (
                   <div className="mt-2 mb-1">
                     <ToggleBtn
@@ -830,11 +834,9 @@ export default function Sidebar() {
                   </div>
                 )}
 
-                {/* ✅ opcional: feedback discreto enquanto checa admin */}
+                {/* feedback enquanto checa admin */}
                 {checkingAdmin && (
-                  <div className="mt-2 text-[11px] text-white/50 px-2">
-                    Verificando permissões...
-                  </div>
+                  <div className="mt-2 text-[11px] text-white/50 px-2">Verificando permissões...</div>
                 )}
               </>
             )}
@@ -846,3 +848,4 @@ export default function Sidebar() {
     </>
   )
 }
+
