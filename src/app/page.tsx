@@ -77,26 +77,25 @@ type LocalUser = {
   nome?: string
   usuario?: string
   email?: string
-  // flags possíveis de admin (cobre vários padrões)
-  is_admin?: boolean
-  admin?: boolean
-  role?: string
-  tipo?: string
 }
 
 /** ================== Utils ================== */
 const formatarValor = (valor?: number | null) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor ?? 0))
 
-const isUserAdmin = (u?: LocalUser | null) => {
-  if (!u) return false
-  if (u.is_admin === true || u.admin === true) return true
-  const role = String(u.role ?? '').toLowerCase()
-  const tipo = String(u.tipo ?? '').toLowerCase()
-  // aceita alguns padrões comuns
-  if (role === 'admin' || role === 'adm' || role === 'administrador') return true
-  if (tipo === 'admin' || tipo === 'adm' || tipo === 'administrador') return true
-  return false
+/** ✅ Admin REAL via tabela admins (RPC is_admin) */
+async function checarAdminPorEmail(email: string) {
+  const e = (email || '').trim()
+  if (!e) return false
+
+  // preferencial: RPC is_admin(p_email)
+  const { data, error } = await supabase.rpc('is_admin', { p_email: e })
+  if (!error) return Boolean(data)
+
+  // fallback (se ainda não criou RPC): tenta select (só funciona se RLS permitir)
+  const fb = await supabase.from('admins').select('email').eq('email', e).maybeSingle()
+  if (fb.error) return false
+  return !!fb.data
 }
 
 /** ================== Hero UT ================== */
@@ -249,7 +248,10 @@ export default function HomePage() {
 
   const [nomeTime, setNomeTime] = useState('')
   const [logado, setLogado] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false) // ✅ só ADM vê o Admin
+
+  // ✅ admin de verdade (banco)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [checkingAdmin, setCheckingAdmin] = useState(true)
 
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -269,22 +271,36 @@ export default function HomePage() {
   const [ultimosJogos, setUltimosJogos] = useState<JogoRow[]>([])
   const [indexJogo, setIndexJogo] = useState(0)
 
-  // ===== login localStorage
+  // ===== login localStorage + admin REAL (tabela admins)
   useEffect(() => {
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
-    if (userStr) {
-      try {
-        const userData = JSON.parse(userStr) as LocalUser
-        setNomeTime(userData.nome_time || userData.nome || '')
-        setLogado(true)
-        setIsAdmin(isUserAdmin(userData)) // ✅ define admin aqui
-      } catch {
-        setNomeTime('')
-        setLogado(false)
-        setIsAdmin(false)
-      }
-    } else {
+
+    if (!userStr) {
+      setNomeTime('')
+      setLogado(false)
       setIsAdmin(false)
+      setCheckingAdmin(false)
+      return
+    }
+
+    try {
+      const userData = JSON.parse(userStr) as LocalUser
+      setNomeTime(userData.nome_time || userData.nome || '')
+      setLogado(true)
+
+      const email = (userData.email || userData.usuario || '').trim()
+
+      ;(async () => {
+        setCheckingAdmin(true)
+        const ok = await checarAdminPorEmail(email)
+        setIsAdmin(ok)
+        setCheckingAdmin(false)
+      })()
+    } catch {
+      setNomeTime('')
+      setLogado(false)
+      setIsAdmin(false)
+      setCheckingAdmin(false)
     }
   }, [])
 
@@ -295,7 +311,7 @@ export default function HomePage() {
         setLoading(true)
         setErro(null)
 
-        // 1) Times (inclui campos de divisão se existirem)
+        // 1) Times
         const timesRes = await supabase
           .from('times')
           .select('id, nome, saldo, total_salarios, escudo_url, divisao, divisao_nome, divisao_id, divisao_numero')
@@ -305,7 +321,7 @@ export default function HomePage() {
         const timesData = (timesRes.data || []) as TimeRow[]
         setTimes(timesData)
 
-        // meu time pelo nome (igual você já usa)
+        // meu time pelo nome
         const meu = timesData.find((t) => (t.nome || '').toLowerCase() === (nomeTime || '').toLowerCase())
         setSaldoAtual(Number(meu?.saldo ?? 0))
         setTotalSalariosMeuTime(Number(meu?.total_salarios ?? 0))
@@ -322,7 +338,7 @@ export default function HomePage() {
         if (bidRes.error) throw new Error('Falha ao carregar BID')
         setEventosBID((bidRes.data || []) as BidEvent[])
 
-        // 3) Últimos jogos (se não existir, não quebra)
+        // 3) Últimos jogos (se existir)
         const jogosRes = await supabase
           .from('jogos')
           .select(
@@ -333,13 +349,12 @@ export default function HomePage() {
 
         if (!jogosRes.error) setUltimosJogos((jogosRes.data || []) as JogoRow[])
 
-        // 4) Contagem de jogadores (se não existir, não quebra)
+        // 4) Contagem de jogadores (se existir)
         const jogadoresRes = await supabase.from('jogadores').select('id', { count: 'exact', head: true })
         if (!jogadoresRes.error) setJogadoresCount(Number(jogadoresRes.count ?? 0))
 
-        // 5) posição (se não existir, não quebra)
+        // 5) posição (se existir)
         const posRes = await supabase.from('classificacao').select('posicao').eq('time_nome', nomeTime).maybeSingle()
-
         if (!posRes.error && posRes.data?.posicao) setPosicao(String(posRes.data.posicao))
       } catch (e: any) {
         setErro(e?.message || 'Erro ao carregar dados')
@@ -676,11 +691,7 @@ export default function HomePage() {
                         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition [background:radial-gradient(circle_at_top,rgba(34,197,94,0.18),transparent_60%)] rounded-2xl" />
 
                         {t.escudo_url ? (
-                          <img
-                            src={t.escudo_url}
-                            alt={t.nome}
-                            className="relative w-10 h-10 md:w-12 md:h-12 object-contain drop-shadow"
-                          />
+                          <img src={t.escudo_url} alt={t.nome} className="relative w-10 h-10 md:w-12 md:h-12 object-contain drop-shadow" />
                         ) : (
                           <div className="relative w-10 h-10 rounded-xl bg-white/10" />
                         )}
@@ -743,10 +754,7 @@ export default function HomePage() {
 
                   <div className="flex gap-1.5 justify-center mt-3">
                     {eventosBID.map((_, i) => (
-                      <span
-                        key={i}
-                        className={`w-2 h-2 rounded-full ${i === indexAtual ? 'bg-green-400' : 'bg-white/20'}`}
-                      />
+                      <span key={i} className={`w-2 h-2 rounded-full ${i === indexAtual ? 'bg-green-400' : 'bg-white/20'}`} />
                     ))}
                   </div>
                 </>
@@ -795,10 +803,7 @@ export default function HomePage() {
 
             <div className="mt-3 flex gap-1.5 justify-center">
               {ultimosJogos.slice(0, 10).map((_, i) => (
-                <span
-                  key={i}
-                  className={`w-2 h-2 rounded-full ${i === indexJogo ? 'bg-blue-400' : 'bg-white/20'}`}
-                />
+                <span key={i} className={`w-2 h-2 rounded-full ${i === indexJogo ? 'bg-blue-400' : 'bg-white/20'}`} />
               ))}
             </div>
           </section>
@@ -812,8 +817,8 @@ export default function HomePage() {
           <CardRanking titulo="Top 3 Menores Salários" lista={top.salAsc} cor="text-blue-300" Icone={FaArrowUp} usaSalario />
         </div>
 
-        {/* ✅ FAB Admin: SOMENTE ADM */}
-        {logado && isAdmin && (
+        {/* ✅ FAB Admin: SOMENTE ADM (e só depois de checar no banco) */}
+        {logado && !checkingAdmin && isAdmin && (
           <button
             onClick={() => router.push('/admin')}
             className="fixed bottom-6 right-6 z-30 p-4 bg-green-600 rounded-full text-white shadow-2xl hover:bg-green-700 border border-white/10"
@@ -823,8 +828,9 @@ export default function HomePage() {
           </button>
         )}
 
-        {/* ✅ Admin Copa excluído: não existe mais botão/link aqui */}
+        {/* ❌ Admin Copa excluído: não existe botão/link aqui */}
       </div>
     </main>
   )
 }
+
