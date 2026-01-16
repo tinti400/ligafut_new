@@ -54,7 +54,6 @@ const safeNum = (v: any) => {
 const normStr = (v: any) => String(v ?? '').trim()
 
 const normLinkKey = (row: ExcelRow) => {
-  // aceita várias possibilidades de coluna
   return (
     normStr(row.link_sofifa) ||
     normStr(row.linkSofifa) ||
@@ -95,7 +94,7 @@ export default function AdminCadastroJogadoresPage() {
   const [timeSelecionado, setTimeSelecionado] = useState<string>('')
 
   const [q, setQ] = useState('')
-  const [showAll, setShowAll] = useState(false) // ✅ default: só banco
+  const [showAll, setShowAll] = useState(false)
 
   const [jogadores, setJogadores] = useState<JogadorBase[]>([])
   const [loading, setLoading] = useState(false)
@@ -115,7 +114,6 @@ export default function AdminCadastroJogadoresPage() {
     if (!timeSelecionado && data?.[0]?.id) setTimeSelecionado(data[0].id)
   }
 
-  // ✅ carrega só banco por padrão
   const carregarJogadores = async () => {
     setLoading(true)
     try {
@@ -159,7 +157,6 @@ export default function AdminCadastroJogadoresPage() {
     setLinkSofifa('')
   }
 
-  // ===== cadastrar (unitário)
   const cadastrar = async () => {
     setMsg(null)
 
@@ -180,7 +177,7 @@ export default function AdminCadastroJogadoresPage() {
         overall,
         valor,
         nacionalidade: nacionalidade.trim() || null,
-        foto: foto.trim() || null,
+        foto: foto.trim() || null, // ✅ foto no insert unitário
         link_sofifa: link,
         destino: 'banco',
       })
@@ -201,7 +198,7 @@ export default function AdminCadastroJogadoresPage() {
     }
   }
 
-  // ===== Excel: ler arquivo e montar preview
+  // ===== Excel: ler arquivo e montar preview (com foto)
   const parseExcelFile = async (file: File) => {
     setExcelInfo('')
     setExcelRows([])
@@ -219,7 +216,6 @@ export default function AdminCadastroJogadoresPage() {
     const raw = XLSX.utils.sheet_to_json<ExcelRow>(ws, { defval: '' }) || []
     setExcelRows(raw)
 
-    // montar preview + validação
     const seen = new Set<string>()
     const prev = raw.slice(0, 2000).map((r) => {
       const nome = normStr((r as any).nome)
@@ -227,7 +223,7 @@ export default function AdminCadastroJogadoresPage() {
       const overall = Math.round(safeNum((r as any).overall))
       const valor = Math.round(safeNum((r as any).valor))
       const nacionalidade = normStr((r as any).nacionalidade) || null
-      const foto = normStr((r as any).foto) || null
+      const foto = normStr((r as any).foto) || null // ✅ foto vindo do Excel
       const link_sofifa = normLinkKey(r)
 
       let ok = true
@@ -250,7 +246,6 @@ export default function AdminCadastroJogadoresPage() {
         err = 'Valor inválido'
       }
 
-      // duplicidade dentro do arquivo
       const key = link_sofifa.toLowerCase()
       if (ok) {
         if (seen.has(key)) {
@@ -272,14 +267,13 @@ export default function AdminCadastroJogadoresPage() {
     )
   }
 
-  // ===== Excel: importar em lote (upsert ignorando duplicados)
+  // ===== Excel: importar em lote (com foto)
   const importarExcel = async () => {
     if (!excelRows.length) return showMsg('err', 'Selecione um arquivo Excel primeiro.')
 
     setLoading(true)
     setMsg(null)
     try {
-      // normaliza + valida tudo (não só preview)
       const seen = new Set<string>()
       const valid: Array<{
         nome: string
@@ -287,7 +281,7 @@ export default function AdminCadastroJogadoresPage() {
         overall: number
         valor: number
         nacionalidade: string | null
-        foto: string | null
+        foto: string | null // ✅ agora inclui foto
         link_sofifa: string
         destino: 'banco'
       }> = []
@@ -299,9 +293,8 @@ export default function AdminCadastroJogadoresPage() {
         const overall = Math.round(safeNum((r as any).overall))
         const valor = Math.round(safeNum((r as any).valor))
         const nacionalidade = normStr((r as any).nacionalidade) || null
-        const foto = normStr((r as any).foto) || null
+        const foto = normStr((r as any).foto) || null // ✅ foto vindo do Excel
         const link_sofifa = normLinkKey(r)
-
         const key = link_sofifa.toLowerCase()
 
         const ok =
@@ -324,14 +317,7 @@ export default function AdminCadastroJogadoresPage() {
         valid.push({ nome, posicao, overall, valor, nacionalidade, foto, link_sofifa, destino: 'banco' })
       }
 
-      if (!valid.length) {
-        return showMsg('err', 'Nenhuma linha válida para importar.')
-      }
-
-      // IMPORTANTE:
-      // Isso pressupõe que existe UNIQUE em jogadores_base(link_sofifa).
-      // Com isso, ignoreDuplicates funciona e não quebra por duplicados.
-      let insertedApprox = 0
+      if (!valid.length) return showMsg('err', 'Nenhuma linha válida para importar.')
 
       const chunkSize = 200
       for (let i = 0; i < valid.length; i += chunkSize) {
@@ -339,9 +325,7 @@ export default function AdminCadastroJogadoresPage() {
         const { error } = await supabase
           .from('jogadores_base')
           .upsert(chunk as any, { onConflict: 'link_sofifa', ignoreDuplicates: true })
-
         if (error) throw error
-        insertedApprox += chunk.length
       }
 
       showMsg(
@@ -349,7 +333,6 @@ export default function AdminCadastroJogadoresPage() {
         `Importação concluída. Processadas: ${valid.length} • Ignoradas/Inválidas: ${invalid} • (Duplicados no banco foram ignorados)`
       )
 
-      // limpa import
       setExcelRows([])
       setExcelPreview([])
       setExcelInfo('')
@@ -475,7 +458,6 @@ export default function AdminCadastroJogadoresPage() {
     }
   }
 
-  // ===== filtros client-side
   const filtrados = useMemo(() => {
     const qq = q.trim().toLowerCase()
     return jogadores.filter((j) => {
@@ -529,22 +511,14 @@ export default function AdminCadastroJogadoresPage() {
           </div>
         )}
 
-        {/* ✅ Importar Excel */}
+        {/* ✅ Importar Excel (com coluna foto) */}
         <div className="mt-6 rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <h2 className="font-bold">Importar planilha (Excel)</h2>
               <p className="text-sm text-white/70 mt-1">
-                Colunas esperadas: <span className="text-white">nome, posicao, overall, valor, nacionalidade, foto, link_sofifa</span>
-                <span className="text-white/60">
-                  {' '}
-                  (aceita também <b>linkSofifa</b> / <b>link</b> / <b>sofifa</b>)
-                </span>
+                Colunas: <span className="text-white">nome, posicao, overall, valor, nacionalidade, foto, link_sofifa</span>
               </p>
-            </div>
-
-            <div className="text-xs text-white/60">
-              Dica: mantenha <b>link_sofifa</b> único (ideal ter UNIQUE no banco).
             </div>
           </div>
 
@@ -565,7 +539,6 @@ export default function AdminCadastroJogadoresPage() {
               onClick={importarExcel}
               disabled={loading || !excelRows.length}
               className="rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-50 px-4 py-2 text-sm font-bold ring-1 ring-white/10"
-              title="Importa todas as linhas válidas para o Banco (destino=banco) e ignora duplicados por link_sofifa"
             >
               ⬆️ Importar para o Banco
             </button>
@@ -579,6 +552,7 @@ export default function AdminCadastroJogadoresPage() {
                 <thead className="text-white/70 bg-white/5">
                   <tr className="border-b border-white/10">
                     <th className="text-left py-2 px-3">#</th>
+                    <th className="text-left py-2 px-3">Foto</th>
                     <th className="text-left py-2 px-3">Nome</th>
                     <th className="text-left py-2 px-3">Pos</th>
                     <th className="text-left py-2 px-3">OVR</th>
@@ -591,10 +565,28 @@ export default function AdminCadastroJogadoresPage() {
                   {excelPreview.slice(0, 20).map((r, idx) => (
                     <tr key={idx} className="border-b border-white/5">
                       <td className="py-2 px-3 text-white/60">{idx + 1}</td>
+
+                      {/* ✅ coluna FOTO (preview) */}
+                      <td className="py-2 px-3">
+                        {r.foto ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={r.foto}
+                            alt=""
+                            className="h-10 w-10 rounded-lg object-cover ring-1 ring-white/10"
+                          />
+                        ) : (
+                          <div className="h-10 w-10 rounded-lg bg-white/10 ring-1 ring-white/10 grid place-items-center">
+                            ⚽
+                          </div>
+                        )}
+                      </td>
+
                       <td className="py-2 px-3 font-semibold">{r.nome || '-'}</td>
                       <td className="py-2 px-3">{r.posicao || '-'}</td>
                       <td className="py-2 px-3 tabular-nums">{r.overall || 0}</td>
                       <td className="py-2 px-3 tabular-nums">{fmtBRL0(r.valor || 0)}</td>
+
                       <td className="py-2 px-3">
                         {r.link_sofifa ? (
                           <a
@@ -609,6 +601,7 @@ export default function AdminCadastroJogadoresPage() {
                           <span className="text-white/50">-</span>
                         )}
                       </td>
+
                       <td className="py-2 px-3">
                         {r.ok ? (
                           <span className="px-2 py-1 rounded-lg text-xs bg-emerald-600/15 text-emerald-200 ring-1 ring-emerald-400/25">
@@ -632,103 +625,7 @@ export default function AdminCadastroJogadoresPage() {
           )}
         </div>
 
-        {/* Cadastro unitário */}
-        <div className="mt-6 rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
-          <h2 className="font-bold">Cadastrar novo jogador</h2>
-
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="text-sm">
-              <span className="text-white/70">Nome *</span>
-              <input
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-[#0F1A2D] ring-1 ring-white/10 px-3 py-2 outline-none"
-              />
-            </label>
-
-            <label className="text-sm">
-              <span className="text-white/70">Posição *</span>
-              <input
-                value={posicao}
-                onChange={(e) => setPosicao(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-[#0F1A2D] ring-1 ring-white/10 px-3 py-2 outline-none"
-                placeholder="PE, CA, ZAG..."
-              />
-            </label>
-
-            <label className="text-sm">
-              <span className="text-white/70">Overall *</span>
-              <input
-                type="number"
-                value={overall}
-                onChange={(e) => setOverall(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg bg-[#0F1A2D] ring-1 ring-white/10 px-3 py-2 outline-none"
-                min={1}
-                max={99}
-              />
-            </label>
-
-            <label className="text-sm">
-              <span className="text-white/70">Valor (somente números) *</span>
-              <input
-                value={valorTxt}
-                onChange={(e) => setValorTxt(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-[#0F1A2D] ring-1 ring-white/10 px-3 py-2 outline-none"
-                placeholder="1000000"
-              />
-              <div className="mt-1 text-xs text-white/60">Preview: {fmtBRL0(valor)}</div>
-            </label>
-
-            <label className="text-sm">
-              <span className="text-white/70">Nacionalidade</span>
-              <input
-                value={nacionalidade}
-                onChange={(e) => setNacionalidade(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-[#0F1A2D] ring-1 ring-white/10 px-3 py-2 outline-none"
-              />
-            </label>
-
-            <label className="text-sm">
-              <span className="text-white/70">Foto (URL)</span>
-              <input
-                value={foto}
-                onChange={(e) => setFoto(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-[#0F1A2D] ring-1 ring-white/10 px-3 py-2 outline-none"
-                placeholder="https://..."
-              />
-            </label>
-
-            <label className="text-sm md:col-span-3">
-              <span className="text-white/70">Link SoFIFA *</span>
-              <input
-                value={linkSofifa}
-                onChange={(e) => setLinkSofifa(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-[#0F1A2D] ring-1 ring-white/10 px-3 py-2 outline-none"
-                placeholder="https://sofifa.com/player/190871"
-              />
-            </label>
-          </div>
-
-          <div className="mt-4 flex items-center gap-2">
-            <button
-              onClick={cadastrar}
-              disabled={loading}
-              className="rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 px-4 py-2 text-sm font-bold ring-1 ring-white/10"
-            >
-              ✅ Cadastrar no Banco
-            </button>
-
-            <button
-              onClick={limparForm}
-              disabled={loading}
-              className="rounded-lg bg-white/10 hover:bg-white/15 disabled:opacity-60 px-4 py-2 text-sm ring-1 ring-white/10"
-            >
-              Limpar
-            </button>
-          </div>
-        </div>
-
-        {/* Lista */}
+        {/* ✅ Lista de jogadores (já tinha foto, mantive) */}
         <div className="mt-6 rounded-2xl bg-white/5 ring-1 ring-white/10 p-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h2 className="font-bold">Jogadores</h2>
@@ -820,7 +717,6 @@ export default function AdminCadastroJogadoresPage() {
                             onClick={() => enviarParaMercado(j)}
                             disabled={loading || !pode}
                             className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 ring-1 ring-white/10"
-                            title={!pode ? 'Esse jogador já saiu do banco.' : 'Enviar para Mercado'}
                           >
                             💸 Mercado
                           </button>
@@ -829,7 +725,6 @@ export default function AdminCadastroJogadoresPage() {
                             onClick={() => enviarParaLeilao(j)}
                             disabled={loading || !pode}
                             className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-40 ring-1 ring-white/10"
-                            title={!pode ? 'Esse jogador já saiu do banco.' : 'Enviar para Leilão'}
                           >
                             📢 Leilão
                           </button>
@@ -838,7 +733,6 @@ export default function AdminCadastroJogadoresPage() {
                             onClick={() => enviarParaTime(j, timeSelecionado)}
                             disabled={loading || !pode}
                             className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-40 ring-1 ring-white/10"
-                            title={!pode ? 'Esse jogador já saiu do banco.' : 'Enviar para Time'}
                           >
                             👥 Enviar p/ Time
                           </button>
