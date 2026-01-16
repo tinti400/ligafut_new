@@ -72,9 +72,32 @@ type RankedTime = {
   escudo_url: string | null
 }
 
+type LocalUser = {
+  nome_time?: string
+  nome?: string
+  usuario?: string
+  email?: string
+  // flags possíveis de admin (cobre vários padrões)
+  is_admin?: boolean
+  admin?: boolean
+  role?: string
+  tipo?: string
+}
+
 /** ================== Utils ================== */
 const formatarValor = (valor?: number | null) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor ?? 0))
+
+const isUserAdmin = (u?: LocalUser | null) => {
+  if (!u) return false
+  if (u.is_admin === true || u.admin === true) return true
+  const role = String(u.role ?? '').toLowerCase()
+  const tipo = String(u.tipo ?? '').toLowerCase()
+  // aceita alguns padrões comuns
+  if (role === 'admin' || role === 'adm' || role === 'administrador') return true
+  if (tipo === 'admin' || tipo === 'adm' || tipo === 'administrador') return true
+  return false
+}
 
 /** ================== Hero UT ================== */
 function HeroUT({
@@ -226,6 +249,7 @@ export default function HomePage() {
 
   const [nomeTime, setNomeTime] = useState('')
   const [logado, setLogado] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false) // ✅ só ADM vê o Admin
 
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -250,13 +274,17 @@ export default function HomePage() {
     const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
     if (userStr) {
       try {
-        const userData = JSON.parse(userStr)
+        const userData = JSON.parse(userStr) as LocalUser
         setNomeTime(userData.nome_time || userData.nome || '')
         setLogado(true)
+        setIsAdmin(isUserAdmin(userData)) // ✅ define admin aqui
       } catch {
         setNomeTime('')
         setLogado(false)
+        setIsAdmin(false)
       }
+    } else {
+      setIsAdmin(false)
     }
   }, [])
 
@@ -278,9 +306,7 @@ export default function HomePage() {
         setTimes(timesData)
 
         // meu time pelo nome (igual você já usa)
-        const meu = timesData.find(
-          (t) => (t.nome || '').toLowerCase() === (nomeTime || '').toLowerCase()
-        )
+        const meu = timesData.find((t) => (t.nome || '').toLowerCase() === (nomeTime || '').toLowerCase())
         setSaldoAtual(Number(meu?.saldo ?? 0))
         setTotalSalariosMeuTime(Number(meu?.total_salarios ?? 0))
 
@@ -312,11 +338,7 @@ export default function HomePage() {
         if (!jogadoresRes.error) setJogadoresCount(Number(jogadoresRes.count ?? 0))
 
         // 5) posição (se não existir, não quebra)
-        const posRes = await supabase
-          .from('classificacao')
-          .select('posicao')
-          .eq('time_nome', nomeTime)
-          .maybeSingle()
+        const posRes = await supabase.from('classificacao').select('posicao').eq('time_nome', nomeTime).maybeSingle()
 
         if (!posRes.error && posRes.data?.posicao) setPosicao(String(posRes.data.posicao))
       } catch (e: any) {
@@ -469,9 +491,7 @@ export default function HomePage() {
                   </span>
                 </div>
 
-                <span className="text-sm font-black text-white/90 whitespace-nowrap">
-                  {formatarValor(valor)}
-                </span>
+                <span className="text-sm font-black text-white/90 whitespace-nowrap">{formatarValor(valor)}</span>
               </div>
             )
           })
@@ -565,12 +585,7 @@ export default function HomePage() {
 
   // ===== Times por divisão (somente logos)
   const timesPorDivisao = useMemo(() => {
-    const getDiv = (t: any) =>
-      t.divisao_nome ??
-      t.divisao ??
-      t.divisao_id ??
-      t.divisao_numero ??
-      'Divisão 1'
+    const getDiv = (t: any) => t.divisao_nome ?? t.divisao ?? t.divisao_id ?? t.divisao_numero ?? 'Divisão 1'
 
     const grupos = (times || []).reduce<Record<string, TimeRow[]>>((acc, t: any) => {
       const key = String(getDiv(t))
@@ -590,7 +605,10 @@ export default function HomePage() {
   }, [times])
 
   return (
-    <main className="relative min-h-screen text-white bg-cover bg-center" style={{ backgroundImage: `url('/campo-futebol-dark.jpg')` }}>
+    <main
+      className="relative min-h-screen text-white bg-cover bg-center"
+      style={{ backgroundImage: `url('/campo-futebol-dark.jpg')` }}
+    >
       <div className="absolute inset-0 bg-black/80" />
 
       <div className="relative z-10 w-full max-w-6xl mx-auto px-4 py-4">
@@ -625,7 +643,6 @@ export default function HomePage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base md:text-lg font-extrabold">🏟️ Times</h2>
 
-            {/* botão opcional */}
             <button
               onClick={() => router.push('/BID')}
               className="text-xs font-black px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10"
@@ -635,9 +652,7 @@ export default function HomePage() {
             </button>
           </div>
 
-          <p className="mt-1 text-xs text-white/60">
-            Logos organizados por divisão.
-          </p>
+          <p className="mt-1 text-xs text-white/60">Logos organizados por divisão.</p>
 
           <div className="mt-4 space-y-6">
             {timesPorDivisao.ordem.map((div) => {
@@ -793,24 +808,12 @@ export default function HomePage() {
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <CardRanking titulo="Top 3 Mais Saldo" lista={top.saldoDesc} cor="text-green-300" Icone={FaMoneyBillWave} />
           <CardRanking titulo="Top 3 Menos Saldo" lista={top.saldoAsc} cor="text-red-300" Icone={FaArrowDown} />
-          <CardRanking
-            titulo="Top 3 Maiores Salários"
-            lista={top.salDesc}
-            cor="text-yellow-200"
-            Icone={FaChartLine}
-            usaSalario
-          />
-          <CardRanking
-            titulo="Top 3 Menores Salários"
-            lista={top.salAsc}
-            cor="text-blue-300"
-            Icone={FaArrowUp}
-            usaSalario
-          />
+          <CardRanking titulo="Top 3 Maiores Salários" lista={top.salDesc} cor="text-yellow-200" Icone={FaChartLine} usaSalario />
+          <CardRanking titulo="Top 3 Menores Salários" lista={top.salAsc} cor="text-blue-300" Icone={FaArrowUp} usaSalario />
         </div>
 
-        {/* FAB Admin */}
-        {logado && (
+        {/* ✅ FAB Admin: SOMENTE ADM */}
+        {logado && isAdmin && (
           <button
             onClick={() => router.push('/admin')}
             className="fixed bottom-6 right-6 z-30 p-4 bg-green-600 rounded-full text-white shadow-2xl hover:bg-green-700 border border-white/10"
@@ -819,6 +822,8 @@ export default function HomePage() {
             <FaPlus size={20} />
           </button>
         )}
+
+        {/* ✅ Admin Copa excluído: não existe mais botão/link aqui */}
       </div>
     </main>
   )
