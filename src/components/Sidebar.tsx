@@ -23,13 +23,49 @@ const clamp99 = (n: number) => (n > 99 ? '99+' : String(n))
 
 const HEADER_H = 76
 
-// ✅ Admin real via RPC do Supabase (Opção 1: só EMAIL)
-async function checarAdminPorEmail(email: string) {
-  const e = String(email || '').trim().toLowerCase()
-  if (!e) return false
-  const { data, error } = await supabase.rpc('is_admin', { p_email: e })
+const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim())
+
+/**
+ * ✅ Admin real via RPC do Supabase (is_admin)
+ * - tenta com email (preferencial)
+ * - se não tiver email, tenta com "usuario" (ex: 'adm') somente se você permitir no seu SQL
+ */
+async function checarAdmin(pIdent: string) {
+  const ident = String(pIdent || '').trim().toLowerCase()
+  if (!ident) return false
+
+  // sua RPC atual é: is_admin({ p_email })
+  // vamos continuar chamando assim pra não quebrar seu banco.
+  // (se você quiser permitir 'adm' na tabela admins, deixe lá como "adm")
+  const { data, error } = await supabase.rpc('is_admin', { p_email: ident })
   if (error) return false
   return data === true
+}
+
+function pegarIdentidadeLocalStorage(): { email: string; usuario: string } {
+  // tenta pegar o máximo de fontes possíveis
+  const tryParse = (k: string) => {
+    const s = localStorage.getItem(k)
+    if (!s) return null
+    try {
+      return JSON.parse(s)
+    } catch {
+      return null
+    }
+  }
+
+  const u1 = tryParse('user')
+  const u2 = tryParse('usuario')
+  const u3 = tryParse('auth')
+  const rawEmail = localStorage.getItem('email') || localStorage.getItem('user_email') || ''
+  const rawUsuario = localStorage.getItem('usuario_nome') || localStorage.getItem('username') || ''
+
+  const email =
+    String(u1?.email || u2?.email || u3?.email || rawEmail || u1?.usuario || u2?.usuario || '').trim()
+  const usuario =
+    String(u1?.usuario || u2?.usuario || rawUsuario || u1?.login || u2?.login || '').trim()
+
+  return { email, usuario }
 }
 
 export default function Sidebar() {
@@ -43,7 +79,7 @@ export default function Sidebar() {
   const [abrirLeilao, setAbrirLeilao] = useState(false)
   const [abrirAdmin, setAbrirAdmin] = useState(false)
   const [abrirCopa, setAbrirCopa] = useState(false)
-  const [headerVisible, setHeaderVisible] = useState(true) // slide up/down
+  const [headerVisible, setHeaderVisible] = useState(true)
 
   // ===== Admin
   const [isAdmin, setIsAdmin] = useState(false)
@@ -76,7 +112,7 @@ export default function Sidebar() {
     [pathname]
   )
 
-  // ========= Persistências (menu, grupos, header)
+  // ========= Persistências
   useEffect(() => {
     try {
       const collapsed = localStorage.getItem('sb_open')
@@ -84,27 +120,27 @@ export default function Sidebar() {
       setAbrirElenco(localStorage.getItem('sb_g_elenco') === '1')
       setAbrirRoubo(localStorage.getItem('sb_g_roubo') === '1')
       setAbrirLeilao(localStorage.getItem('sb_g_leilao') === '1')
-
-      // ✅ se o usuário não for admin, esse estado será forçado pra false no check
       setAbrirAdmin(localStorage.getItem('sb_g_admin') === '1')
-
       setAbrirCopa(localStorage.getItem('sb_g_copa') === '1')
 
       const hv = localStorage.getItem('sb_header_visible')
       if (hv !== null) setHeaderVisible(hv === '1')
     } catch {}
   }, [])
+
   useEffect(() => {
     localStorage.setItem('sb_open', isOpen ? '1' : '0')
   }, [isOpen])
+
   const persistGroup = (key: GroupKey, open: boolean) =>
     localStorage.setItem(`sb_g_${key}`, open ? '1' : '0')
+
   const setHeaderPersist = (v: boolean) => {
     setHeaderVisible(v)
     localStorage.setItem('sb_header_visible', v ? '1' : '0')
   }
 
-  // ========= Descobrir idTime + contadores base + ADMIN
+  // ========= Descobrir idTime + contadores + ADMIN (corrigido)
   useEffect(() => {
     const getIdTime = (): string | null => {
       const direct = localStorage.getItem('id_time') || localStorage.getItem('time_id')
@@ -126,7 +162,6 @@ export default function Sidebar() {
     setCountRecebidas(safe(localStorage.getItem('propostas_recebidas_count')))
     setCountEnviadas(safe(localStorage.getItem('propostas_enviadas_count')))
 
-    // fallback moedas do LS
     const mLS =
       Number(localStorage.getItem('moedas')) ||
       (() => {
@@ -141,26 +176,17 @@ export default function Sidebar() {
       })()
     setMoedas(safe(mLS))
 
-    // ✅ checar admin via EMAIL (Opção 1)
     ;(async () => {
       setCheckingAdmin(true)
       try {
-        const s = localStorage.getItem('user') || localStorage.getItem('usuario')
-        if (!s) {
-          setIsAdmin(false)
-          setAbrirAdmin(false)
-          persistGroup('admin', false)
-          return
-        }
-        const u = JSON.parse(s)
+        const { email, usuario } = pegarIdentidadeLocalStorage()
 
-        // ⚠️ Opção 1: só email mesmo. Sem fallback p/ "usuario" (Thiago) porque isso quebra.
-        const email = String(u?.email || '').trim()
+        // ✅ preferir email válido, mas se não tiver, tenta "usuario"
+        const identPreferido = isEmail(email) ? email : usuario || email
 
-        const ok = await checarAdminPorEmail(email)
+        const ok = await checarAdmin(identPreferido)
         setIsAdmin(ok)
 
-        // se não for admin, fecha grupo e limpa persistência
         if (!ok) {
           setAbrirAdmin(false)
           persistGroup('admin', false)
@@ -175,7 +201,7 @@ export default function Sidebar() {
     })()
   }, [])
 
-  // ========= Helpers de “adivinha” de campo
+  // ========= Helpers
   const getFirstNumber = (row: any, keys: string[]) => {
     for (const k of keys) {
       if (row?.[k] != null && Number(row[k]) >= 0) return safe(row[k])
@@ -183,7 +209,7 @@ export default function Sidebar() {
     return 0
   }
 
-  // ========= Carregar do Supabase: times, elenco, emprestimos (com fallbacks id/tecnico/nome)
+  // ========= Carregar do Supabase: time, elenco, emprestimos
   useEffect(() => {
     ;(async () => {
       let timeRow: any = null
@@ -297,7 +323,7 @@ export default function Sidebar() {
     })()
   }, [idTime, nomeTime])
 
-  // ========= Realtime opcional (atualiza Top KPIs automaticamente)
+  // ========= Realtime
   useEffect(() => {
     if (!idTime) return
     const ch = supabase
@@ -308,70 +334,6 @@ export default function Sidebar() {
         if (p.new?.nome) setNomeTime(p.new.nome)
         if (p.new?.logo || p.new?.logo_url) setLogoUrl(p.new.logo || p.new.logo_url)
       })
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'elenco', filter: `id_time=eq.${idTime}` },
-        () => {
-          supabase
-            .from('elenco')
-            .select('*')
-            .eq('id_time', idTime)
-            .then(({ data }) => {
-              if (!data) return
-              const soma = data.reduce((acc: number, r: any) => {
-                const v = getFirstNumber(r, ['salario', 'salario_mensal', 'salario_total', 'salários'])
-                return acc + v
-              }, 0)
-              setTotalSalarios(soma)
-            })
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'emprestimos', filter: `id_time=eq.${idTime}` },
-        () => {
-          supabase
-            .from('emprestimos')
-            .select('*')
-            .eq('id_time', idTime)
-            .in('status', ['aberto', 'ativo', 'pendente'])
-            .limit(1)
-            .maybeSingle()
-            .then(({ data }) => {
-              if (!data) {
-                setDividaEmprestimos(0)
-                setValorParcela(0)
-                setParcelasRestantes(0)
-                return
-              }
-              const total = getFirstNumber(data, ['valor_total', 'valor', 'montante', 'principal', 'total'])
-              const totParcelas =
-                getFirstNumber(data, ['parcelas_totais', 'total_parcelas', 'qtd_parcelas', 'numero_parcelas']) || 1
-              let restantes = getFirstNumber(data, ['restantes', 'parcelas_restantes'])
-              const pagas = getFirstNumber(data, ['parcelas_pagas'])
-              const atual = getFirstNumber(data, ['parcela_atual'])
-              if (!restantes) {
-                if (pagas) restantes = Math.max(totParcelas - pagas, 0)
-                else if (atual) restantes = Math.max(totParcelas - (atual - 1), 0)
-                else restantes = totParcelas
-              }
-              let vParcela = getFirstNumber(data, ['valor_parcela', 'parcela_valor', 'valor_por_turno', 'por_turno'])
-              if (!vParcela) vParcela = Math.ceil(total / Math.max(totParcelas, 1))
-              const devedor =
-                getFirstNumber(data, [
-                  'saldo_devedor',
-                  'valor_devido',
-                  'saldo_atual',
-                  'valor_a_pagar',
-                  'restante',
-                  'total_devido',
-                ]) || vParcela * restantes
-              setDividaEmprestimos(devedor)
-              setValorParcela(vParcela)
-              setParcelasRestantes(restantes)
-            })
-        }
-      )
       .subscribe()
     return () => {
       supabase.removeChannel(ch)
@@ -391,7 +353,7 @@ export default function Sidebar() {
   const dividaFmt = useMemo(() => fmtBRL0(safe(dividaEmprestimos)), [dividaEmprestimos])
   const parcelaFmt = useMemo(() => fmtBRL0(safe(valorParcela)), [valorParcela])
 
-  // ========= UI helpers (iguais ao seu)
+  // ========= UI helpers
   const ToggleBtn = ({
     open,
     onClick,
@@ -498,7 +460,7 @@ export default function Sidebar() {
     )
   }
 
-  // ====== Cabeçalho fixo com SLIDE (oculta pra cima)
+  // ====== Header
   const HeaderBar = () => (
     <div
       className={[
@@ -603,7 +565,6 @@ export default function Sidebar() {
       </button>
     )
 
-  // ========= Logout / Sem login
   const logoutBtn = logado ? (
     <button
       onClick={logout}
@@ -614,7 +575,6 @@ export default function Sidebar() {
     </button>
   ) : null
 
-  // ====== Render
   return (
     <>
       <HeaderBar />
@@ -676,30 +636,12 @@ export default function Sidebar() {
             {!isOpen ? (
               <div className="grid grid-cols-1 gap-1">
                 {!logado && <CollapsedItem href="/login" label="Login" emoji="🔑" />}
-
                 <CollapsedItem href="/" label="Home" emoji="🏠" />
                 <CollapsedItem href="/classificacao" label="Classificação" emoji="🏆" />
                 <CollapsedItem href="/jogos" label="Jogos" emoji="📅" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/BID" label="BID" emoji="📰" />
-
-                <CollapsedItem
-                  href="/propostas_recebidas"
-                  label="Propostas Recebidas"
-                  emoji="📥"
-                  badge={<DotBadge n={countRecebidas} tone="amber" />}
-                />
-                <CollapsedItem
-                  href="/propostas_enviadas"
-                  label="Propostas Enviadas"
-                  emoji="📤"
-                  badge={<DotBadge n={countEnviadas} tone="emerald" />}
-                />
-                <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
-                <CollapsedItem href="/copa/final" label="Final" emoji="🏅" />
-
-                {/* ✅ Admin só se admin */}
-                {isAdmin && <CollapsedItem href="/admin" label="Administração" emoji="🗂️" />}
+                {isAdmin && <CollapsedItem href="/admin/jogadores_base" label="Jogadores (Banco)" emoji="🗃️" />}
               </div>
             ) : (
               <>
@@ -725,87 +667,14 @@ export default function Sidebar() {
                   {abrirElenco && (
                     <div className="ml-3 mt-1 space-y-1 text-sm">
                       <NavLink href="/elenco">👥 Meu Elenco</NavLink>
-                      <NavLink href="/elenco/tatico">🎯 Painel Tático</NavLink>
-                      <NavLink href="/elenco/patrocinios">💼 Patrocínios</NavLink>
                       <NavLink href="/negociacoes">🤝 Negociações</NavLink>
-                      <NavLink href="/propostas_recebidas" badge={<DotBadge n={countRecebidas} tone="amber" />}>
-                        📥 Propostas Recebidas
-                      </NavLink>
-                      <NavLink href="/propostas_enviadas" badge={<DotBadge n={countEnviadas} tone="emerald" />}>
-                        📤 Propostas Enviadas
-                      </NavLink>
-                      <NavLink href="/estadio">🏟️ Estádio</NavLink>
                       <NavLink href="/banco">🏦 Banco</NavLink>
                       <NavLink href="/financeiro">📊 Financeiro</NavLink>
                     </div>
                   )}
                 </div>
 
-                {/* ===== Evento de Roubo ===== */}
-                <div className="mt-2">
-                  <ToggleBtn
-                    open={abrirRoubo}
-                    onClick={() => {
-                      const v = !abrirRoubo
-                      setAbrirRoubo(v)
-                      persistGroup('roubo', v)
-                    }}
-                    label="Evento de Roubo"
-                    icon={<span className="text-lg">🕵️</span>}
-                  />
-                  {abrirRoubo && (
-                    <div className="ml-3 mt-1 space-y-1 text-sm">
-                      <NavLink href="/evento_roubo/bloqueio">🔒 Bloqueio</NavLink>
-                      <NavLink href="/evento_roubo/acao">⚔️ Ação</NavLink>
-                      <NavLink href="/evento_roubo/relatorio">📋 Relatório</NavLink>
-                    </div>
-                  )}
-                </div>
-
-                {/* ===== Leilão ===== */}
-                <div className="mt-2">
-                  <ToggleBtn
-                    open={abrirLeilao}
-                    onClick={() => {
-                      const v = !abrirLeilao
-                      setAbrirLeilao(v)
-                      persistGroup('leilao', v)
-                    }}
-                    label="Leilão"
-                    icon={<span className="text-lg">📢</span>}
-                  />
-                  {abrirLeilao && (
-                    <div className="ml-3 mt-1 space-y-1 text-sm">
-                      {/* Leilão do sistema fica público */}
-                      <NavLink href="/admin/leilao_sistema">⚙️ Leilão Sistema</NavLink>
-                      <NavLink href="/admin/leilao_escuro">🕶️ Leilão Escuro</NavLink>
-                    </div>
-                  )}
-                </div>
-
-                {/* ===== Copa ===== */}
-                <div className="mt-2">
-                  <ToggleBtn
-                    open={abrirCopa}
-                    onClick={() => {
-                      const v = !abrirCopa
-                      setAbrirCopa(v)
-                      persistGroup('copa', v)
-                    }}
-                    label="Copa"
-                    icon={<span className="text-lg">🏆</span>}
-                  />
-                  {abrirCopa && (
-                    <div className="ml-3 mt-1 space-y-1 text-sm">
-                      <NavLink href="/copa/fase_grupos">📊 Fase grupos</NavLink>
-                      <NavLink href="/copa/mata-mata">🥇 Mata mata</NavLink>
-                      <NavLink href="/copa/historico-campeoes">🏆 Histórico de Campeões</NavLink>
-                      {/* ❌ Removido: Admin Copa */}
-                    </div>
-                  )}
-                </div>
-
-                {/* ===== Administração (só admins) ===== */}
+                {/* ===== Admin (só admin) ===== */}
                 {isAdmin && (
                   <div className="mt-2 mb-1">
                     <ToggleBtn
@@ -818,26 +687,19 @@ export default function Sidebar() {
                       label="Admin"
                       icon={<span className="text-lg">🛠️</span>}
                     />
-
                     {abrirAdmin && (
                       <div className="ml-3 mt-1 space-y-1 text-sm">
+                        <NavLink href="/admin/jogadores_base">🗃️ Jogadores (Banco)</NavLink>
                         <NavLink href="/admin/leilao">🎯 Leilão</NavLink>
-                        <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>
                         <NavLink href="/admin/painel_times">📋 Painel Times</NavLink>
                         <NavLink href="/admin/times">📝 Admin Times</NavLink>
-                        <NavLink href="/admin/evento_roubo_admin">🕵️ Evento Roubo (Admin)</NavLink>
-                        <NavLink href="/admin/punicoes">🚫 Painel de Punições</NavLink>
-                        <NavLink href="/admin/emprestimos">🏦 Empréstimos</NavLink>
                         <NavLink href="/admin">🗂️ Administração Geral</NavLink>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* feedback enquanto checa admin */}
-                {checkingAdmin && (
-                  <div className="mt-2 text-[11px] text-white/50 px-2">Verificando permissões...</div>
-                )}
+                {checkingAdmin && <div className="mt-2 text-[11px] text-white/50 px-2">Verificando permissões...</div>}
               </>
             )}
           </nav>
@@ -848,4 +710,5 @@ export default function Sidebar() {
     </>
   )
 }
+
 
