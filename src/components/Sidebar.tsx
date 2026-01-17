@@ -654,7 +654,7 @@ export default function Sidebar() {
                 <CollapsedItem href="/BID" label="BID" emoji="📰" />
 
                 {/* ✅ COPA (para TODOS) */}
-                <CollapsedItem href="/copa/fase-grupos" label="Copa (Grupos)" emoji="🏟️" />
+                <CollapsedItem href="/copa/fase_grupos" label="Copa (Grupos)" emoji="🏟️" />
                 <CollapsedItem href="/copa/mata-mata" label="Copa (Mata-mata)" emoji="🥊" />
 
                 {isAdmin && <CollapsedItem href="/admin/jogadores_base" label="Jogadores (Banco)" emoji="🗃️" />}
@@ -704,7 +704,7 @@ export default function Sidebar() {
                   />
                   {abrirCopa && (
                     <div className="ml-3 mt-1 space-y-1 text-sm">
-                      <NavLink href="/copa/fase-grupos">🏟️ Fase de Grupos</NavLink>
+                      <NavLink href="/copa/fase_grupos">🏟️ Fase de Grupos</NavLink>
                       <NavLink href="/copa/mata-mata">🥊 Mata-mata</NavLink>
                     </div>
                   )}
