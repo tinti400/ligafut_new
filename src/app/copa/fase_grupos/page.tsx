@@ -26,79 +26,17 @@ import {
 } from '@/utils/estadioEngine'
 
 /* ================= SUPABASE & CONFIG ================= */
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
 const TEMPORADA = process.env.NEXT_PUBLIC_TEMPORADA || '2025-26'
 const TABELA_GRUPOS = 'copa_fase_grupos'
 const TABELA_MM = 'copa_mata_mata'
 
-/* ================= MODELOS DE COPA ================= */
-type CopaModelo = 'UCL_4x5_DIV1e2_OIT' | 'DIV1_2GRUPOS_QUARTAS'
-
-const COPA_MODELOS: { id: CopaModelo; nome: string; desc: string }[] = [
-  {
-    id: 'UCL_4x5_DIV1e2_OIT',
-    nome: 'Champions (4 grupos de 5) — DIV 1 + 2',
-    desc: '20 times • 4 grupos • Top 4 → Oitavas',
-  },
-  {
-    id: 'DIV1_2GRUPOS_QUARTAS',
-    nome: 'Liga (2 grupos) — só 1ª divisão',
-    desc: 'Times da Divisão 1 • 2 grupos • Top 4 → Quartas',
-  },
-]
-
-function getModeloCfg(modelo: CopaModelo) {
-  if (modelo === 'DIV1_2GRUPOS_QUARTAS') {
-    // Assumindo 20 times na Div1 -> 2 grupos de 10
-    const GRUPOS = ['A', 'B'] as const
-    const TIMES_POR_GRUPO = 10
-    const TOTAL_TIMES = GRUPOS.length * TIMES_POR_GRUPO // 20
-    const CLASSIFICAM_POR_GRUPO = 4
-    const RODADAS_GRUPO = TIMES_POR_GRUPO - 1 // 9
-    const mataMataLabel = 'Quartas'
-    const faseMataMataDb = 'quartas'
-    return {
-      GRUPOS,
-      TIMES_POR_GRUPO,
-      TOTAL_TIMES,
-      CLASSIFICAM_POR_GRUPO,
-      RODADAS_GRUPO,
-      mataMataLabel,
-      faseMataMataDb,
-      divisaoFiltro: ['1'] as string[],
-    }
-  }
-
-  // padrão: 4 grupos de 5 usando DIV 1 + 2
-  const GRUPOS = ['A', 'B', 'C', 'D'] as const
-  const TIMES_POR_GRUPO = 5
-  const TOTAL_TIMES = GRUPOS.length * TIMES_POR_GRUPO // 20
-  const CLASSIFICAM_POR_GRUPO = 4
-  const RODADAS_GRUPO = 5 // 5 times (ímpar) -> 5 rodadas
-  const mataMataLabel = 'Oitavas'
-  const faseMataMataDb = 'oitavas'
-
-  return {
-    GRUPOS,
-    TIMES_POR_GRUPO,
-    TOTAL_TIMES,
-    CLASSIFICAM_POR_GRUPO,
-    RODADAS_GRUPO,
-    mataMataLabel,
-    faseMataMataDb,
-    divisaoFiltro: ['1', '2'] as string[],
-  }
-}
-
 /* ================= TYPES ================= */
 type Jogo = {
   id: number
   rodada: number
-  grupo?: string | null // fase de grupos
+  grupo?: string | null
   time1: string
   time2: string
   gols_time1: number | null
@@ -113,7 +51,7 @@ type Jogo = {
   receita_visitante?: number | null
   salarios_mandante?: number | null
   salarios_visitante?: number | null
-  premiacao_mandante?: number | null // total = participação + desempenho
+  premiacao_mandante?: number | null
   premiacao_visitante?: number | null
 }
 
@@ -137,7 +75,23 @@ const COPA_DERROTA = 2_500_000
 const COPA_GOL_MARCADO = 400_000
 const COPA_GOL_SOFRIDO = 40_000
 
-/* ================= HELPERS (fora do componente) ================= */
+/* ================= MODELOS ================= */
+type CopaModel = 'champions_4x5_top4_oitavas' | 'div1_2grupos_top4_quartas'
+
+const MODELOS: { id: CopaModel; label: string; desc: string }[] = [
+  {
+    id: 'champions_4x5_top4_oitavas',
+    label: 'Champions (4 grupos de 5)',
+    desc: 'DIV 1 + 2 • Top 4 de cada grupo • Oitavas',
+  },
+  {
+    id: 'div1_2grupos_top4_quartas',
+    label: '1ª Divisão (2 grupos)',
+    desc: 'SÓ DIV 1 • 2 grupos (A/B) • Top 4 • Quartas',
+  },
+]
+
+/* ================= HELPERS ================= */
 const clampInt = (n: number) => (Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n))
 
 function shuffle<T>(arr: T[]): T[] {
@@ -149,10 +103,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-/**
- * Puxa times da tabela `times` filtrando divisões (ex: ['1'] ou ['1','2'])
- * (no seu banco `divisao` é TEXT, então o filtro precisa ser string)
- */
+/** Puxa times por divisões (divisao é TEXT no seu banco) */
 async function safeSelectTimesByDivisoes(divisoes: string[], minimal = false) {
   const tries = minimal
     ? ['id,nome,logo_url,associacao,divisao', 'id,nome,logo_url,divisao', '*']
@@ -171,13 +122,59 @@ async function safeSelectTimesByDivisoes(divisoes: string[], minimal = false) {
   return [] as any[]
 }
 
+/** Ordena “mais fracos” (pra cortar extras) */
+function sortMaisFracosPrimeiro(a: TimeFull, b: TimeFull) {
+  const oa = a.overall ?? 0
+  const ob = b.overall ?? 0
+  if (oa !== ob) return oa - ob
+  return (a.valor ?? 0) - (b.valor ?? 0)
+}
+
+/** Round-robin genérico (N times). Se ímpar, adiciona BYE. */
+function gerarRoundRobin(ids: string[]) {
+  if (ids.length < 2) return []
+  const BYE = '__BYE__'
+  const list = [...ids]
+  if (list.length % 2 === 1) list.push(BYE)
+
+  const n = list.length
+  const rounds = n - 1
+  const half = n / 2
+
+  let arr = [...list]
+  const jogos: { rodada: number; casa: string; fora: string }[] = []
+
+  for (let r = 1; r <= rounds; r++) {
+    const left = arr.slice(0, half)
+    const right = arr.slice(half).reverse()
+
+    for (let i = 0; i < half; i++) {
+      const a = left[i]
+      const b = right[i]
+      if (a === BYE || b === BYE) continue
+
+      // alterna mando para equilibrar
+      const casa = (r + i) % 2 === 0 ? a : b
+      const fora = (r + i) % 2 === 0 ? b : a
+      jogos.push({ rodada: r, casa, fora })
+    }
+
+    // rotação (fixa arr[0])
+    const fixed = arr[0]
+    const rest = arr.slice(1)
+    rest.unshift(rest.pop() as string)
+    arr = [fixed, ...rest]
+  }
+
+  return jogos
+}
+
 /**
- * Para 4 grupos de 5 times, o sorteio “justo” é:
- * - 5 potes com 4 times cada (20 times)
- * - cada grupo recebe 1 time de cada pote
+ * Champions: 4 grupos de 5
+ * - 5 potes de 4 times
+ * - cada grupo recebe 1 por pote
  */
 function atribuirPotes5(times: TimeFull[]): Record<string, number> {
-  // se já existir pote 1..5, usa
   const temPote = times.some(t => (t.pote ?? 0) >= 1 && (t.pote ?? 0) <= 5)
   if (temPote) {
     const out: Record<string, number> = {}
@@ -188,7 +185,6 @@ function atribuirPotes5(times: TimeFull[]): Record<string, number> {
     return out
   }
 
-  // senão, cria potes por força (overall > valor)
   const ord = [...times].sort((a, b) => {
     const oa = a.overall ?? 0
     const ob = b.overall ?? 0
@@ -205,138 +201,6 @@ function atribuirPotes5(times: TimeFull[]): Record<string, number> {
     out[t.id] = Math.min(5, Math.floor(i / q) + 1)
   })
   return out
-}
-
-type CalendarioGrupoItem = { grupo: string; rodada: number; casa: string; fora: string }
-
-/**
- * Gera calendário round-robin para N times:
- * - se N é ímpar, adiciona BYE
- * - método do círculo
- * - rounds = (N' - 1), onde N' é par (N ou N+1)
- */
-function gerarRoundRobin(ids: string[]): { rodada: number; casa: string; fora: string }[] {
-  if (ids.length < 2) return []
-
-  const BYE = '__BYE__'
-  let arr = [...ids]
-  if (arr.length % 2 === 1) arr.push(BYE)
-
-  const n = arr.length
-  const rounds = n - 1
-  const half = n / 2
-
-  const jogos: { rodada: number; casa: string; fora: string }[] = []
-
-  for (let r = 1; r <= rounds; r++) {
-    const left = arr.slice(0, half)
-    const right = arr.slice(half).reverse()
-
-    for (let i = 0; i < half; i++) {
-      const a = left[i]
-      const b = right[i]
-      if (a === BYE || b === BYE) continue
-
-      const casa = (r + i) % 2 === 0 ? a : b
-      const fora = (r + i) % 2 === 0 ? b : a
-      jogos.push({ rodada: r, casa, fora })
-    }
-
-    const fixed = arr[0]
-    const rest = arr.slice(1)
-    rest.unshift(rest.pop() as string)
-    arr = [fixed, ...rest]
-  }
-
-  return jogos
-}
-
-/**
- * Sorteia 4 grupos (A–D) de 5:
- * - 5 potes de 4 times
- * - cada grupo recebe 1 por pote
- * - tenta evitar mesmo país dentro do grupo
- */
-function sortearGrupos(
-  participantes: TimeFull[],
-  evitarMesmoPais: boolean
-): Record<'A' | 'B' | 'C' | 'D', TimeFull[]> {
-  const potes = atribuirPotes5(participantes)
-
-  const porPote: Record<number, TimeFull[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
-  participantes.forEach(t => porPote[potes[t.id] ?? 5].push(t))
-  ;(Object.keys(porPote) as any).forEach((p: any) => {
-    porPote[Number(p)] = shuffle(porPote[Number(p)])
-  })
-
-  const tentativaMax = 300
-  for (let tentativa = 1; tentativa <= tentativaMax; tentativa++) {
-    const p1 = shuffle(porPote[1])
-    const p2 = shuffle(porPote[2])
-    const p3 = shuffle(porPote[3])
-    const p4 = shuffle(porPote[4])
-    const p5 = shuffle(porPote[5])
-
-    const grupos: Record<'A' | 'B' | 'C' | 'D', TimeFull[]> = { A: [], B: [], C: [], D: [] }
-    ;(['A', 'B', 'C', 'D'] as const).forEach((g, idx) => {
-      grupos[g].push(p1[idx], p2[idx], p3[idx], p4[idx], p5[idx])
-    })
-
-    if (!evitarMesmoPais) return grupos
-
-    const ok = (['A', 'B', 'C', 'D'] as const).every(g => {
-      const ass = grupos[g].map(t => t.associacao).filter(Boolean) as string[]
-      return new Set(ass).size === ass.length
-    })
-
-    if (ok) return grupos
-  }
-
-  // fallback sem restrição
-  const grupos: Record<'A' | 'B' | 'C' | 'D', TimeFull[]> = { A: [], B: [], C: [], D: [] }
-  const p = atribuirPotes5(participantes)
-  const byPote: Record<number, TimeFull[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
-  participantes.forEach(t => byPote[p[t.id] ?? 5].push(t))
-  ;(Object.keys(byPote) as any).forEach((k: any) => (byPote[Number(k)] = shuffle(byPote[Number(k)])))
-  ;(['A', 'B', 'C', 'D'] as const).forEach((g, idx) => {
-    grupos[g].push(byPote[1][idx], byPote[2][idx], byPote[3][idx], byPote[4][idx], byPote[5][idx])
-  })
-  return grupos
-}
-
-/**
- * Sorteia 2 grupos (A–B):
- * - distribui alternando após embaralhar, tentando balancear força
- * - tenta evitar mesmo país dentro do grupo (se ativado)
- */
-function sortear2Grupos(participantes: TimeFull[], evitarMesmoPais: boolean): Record<'A' | 'B', TimeFull[]> {
-  const ord = [...participantes].sort((a, b) => {
-    const oa = a.overall ?? 0
-    const ob = b.overall ?? 0
-    if (ob !== oa) return ob - oa
-    return (b.valor ?? 0) - (a.valor ?? 0)
-  })
-
-  const tentativaMax = 200
-  for (let t = 1; t <= tentativaMax; t++) {
-    const base = shuffle(ord)
-    const A: TimeFull[] = []
-    const B: TimeFull[] = []
-    base.forEach((time, i) => ((i % 2 === 0 ? A : B).push(time)))
-
-    if (!evitarMesmoPais) return { A, B }
-
-    const assA = A.map(x => x.associacao).filter(Boolean) as string[]
-    const assB = B.map(x => x.associacao).filter(Boolean) as string[]
-    const okA = new Set(assA).size === assA.length
-    const okB = new Set(assB).size === assB.length
-    if (okA && okB) return { A, B }
-  }
-
-  const A: TimeFull[] = []
-  const B: TimeFull[] = []
-  shuffle(participantes).forEach((time, i) => ((i % 2 === 0 ? A : B).push(time)))
-  return { A, B }
 }
 
 type BadgeTone = 'zinc' | 'emerald' | 'sky' | 'violet' | 'amber'
@@ -362,15 +226,33 @@ function Badge({ tone = 'zinc', children }: { tone?: BadgeTone; children: ReactN
 export default function FaseGruposPage() {
   const { isAdmin } = useAdmin()
 
-  const [copaModelo, setCopaModelo] = useState<CopaModelo>('UCL_4x5_DIV1e2_OIT')
-  const cfg = useMemo(() => getModeloCfg(copaModelo), [copaModelo])
+  const [modelo, setModelo] = useState<CopaModel>('champions_4x5_top4_oitavas')
 
-  // atalhos
-  const GRUPOS = cfg.GRUPOS
-  const TIMES_POR_GRUPO = cfg.TIMES_POR_GRUPO
-  const TOTAL_TIMES = cfg.TOTAL_TIMES
-  const CLASSIFICAM_POR_GRUPO = cfg.CLASSIFICAM_POR_GRUPO
-  const RODADAS_GRUPO = cfg.RODADAS_GRUPO
+  const cfg = useMemo(() => {
+    if (modelo === 'div1_2grupos_top4_quartas') {
+      return {
+        title: 'Copa — 1ª Divisão',
+        subtitle: '2 Grupos (A/B)',
+        divisoes: ['1'],
+        grupos: ['A', 'B'] as const,
+        classificam: 4,
+        mataMataFase: 'quartas' as const,
+        mataMataLabel: 'Quartas',
+      }
+    }
+    return {
+      title: 'UEFA Champions — Fase de Grupos',
+      subtitle: '4 Grupos (A–D)',
+      divisoes: ['1', '2'],
+      grupos: ['A', 'B', 'C', 'D'] as const,
+      classificam: 4,
+      mataMataFase: 'oitavas' as const,
+      mataMataLabel: 'Oitavas',
+    }
+  }, [modelo])
+
+  const GRUPOS = cfg.grupos
+  const CLASSIFICAM_POR_GRUPO = cfg.classificam
 
   const [jogos, setJogos] = useState<Jogo[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, TimeMini>>({})
@@ -389,7 +271,7 @@ export default function FaseGruposPage() {
   const [secoesAbertas, setSecoesAbertas] = useState<Record<string, boolean>>({})
   const topRef = useRef<HTMLDivElement | null>(null)
 
-  // Mata-mata (dinâmico: oitavas ou quartas)
+  // Mata-mata
   const [gerandoMM, setGerandoMM] = useState(false)
   const [abrirModalMM, setAbrirModalMM] = useState(false)
   const [chavesMM, setChavesMM] = useState<{ casaId: string; foraId: string; label: string }[]>([])
@@ -405,13 +287,15 @@ export default function FaseGruposPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // quando troca o modelo, recarrega lista de times (pra filtro e nomes)
+  // quando troca modelo, recarrega times + jogos (porque muda divisão/visão)
   useEffect(() => {
     ;(async () => {
-      await carregarTimesBase()
+      setLoading(true)
+      await Promise.all([carregarTimesBase(), buscarJogos()])
+      setLoading(false)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [copaModelo])
+  }, [modelo])
 
   async function detectarColunaTemporada() {
     const { error } = await supabase.from(TABELA_GRUPOS).select('id,temporada').limit(1)
@@ -434,7 +318,7 @@ export default function FaseGruposPage() {
   }
 
   async function carregarTimesBase() {
-    const rows = await safeSelectTimesByDivisoes(cfg.divisaoFiltro, true)
+    const rows = await safeSelectTimesByDivisoes(cfg.divisoes, true)
     const novo: Record<string, TimeMini> = {}
     rows.forEach((t: any) => {
       const nome = t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id)
@@ -487,11 +371,7 @@ export default function FaseGruposPage() {
   async function calcularPublicoERendaPeloEstadio(
     mandanteId: string
   ): Promise<{ publico: number; renda: number; erro?: string }> {
-    const { data: est, error } = await supabase
-      .from('estadios')
-      .select('*')
-      .eq('id_time', mandanteId)
-      .maybeSingle()
+    const { data: est, error } = await supabase.from('estadios').select('*').eq('id_time', mandanteId).maybeSingle()
 
     if (error || !est) {
       return {
@@ -542,9 +422,7 @@ export default function FaseGruposPage() {
     const { data: jogadores } = await supabase.from('elenco').select('id, jogos').eq('id_time', timeId)
     if (!jogadores) return
     await Promise.all(
-      jogadores.map(j =>
-        supabase.from('elenco').update({ jogos: Math.max(0, (j.jogos || 0) + delta) }).eq('id', j.id)
-      )
+      jogadores.map(j => supabase.from('elenco').update({ jogos: Math.max(0, (j.jogos || 0) + delta) }).eq('id', j.id))
     )
   }
 
@@ -600,7 +478,7 @@ export default function FaseGruposPage() {
     return valor
   }
 
-  /* ===================== GERAR GRUPOS + CALENDÁRIO ===================== */
+  /* ===================== GERAR GRUPOS + CALENDÁRIO (com MODELO) ===================== */
   const gerarFaseGrupos = async () => {
     if (!isAdmin) {
       toast.error('Apenas admin pode gerar a fase.')
@@ -609,9 +487,8 @@ export default function FaseGruposPage() {
 
     setGerando(true)
     try {
-      const rows = await safeSelectTimesByDivisoes(cfg.divisaoFiltro, false)
-
-      toast(`Times encontrados (${cfg.divisaoFiltro.join('+')}): ${rows?.length ?? 0}`, { icon: '🔎' })
+      const rows = await safeSelectTimesByDivisoes(cfg.divisoes, false)
+      toast(`Times encontrados (${cfg.divisoes.join('+')}): ${rows?.length ?? 0}`, { icon: '🔎' })
 
       let participantes: TimeFull[] = (rows || []).map((t: any) => ({
         id: String(t.id),
@@ -624,35 +501,164 @@ export default function FaseGruposPage() {
         divisao: t.divisao ?? null,
       }))
 
+      // ===== MODELO DIV1: 2 grupos (A/B) pegando TODOS da div1
+      if (modelo === 'div1_2grupos_top4_quartas') {
+        if (participantes.length < 8) {
+          toast.error('Preciso de pelo menos 8 times na 1ª divisão para fazer 2 grupos e quartas.')
+          return
+        }
+
+        // precisa ser par pra dividir em 2
+        if (participantes.length % 2 === 1) {
+          const ord = [...participantes].sort(sortMaisFracosPrimeiro)
+          const removido = ord[0]
+          participantes = participantes.filter(t => t.id !== removido.id)
+          toast(`⚠️ Nº ímpar de times na 1ª divisão. Removi 1 mais fraco: ${removido.nome}`, { icon: 'ℹ️' })
+        }
+
+        const half = participantes.length / 2
+        const embaralhados = shuffle(participantes)
+
+        const grupos: Record<'A' | 'B', TimeFull[]> = {
+          A: embaralhados.slice(0, half),
+          B: embaralhados.slice(half),
+        }
+
+        // calendário de cada grupo
+        const calendario: { grupo: string; rodada: number; casa: string; fora: string }[] = []
+        ;(['A', 'B'] as const).forEach(g => {
+          const ids = grupos[g].map(t => t.id)
+          const jogosG = gerarRoundRobin(ids)
+          jogosG.forEach(j => calendario.push({ grupo: g, rodada: j.rodada, casa: j.casa, fora: j.fora }))
+        })
+
+        if (!calendario.length) {
+          toast.error('Falha ao gerar calendário (DIV1 2 grupos).')
+          return
+        }
+
+        // limpa tabela (temporada ou tudo)
+        if (temColunaTemporada) {
+          const { error: delErr } = await supabase.from(TABELA_GRUPOS).delete().eq('temporada', TEMPORADA)
+          if (delErr) {
+            console.error(delErr)
+            toast.error('Erro ao limpar jogos da temporada.')
+            return
+          }
+        } else {
+          const { error: delErr } = await supabase.from(TABELA_GRUPOS).delete().neq('id', -1)
+          if (delErr) {
+            console.error(delErr)
+            toast.error('Erro ao limpar tabela de jogos.')
+            return
+          }
+        }
+
+        const rowsInsert = calendario.map(j => ({
+          ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
+          ...(temColunaGrupo ? { grupo: j.grupo } : {}),
+          rodada: j.rodada,
+          time1: j.casa,
+          time2: j.fora,
+          gols_time1: null,
+          gols_time2: null,
+          bonus_pago: false,
+        }))
+
+        const { error: insErr } = await supabase.from(TABELA_GRUPOS).insert(rowsInsert)
+        if (insErr) {
+          console.error(insErr)
+          toast.error('Erro ao inserir confrontos dos grupos (DIV1).')
+          return
+        }
+
+        await atualizarClassificacao()
+        await buscarJogos()
+
+        await supabase.from('bid').insert([
+          {
+            tipo_evento: 'Sistema',
+            descricao: `Copa (DIV1) gerada — 2 grupos (${half} times por grupo) • Top 4 → Quartas.`,
+            valor: null,
+            data_evento: new Date().toISOString(),
+          },
+        ])
+
+        toast.success(`✅ Copa DIV1 gerada: ${rowsInsert.length} jogos (2 grupos)`)
+        topRef.current?.scrollIntoView({ behavior: 'smooth' })
+        return
+      }
+
+      // ===== MODELO CHAMPIONS: 4 grupos de 5 (20 times total)
+      const GRUPOS_CH = ['A', 'B', 'C', 'D'] as const
+      const TIMES_POR_GRUPO = 5
+      const TOTAL_TIMES = GRUPOS_CH.length * TIMES_POR_GRUPO // 20
+
       if (participantes.length < TOTAL_TIMES) {
-        toast.error(`Preciso de ${TOTAL_TIMES} times para esse modelo. Achei ${participantes.length}.`)
+        toast.error(`Preciso de ${TOTAL_TIMES} times (DIV 1 + 2) para 4 grupos de 5. Achei ${participantes.length}.`)
         return
       }
 
       if (participantes.length > TOTAL_TIMES) {
-        const ord = [...participantes].sort((a, b) => {
-          const oa = a.overall ?? 0
-          const ob = b.overall ?? 0
-          if (oa !== ob) return oa - ob
-          return (a.valor ?? 0) - (b.valor ?? 0)
-        })
+        const ord = [...participantes].sort(sortMaisFracosPrimeiro)
         const extras = ord.slice(0, participantes.length - TOTAL_TIMES)
         const extraIds = new Set(extras.map(e => e.id))
         participantes = participantes.filter(t => !extraIds.has(t.id))
-        toast(`Tinha mais de ${TOTAL_TIMES}. Removi ${extras.length} clubes mais fracos para fechar em ${TOTAL_TIMES}.`, {
-          icon: 'ℹ️',
+        toast(`Tinha mais de ${TOTAL_TIMES}. Removi ${extras.length} clubes mais fracos para fechar em 20.`, { icon: 'ℹ️' })
+      }
+
+      // sorteio por potes
+      const potes = atribuirPotes5(participantes)
+      const porPote: Record<number, TimeFull[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
+      participantes.forEach(t => porPote[potes[t.id] ?? 5].push(t))
+      ;(Object.keys(porPote) as any).forEach((p: any) => (porPote[Number(p)] = shuffle(porPote[Number(p)])))
+
+      const tentativaMax = 300
+      let grupos: Record<(typeof GRUPOS_CH)[number], TimeFull[]> | null = null
+
+      for (let tentativa = 1; tentativa <= tentativaMax; tentativa++) {
+        const p1 = shuffle(porPote[1])
+        const p2 = shuffle(porPote[2])
+        const p3 = shuffle(porPote[3])
+        const p4 = shuffle(porPote[4])
+        const p5 = shuffle(porPote[5])
+
+        const gtmp: Record<(typeof GRUPOS_CH)[number], TimeFull[]> = { A: [], B: [], C: [], D: [] }
+        GRUPOS_CH.forEach((g, idx) => {
+          gtmp[g].push(p1[idx], p2[idx], p3[idx], p4[idx], p5[idx])
+        })
+
+        if (!evitarMesmoPais) {
+          grupos = gtmp
+          break
+        }
+
+        const ok = GRUPOS_CH.every(g => {
+          const ass = gtmp[g].map(t => t.associacao).filter(Boolean) as string[]
+          return new Set(ass).size === ass.length
+        })
+
+        if (ok) {
+          grupos = gtmp
+          break
+        }
+      }
+
+      if (!grupos) {
+        // fallback sem restrição
+        grupos = { A: [], B: [], C: [], D: [] }
+        const byPote: Record<number, TimeFull[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
+        participantes.forEach(t => byPote[potes[t.id] ?? 5].push(t))
+        ;(Object.keys(byPote) as any).forEach((k: any) => (byPote[Number(k)] = shuffle(byPote[Number(k)])))
+        GRUPOS_CH.forEach((g, idx) => {
+          grupos![g].push(byPote[1][idx], byPote[2][idx], byPote[3][idx], byPote[4][idx], byPote[5][idx])
         })
       }
 
-      const grupos: Record<string, TimeFull[]> =
-        copaModelo === 'DIV1_2GRUPOS_QUARTAS'
-          ? (sortear2Grupos(participantes, evitarMesmoPais) as any)
-          : (sortearGrupos(participantes, evitarMesmoPais) as any)
-
-      const calendario: CalendarioGrupoItem[] = []
-      ;(GRUPOS as readonly string[]).forEach(g => {
-        const ids = (grupos[g] || []).map(t => t.id)
-        const jogosG = gerarRoundRobin(ids)
+      const calendario: { grupo: string; rodada: number; casa: string; fora: string }[] = []
+      GRUPOS_CH.forEach(g => {
+        const ids = grupos![g].map(t => t.id)
+        const jogosG = gerarRoundRobin(ids) // 5 times => 5 rodadas (por BYE)
         jogosG.forEach(j => calendario.push({ grupo: g, rodada: j.rodada, casa: j.casa, fora: j.fora }))
       })
 
@@ -702,13 +708,13 @@ export default function FaseGruposPage() {
       await supabase.from('bid').insert([
         {
           tipo_evento: 'Sistema',
-          descricao: `Fase de Grupos gerada (${copaModelo === 'DIV1_2GRUPOS_QUARTAS' ? '2 grupos (DIV1)' : '4 grupos (DIV1+2)'}).`,
+          descricao: `Champions gerada — 4 grupos de 5 • Top 4 → Oitavas.`,
           valor: null,
           data_evento: new Date().toISOString(),
         },
       ])
 
-      toast.success(`✅ Grupos gerados: ${rowsInsert.length} jogos`)
+      toast.success(`✅ Grupos gerados: ${rowsInsert.length} jogos (4 grupos)`)
       topRef.current?.scrollIntoView({ behavior: 'smooth' })
     } finally {
       setGerando(false)
@@ -718,10 +724,7 @@ export default function FaseGruposPage() {
   /* ===================== Salvar / Ajuste / Excluir ===================== */
   async function salvarAjusteResultado(jogo: Jogo, gm: number, gv: number, silencioso = false) {
     if (!isAdmin) return
-    const { error } = await supabase
-      .from(TABELA_GRUPOS)
-      .update({ gols_time1: gm, gols_time2: gv, bonus_pago: true })
-      .eq('id', jogo.id)
+    const { error } = await supabase.from(TABELA_GRUPOS).update({ gols_time1: gm, gols_time2: gv, bonus_pago: true }).eq('id', jogo.id)
 
     if (error) {
       console.error(error)
@@ -737,12 +740,7 @@ export default function FaseGruposPage() {
     if (!isAdmin) return
     setSalvandoId(jogo.id)
 
-    const { data: existente, error: erroVer } = await supabase
-      .from(TABELA_GRUPOS)
-      .select('bonus_pago')
-      .eq('id', jogo.id)
-      .single()
-
+    const { data: existente, error: erroVer } = await supabase.from(TABELA_GRUPOS).select('bonus_pago').eq('id', jogo.id).single()
     if (erroVer) {
       console.error(erroVer)
       toast.error('Erro ao verificar status do jogo')
@@ -780,37 +778,13 @@ export default function FaseGruposPage() {
     await supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: COPA_PARTICIPACAO_POR_JOGO })
 
     await supabase.from('movimentacoes').insert([
-      {
-        id_time: mandanteId,
-        tipo: 'participacao_copa',
-        valor: COPA_PARTICIPACAO_POR_JOGO,
-        descricao: 'Participação fixa por jogo (COPA)',
-        data: new Date().toISOString(),
-      },
-      {
-        id_time: visitanteId,
-        tipo: 'participacao_copa',
-        valor: COPA_PARTICIPACAO_POR_JOGO,
-        descricao: 'Participação fixa por jogo (COPA)',
-        data: new Date().toISOString(),
-      },
+      { id_time: mandanteId, tipo: 'participacao_copa', valor: COPA_PARTICIPACAO_POR_JOGO, descricao: 'Participação fixa por jogo (COPA)', data: new Date().toISOString() },
+      { id_time: visitanteId, tipo: 'participacao_copa', valor: COPA_PARTICIPACAO_POR_JOGO, descricao: 'Participação fixa por jogo (COPA)', data: new Date().toISOString() },
     ])
 
     await supabase.from('bid').insert([
-      {
-        tipo_evento: 'bonus_participacao_copa',
-        descricao: 'Participação fixa por jogo (COPA)',
-        id_time1: mandanteId,
-        valor: COPA_PARTICIPACAO_POR_JOGO,
-        data_evento: new Date().toISOString(),
-      },
-      {
-        tipo_evento: 'bonus_participacao_copa',
-        descricao: 'Participação fixa por jogo (COPA)',
-        id_time1: visitanteId,
-        valor: COPA_PARTICIPACAO_POR_JOGO,
-        data_evento: new Date().toISOString(),
-      },
+      { tipo_evento: 'bonus_participacao_copa', descricao: 'Participação fixa por jogo (COPA)', id_time1: mandanteId, valor: COPA_PARTICIPACAO_POR_JOGO, data_evento: new Date().toISOString() },
+      { tipo_evento: 'bonus_participacao_copa', descricao: 'Participação fixa por jogo (COPA)', id_time1: visitanteId, valor: COPA_PARTICIPACAO_POR_JOGO, data_evento: new Date().toISOString() },
     ])
 
     const premiacaoMandanteDesempenho = await premiarPorJogoCopa(mandanteId, jogo.gols_time1, jogo.gols_time2)
@@ -823,48 +797,19 @@ export default function FaseGruposPage() {
     const totalPremVisitante = premiacaoVisitanteDesempenho + COPA_PARTICIPACAO_POR_JOGO
 
     await supabase.from('bid').insert([
-      {
-        tipo_evento: 'receita_partida',
-        descricao: 'Receita da partida (renda + bônus) — COPA',
-        id_time1: mandanteId,
-        valor: receitaMandante + totalPremMandante,
-        data_evento: new Date().toISOString(),
-      },
-      {
-        tipo_evento: 'receita_partida',
-        descricao: 'Receita da partida (renda + bônus) — COPA',
-        id_time1: visitanteId,
-        valor: receitaVisitante + totalPremVisitante,
-        data_evento: new Date().toISOString(),
-      },
+      { tipo_evento: 'receita_partida', descricao: 'Receita da partida (renda + bônus) — COPA', id_time1: mandanteId, valor: receitaMandante + totalPremMandante, data_evento: new Date().toISOString() },
+      { tipo_evento: 'receita_partida', descricao: 'Receita da partida (renda + bônus) — COPA', id_time1: visitanteId, valor: receitaVisitante + totalPremVisitante, data_evento: new Date().toISOString() },
     ])
 
     await ajustarJogosElenco(mandanteId, +1)
     await ajustarJogosElenco(visitanteId, +1)
 
-    const patchBase: any = {
-      gols_time1: jogo.gols_time1,
-      gols_time2: jogo.gols_time2,
-      bonus_pago: true,
-    }
+    const patchBase: any = { gols_time1: jogo.gols_time1, gols_time2: jogo.gols_time2, bonus_pago: true }
     const patchExtras: any = temExtrasFinanceiros
-      ? {
-          renda,
-          publico,
-          receita_mandante: receitaMandante,
-          receita_visitante: receitaVisitante,
-          salarios_mandante: salariosMandante,
-          salarios_visitante: salariosVisitante,
-          premiacao_mandante: totalPremMandante,
-          premiacao_visitante: totalPremVisitante,
-        }
+      ? { renda, publico, receita_mandante: receitaMandante, receita_visitante: receitaVisitante, salarios_mandante: salariosMandante, salarios_visitante: salariosVisitante, premiacao_mandante: totalPremMandante, premiacao_visitante: totalPremVisitante }
       : {}
 
-    const { error: erroPlacar } = await supabase
-      .from(TABELA_GRUPOS)
-      .update({ ...patchBase, ...patchExtras })
-      .eq('id', jogo.id)
-
+    const { error: erroPlacar } = await supabase.from(TABELA_GRUPOS).update({ ...patchBase, ...patchExtras }).eq('id', jogo.id)
     if (erroPlacar) {
       console.error(erroPlacar)
       toast.error('Erro ao salvar/registrar finanças')
@@ -879,12 +824,8 @@ export default function FaseGruposPage() {
     toast.success(
       `✅ Placar salvo e finanças pagas (COPA)!
 🎟️ Público: ${publico.toLocaleString()}  |  💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${n1}: ${Math.round(receitaMandante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString(
-        'pt-BR'
-      )} (participação) + bônus
-💵 ${n2}: ${Math.round(receitaVisitante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString(
-        'pt-BR'
-      )} (participação) + bônus`,
+💵 ${n1}: ${Math.round(receitaMandante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString('pt-BR')} (participação) + bônus
+💵 ${n2}: ${Math.round(receitaVisitante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString('pt-BR')} (participação) + bônus`,
       { duration: 9000 }
     )
 
@@ -910,126 +851,30 @@ export default function FaseGruposPage() {
       const premiacaoVisitante = jogo.premiacao_visitante ?? 0
 
       await Promise.all([
-        receitaMandante
-          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante })
-          : Promise.resolve(),
-        receitaVisitante
-          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante })
-          : Promise.resolve(),
-        salariosMandante
-          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante })
-          : Promise.resolve(),
-        salariosVisitante
-          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante })
-          : Promise.resolve(),
-        premiacaoMandante
-          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante })
-          : Promise.resolve(),
-        premiacaoVisitante
-          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante })
-          : Promise.resolve(),
+        receitaMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante }) : Promise.resolve(),
+        receitaVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante }) : Promise.resolve(),
+        salariosMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante }) : Promise.resolve(),
+        salariosVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante }) : Promise.resolve(),
+        premiacaoMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante }) : Promise.resolve(),
+        premiacaoVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante }) : Promise.resolve(),
       ])
 
       const movs: any[] = []
-      if (receitaMandante)
-        movs.push({
-          id_time: mandanteId,
-          tipo: 'estorno_receita',
-          valor: receitaMandante,
-          descricao: 'Estorno receita de partida (COPA)',
-          data: now,
-        })
-      if (receitaVisitante)
-        movs.push({
-          id_time: visitanteId,
-          tipo: 'estorno_receita',
-          valor: receitaVisitante,
-          descricao: 'Estorno receita de partida (COPA)',
-          data: now,
-        })
-      if (salariosMandante)
-        movs.push({
-          id_time: mandanteId,
-          tipo: 'estorno_salario',
-          valor: salariosMandante,
-          descricao: 'Estorno de salários (COPA)',
-          data: now,
-        })
-      if (salariosVisitante)
-        movs.push({
-          id_time: visitanteId,
-          tipo: 'estorno_salario',
-          valor: salariosVisitante,
-          descricao: 'Estorno de salários (COPA)',
-          data: now,
-        })
-      if (premiacaoMandante)
-        movs.push({
-          id_time: mandanteId,
-          tipo: 'estorno_bonus_total',
-          valor: premiacaoMandante,
-          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
-          data: now,
-        })
-      if (premiacaoVisitante)
-        movs.push({
-          id_time: visitanteId,
-          tipo: 'estorno_bonus_total',
-          valor: premiacaoVisitante,
-          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
-          data: now,
-        })
+      if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida (COPA)', data: now })
+      if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida (COPA)', data: now })
+      if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (COPA)', data: now })
+      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
+      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_total', valor: premiacaoMandante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
+      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_total', valor: premiacaoVisitante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
       const bids: any[] = []
-      if (receitaMandante)
-        bids.push({
-          tipo_evento: 'estorno_receita_partida',
-          descricao: 'Estorno da receita da partida (COPA)',
-          id_time1: mandanteId,
-          valor: -receitaMandante,
-          data_evento: now,
-        })
-      if (receitaVisitante)
-        bids.push({
-          tipo_evento: 'estorno_receita_partida',
-          descricao: 'Estorno da receita da partida (COPA)',
-          id_time1: visitanteId,
-          valor: -receitaVisitante,
-          data_evento: now,
-        })
-      if (salariosMandante)
-        bids.push({
-          tipo_evento: 'estorno_despesas',
-          descricao: 'Estorno de despesas (salários) — COPA',
-          id_time1: mandanteId,
-          valor: +salariosMandante,
-          data_evento: now,
-        })
-      if (salariosVisitante)
-        bids.push({
-          tipo_evento: 'estorno_despesas',
-          descricao: 'Estorno de despesas (salários) — COPA',
-          id_time1: visitanteId,
-          valor: +salariosVisitante,
-          data_evento: now,
-        })
-      if (premiacaoMandante)
-        bids.push({
-          tipo_evento: 'estorno_bonus',
-          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
-          id_time1: mandanteId,
-          valor: -premiacaoMandante,
-          data_evento: now,
-        })
-      if (premiacaoVisitante)
-        bids.push({
-          tipo_evento: 'estorno_bonus',
-          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
-          id_time1: visitanteId,
-          valor: -premiacaoVisitante,
-          data_evento: now,
-        })
+      if (receitaMandante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
+      if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
+      if (salariosMandante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
+      if (salariosVisitante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
+      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus (participação + desempenho) — COPA', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
+      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus (participação + desempenho) — COPA', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
       if (bids.length) await supabase.from('bid').insert(bids)
 
       await ajustarJogosElenco(mandanteId, -1)
@@ -1130,7 +975,7 @@ export default function FaseGruposPage() {
     return out
   }, [jogos])
 
-  /* ===================== GERAR MATA-MATA (OITAVAS OU QUARTAS) ===================== */
+  /* ===================== GERAR MATA-MATA (OITAVAS ou QUARTAS) ===================== */
   async function gerarMataMata() {
     if (!isAdmin) {
       toast.error('Apenas admin pode gerar o mata-mata.')
@@ -1139,85 +984,105 @@ export default function FaseGruposPage() {
 
     setGerandoMM(true)
     try {
-      const gruposOk = (GRUPOS as readonly string[]).every(
-        g => (classificacaoPorGrupo[g]?.length ?? 0) >= CLASSIFICAM_POR_GRUPO
-      )
+      const gruposOk = (cfg.grupos as readonly string[]).every(g => (classificacaoPorGrupo[g]?.length ?? 0) >= CLASSIFICAM_POR_GRUPO)
       if (!gruposOk) {
         toast.error(`Preciso de pelo menos ${CLASSIFICAM_POR_GRUPO} times classificados em cada grupo.`)
         return
       }
 
-      const G = (g: string) => classificacaoPorGrupo[g]
+      // ===== MODELO DIV1: 2 grupos -> QUARTAS (8 times)
+      if (modelo === 'div1_2grupos_top4_quartas') {
+        const A = classificacaoPorGrupo['A']
+        const B = classificacaoPorGrupo['B']
+        const A1 = A[0].id, A2 = A[1].id, A3 = A[2].id, A4 = A[3].id
+        const B1 = B[0].id, B2 = B[1].id, B3 = B[2].id, B4 = B[3].id
 
-      let chaves: { casaId: string; foraId: string; label: string }[] = []
-
-      if (copaModelo === 'DIV1_2GRUPOS_QUARTAS') {
-        const A = G('A')
-        const B = G('B')
-        const A1 = A[0].id,
-          A2 = A[1].id,
-          A3 = A[2].id,
-          A4 = A[3].id
-        const B1 = B[0].id,
-          B2 = B[1].id,
-          B3 = B[2].id,
-          B4 = B[3].id
-
-        chaves = [
+        const chaves = [
           { casaId: A1, foraId: B4, label: 'QF1 — A1 x B4' },
           { casaId: B2, foraId: A3, label: 'QF2 — B2 x A3' },
           { casaId: B1, foraId: A4, label: 'QF3 — B1 x A4' },
           { casaId: A2, foraId: B3, label: 'QF4 — A2 x B3' },
         ]
-      } else {
-        const A = G('A'),
-          B = G('B'),
-          C = G('C'),
-          D = G('D')
-        const A1 = A[0].id,
-          A2 = A[1].id,
-          A3 = A[2].id,
-          A4 = A[3].id
-        const B1 = B[0].id,
-          B2 = B[1].id,
-          B3 = B[2].id,
-          B4 = B[3].id
-        const C1 = C[0].id,
-          C2 = C[1].id,
-          C3 = C[2].id,
-          C4 = C[3].id
-        const D1 = D[0].id,
-          D2 = D[1].id,
-          D3 = D[2].id,
-          D4 = D[3].id
 
-        chaves = [
-          { casaId: A1, foraId: B4, label: 'OIT1 — A1 x B4' },
-          { casaId: B2, foraId: A3, label: 'OIT2 — B2 x A3' },
-          { casaId: B1, foraId: A4, label: 'OIT3 — B1 x A4' },
-          { casaId: A2, foraId: B3, label: 'OIT4 — A2 x B3' },
-          { casaId: C1, foraId: D4, label: 'OIT5 — C1 x D4' },
-          { casaId: D2, foraId: C3, label: 'OIT6 — D2 x C3' },
-          { casaId: D1, foraId: C4, label: 'OIT7 — D1 x C4' },
-          { casaId: C2, foraId: D3, label: 'OIT8 — C2 x D3' },
-        ]
+        // limpar fase no banco
+        let del = await supabase.from(TABELA_MM).delete().eq('fase', 'quartas')
+        if (temColunaTemporada) del = await supabase.from(TABELA_MM).delete().eq('fase', 'quartas').eq('temporada', TEMPORADA)
+
+        // @ts-ignore
+        if (del?.error) {
+          toast('⚠️ Não consegui limpar/usar tabela copa_mata_mata. Verifique se ela existe no banco.', { icon: 'ℹ️' })
+          setChavesMM(chaves)
+          return
+        }
+
+        const rowsInsert = chaves.map((c, idx) => ({
+          ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
+          fase: 'quartas',
+          ordem: idx + 1,
+          id_time1: c.casaId,
+          id_time2: c.foraId,
+          time1: timesMap[c.casaId]?.nome ?? c.casaId,
+          time2: timesMap[c.foraId]?.nome ?? c.foraId,
+          gols_time1: null,
+          gols_time2: null,
+        }))
+
+        const { error: insErr } = await supabase.from(TABELA_MM).insert(rowsInsert)
+        if (insErr) {
+          console.error(insErr)
+          toast.error('Erro ao gravar quartas no banco (copa_mata_mata).')
+          setChavesMM(chaves)
+          return
+        }
+
+        setChavesMM(chaves)
+
+        await supabase.from('bid').insert({
+          tipo_evento: 'Sistema',
+          descricao: `Mata-mata gerado (Quartas) — Copa DIV1 — salvo em ${TABELA_MM}.`,
+          valor: null,
+          data_evento: new Date().toISOString(),
+        })
+
+        toast.success('✅ Quartas geradas (Top 4 de cada grupo)!')
+        return
       }
 
-      let del = await supabase.from(TABELA_MM).delete().eq('fase', cfg.faseMataMataDb)
-      if (temColunaTemporada) {
-        del = await supabase.from(TABELA_MM).delete().eq('fase', cfg.faseMataMataDb).eq('temporada', TEMPORADA)
-      }
+      // ===== MODELO CHAMPIONS: 4 grupos -> OITAVAS (16 times)
+      const A = classificacaoPorGrupo['A']
+      const B = classificacaoPorGrupo['B']
+      const C = classificacaoPorGrupo['C']
+      const D = classificacaoPorGrupo['D']
+
+      const A1 = A[0].id, A2 = A[1].id, A3 = A[2].id, A4 = A[3].id
+      const B1 = B[0].id, B2 = B[1].id, B3 = B[2].id, B4 = B[3].id
+      const C1 = C[0].id, C2 = C[1].id, C3 = C[2].id, C4 = C[3].id
+      const D1 = D[0].id, D2 = D[1].id, D3 = D[2].id, D4 = D[3].id
+
+      const chaves = [
+        { casaId: A1, foraId: B4, label: 'OIT1 — A1 x B4' },
+        { casaId: B2, foraId: A3, label: 'OIT2 — B2 x A3' },
+        { casaId: B1, foraId: A4, label: 'OIT3 — B1 x A4' },
+        { casaId: A2, foraId: B3, label: 'OIT4 — A2 x B3' },
+        { casaId: C1, foraId: D4, label: 'OIT5 — C1 x D4' },
+        { casaId: D2, foraId: C3, label: 'OIT6 — D2 x C3' },
+        { casaId: D1, foraId: C4, label: 'OIT7 — D1 x C4' },
+        { casaId: C2, foraId: D3, label: 'OIT8 — C2 x D3' },
+      ]
+
+      let del = await supabase.from(TABELA_MM).delete().eq('fase', 'oitavas')
+      if (temColunaTemporada) del = await supabase.from(TABELA_MM).delete().eq('fase', 'oitavas').eq('temporada', TEMPORADA)
 
       // @ts-ignore
       if (del?.error) {
-        toast('⚠️ Não consegui usar tabela copa_mata_mata. Verifique se ela existe.', { icon: 'ℹ️' })
+        toast('⚠️ Não consegui limpar/usar tabela copa_mata_mata. Verifique se ela existe no banco.', { icon: 'ℹ️' })
         setChavesMM(chaves)
         return
       }
 
       const rowsInsert = chaves.map((c, idx) => ({
         ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
-        fase: cfg.faseMataMataDb,
+        fase: 'oitavas',
         ordem: idx + 1,
         id_time1: c.casaId,
         id_time2: c.foraId,
@@ -1230,7 +1095,7 @@ export default function FaseGruposPage() {
       const { error: insErr } = await supabase.from(TABELA_MM).insert(rowsInsert)
       if (insErr) {
         console.error(insErr)
-        toast.error(`Erro ao gravar ${cfg.mataMataLabel} no banco (${TABELA_MM}).`)
+        toast.error('Erro ao gravar oitavas no banco (copa_mata_mata).')
         setChavesMM(chaves)
         return
       }
@@ -1239,12 +1104,12 @@ export default function FaseGruposPage() {
 
       await supabase.from('bid').insert({
         tipo_evento: 'Sistema',
-        descricao: `Mata-mata gerado (${cfg.mataMataLabel}) — salvo em ${TABELA_MM} (fase=${cfg.faseMataMataDb}).`,
+        descricao: `Mata-mata gerado (Oitavas) — salvo em ${TABELA_MM}.`,
         valor: null,
         data_evento: new Date().toISOString(),
       })
 
-      toast.success(`✅ ${cfg.mataMataLabel} geradas!`)
+      toast.success('✅ Oitavas geradas (Top 4 de cada grupo)!')
     } finally {
       setGerandoMM(false)
     }
@@ -1283,7 +1148,6 @@ export default function FaseGruposPage() {
     return ids.size
   }, [jogos])
 
-  /* ===== Small UI components ===== */
   const ScoreInput = ({
     value,
     onChange,
@@ -1350,8 +1214,6 @@ export default function FaseGruposPage() {
     )
   }
 
-  const modeloDesc = useMemo(() => COPA_MODELOS.find(m => m.id === copaModelo)?.desc ?? '', [copaModelo])
-
   return (
     <div
       ref={topRef}
@@ -1363,79 +1225,81 @@ export default function FaseGruposPage() {
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">
               <span className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-500 bg-clip-text text-transparent drop-shadow">
-                Copa — Fase de Grupos{temColunaTemporada ? ` • ${TEMPORADA}` : ''}
+                {cfg.title}
+                {temColunaTemporada ? ` • ${TEMPORADA}` : ''}
               </span>
             </h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <Badge tone="emerald">
-                {GRUPOS.length} grupos • {TIMES_POR_GRUPO} times
-              </Badge>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <Badge tone="emerald">{cfg.subtitle}</Badge>
               <Badge tone="sky">Top {CLASSIFICAM_POR_GRUPO} → {cfg.mataMataLabel}</Badge>
-              <Badge>{RODADAS_GRUPO} rodadas por grupo</Badge>
-              <Badge tone="violet">{modeloDesc}</Badge>
+              <Badge>Divisões: {cfg.divisoes.join(' + ')}</Badge>
               {!temColunaGrupo && <Badge tone="amber">⚠️ Sem coluna "grupo"</Badge>}
             </div>
           </div>
 
-          {isAdmin && (
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Seletor de modelo */}
-              <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
-                <span className="text-white/80">Modelo:</span>
-                <select
-                  value={copaModelo}
-                  onChange={e => setCopaModelo(e.target.value as CopaModelo)}
-                  className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs focus:outline-none"
-                >
-                  {COPA_MODELOS.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.nome}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
-                <input
-                  type="checkbox"
-                  className="accent-emerald-500"
-                  checked={evitarMesmoPais}
-                  onChange={e => setEvitarMesmoPais(e.target.checked)}
-                />
-                <FiTarget /> Evitar mesmo país (grupos)
-              </label>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const ok = confirm(
-                    `Gerar Fase de Grupos?\n\nIsso apaga os jogos ${
-                      temColunaTemporada ? `da temporada "${TEMPORADA}"` : 'atuais'
-                    } e cria o modelo selecionado.\n\n✅ Usa times da tabela "times" com divisao IN (${cfg.divisaoFiltro
-                      .map(d => `'${d}'`)
-                      .join(',')})`
-                  )
-                  if (ok) gerarFaseGrupos()
-                }}
-                disabled={gerando}
-                className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-violet-400/60"
-                title="Gera fase de grupos conforme o modelo selecionado"
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Seletor de modelo */}
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
+              <span className="text-white/80 font-semibold">Modelo:</span>
+              <select
+                value={modelo}
+                onChange={e => setModelo(e.target.value as CopaModel)}
+                className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400/60"
               >
-                <FiRotateCcw />
-                {gerando ? 'Gerando...' : 'Gerar Fase de Grupos'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAbrirModalMM(true)}
-                disabled={gerandoMM}
-                className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-amber-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
-                title={`Gera ${cfg.mataMataLabel} a partir do Top ${CLASSIFICAM_POR_GRUPO} de cada grupo`}
-              >
-                {gerandoMM ? 'Gerando…' : `Gerar Mata-mata (${cfg.mataMataLabel})`}
-              </button>
+                {MODELOS.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-white/60 hidden md:inline">• {MODELOS.find(m => m.id === modelo)?.desc}</span>
             </div>
-          )}
+
+            {isAdmin && (
+              <>
+                {modelo === 'champions_4x5_top4_oitavas' && (
+                  <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
+                    <input
+                      type="checkbox"
+                      className="accent-emerald-500"
+                      checked={evitarMesmoPais}
+                      onChange={e => setEvitarMesmoPais(e.target.checked)}
+                    />
+                    <FiTarget /> Evitar mesmo país (grupos)
+                  </label>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ok = confirm(
+                      `Gerar Copa?\n\nIsso apaga os jogos ${
+                        temColunaTemporada ? `da temporada "${TEMPORADA}"` : 'atuais'
+                      } e cria os grupos conforme o modelo selecionado.\n\nModelo: ${MODELOS.find(m => m.id === modelo)?.label}\nDivisões: ${cfg.divisoes.join(
+                        ' + '
+                      )}\nClassificação: Top ${CLASSIFICAM_POR_GRUPO} → ${cfg.mataMataLabel}`
+                    )
+                    if (ok) gerarFaseGrupos()
+                  }}
+                  disabled={gerando}
+                  className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-violet-400/60"
+                >
+                  <FiRotateCcw />
+                  {gerando ? 'Gerando...' : 'Gerar Fase de Grupos'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAbrirModalMM(true)}
+                  disabled={gerandoMM}
+                  className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-amber-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+                >
+                  {gerandoMM ? 'Gerando…' : `Gerar Mata-mata (${cfg.mataMataLabel})`}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Metrics bar */}
@@ -1610,17 +1474,13 @@ export default function FaseGruposPage() {
                                 <div className="flex items-center gap-2">
                                   <ScoreInput
                                     value={jogo.gols_time1}
-                                    onChange={v =>
-                                      setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time1: v } : j)))
-                                    }
+                                    onChange={v => setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time1: v } : j)))}
                                     disabled={!isAdmin}
                                   />
                                   <span className="px-2 text-lg font-extrabold text-zinc-300">x</span>
                                   <ScoreInput
                                     value={jogo.gols_time2}
-                                    onChange={v =>
-                                      setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time2: v } : j)))
-                                    }
+                                    onChange={v => setJogos(prev => prev.map(j => (j.id === jogo.id ? { ...j, gols_time2: v } : j)))}
                                     disabled={!isAdmin}
                                   />
                                 </div>
@@ -1646,7 +1506,6 @@ export default function FaseGruposPage() {
                                       onClick={() => salvarPlacar(jogo)}
                                       disabled={salvandoId === jogo.id}
                                       className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
-                                      title="Salvar placar e processar finanças (COPA)"
                                     >
                                       <FiSave />
                                       {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
@@ -1656,7 +1515,6 @@ export default function FaseGruposPage() {
                                       onClick={() => excluirPlacar(jogo)}
                                       disabled={salvandoId === jogo.id}
                                       className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-red-400/60"
-                                      title="Zerar placar deste jogo (estorno)"
                                     >
                                       <FiTrash2 />
                                       {salvandoId === jogo.id ? 'Excluindo...' : 'Excluir'}
@@ -1665,32 +1523,23 @@ export default function FaseGruposPage() {
                                 )}
                               </div>
 
-                              {/* Info extra */}
                               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400">
                                 {jogo.renda != null && jogo.publico != null ? (
                                   <div className="flex items-center gap-3">
                                     <span>
                                       🎟️ Público:{' '}
-                                      <span className="tabular-nums text-zinc-200">
-                                        {Number(jogo.publico).toLocaleString()}
-                                      </span>
+                                      <span className="tabular-nums text-zinc-200">{Number(jogo.publico).toLocaleString()}</span>
                                     </span>
                                     <span>
                                       💰 Renda:{' '}
-                                      <span className="tabular-nums text-zinc-200">
-                                        R$ {Number(jogo.renda).toLocaleString()}
-                                      </span>
+                                      <span className="tabular-nums text-zinc-200">R$ {Number(jogo.renda).toLocaleString()}</span>
                                     </span>
                                   </div>
                                 ) : (
                                   <div className="text-zinc-500">Sem relatório financeiro ainda</div>
                                 )}
 
-                                {jogo.bonus_pago ? (
-                                  <Badge tone="emerald">Finanças lançadas</Badge>
-                                ) : (
-                                  <Badge tone="zinc">Aguardando lançamento</Badge>
-                                )}
+                                {jogo.bonus_pago ? <Badge tone="emerald">Finanças lançadas</Badge> : <Badge tone="zinc">Aguardando lançamento</Badge>}
                               </div>
                             </div>
                           ))}
@@ -1712,10 +1561,7 @@ export default function FaseGruposPage() {
             </h3>
             <ul className="grid md:grid-cols-2 gap-2 text-sm">
               {chavesMM.map((c, i) => (
-                <li
-                  key={i}
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-between"
-                >
+                <li key={i} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center justify-between">
                   <span>
                     <b>{c.label}:</b> {timesMap[c.casaId]?.nome || c.casaId} × {timesMap[c.foraId]?.nome || c.foraId}
                   </span>
@@ -1732,10 +1578,9 @@ export default function FaseGruposPage() {
           <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 shadow-2xl">
             <h3 className="mb-2 text-xl font-bold text-yellow-300">Gerar Mata-mata ({cfg.mataMataLabel})?</h3>
             <p className="mb-6 text-zinc-200">
-              Isso pega o <b>Top {CLASSIFICAM_POR_GRUPO}</b> de cada grupo e cria{' '}
-              <b>{cfg.mataMataLabel.toLowerCase()}</b>.
+              Isso pega o <b>Top {CLASSIFICAM_POR_GRUPO}</b> de cada grupo e cria <b>{cfg.mataMataLabel.toLowerCase()}</b>.
               <br />
-              <span className="text-zinc-300">Será salvo em <code>{TABELA_MM}</code> (fase={cfg.faseMataMataDb}).</span>
+              Será salvo em <code>{TABELA_MM}</code> (fase={cfg.mataMataFase}).
             </p>
             <div className="flex items-center justify-end gap-3">
               <button
