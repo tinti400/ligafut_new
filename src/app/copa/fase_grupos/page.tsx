@@ -35,6 +35,65 @@ const TEMPORADA = process.env.NEXT_PUBLIC_TEMPORADA || '2025-26'
 const TABELA_GRUPOS = 'copa_fase_grupos'
 const TABELA_MM = 'copa_mata_mata'
 
+/* ================= MODELOS DE COPA ================= */
+type CopaModelo = 'UCL_4x5_DIV1e2_OIT' | 'DIV1_2GRUPOS_QUARTAS'
+
+const COPA_MODELOS: { id: CopaModelo; nome: string; desc: string }[] = [
+  {
+    id: 'UCL_4x5_DIV1e2_OIT',
+    nome: 'Champions (4 grupos de 5) — DIV 1 + 2',
+    desc: '20 times • 4 grupos • Top 4 → Oitavas',
+  },
+  {
+    id: 'DIV1_2GRUPOS_QUARTAS',
+    nome: 'Liga (2 grupos) — só 1ª divisão',
+    desc: 'Times da Divisão 1 • 2 grupos • Top 4 → Quartas',
+  },
+]
+
+function getModeloCfg(modelo: CopaModelo) {
+  if (modelo === 'DIV1_2GRUPOS_QUARTAS') {
+    // Assumindo 20 times na Div1 -> 2 grupos de 10
+    const GRUPOS = ['A', 'B'] as const
+    const TIMES_POR_GRUPO = 10
+    const TOTAL_TIMES = GRUPOS.length * TIMES_POR_GRUPO // 20
+    const CLASSIFICAM_POR_GRUPO = 4
+    const RODADAS_GRUPO = TIMES_POR_GRUPO - 1 // 9
+    const mataMataLabel = 'Quartas'
+    const faseMataMataDb = 'quartas'
+    return {
+      GRUPOS,
+      TIMES_POR_GRUPO,
+      TOTAL_TIMES,
+      CLASSIFICAM_POR_GRUPO,
+      RODADAS_GRUPO,
+      mataMataLabel,
+      faseMataMataDb,
+      divisaoFiltro: ['1'] as string[],
+    }
+  }
+
+  // padrão: 4 grupos de 5 usando DIV 1 + 2
+  const GRUPOS = ['A', 'B', 'C', 'D'] as const
+  const TIMES_POR_GRUPO = 5
+  const TOTAL_TIMES = GRUPOS.length * TIMES_POR_GRUPO // 20
+  const CLASSIFICAM_POR_GRUPO = 4
+  const RODADAS_GRUPO = 5 // 5 times (ímpar) -> 5 rodadas
+  const mataMataLabel = 'Oitavas'
+  const faseMataMataDb = 'oitavas'
+
+  return {
+    GRUPOS,
+    TIMES_POR_GRUPO,
+    TOTAL_TIMES,
+    CLASSIFICAM_POR_GRUPO,
+    RODADAS_GRUPO,
+    mataMataLabel,
+    faseMataMataDb,
+    divisaoFiltro: ['1', '2'] as string[],
+  }
+}
+
 /* ================= TYPES ================= */
 type Jogo = {
   id: number
@@ -78,15 +137,6 @@ const COPA_DERROTA = 2_500_000
 const COPA_GOL_MARCADO = 400_000
 const COPA_GOL_SOFRIDO = 40_000
 
-/* ================= FASE DE GRUPOS CONFIG ================= */
-const GRUPOS = ['A', 'B', 'C', 'D'] as const
-const TIMES_POR_GRUPO = 5
-const TOTAL_TIMES = GRUPOS.length * TIMES_POR_GRUPO // 20
-const RODADAS_GRUPO = 5 // 5 times => 5 rodadas (2 jogos + 1 bye por rodada)
-
-// ✅ AGORA CLASSIFICAM 4 POR GRUPO
-const CLASSIFICAM_POR_GRUPO = 4
-
 /* ================= HELPERS (fora do componente) ================= */
 const clampInt = (n: number) => (Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n))
 
@@ -100,10 +150,10 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /**
- * ✅ Puxa times da tabela `times` filtrando divisao "1" e "2"
+ * Puxa times da tabela `times` filtrando divisões (ex: ['1'] ou ['1','2'])
  * (no seu banco `divisao` é TEXT, então o filtro precisa ser string)
  */
-async function safeSelectTimesDiv1e2(minimal = false) {
+async function safeSelectTimesByDivisoes(divisoes: string[], minimal = false) {
   const tries = minimal
     ? ['id,nome,logo_url,associacao,divisao', 'id,nome,logo_url,divisao', '*']
     : [
@@ -115,7 +165,7 @@ async function safeSelectTimesDiv1e2(minimal = false) {
       ]
 
   for (const s of tries) {
-    const { data, error } = await supabase.from('times').select(s).in('divisao', ['1', '2'])
+    const { data, error } = await supabase.from('times').select(s).in('divisao', divisoes)
     if (!error && data) return data as any[]
   }
   return [] as any[]
@@ -160,18 +210,21 @@ function atribuirPotes5(times: TimeFull[]): Record<string, number> {
 type CalendarioGrupoItem = { grupo: string; rodada: number; casa: string; fora: string }
 
 /**
- * Gera calendário round-robin para 5 times (odd):
- * - adiciona BYE
+ * Gera calendário round-robin para N times:
+ * - se N é ímpar, adiciona BYE
  * - método do círculo
- * - 5 rodadas, 2 jogos por rodada
+ * - rounds = (N' - 1), onde N' é par (N ou N+1)
  */
-function gerarRoundRobin5(ids: string[]): { rodada: number; casa: string; fora: string }[] {
-  if (ids.length !== 5) return []
+function gerarRoundRobin(ids: string[]): { rodada: number; casa: string; fora: string }[] {
+  if (ids.length < 2) return []
+
   const BYE = '__BYE__'
-  let arr = [...ids, BYE] // 6
-  const n = arr.length // 6
-  const rounds = n - 1 // 5
-  const half = n / 2 // 3
+  let arr = [...ids]
+  if (arr.length % 2 === 1) arr.push(BYE)
+
+  const n = arr.length
+  const rounds = n - 1
+  const half = n / 2
 
   const jogos: { rodada: number; casa: string; fora: string }[] = []
 
@@ -184,13 +237,11 @@ function gerarRoundRobin5(ids: string[]): { rodada: number; casa: string; fora: 
       const b = right[i]
       if (a === BYE || b === BYE) continue
 
-      // alterna mando pra não ficar “viciado”
       const casa = (r + i) % 2 === 0 ? a : b
       const fora = (r + i) % 2 === 0 ? b : a
       jogos.push({ rodada: r, casa, fora })
     }
 
-    // rotação (fixa arr[0])
     const fixed = arr[0]
     const rest = arr.slice(1)
     rest.unshift(rest.pop() as string)
@@ -201,15 +252,15 @@ function gerarRoundRobin5(ids: string[]): { rodada: number; casa: string; fora: 
 }
 
 /**
- * Sorteia 4 grupos de 5:
+ * Sorteia 4 grupos (A–D) de 5:
  * - 5 potes de 4 times
  * - cada grupo recebe 1 por pote
- * - tenta evitar mesmo país dentro do grupo (se ativado)
+ * - tenta evitar mesmo país dentro do grupo
  */
 function sortearGrupos(
   participantes: TimeFull[],
   evitarMesmoPais: boolean
-): Record<(typeof GRUPOS)[number], TimeFull[]> {
+): Record<'A' | 'B' | 'C' | 'D', TimeFull[]> {
   const potes = atribuirPotes5(participantes)
 
   const porPote: Record<number, TimeFull[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
@@ -226,14 +277,14 @@ function sortearGrupos(
     const p4 = shuffle(porPote[4])
     const p5 = shuffle(porPote[5])
 
-    const grupos: Record<(typeof GRUPOS)[number], TimeFull[]> = { A: [], B: [], C: [], D: [] }
-    GRUPOS.forEach((g, idx) => {
+    const grupos: Record<'A' | 'B' | 'C' | 'D', TimeFull[]> = { A: [], B: [], C: [], D: [] }
+    ;(['A', 'B', 'C', 'D'] as const).forEach((g, idx) => {
       grupos[g].push(p1[idx], p2[idx], p3[idx], p4[idx], p5[idx])
     })
 
     if (!evitarMesmoPais) return grupos
 
-    const ok = GRUPOS.every(g => {
+    const ok = (['A', 'B', 'C', 'D'] as const).every(g => {
       const ass = grupos[g].map(t => t.associacao).filter(Boolean) as string[]
       return new Set(ass).size === ass.length
     })
@@ -242,15 +293,50 @@ function sortearGrupos(
   }
 
   // fallback sem restrição
-  const grupos: Record<(typeof GRUPOS)[number], TimeFull[]> = { A: [], B: [], C: [], D: [] }
+  const grupos: Record<'A' | 'B' | 'C' | 'D', TimeFull[]> = { A: [], B: [], C: [], D: [] }
   const p = atribuirPotes5(participantes)
   const byPote: Record<number, TimeFull[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] }
   participantes.forEach(t => byPote[p[t.id] ?? 5].push(t))
   ;(Object.keys(byPote) as any).forEach((k: any) => (byPote[Number(k)] = shuffle(byPote[Number(k)])))
-  GRUPOS.forEach((g, idx) => {
+  ;(['A', 'B', 'C', 'D'] as const).forEach((g, idx) => {
     grupos[g].push(byPote[1][idx], byPote[2][idx], byPote[3][idx], byPote[4][idx], byPote[5][idx])
   })
   return grupos
+}
+
+/**
+ * Sorteia 2 grupos (A–B):
+ * - distribui alternando após embaralhar, tentando balancear força
+ * - tenta evitar mesmo país dentro do grupo (se ativado)
+ */
+function sortear2Grupos(participantes: TimeFull[], evitarMesmoPais: boolean): Record<'A' | 'B', TimeFull[]> {
+  const ord = [...participantes].sort((a, b) => {
+    const oa = a.overall ?? 0
+    const ob = b.overall ?? 0
+    if (ob !== oa) return ob - oa
+    return (b.valor ?? 0) - (a.valor ?? 0)
+  })
+
+  const tentativaMax = 200
+  for (let t = 1; t <= tentativaMax; t++) {
+    const base = shuffle(ord)
+    const A: TimeFull[] = []
+    const B: TimeFull[] = []
+    base.forEach((time, i) => ((i % 2 === 0 ? A : B).push(time)))
+
+    if (!evitarMesmoPais) return { A, B }
+
+    const assA = A.map(x => x.associacao).filter(Boolean) as string[]
+    const assB = B.map(x => x.associacao).filter(Boolean) as string[]
+    const okA = new Set(assA).size === assA.length
+    const okB = new Set(assB).size === assB.length
+    if (okA && okB) return { A, B }
+  }
+
+  const A: TimeFull[] = []
+  const B: TimeFull[] = []
+  shuffle(participantes).forEach((time, i) => ((i % 2 === 0 ? A : B).push(time)))
+  return { A, B }
 }
 
 type BadgeTone = 'zinc' | 'emerald' | 'sky' | 'violet' | 'amber'
@@ -276,6 +362,16 @@ function Badge({ tone = 'zinc', children }: { tone?: BadgeTone; children: ReactN
 export default function FaseGruposPage() {
   const { isAdmin } = useAdmin()
 
+  const [copaModelo, setCopaModelo] = useState<CopaModelo>('UCL_4x5_DIV1e2_OIT')
+  const cfg = useMemo(() => getModeloCfg(copaModelo), [copaModelo])
+
+  // atalhos
+  const GRUPOS = cfg.GRUPOS
+  const TIMES_POR_GRUPO = cfg.TIMES_POR_GRUPO
+  const TOTAL_TIMES = cfg.TOTAL_TIMES
+  const CLASSIFICAM_POR_GRUPO = cfg.CLASSIFICAM_POR_GRUPO
+  const RODADAS_GRUPO = cfg.RODADAS_GRUPO
+
   const [jogos, setJogos] = useState<Jogo[]>([])
   const [timesMap, setTimesMap] = useState<Record<string, TimeMini>>({})
   const [filtroTime, setFiltroTime] = useState<string>('Todos')
@@ -293,7 +389,7 @@ export default function FaseGruposPage() {
   const [secoesAbertas, setSecoesAbertas] = useState<Record<string, boolean>>({})
   const topRef = useRef<HTMLDivElement | null>(null)
 
-  // ===== Mata-mata (AGORA: OITAVAS, porque classificam 16)
+  // Mata-mata (dinâmico: oitavas ou quartas)
   const [gerandoMM, setGerandoMM] = useState(false)
   const [abrirModalMM, setAbrirModalMM] = useState(false)
   const [chavesMM, setChavesMM] = useState<{ casaId: string; foraId: string; label: string }[]>([])
@@ -308,6 +404,14 @@ export default function FaseGruposPage() {
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // quando troca o modelo, recarrega lista de times (pra filtro e nomes)
+  useEffect(() => {
+    ;(async () => {
+      await carregarTimesBase()
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copaModelo])
 
   async function detectarColunaTemporada() {
     const { error } = await supabase.from(TABELA_GRUPOS).select('id,temporada').limit(1)
@@ -330,7 +434,7 @@ export default function FaseGruposPage() {
   }
 
   async function carregarTimesBase() {
-    const rows = await safeSelectTimesDiv1e2(true)
+    const rows = await safeSelectTimesByDivisoes(cfg.divisaoFiltro, true)
     const novo: Record<string, TimeMini> = {}
     rows.forEach((t: any) => {
       const nome = t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id)
@@ -357,7 +461,6 @@ export default function FaseGruposPage() {
 
     setJogos((data || []) as Jogo[])
 
-    // abre A e B por padrão, ou as duas primeiras chaves
     const chaves = new Set<string>()
     ;(data || []).forEach((j: any) => chaves.add((j.grupo ?? `Rodada ${j.rodada}`) as string))
     const first = Array.from(chaves).slice(0, 2)
@@ -506,10 +609,9 @@ export default function FaseGruposPage() {
 
     setGerando(true)
     try {
-      const rows = await safeSelectTimesDiv1e2(false)
+      const rows = await safeSelectTimesByDivisoes(cfg.divisaoFiltro, false)
 
-      // DEBUG na tela
-      toast(`Times encontrados (DIV 1+2): ${rows?.length ?? 0}`, { icon: '🔎' })
+      toast(`Times encontrados (${cfg.divisaoFiltro.join('+')}): ${rows?.length ?? 0}`, { icon: '🔎' })
 
       let participantes: TimeFull[] = (rows || []).map((t: any) => ({
         id: String(t.id),
@@ -522,16 +624,12 @@ export default function FaseGruposPage() {
         divisao: t.divisao ?? null,
       }))
 
-      // ✅ NÃO REMOVE PALMEIRAS (tiramos aquela linha)
-      // participantes = participantes.filter(t => !(t.nome || '').toLowerCase().includes('palmeiras'))
-
       if (participantes.length < TOTAL_TIMES) {
-        toast.error(`Preciso de ${TOTAL_TIMES} times (DIV 1 + 2) para 4 grupos de 5. Achei ${participantes.length}.`)
+        toast.error(`Preciso de ${TOTAL_TIMES} times para esse modelo. Achei ${participantes.length}.`)
         return
       }
 
       if (participantes.length > TOTAL_TIMES) {
-        // remove os “mais fracos” para fechar em 20
         const ord = [...participantes].sort((a, b) => {
           const oa = a.overall ?? 0
           const ob = b.overall ?? 0
@@ -541,15 +639,20 @@ export default function FaseGruposPage() {
         const extras = ord.slice(0, participantes.length - TOTAL_TIMES)
         const extraIds = new Set(extras.map(e => e.id))
         participantes = participantes.filter(t => !extraIds.has(t.id))
-        toast(`Tinha mais de ${TOTAL_TIMES}. Removi ${extras.length} clubes mais fracos para fechar em 20.`, { icon: 'ℹ️' })
+        toast(`Tinha mais de ${TOTAL_TIMES}. Removi ${extras.length} clubes mais fracos para fechar em ${TOTAL_TIMES}.`, {
+          icon: 'ℹ️',
+        })
       }
 
-      const grupos = sortearGrupos(participantes, evitarMesmoPais)
+      const grupos: Record<string, TimeFull[]> =
+        copaModelo === 'DIV1_2GRUPOS_QUARTAS'
+          ? (sortear2Grupos(participantes, evitarMesmoPais) as any)
+          : (sortearGrupos(participantes, evitarMesmoPais) as any)
 
       const calendario: CalendarioGrupoItem[] = []
-      GRUPOS.forEach(g => {
-        const ids = grupos[g].map(t => t.id)
-        const jogosG = gerarRoundRobin5(ids)
+      ;(GRUPOS as readonly string[]).forEach(g => {
+        const ids = (grupos[g] || []).map(t => t.id)
+        const jogosG = gerarRoundRobin(ids)
         jogosG.forEach(j => calendario.push({ grupo: g, rodada: j.rodada, casa: j.casa, fora: j.fora }))
       })
 
@@ -575,7 +678,6 @@ export default function FaseGruposPage() {
         }
       }
 
-      // insere os jogos
       const rowsInsert = calendario.map(j => ({
         ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
         ...(temColunaGrupo ? { grupo: j.grupo } : {}),
@@ -600,13 +702,13 @@ export default function FaseGruposPage() {
       await supabase.from('bid').insert([
         {
           tipo_evento: 'Sistema',
-          descricao: `Fase de Grupos gerada (${GRUPOS.length} grupos de ${TIMES_POR_GRUPO} times, ${RODADAS_GRUPO} rodadas por grupo).`,
+          descricao: `Fase de Grupos gerada (${copaModelo === 'DIV1_2GRUPOS_QUARTAS' ? '2 grupos (DIV1)' : '4 grupos (DIV1+2)'}).`,
           valor: null,
           data_evento: new Date().toISOString(),
         },
       ])
 
-      toast.success(`✅ Grupos gerados: ${rowsInsert.length} jogos (4 grupos x 10)`)
+      toast.success(`✅ Grupos gerados: ${rowsInsert.length} jogos`)
       topRef.current?.scrollIntoView({ behavior: 'smooth' })
     } finally {
       setGerando(false)
@@ -1028,8 +1130,8 @@ export default function FaseGruposPage() {
     return out
   }, [jogos])
 
-  /* ===================== GERAR MATA-MATA (OITAVAS) ===================== */
-  async function gerarOitavas() {
+  /* ===================== GERAR MATA-MATA (OITAVAS OU QUARTAS) ===================== */
+  async function gerarMataMata() {
     if (!isAdmin) {
       toast.error('Apenas admin pode gerar o mata-mata.')
       return
@@ -1037,54 +1139,85 @@ export default function FaseGruposPage() {
 
     setGerandoMM(true)
     try {
-      // valida: 4 grupos com pelo menos 4 classificados
-      const gruposOk = GRUPOS.every(g => (classificacaoPorGrupo[g]?.length ?? 0) >= CLASSIFICAM_POR_GRUPO)
+      const gruposOk = (GRUPOS as readonly string[]).every(
+        g => (classificacaoPorGrupo[g]?.length ?? 0) >= CLASSIFICAM_POR_GRUPO
+      )
       if (!gruposOk) {
-        toast.error(`Preciso de pelo menos ${CLASSIFICAM_POR_GRUPO} times classificados em cada grupo (A–D).`)
+        toast.error(`Preciso de pelo menos ${CLASSIFICAM_POR_GRUPO} times classificados em cada grupo.`)
         return
       }
 
-      // pega top4
-      const A = classificacaoPorGrupo['A']
-      const B = classificacaoPorGrupo['B']
-      const C = classificacaoPorGrupo['C']
-      const D = classificacaoPorGrupo['D']
+      const G = (g: string) => classificacaoPorGrupo[g]
 
-      const A1 = A[0].id, A2 = A[1].id, A3 = A[2].id, A4 = A[3].id
-      const B1 = B[0].id, B2 = B[1].id, B3 = B[2].id, B4 = B[3].id
-      const C1 = C[0].id, C2 = C[1].id, C3 = C[2].id, C4 = C[3].id
-      const D1 = D[0].id, D2 = D[1].id, D3 = D[2].id, D4 = D[3].id
+      let chaves: { casaId: string; foraId: string; label: string }[] = []
 
-      // ✅ OITAVAS (16 times): cruza A×B e C×D evitando mesmo grupo
-      const chaves = [
-        { casaId: A1, foraId: B4, label: 'OIT1 — A1 x B4' },
-        { casaId: B2, foraId: A3, label: 'OIT2 — B2 x A3' },
-        { casaId: B1, foraId: A4, label: 'OIT3 — B1 x A4' },
-        { casaId: A2, foraId: B3, label: 'OIT4 — A2 x B3' },
+      if (copaModelo === 'DIV1_2GRUPOS_QUARTAS') {
+        const A = G('A')
+        const B = G('B')
+        const A1 = A[0].id,
+          A2 = A[1].id,
+          A3 = A[2].id,
+          A4 = A[3].id
+        const B1 = B[0].id,
+          B2 = B[1].id,
+          B3 = B[2].id,
+          B4 = B[3].id
 
-        { casaId: C1, foraId: D4, label: 'OIT5 — C1 x D4' },
-        { casaId: D2, foraId: C3, label: 'OIT6 — D2 x C3' },
-        { casaId: D1, foraId: C4, label: 'OIT7 — D1 x C4' },
-        { casaId: C2, foraId: D3, label: 'OIT8 — C2 x D3' },
-      ]
+        chaves = [
+          { casaId: A1, foraId: B4, label: 'QF1 — A1 x B4' },
+          { casaId: B2, foraId: A3, label: 'QF2 — B2 x A3' },
+          { casaId: B1, foraId: A4, label: 'QF3 — B1 x A4' },
+          { casaId: A2, foraId: B3, label: 'QF4 — A2 x B3' },
+        ]
+      } else {
+        const A = G('A'),
+          B = G('B'),
+          C = G('C'),
+          D = G('D')
+        const A1 = A[0].id,
+          A2 = A[1].id,
+          A3 = A[2].id,
+          A4 = A[3].id
+        const B1 = B[0].id,
+          B2 = B[1].id,
+          B3 = B[2].id,
+          B4 = B[3].id
+        const C1 = C[0].id,
+          C2 = C[1].id,
+          C3 = C[2].id,
+          C4 = C[3].id
+        const D1 = D[0].id,
+          D2 = D[1].id,
+          D3 = D[2].id,
+          D4 = D[3].id
 
-      // tenta limpar a fase "oitavas" da temporada
-      let del = await supabase.from(TABELA_MM).delete().eq('fase', 'oitavas')
-      if (temColunaTemporada) {
-        del = await supabase.from(TABELA_MM).delete().eq('fase', 'oitavas').eq('temporada', TEMPORADA)
+        chaves = [
+          { casaId: A1, foraId: B4, label: 'OIT1 — A1 x B4' },
+          { casaId: B2, foraId: A3, label: 'OIT2 — B2 x A3' },
+          { casaId: B1, foraId: A4, label: 'OIT3 — B1 x A4' },
+          { casaId: A2, foraId: B3, label: 'OIT4 — A2 x B3' },
+          { casaId: C1, foraId: D4, label: 'OIT5 — C1 x D4' },
+          { casaId: D2, foraId: C3, label: 'OIT6 — D2 x C3' },
+          { casaId: D1, foraId: C4, label: 'OIT7 — D1 x C4' },
+          { casaId: C2, foraId: D3, label: 'OIT8 — C2 x D3' },
+        ]
       }
 
-      // se der erro (ex: tabela não existe), avisa e mostra as chaves na tela
+      let del = await supabase.from(TABELA_MM).delete().eq('fase', cfg.faseMataMataDb)
+      if (temColunaTemporada) {
+        del = await supabase.from(TABELA_MM).delete().eq('fase', cfg.faseMataMataDb).eq('temporada', TEMPORADA)
+      }
+
       // @ts-ignore
       if (del?.error) {
-        toast('⚠️ Não consegui limpar/usar tabela copa_mata_mata. Verifique se ela existe no banco.', { icon: 'ℹ️' })
+        toast('⚠️ Não consegui usar tabela copa_mata_mata. Verifique se ela existe.', { icon: 'ℹ️' })
         setChavesMM(chaves)
         return
       }
 
       const rowsInsert = chaves.map((c, idx) => ({
         ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
-        fase: 'oitavas',
+        fase: cfg.faseMataMataDb,
         ordem: idx + 1,
         id_time1: c.casaId,
         id_time2: c.foraId,
@@ -1097,7 +1230,7 @@ export default function FaseGruposPage() {
       const { error: insErr } = await supabase.from(TABELA_MM).insert(rowsInsert)
       if (insErr) {
         console.error(insErr)
-        toast.error('Erro ao gravar oitavas no banco (copa_mata_mata).')
+        toast.error(`Erro ao gravar ${cfg.mataMataLabel} no banco (${TABELA_MM}).`)
         setChavesMM(chaves)
         return
       }
@@ -1106,12 +1239,12 @@ export default function FaseGruposPage() {
 
       await supabase.from('bid').insert({
         tipo_evento: 'Sistema',
-        descricao: `Mata-mata gerado (Oitavas) a partir dos grupos — salvo em ${TABELA_MM}.`,
+        descricao: `Mata-mata gerado (${cfg.mataMataLabel}) — salvo em ${TABELA_MM} (fase=${cfg.faseMataMataDb}).`,
         valor: null,
         data_evento: new Date().toISOString(),
       })
 
-      toast.success('✅ Oitavas geradas (classificam 4 por grupo)!')
+      toast.success(`✅ ${cfg.mataMataLabel} geradas!`)
     } finally {
       setGerandoMM(false)
     }
@@ -1217,6 +1350,8 @@ export default function FaseGruposPage() {
     )
   }
 
+  const modeloDesc = useMemo(() => COPA_MODELOS.find(m => m.id === copaModelo)?.desc ?? '', [copaModelo])
+
   return (
     <div
       ref={topRef}
@@ -1228,19 +1363,38 @@ export default function FaseGruposPage() {
           <div>
             <h1 className="text-xl font-extrabold tracking-tight">
               <span className="bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-500 bg-clip-text text-transparent drop-shadow">
-                UEFA Champions — Fase de Grupos{temColunaTemporada ? ` • ${TEMPORADA}` : ''}
+                Copa — Fase de Grupos{temColunaTemporada ? ` • ${TEMPORADA}` : ''}
               </span>
             </h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <Badge tone="emerald">4 grupos • 5 times</Badge>
-              <Badge tone="sky">Top {CLASSIFICAM_POR_GRUPO} → Oitavas</Badge>
-              <Badge>5 rodadas por grupo</Badge>
+              <Badge tone="emerald">
+                {GRUPOS.length} grupos • {TIMES_POR_GRUPO} times
+              </Badge>
+              <Badge tone="sky">Top {CLASSIFICAM_POR_GRUPO} → {cfg.mataMataLabel}</Badge>
+              <Badge>{RODADAS_GRUPO} rodadas por grupo</Badge>
+              <Badge tone="violet">{modeloDesc}</Badge>
               {!temColunaGrupo && <Badge tone="amber">⚠️ Sem coluna "grupo"</Badge>}
             </div>
           </div>
 
           {isAdmin && (
             <div className="flex flex-wrap items-center gap-2">
+              {/* Seletor de modelo */}
+              <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
+                <span className="text-white/80">Modelo:</span>
+                <select
+                  value={copaModelo}
+                  onChange={e => setCopaModelo(e.target.value as CopaModelo)}
+                  className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs focus:outline-none"
+                >
+                  {COPA_MODELOS.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs">
                 <input
                   type="checkbox"
@@ -1257,13 +1411,15 @@ export default function FaseGruposPage() {
                   const ok = confirm(
                     `Gerar Fase de Grupos?\n\nIsso apaga os jogos ${
                       temColunaTemporada ? `da temporada "${TEMPORADA}"` : 'atuais'
-                    } e cria 4 grupos com 5 times.\n\n✅ Usa times da tabela "times" com divisao IN ('1','2')\n✅ Palmeiras participa do sorteio`
+                    } e cria o modelo selecionado.\n\n✅ Usa times da tabela "times" com divisao IN (${cfg.divisaoFiltro
+                      .map(d => `'${d}'`)
+                      .join(',')})`
                   )
                   if (ok) gerarFaseGrupos()
                 }}
                 disabled={gerando}
                 className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-violet-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-violet-400/60"
-                title="Gera 4 grupos com 5 times e 5 rodadas por grupo"
+                title="Gera fase de grupos conforme o modelo selecionado"
               >
                 <FiRotateCcw />
                 {gerando ? 'Gerando...' : 'Gerar Fase de Grupos'}
@@ -1274,9 +1430,9 @@ export default function FaseGruposPage() {
                 onClick={() => setAbrirModalMM(true)}
                 disabled={gerandoMM}
                 className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-amber-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
-                title="Gera Oitavas a partir do Top 4 de cada grupo"
+                title={`Gera ${cfg.mataMataLabel} a partir do Top ${CLASSIFICAM_POR_GRUPO} de cada grupo`}
               >
-                {gerandoMM ? 'Gerando…' : 'Gerar Mata-mata (Oitavas)'}
+                {gerandoMM ? 'Gerando…' : `Gerar Mata-mata (${cfg.mataMataLabel})`}
               </button>
             </div>
           )}
@@ -1387,10 +1543,7 @@ export default function FaseGruposPage() {
                             {(classificacaoPorGrupo[grupo] || []).map((r, idx) => {
                               const isTop = idx < CLASSIFICAM_POR_GRUPO
                               return (
-                                <tr
-                                  key={r.id}
-                                  className={`border-b border-white/5 ${isTop ? 'bg-emerald-500/5' : ''}`}
-                                >
+                                <tr key={r.id} className={`border-b border-white/5 ${isTop ? 'bg-emerald-500/5' : ''}`}>
                                   <td className="py-2">{idx + 1}</td>
                                   <td className="py-2">
                                     <div className="flex items-center gap-2">
@@ -1551,10 +1704,12 @@ export default function FaseGruposPage() {
           })
         )}
 
-        {/* Preview das chaves de Oitavas geradas */}
+        {/* Preview das chaves geradas */}
         {chavesMM.length > 0 && (
           <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4">
-            <h3 className="text-sm font-bold text-amber-300 mb-2">Mata-mata — Oitavas (Top {CLASSIFICAM_POR_GRUPO} por grupo)</h3>
+            <h3 className="text-sm font-bold text-amber-300 mb-2">
+              Mata-mata — {cfg.mataMataLabel} (Top {CLASSIFICAM_POR_GRUPO} por grupo)
+            </h3>
             <ul className="grid md:grid-cols-2 gap-2 text-sm">
               {chavesMM.map((c, i) => (
                 <li
@@ -1571,19 +1726,16 @@ export default function FaseGruposPage() {
         )}
       </div>
 
-      {/* Modal: gerar Oitavas */}
+      {/* Modal: gerar mata-mata */}
       {abrirModalMM && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 shadow-2xl">
-            <h3 className="mb-2 text-xl font-bold text-yellow-300">Gerar Mata-mata (Oitavas)?</h3>
+            <h3 className="mb-2 text-xl font-bold text-yellow-300">Gerar Mata-mata ({cfg.mataMataLabel})?</h3>
             <p className="mb-6 text-zinc-200">
-              Isso pega o <b>Top {CLASSIFICAM_POR_GRUPO}</b> de cada grupo e cria as <b>oitavas</b> (16 times).
+              Isso pega o <b>Top {CLASSIFICAM_POR_GRUPO}</b> de cada grupo e cria{' '}
+              <b>{cfg.mataMataLabel.toLowerCase()}</b>.
               <br />
-              <span className="text-zinc-300">
-                A×B e C×D (sem confronto do mesmo grupo).
-              </span>
-              <br />
-              Será salvo em <code>{TABELA_MM}</code> (fase=oitavas).
+              <span className="text-zinc-300">Será salvo em <code>{TABELA_MM}</code> (fase={cfg.faseMataMataDb}).</span>
             </p>
             <div className="flex items-center justify-end gap-3">
               <button
@@ -1598,10 +1750,10 @@ export default function FaseGruposPage() {
                 className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
                 onClick={async () => {
                   setAbrirModalMM(false)
-                  await gerarOitavas()
+                  await gerarMataMata()
                 }}
               >
-                {gerandoMM ? 'Gerando…' : 'Sim, gerar oitavas'}
+                {gerandoMM ? 'Gerando…' : `Sim, gerar ${cfg.mataMataLabel.toLowerCase()}`}
               </button>
             </div>
           </div>
@@ -1610,3 +1762,4 @@ export default function FaseGruposPage() {
     </div>
   )
 }
+
