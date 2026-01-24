@@ -727,6 +727,8 @@ try {
   setIsSalvando(false)
 }
 
+}
+
   /** =============== Excluir placar (com REEMBOLSO TOTAL) =============== */
   const excluirResultado = async (rodadaId: string, index: number) => {
     if (isSalvando) return
@@ -1242,3 +1244,4 @@ try {
     </div>
   )
 }
+
