@@ -970,11 +970,96 @@ export default function Jogos() {
 
       setRodadas((prev) => prev.map((r) => (r.id === rodadaId ? { ...r, jogos: novaLista } : r)))
 
-      toast.success('🗑️ Resultado removido e reembolso TOTAL concluído (renda + salários + premiação + patrocínios).')
+           toast.success(
+        '🗑️ Resultado removido e reembolso TOTAL concluído (renda + salários + premiação + patrocínios).'
+      )
 
       await carregarDados()
     } catch (e: any) {
       console.error(e)
       toast.error(`❌ Falha ao excluir: ${e?.message || e}`)
+    } finally {
+      setIsSalvando(false)
     }
   }
+
+  /** =============== OCR: abrir modal para um jogo específico =============== */
+  const abrirOCR = (rodadaId: string, index: number) => {
+    setOcrRodadaId(rodadaId)
+    setOcrIndex(index)
+    setOcrAberto(true)
+    setOcrLendo(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const fecharOCR = () => {
+    setOcrAberto(false)
+    setOcrRodadaId(null)
+    setOcrIndex(null)
+    setOcrLendo(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const onOCRFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    e.currentTarget.value = ''
+
+    if (!ocrRodadaId || ocrIndex === null) return
+
+    try {
+      setOcrLendo(true)
+      toast.loading('Lendo placar do print…', { id: 'ocr' })
+
+      const out = await extrairPlacarDoPrint(file)
+      if (!out) throw new Error('Não consegui extrair o placar.')
+
+      const gm = Number(out.gols_mandante ?? 0)
+      const gv = Number(out.gols_visitante ?? 0)
+
+      setEditandoRodada(ocrRodadaId)
+      setEditandoIndex(ocrIndex)
+      setGolsMandante(Number.isFinite(gm) ? gm : 0)
+      setGolsVisitante(Number.isFinite(gv) ? gv : 0)
+
+      toast.success(`✅ Placar detectado: ${gm} x ${gv}`, { id: 'ocr' })
+      fecharOCR()
+    } catch (err: any) {
+      toast.error(`❌ ${err?.message || err}`, { id: 'ocr' })
+    } finally {
+      setOcrLendo(false)
+    }
+  }
+
+  /** =============== Filtro por time (opcional) =============== */
+  const rodadasFiltradas = !timeSelecionado
+    ? rodadas
+    : rodadas
+        .map((rodada) => ({
+          ...rodada,
+          jogos: rodada.jogos.filter((jogo) => jogo.mandante === timeSelecionado || jogo.visitante === timeSelecionado),
+        }))
+        .filter((rodada) => rodada.jogos.length > 0)
+
+  if (loading) return <p className="text-center text-white">🔄 Verificando permissões...</p>
+  if (!isAdmin) return <p className="text-center text-white">⛔ Apenas admin pode lançar resultados.</p>
+
+  const { feitos: feitosGlobais, total: totalGlobais } = contagemGlobal(rodadasFiltradas, timeSelecionado)
+
+  // ✅ RETURN BÁSICO (pra build passar). Troque pelo seu JSX completo se quiser.
+  return (
+    <div className="min-h-screen p-6 text-white">
+      <h1 className="text-2xl font-extrabold">📅 Jogos da LigaFut</h1>
+
+      <p className="mt-2 text-white/70">
+        Rodadas carregadas: <b>{rodadasFiltradas.length}</b> • Jogos com placar: <b>{feitosGlobais}/{totalGlobais}</b>
+      </p>
+
+      <p className="mt-4 text-white/50">
+        ⚠️ Seu JSX completo (lista de rodadas/jogos + botões) pode ser recolado aqui dentro do return.
+      </p>
+    </div>
+  )
+}
+
