@@ -652,11 +652,11 @@ export default function Jogos() {
     const gvNum = Number.isFinite(gv) ? gv : 0
     novaLista[index] = {
       ...jogo,
-      gols_mandante: gmNum,
-      gols_visitante: gvNum,
-      renda,
-      publico,
-      bonus_pago: true,
+      gols_mandante: gmNum ?? null,
+  gols_visitante: gvNum ?? null,
+  renda: renda ?? null,
+  publico: publico ?? null,
+  bonus_pago: true,
       receita_mandante: receitaMandante,
       receita_visitante: receitaVisitante,
       salarios_mandante: salariosMandante,
