@@ -653,6 +653,9 @@ export default function Sidebar() {
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/BID" label="BID" emoji="📰" />
 
+                {/* ✅ LEILÃO DO SISTEMA (para TODOS) */}
+                <CollapsedItem href="/leilao" label="Leilão do Sistema" emoji="🎯" />
+
                 {/* ✅ COPA (para TODOS) */}
                 <CollapsedItem href="/copa/fase_grupos" label="Copa (Grupos)" emoji="🏟️" />
                 <CollapsedItem href="/copa/mata-mata" label="Copa (Mata-mata)" emoji="🥊" />
@@ -667,6 +670,9 @@ export default function Sidebar() {
                 <NavLink href="/jogos">📅 Jogos</NavLink>
                 <NavLink href="/mercado">💸 Mercado</NavLink>
                 <NavLink href="/BID">📰 BID</NavLink>
+
+                {/* ✅ Leilão do Sistema (para TODOS) */}
+                <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
 
                 {/* ===== Elenco ===== */}
                 <div className="mt-2">
@@ -710,6 +716,29 @@ export default function Sidebar() {
                   )}
                 </div>
 
+                {/* ✅ ===== Leilão (grupo) ===== */}
+                <div className="mt-2">
+                  <ToggleBtn
+                    open={abrirLeilao}
+                    onClick={() => {
+                      const v = !abrirLeilao
+                      setAbrirLeilao(v)
+                      persistGroup('leilao', v)
+                    }}
+                    label="Leilão"
+                    icon={<span className="text-lg">🎯</span>}
+                  />
+                  {abrirLeilao && (
+                    <div className="ml-3 mt-1 space-y-1 text-sm">
+                      <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
+                      {/* se você tiver a página de leiloar jogador do elenco, deixa aqui */}
+                      {/* <NavLink href="/leiloar">📣 Leiloar Jogador</NavLink> */}
+                      {/* se você tiver a página de leilões finalizados */}
+                      {/* <NavLink href="/leiloes-finalizados">📜 Leilões Finalizados</NavLink> */}
+                    </div>
+                  )}
+                </div>
+
                 {/* ===== Admin (só admin) ===== */}
                 {isAdmin && (
                   <div className="mt-2 mb-1">
@@ -748,6 +777,3 @@ export default function Sidebar() {
     </>
   )
 }
-
-
-
