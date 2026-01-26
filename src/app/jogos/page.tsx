@@ -159,7 +159,7 @@ aria-label={`${ariaLabel} diminuir`}
 title="Diminuir"
 > <span className="text-2xl leading-none">−</span> </button>
 
-```
+
   <input
     inputMode="numeric"
     pattern="[0-9]*"
@@ -180,7 +180,7 @@ title="Diminuir"
     <span className="text-2xl leading-none">+</span>
   </button>
 </div>
-```
+
 
 )
 }
@@ -391,7 +391,7 @@ for (const p of pats) {
 const r = (p.regra || {}) as any
 let credito = 0
 
-```
+
 if (vitoria && r.por_vitoria) credito += Number(r.por_vitoria) || 0
 if (gols && r.por_gol) credito += (Number(r.por_gol) || 0) * gols
 if (cleanSheet && r.por_clean_sheet) credito += Number(r.por_clean_sheet) || 0
@@ -404,7 +404,7 @@ if (credito > 0) {
   if (cleanSheet && r.por_clean_sheet) partes.push(`CS ${formatarBRL(r.por_clean_sheet)}`)
   detalhes.push(`${p.nome}: ${partes.join(' + ')} = ${formatarBRL(credito)}`)
 }
-```
+
 
 }
 
@@ -467,7 +467,7 @@ const carregarDados = async () => {
 const { data: times, error: et } = await supabase.from('times').select('id, nome, logo_url')
 if (et) toast.error('Erro ao carregar times: ' + et.message)
 
-```
+
 const map: Record<string, Time> = {}
 times?.forEach((t) => {
   map[t.id] = { ...t, logo_url: t.logo_url || '' }
@@ -483,7 +483,7 @@ const { data: rodadasData, error: er } = await supabase
 
 if (er) toast.error('Erro ao carregar rodadas: ' + er.message)
 setRodadas((rodadasData || []) as Rodada[])
-```
+
 
 }
 
@@ -500,7 +500,7 @@ try {
 setGerando(true)
 toast.loading(`Iniciando Temporada ${temp}...`, { id: 'gerar-t' })
 
-```
+
   const resA = await fetch('/api/iniciar-temporada', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -528,7 +528,7 @@ toast.loading(`Iniciando Temporada ${temp}...`, { id: 'gerar-t' })
 } finally {
   setGerando(false)
 }
-```
+
 
 }
 
@@ -537,7 +537,7 @@ const salvarPrimeiroLancamento = async (rodadaId: string, index: number, gm: num
 if (isSalvando) return
 setIsSalvando(true)
 
-```
+
 try {
   const { data: rodadaDB, error: erroR } = await supabase
     .from('rodadas')
@@ -665,7 +665,7 @@ try {
 } finally {
   setIsSalvando(false)
 }
-```
+
 
 }
 
@@ -680,7 +680,7 @@ silencioso = false
 if (isSalvando) return
 setIsSalvando(true)
 
-```
+
 try {
   const { data: rodadaDB, error: erroR } = await supabase
     .from('rodadas')
