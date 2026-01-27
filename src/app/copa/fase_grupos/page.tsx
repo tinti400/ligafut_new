@@ -1,4 +1,5 @@
-'use client'
+
+'use client' 
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@supabase/supabase-js'
@@ -14,7 +15,7 @@ import {
   FiChevronUp,
 } from 'react-icons/fi'
 
-// 🔽 Motor de Estádio (ajuste o import se seu projeto usar outro caminho/nome)
+// 🔽 Motor de Estádio
 import {
   simulate,
   referencePrices,
@@ -74,12 +75,7 @@ const COPA_DERROTA = 2_500_000
 const COPA_GOL_MARCADO = 400_000
 const COPA_GOL_SOFRIDO = 40_000
 
-/* ================= MODELO FIXO (REGULAMENTO) =================
-✅ 2 grupos (A/B)
-✅ inclui times da 1ª E 2ª divisão
-✅ TOP 4 de cada grupo classifica
-✅ Mata-mata começa nas Quartas
-============================================================== */
+/* ================= MODELO FIXO ================= */
 type CopaModel = 'div1e2_2grupos_top4_quartas'
 const MODELO_FIXO: CopaModel = 'div1e2_2grupos_top4_quartas'
 
@@ -95,31 +91,40 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-/** Puxa times por divisões (divisao é TEXT no seu banco) */
-async function safeSelectTimesByDivisoes(divisoes: string[], minimal = false) {
+/** ✅ Normaliza divisao (pega "1", 1, " 2 " etc.) */
+function normDiv(v: any): number | null {
+  const s = String(v ?? '').trim()
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * ✅ Fetch robusto: não confia no tipo do campo divisao no Postgres.
+ * Puxa todos os times e filtra no client por divisao 1/2.
+ * (Isso resolve o caso clássico de divisao ser TEXT em alguns registros e NUMERIC em outros, ou com espaços.)
+ */
+async function safeSelectTimesDiv1Div2(minimal = false) {
   const tries = minimal
-    ? ['id,nome,logo_url,associacao,divisao', 'id,nome,logo_url,divisao', '*']
+    ? ['id,nome,logo_url,associacao,divisao', 'id,nome,logo_url,divisao', 'id,nome,divisao', '*']
     : [
         'id,nome,logo_url,pote,overall,valor,associacao,divisao',
-        'id,nome,logo_url,pote,overall,valor,associacao',
+        'id,nome,logo_url,overall,valor,associacao,divisao',
         'id,nome,logo_url,associacao,divisao',
         'id,nome,logo_url,divisao',
         '*',
       ]
 
   for (const s of tries) {
-    const { data, error } = await supabase.from('times').select(s).in('divisao', divisoes)
-    if (!error && data) return data as any[]
+    const { data, error } = await supabase.from('times').select(s)
+    if (!error && data) {
+      const filtrados = (data as any[]).filter(t => {
+        const d = normDiv(t.divisao)
+        return d === 1 || d === 2
+      })
+      return filtrados
+    }
   }
   return [] as any[]
-}
-
-/** Ordena “mais fracos” (p/ desempate/utilidades) */
-function sortMaisFracosPrimeiro(a: TimeFull, b: TimeFull) {
-  const oa = a.overall ?? 0
-  const ob = b.overall ?? 0
-  if (oa !== ob) return oa - ob
-  return (a.valor ?? 0) - (b.valor ?? 0)
 }
 
 /** Round-robin genérico (N times). Se ímpar, adiciona BYE. */
@@ -145,13 +150,11 @@ function gerarRoundRobin(ids: string[]) {
       const b = right[i]
       if (a === BYE || b === BYE) continue
 
-      // alterna mando para equilibrar
       const casa = (r + i) % 2 === 0 ? a : b
       const fora = (r + i) % 2 === 0 ? b : a
       jogos.push({ rodada: r, casa, fora })
     }
 
-    // rotação (fixa arr[0])
     const fixed = arr[0]
     const rest = arr.slice(1)
     rest.unshift(rest.pop() as string)
@@ -186,12 +189,13 @@ export default function FaseGruposPage() {
 
   // 🔒 Modelo fixo
   const modelo: CopaModel = MODELO_FIXO
+  void modelo // evita warning se não usar
 
   const cfg = useMemo(() => {
     return {
       title: 'Copa — 1ª + 2ª Divisão',
       subtitle: '2 Grupos (A/B)',
-      divisoes: ['1', '2'], // ✅ inclui segunda
+      divisoes: ['1', '2'], // (mantido apenas pra UI; a busca agora é robusta via client filter)
       grupos: ['A', 'B'] as const,
       classificam: 4,
       mataMataFase: 'quartas' as const,
@@ -207,7 +211,6 @@ export default function FaseGruposPage() {
   const [filtroTime, setFiltroTime] = useState<string>('Todos')
   const [loading, setLoading] = useState(true)
   const [salvandoId, setSalvandoId] = useState<number | null>(null)
-
   const [gerando, setGerando] = useState(false)
 
   const [temColunaTemporada, setTemColunaTemporada] = useState<boolean>(true)
@@ -255,7 +258,17 @@ export default function FaseGruposPage() {
   }
 
   async function carregarTimesBase() {
-    const rows = await safeSelectTimesByDivisoes(cfg.divisoes, true)
+    const rows = await safeSelectTimesDiv1Div2(true)
+
+    // ✅ aviso claro se não vier 16
+    if (rows.length !== 16) {
+      const nomes = rows.map((t: any) => t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id))
+      toast(`⚠️ Times DIV1+DIV2 retornados: ${rows.length} (esperado 16)`, { icon: '⚠️' })
+      console.warn('Times retornados:', nomes)
+    } else {
+      toast(`✅ Times DIV1+DIV2 carregados: ${rows.length}`, { icon: '✅' })
+    }
+
     const novo: Record<string, TimeMini> = {}
     rows.forEach((t: any) => {
       const nome = t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id)
@@ -424,7 +437,8 @@ export default function FaseGruposPage() {
 
     setGerando(true)
     try {
-      const rows = await safeSelectTimesByDivisoes(cfg.divisoes, false)
+      const rows = await safeSelectTimesDiv1Div2(false)
+
       toast(`Times encontrados (DIV1+DIV2): ${rows?.length ?? 0}`, { icon: '🔎' })
 
       let participantes: TimeFull[] = (rows || []).map((t: any) => ({
@@ -438,13 +452,22 @@ export default function FaseGruposPage() {
         divisao: t.divisao ?? null,
       }))
 
+      // ✅ remove duplicados por id (segurança)
+      const uniq = new Map<string, TimeFull>()
+      participantes.forEach(t => uniq.set(t.id, t))
+      participantes = Array.from(uniq.values())
+
+      // ✅ garante que está pegando TODOS (16)
+      if (participantes.length !== 16) {
+        toast.error(`⚠️ Era pra ter 16 times (DIV1+DIV2). Estou recebendo ${participantes.length}. Verifique RLS/ENV/valores de "divisao".`)
+        console.warn('Participantes recebidos:', participantes.map(t => ({ id: t.id, nome: t.nome, divisao: t.divisao })))
+        // mesmo assim continua (se você quiser travar, troque por return)
+      }
+
       if (participantes.length < 8) {
         toast.error('Preciso de pelo menos 8 times somando 1ª+2ª divisão para fazer 2 grupos e quartas.')
         return
       }
-
-      // ✅ NÃO remove mais fraco quando ímpar!
-      // Round-robin já lida com ímpar via BYE.
 
       const embaralhados = shuffle(participantes)
 
@@ -456,7 +479,6 @@ export default function FaseGruposPage() {
         B: embaralhados.slice(half),
       }
 
-      // calendário de cada grupo
       const calendario: { grupo: string; rodada: number; casa: string; fora: string }[] = []
       ;(['A', 'B'] as const).forEach(g => {
         const ids = grupos[g].map(t => t.id)
@@ -506,6 +528,7 @@ export default function FaseGruposPage() {
 
       await atualizarClassificacao()
       await buscarJogos()
+      await carregarTimesBase()
 
       await supabase.from('bid').insert([
         {
@@ -627,7 +650,7 @@ export default function FaseGruposPage() {
 
     await supabase.from('bid').insert([
       {
-        tipo_evento: 'receita_partida',
+                tipo_evento: 'receita_partida',
         descricao: 'Receita da partida (renda + bônus) — COPA',
         id_time1: mandanteId,
         valor: receitaMandante + totalPremMandante,
@@ -674,12 +697,8 @@ export default function FaseGruposPage() {
     toast.success(
       `✅ Placar salvo e finanças pagas (COPA)!
 🎟️ Público: ${publico.toLocaleString()}  |  💰 Renda: R$ ${renda.toLocaleString()}
-💵 ${n1}: ${Math.round(receitaMandante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString(
-        'pt-BR'
-      )} (participação) + bônus
-💵 ${n2}: ${Math.round(receitaVisitante).toLocaleString('pt-BR')} + R$ ${COPA_PARTICIPACAO_POR_JOGO.toLocaleString(
-        'pt-BR'
-      )} (participação) + bônus`,
+💵 ${n1}: R$ ${(receitaMandante + totalPremMandante).toLocaleString('pt-BR')}
+💵 ${n2}: R$ ${(receitaVisitante + totalPremVisitante).toLocaleString('pt-BR')}`,
       { duration: 9000 }
     )
 
@@ -705,30 +724,126 @@ export default function FaseGruposPage() {
       const premiacaoVisitante = jogo.premiacao_visitante ?? 0
 
       await Promise.all([
-        receitaMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante }) : Promise.resolve(),
-        receitaVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante }) : Promise.resolve(),
-        salariosMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante }) : Promise.resolve(),
-        salariosVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante }) : Promise.resolve(),
-        premiacaoMandante ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante }) : Promise.resolve(),
-        premiacaoVisitante ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante }) : Promise.resolve(),
+        receitaMandante
+          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -receitaMandante })
+          : Promise.resolve(),
+        receitaVisitante
+          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -receitaVisitante })
+          : Promise.resolve(),
+        salariosMandante
+          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: +salariosMandante })
+          : Promise.resolve(),
+        salariosVisitante
+          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: +salariosVisitante })
+          : Promise.resolve(),
+        premiacaoMandante
+          ? supabase.rpc('atualizar_saldo', { id_time: mandanteId, valor: -premiacaoMandante })
+          : Promise.resolve(),
+        premiacaoVisitante
+          ? supabase.rpc('atualizar_saldo', { id_time: visitanteId, valor: -premiacaoVisitante })
+          : Promise.resolve(),
       ])
 
       const movs: any[] = []
-      if (receitaMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_receita', valor: receitaMandante, descricao: 'Estorno receita de partida (COPA)', data: now })
-      if (receitaVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_receita', valor: receitaVisitante, descricao: 'Estorno receita de partida (COPA)', data: now })
-      if (salariosMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_salario', valor: salariosMandante, descricao: 'Estorno de salários (COPA)', data: now })
-      if (salariosVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_salario', valor: salariosVisitante, descricao: 'Estorno de salários (COPA)', data: now })
-      if (premiacaoMandante) movs.push({ id_time: mandanteId, tipo: 'estorno_bonus_total', valor: premiacaoMandante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
-      if (premiacaoVisitante) movs.push({ id_time: visitanteId, tipo: 'estorno_bonus_total', valor: premiacaoVisitante, descricao: 'Estorno de bônus (participação + desempenho) — COPA', data: now })
+      if (receitaMandante)
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_receita',
+          valor: receitaMandante,
+          descricao: 'Estorno receita de partida (COPA)',
+          data: now,
+        })
+      if (receitaVisitante)
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_receita',
+          valor: receitaVisitante,
+          descricao: 'Estorno receita de partida (COPA)',
+          data: now,
+        })
+      if (salariosMandante)
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_salario',
+          valor: salariosMandante,
+          descricao: 'Estorno de salários (COPA)',
+          data: now,
+        })
+      if (salariosVisitante)
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_salario',
+          valor: salariosVisitante,
+          descricao: 'Estorno de salários (COPA)',
+          data: now,
+        })
+      if (premiacaoMandante)
+        movs.push({
+          id_time: mandanteId,
+          tipo: 'estorno_bonus_total',
+          valor: premiacaoMandante,
+          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
+          data: now,
+        })
+      if (premiacaoVisitante)
+        movs.push({
+          id_time: visitanteId,
+          tipo: 'estorno_bonus_total',
+          valor: premiacaoVisitante,
+          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
+          data: now,
+        })
       if (movs.length) await supabase.from('movimentacoes').insert(movs)
 
       const bids: any[] = []
-      if (receitaMandante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: mandanteId, valor: -receitaMandante, data_evento: now })
-      if (receitaVisitante) bids.push({ tipo_evento: 'estorno_receita_partida', descricao: 'Estorno da receita da partida (COPA)', id_time1: visitanteId, valor: -receitaVisitante, data_evento: now })
-      if (salariosMandante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: mandanteId, valor: +salariosMandante, data_evento: now })
-      if (salariosVisitante) bids.push({ tipo_evento: 'estorno_despesas', descricao: 'Estorno de despesas (salários) — COPA', id_time1: visitanteId, valor: +salariosVisitante, data_evento: now })
-      if (premiacaoMandante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus (participação + desempenho) — COPA', id_time1: mandanteId, valor: -premiacaoMandante, data_evento: now })
-      if (premiacaoVisitante) bids.push({ tipo_evento: 'estorno_bonus', descricao: 'Estorno de bônus (participação + desempenho) — COPA', id_time1: visitanteId, valor: -premiacaoVisitante, data_evento: now })
+      if (receitaMandante)
+        bids.push({
+          tipo_evento: 'estorno_receita_partida',
+          descricao: 'Estorno da receita da partida (COPA)',
+          id_time1: mandanteId,
+          valor: -receitaMandante,
+          data_evento: now,
+        })
+      if (receitaVisitante)
+        bids.push({
+          tipo_evento: 'estorno_receita_partida',
+          descricao: 'Estorno da receita da partida (COPA)',
+          id_time1: visitanteId,
+          valor: -receitaVisitante,
+          data_evento: now,
+        })
+      if (salariosMandante)
+        bids.push({
+          tipo_evento: 'estorno_despesas',
+          descricao: 'Estorno de despesas (salários) — COPA',
+          id_time1: mandanteId,
+          valor: +salariosMandante,
+          data_evento: now,
+        })
+      if (salariosVisitante)
+        bids.push({
+          tipo_evento: 'estorno_despesas',
+          descricao: 'Estorno de despesas (salários) — COPA',
+          id_time1: visitanteId,
+          valor: +salariosVisitante,
+          data_evento: now,
+        })
+      if (premiacaoMandante)
+        bids.push({
+          tipo_evento: 'estorno_bonus',
+          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
+          id_time1: mandanteId,
+          valor: -premiacaoMandante,
+          data_evento: now,
+        })
+      if (premiacaoVisitante)
+        bids.push({
+          tipo_evento: 'estorno_bonus',
+          descricao: 'Estorno de bônus (participação + desempenho) — COPA',
+          id_time1: visitanteId,
+          valor: -premiacaoVisitante,
+          data_evento: now,
+        })
       if (bids.length) await supabase.from('bid').insert(bids)
 
       await ajustarJogosElenco(mandanteId, -1)
@@ -844,7 +959,6 @@ export default function FaseGruposPage() {
         return
       }
 
-      // 2 grupos -> QUARTAS (8 times)
       const A = classificacaoPorGrupo['A']
       const B = classificacaoPorGrupo['B']
       const A1 = A[0].id, A2 = A[1].id, A3 = A[2].id, A4 = A[3].id
@@ -869,7 +983,7 @@ export default function FaseGruposPage() {
       }
 
       const rowsInsert = chaves.map((c, idx) => ({
-                ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
+        ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
         fase: 'quartas',
         ordem: idx + 1,
         id_time1: c.casaId,
@@ -936,67 +1050,93 @@ export default function FaseGruposPage() {
     )
   }
 
-  return (
+    return (
     <div className="p-6 space-y-6 text-zinc-100" ref={topRef}>
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-black tracking-tight">{cfg.title}</h1>
-            <Badge tone="sky">{TEMPORADA}</Badge>
-            <Badge tone="violet">{cfg.subtitle}</Badge>
-            <Badge tone="emerald">Top {CLASSIFICAM_POR_GRUPO} → {cfg.mataMataLabel}</Badge>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-extrabold tracking-tight">{cfg.title}</h1>
+              <Badge tone="sky">{TEMPORADA}</Badge>
+              <Badge tone="violet">{cfg.subtitle}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-zinc-300">
+              Modelo fixo: 2 grupos (A/B). Top {CLASSIFICAM_POR_GRUPO} de cada grupo → {cfg.mataMataLabel}.
+            </p>
           </div>
-          <p className="text-sm text-zinc-300">
-            Fase de grupos (DIV1 + DIV2) • Financeiro automático por jogo • Estorno ao excluir placar
-          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={async () => {
+                setLoading(true)
+                await Promise.all([carregarTimesBase(), buscarJogos()])
+                setLoading(false)
+                toast('🔄 Atualizado', { icon: '✅' })
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold hover:bg-white/[0.10]"
+            >
+              <FiRotateCcw />
+              Atualizar
+            </button>
+
+            <button
+              onClick={limparTudo}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold hover:bg-white/[0.10]"
+            >
+              Limpar filtros
+            </button>
+
+            {isAdmin && (
+              <>
+                <button
+                  disabled={gerando}
+                  onClick={gerarFaseGrupos}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-500/20 px-3 py-2 text-sm font-extrabold text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-50"
+                >
+                  {gerando ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-300 border-t-transparent" />
+                      Gerando...
+                    </span>
+                  ) : (
+                    <>
+                      <FiPlus />
+                      Gerar Copa (Grupos)
+                    </>
+                  )}
+                </button>
+
+                <button
+                  disabled={gerandoMM}
+                  onClick={gerarMataMata}
+                  className="inline-flex items-center gap-2 rounded-xl bg-violet-500/20 px-3 py-2 text-sm font-extrabold text-violet-200 hover:bg-violet-500/30 disabled:opacity-50"
+                >
+                  {gerandoMM ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-violet-300 border-t-transparent" />
+                      Gerando...
+                    </span>
+                  ) : (
+                    <>
+                      <FiChevronUp />
+                      Gerar {cfg.mataMataLabel}
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {isAdmin ? (
-            <>
-              <button
-                onClick={gerarFaseGrupos}
-                disabled={gerando}
-                className="rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 px-3 py-2 text-sm font-semibold"
-              >
-                {gerando ? 'Gerando...' : 'Gerar Grupos + Calendário'}
-              </button>
-
-              <button
-                onClick={gerarMataMata}
-                disabled={gerandoMM}
-                className="rounded-lg bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 px-3 py-2 text-sm font-semibold"
-              >
-                {gerandoMM ? 'Gerando...' : 'Gerar Mata-mata (Quartas)'}
-              </button>
-            </>
-          ) : (
-            <Badge tone="amber">Somente admin gera calendário</Badge>
-          )}
-
-          <button
-            onClick={async () => {
-              await buscarJogos()
-              toast.success('Atualizado!')
-            }}
-            className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 text-sm font-semibold"
-          >
-            <FiRotateCcw className="inline -mt-0.5 mr-2" />
-            Atualizar
-          </button>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm text-zinc-300">Filtrar por time:</span>
+        {/* Filtro time */}
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="text-xs font-bold text-zinc-300">Filtro por time</div>
             <select
               value={filtroTime}
               onChange={e => setFiltroTime(e.target.value)}
-              className="rounded-lg bg-zinc-950/60 border border-white/10 px-3 py-2 text-sm"
+              className="mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-white/20"
             >
               <option value="Todos">Todos</option>
               {Object.keys(timesMap)
@@ -1007,97 +1147,109 @@ export default function FaseGruposPage() {
                   </option>
                 ))}
             </select>
-
-            <button
-              onClick={limparTudo}
-              className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 text-sm font-semibold"
-            >
-              Limpar
-            </button>
+            <div className="mt-2 text-xs text-zinc-400">
+              Dica: se estiver aparecendo “4 times”, o problema costuma ser RLS/permissão do usuário ou valores inconsistentes
+              no campo <span className="font-semibold">divisao</span>. Este page já faz filtro no client para pegar 1/2 mesmo
+              com divisao em texto/num.
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap text-xs text-zinc-300">
-            <Badge tone={temColunaGrupo ? 'emerald' : 'amber'}>
-              {temColunaGrupo ? 'coluna grupo: OK' : 'sem coluna grupo'}
-            </Badge>
-            <Badge tone={temColunaTemporada ? 'emerald' : 'amber'}>
-              {temColunaTemporada ? 'coluna temporada: OK' : 'sem coluna temporada'}
-            </Badge>
-            <Badge tone={temExtrasFinanceiros ? 'emerald' : 'amber'}>
-              {temExtrasFinanceiros ? 'extras financeiros: OK' : 'sem extras financeiros'}
-            </Badge>
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-zinc-300">Status de colunas</div>
+              <Badge tone="amber">auto-detect</Badge>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                temporada: <span className="font-semibold">{temColunaTemporada ? 'SIM' : 'NÃO'}</span>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                grupo: <span className="font-semibold">{temColunaGrupo ? 'SIM' : 'NÃO'}</span>
+              </div>
+              <div className="col-span-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                extras financeiros: <span className="font-semibold">{temExtrasFinanceiros ? 'SIM' : 'NÃO'}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Classificação */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {GRUPOS.map(g => {
+      <div className="grid gap-4 md:grid-cols-2">
+        {(GRUPOS as readonly string[]).map(g => {
           const rows = classificacaoPorGrupo[g] || []
           return (
-            <div key={g} className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-              <div className="px-4 py-3 flex items-center justify-between border-b border-white/10">
+            <div key={g} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <h2 className="font-black">Grupo {g}</h2>
-                  <Badge tone="emerald">Classificam: {CLASSIFICAM_POR_GRUPO}</Badge>
+                  <h2 className="text-lg font-extrabold">Grupo {g}</h2>
+                  <Badge tone="sky">Top {CLASSIFICAM_POR_GRUPO} passa</Badge>
                 </div>
+                <div className="text-xs text-zinc-400">{rows.length ? `${rows.length} times` : 'Sem dados'}</div>
               </div>
 
-              <div className="p-4">
-                {rows.length === 0 ? (
-                  <div className="text-sm text-zinc-300">Sem dados ainda (salve resultados para aparecer).</div>
-                ) : (
-                  <div className="w-full overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="text-zinc-300">
-                        <tr className="text-left">
-                          <th className="py-2 pr-2">#</th>
-                          <th className="py-2 pr-2">Time</th>
-                          <th className="py-2 pr-2">PTS</th>
-                          <th className="py-2 pr-2">J</th>
-                          <th className="py-2 pr-2">V</th>
-                          <th className="py-2 pr-2">E</th>
-                          <th className="py-2 pr-2">D</th>
-                          <th className="py-2 pr-2">SG</th>
-                          <th className="py-2 pr-2">GP</th>
-                          <th className="py-2 pr-2">GC</th>
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <table className="w-full text-sm">
+                  <thead className="bg-white/[0.04] text-xs text-zinc-300">
+                    <tr>
+                      <th className="px-3 py-2 text-left">#</th>
+                      <th className="px-3 py-2 text-left">Time</th>
+                      <th className="px-2 py-2 text-right">PTS</th>
+                      <th className="px-2 py-2 text-right">J</th>
+                      <th className="px-2 py-2 text-right">V</th>
+                      <th className="px-2 py-2 text-right">E</th>
+                      <th className="px-2 py-2 text-right">D</th>
+                      <th className="px-2 py-2 text-right">SG</th>
+                      <th className="px-2 py-2 text-right">GP</th>
+                      <th className="px-2 py-2 text-right">GC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, idx) => {
+                      const passa = idx < CLASSIFICAM_POR_GRUPO
+                      return (
+                        <tr
+                          key={r.id}
+                          className={`border-t border-white/10 ${
+                            passa ? 'bg-emerald-500/10' : 'bg-transparent'
+                          }`}
+                        >
+                          <td className="px-3 py-2 font-bold">{idx + 1}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={logoTime(r.id)}
+                                alt=""
+                                className="h-6 w-6 rounded-full border border-white/10 bg-black/40 object-contain"
+                              />
+                              <span className="font-semibold">{nomeTime(r.id)}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 text-right font-extrabold">{r.pts}</td>
+                          <td className="px-2 py-2 text-right">{r.j}</td>
+                          <td className="px-2 py-2 text-right">{r.v}</td>
+                          <td className="px-2 py-2 text-right">{r.e}</td>
+                          <td className="px-2 py-2 text-right">{r.d}</td>
+                          <td className="px-2 py-2 text-right">{r.sg}</td>
+                          <td className="px-2 py-2 text-right">{r.gp}</td>
+                          <td className="px-2 py-2 text-right">{r.gc}</td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((r, idx) => {
-                          const classifica = idx < CLASSIFICAM_POR_GRUPO
-                          return (
-                            <tr
-                              key={r.id}
-                              className={`border-t border-white/10 ${classifica ? 'bg-emerald-500/5' : ''}`}
-                            >
-                              <td className="py-2 pr-2 font-semibold">{idx + 1}</td>
-                              <td className="py-2 pr-2">
-                                <div className="flex items-center gap-2">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={logoTime(r.id)}
-                                    alt=""
-                                    className="h-6 w-6 rounded bg-white/5 border border-white/10 object-contain"
-                                  />
-                                  <span className="font-semibold">{nomeTime(r.id)}</span>
-                                </div>
-                              </td>
-                              <td className="py-2 pr-2 font-black">{r.pts}</td>
-                              <td className="py-2 pr-2">{r.j}</td>
-                              <td className="py-2 pr-2">{r.v}</td>
-                              <td className="py-2 pr-2">{r.e}</td>
-                              <td className="py-2 pr-2">{r.d}</td>
-                              <td className="py-2 pr-2">{r.sg}</td>
-                              <td className="py-2 pr-2">{r.gp}</td>
-                              <td className="py-2 pr-2">{r.gc}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                      )
+                    })}
+                    {!rows.length && (
+                      <tr>
+                        <td className="px-3 py-6 text-center text-sm text-zinc-400" colSpan={10}>
+                          Sem jogos com placar salvo ainda.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-3 text-xs text-zinc-400">
+                Critérios: Pontos → Saldo de gols → Gols pró.
               </div>
             </div>
           )
@@ -1105,242 +1257,241 @@ export default function FaseGruposPage() {
       </div>
 
       {/* Jogos */}
-      <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
-        <div className="px-4 py-3 flex items-center justify-between border-b border-white/10">
-          <h2 className="font-black">Jogos</h2>
-          <div className="text-xs text-zinc-300">{jogosFiltrados.length} jogos</div>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-extrabold">Jogos</h2>
+            <Badge tone="zinc">{jogosFiltrados.length} jogos</Badge>
+          </div>
+          {!isAdmin && <Badge tone="amber">Somente leitura (admin salva)</Badge>}
         </div>
 
-        <div className="p-4 space-y-3">
+        <div className="space-y-3">
           {gruposOuRodadas.map(sec => {
-            const opened = !!secoesAbertas[sec]
+            const aberto = !!secoesAbertas[sec]
             const lista = jogosFiltrados.filter(j => (j.grupo ?? `Rodada ${j.rodada}`) === sec)
 
             return (
-              <div key={sec} className="rounded-xl border border-white/10 bg-zinc-950/30">
+              <div key={sec} className="overflow-hidden rounded-2xl border border-white/10">
                 <button
                   onClick={() => toggleSecao(sec)}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5"
+                  className="flex w-full items-center justify-between bg-white/[0.04] px-4 py-3 text-left hover:bg-white/[0.07]"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-black">{sec}</span>
-                    <Badge tone="zinc">{lista.length} jogos</Badge>
+                    <span className="text-sm font-extrabold">{sec}</span>
+                    <span className="text-xs text-zinc-400">{lista.length} jogos</span>
                   </div>
-                  {opened ? <FiChevronUp /> : <FiChevronDown />}
+                  <div className="text-zinc-300">{aberto ? <FiChevronUp /> : <FiChevronDown />}</div>
                 </button>
 
-                {opened && (
-                  <div className="p-4 space-y-3">
+                {aberto && (
+                  <div className="divide-y divide-white/10">
                     {lista.map(jogo => {
+                      const mand = nomeTime(jogo.time1)
+                      const vist = nomeTime(jogo.time2)
                       const gm = jogo.gols_time1 ?? 0
                       const gv = jogo.gols_time2 ?? 0
-                      const salvo = !!jogo.bonus_pago
+                      const temPlacar = jogo.gols_time1 != null && jogo.gols_time2 != null
+
+                      const setGol = (id: number, lado: 'm' | 'v', v: string) => {
+                        const n = clampInt(Number(v))
+                        setJogos(prev =>
+                          prev.map(x => {
+                            if (x.id !== id) return x
+                            return lado === 'm' ? { ...x, gols_time1: n } : { ...x, gols_time2: n }
+                          })
+                        )
+                      }
 
                       return (
-                        <div
-                          key={jogo.id}
-                          className="rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col gap-3"
-                        >
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex items-center gap-2">
-                              <Badge tone="sky">Rodada {jogo.rodada}</Badge>
-                              {salvo ? <Badge tone="emerald">Pago</Badge> : <Badge tone="amber">Pendente</Badge>}
-                              {temExtrasFinanceiros && jogo.publico != null && jogo.renda != null ? (
-                                <Badge tone="zinc">
-                                  🎟️ {Number(jogo.publico).toLocaleString('pt-BR')} • 💰 R$ {Number(jogo.renda).toLocaleString('pt-BR')}
-                                </Badge>
-                              ) : null}
-                            </div>
-
-                            {isAdmin ? (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  disabled={salvandoId === jogo.id}
-                                  onClick={() => salvarPlacar(jogo)}
-                                  className="rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 px-3 py-2 text-sm font-semibold"
-                                >
-                                  <FiSave className="inline -mt-0.5 mr-2" />
-                                  {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
-                                </button>
-                                <button
-                                  disabled={salvandoId === jogo.id}
-                                  onClick={() => excluirPlacar(jogo)}
-                                  className="rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 px-3 py-2 text-sm font-semibold"
-                                >
-                                  <FiTrash2 className="inline -mt-0.5 mr-2" />
-                                  Excluir
-                                </button>
-                              </div>
-                            ) : (
-                              <Badge tone="amber">Somente admin salva placar</Badge>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-                            {/* Mandante */}
+                        <div key={jogo.id} className="bg-black/20 px-4 py-3">
+                          <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr_auto] md:items-center">
+                            {/* mandante */}
                             <div className="flex items-center gap-3">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={logoTime(jogo.time1)}
                                 alt=""
-                                className="h-10 w-10 rounded bg-white/5 border border-white/10 object-contain"
+                                className="h-8 w-8 rounded-full border border-white/10 bg-black/40 object-contain"
                               />
-                              <div>
-                                <div className="font-black">{nomeTime(jogo.time1)}</div>
-                                <div className="text-xs text-zinc-300">Mandante</div>
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-extrabold">{mand}</div>
+                                <div className="text-xs text-zinc-400">Mandante</div>
                               </div>
                             </div>
 
-                            {/* Placar */}
-                            <div className="flex items-center justify-center gap-3">
-                              <button
-                                onClick={() => {
-                                  if (!isAdmin) return
-                                  setJogos(prev =>
-                                    prev.map(x =>
-                                      x.id === jogo.id ? { ...x, gols_time1: clampInt((x.gols_time1 ?? 0) - 1) } : x
-                                    )
-                                  )
-                                }}
-                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
-                                title="Diminuir mandante"
-                              >
-                                <FiMinus />
-                              </button>
-
+                            {/* placar */}
+                            <div className="flex items-center justify-center gap-2">
                               <input
-                                type="number"
-                                min={0}
-                                max={99}
-                                value={jogo.gols_time1 ?? ''}
-                                onChange={e => {
-                                  if (!isAdmin) return
-                                  const v = clampInt(Number(e.target.value))
-                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time1: v } : x)))
-                                }}
-                                className="w-16 text-center rounded-lg bg-zinc-950/60 border border-white/10 px-2 py-2 font-black"
-                                placeholder="0"
+                                disabled={!isAdmin}
+                                value={String(jogo.gols_time1 ?? '')}
+                                onChange={e => setGol(jogo.id, 'm', e.target.value)}
+                                inputMode="numeric"
+                                className="w-14 rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-center text-sm font-extrabold outline-none focus:border-white/20 disabled:opacity-60"
+                                placeholder="-"
                               />
-
-                              <span className="text-zinc-300 font-black">x</span>
-
+                              <span className="text-zinc-400">x</span>
                               <input
-                                type="number"
-                                min={0}
-                                max={99}
-                                value={jogo.gols_time2 ?? ''}
-                                onChange={e => {
-                                  if (!isAdmin) return
-                                  const v = clampInt(Number(e.target.value))
-                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time2: v } : x)))
-                                }}
-                                className="w-16 text-center rounded-lg bg-zinc-950/60 border border-white/10 px-2 py-2 font-black"
-                                placeholder="0"
+                                disabled={!isAdmin}
+                                value={String(jogo.gols_time2 ?? '')}
+                                onChange={e => setGol(jogo.id, 'v', e.target.value)}
+                                inputMode="numeric"
+                                className="w-14 rounded-lg border border-white/10 bg-black/40 px-2 py-2 text-center text-sm font-extrabold outline-none focus:border-white/20 disabled:opacity-60"
+                                placeholder="-"
                               />
-
-                              <button
-                                onClick={() => {
-                                  if (!isAdmin) return
-                                  setJogos(prev =>
-                                    prev.map(x =>
-                                      x.id === jogo.id ? { ...x, gols_time2: clampInt((x.gols_time2 ?? 0) - 1) } : x
-                                    )
-                                  )
-                                }}
-                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
-                                title="Diminuir visitante"
-                              >
-                                <FiMinus />
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  if (!isAdmin) return
-                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time1: gm + 1 } : x)))
-                                }}
-                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
-                                title="Aumentar mandante"
-                              >
-                                <FiPlus />
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  if (!isAdmin) return
-                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time2: gv + 1 } : x)))
-                                }}
-                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
-                                title="Aumentar visitante"
-                              >
-                                <FiPlus />
-                              </button>
                             </div>
 
-                            {/* Visitante */}
-                            <div className="flex items-center gap-3 justify-end">
-                              <div className="text-right">
-                                <div className="font-black">{nomeTime(jogo.time2)}</div>
-                                <div className="text-xs text-zinc-300">Visitante</div>
+                            {/* visitante */}
+                            <div className="flex items-center justify-end gap-3">
+                              <div className="min-w-0 text-right">
+                                <div className="truncate text-sm font-extrabold">{vist}</div>
+                                <div className="text-xs text-zinc-400">Visitante</div>
                               </div>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={logoTime(jogo.time2)}
                                 alt=""
-                                className="h-10 w-10 rounded bg-white/5 border border-white/10 object-contain"
+                                className="h-8 w-8 rounded-full border border-white/10 bg-black/40 object-contain"
                               />
+                            </div>
+
+                            {/* ações */}
+                            <div className="flex items-center justify-end gap-2">
+                              {temPlacar && (
+                                <Badge tone={jogo.bonus_pago ? 'emerald' : 'amber'}>
+                                  {jogo.bonus_pago ? 'Bonus pago' : 'Pendente bônus'}
+                                </Badge>
+                              )}
+
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    disabled={salvandoId === jogo.id}
+                                    onClick={() => salvarPlacar({ ...jogo, gols_time1: gm, gols_time2: gv })}
+                                    className="inline-flex items-center gap-2 rounded-xl bg-sky-500/20 px-3 py-2 text-sm font-extrabold text-sky-200 hover:bg-sky-500/30 disabled:opacity-50"
+                                  >
+                                    <FiSave />
+                                    {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
+                                  </button>
+
+                                  <button
+                                    disabled={salvandoId === jogo.id}
+                                    onClick={() => excluirPlacar(jogo)}
+                                    className="inline-flex items-center gap-2 rounded-xl bg-rose-500/20 px-3 py-2 text-sm font-extrabold text-rose-200 hover:bg-rose-500/30 disabled:opacity-50"
+                                  >
+                                    <FiTrash2 />
+                                    Excluir
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
 
-                          {temExtrasFinanceiros && jogo.bonus_pago ? (
-                            <div className="text-xs text-zinc-300 border-t border-white/10 pt-3 flex flex-wrap gap-2">
-                              <Badge tone="zinc">Receita M: R$ {(jogo.receita_mandante ?? 0).toLocaleString('pt-BR')}</Badge>
-                              <Badge tone="zinc">Receita V: R$ {(jogo.receita_visitante ?? 0).toLocaleString('pt-BR')}</Badge>
-                              <Badge tone="zinc">Salários M: R$ {(jogo.salarios_mandante ?? 0).toLocaleString('pt-BR')}</Badge>
-                              <Badge tone="zinc">Salários V: R$ {(jogo.salarios_visitante ?? 0).toLocaleString('pt-BR')}</Badge>
-                              <Badge tone="emerald">Bônus M: R$ {(jogo.premiacao_mandante ?? 0).toLocaleString('pt-BR')}</Badge>
-                              <Badge tone="emerald">Bônus V: R$ {(jogo.premiacao_visitante ?? 0).toLocaleString('pt-BR')}</Badge>
+                          {/* extras (visual) */}
+                          {temPlacar && temExtrasFinanceiros && (
+                            <div className="mt-3 grid gap-2 md:grid-cols-4">
+                              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                                <div className="text-[11px] text-zinc-400">Público</div>
+                                <div className="text-sm font-extrabold">{(jogo.publico ?? 0).toLocaleString('pt-BR')}</div>
+                              </div>
+                              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                                <div className="text-[11px] text-zinc-400">Renda</div>
+                                <div className="text-sm font-extrabold">
+                                  R$ {(jogo.renda ?? 0).toLocaleString('pt-BR')}
+                                </div>
+                              </div>
+                              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                                <div className="text-[11px] text-zinc-400">Salários (M/V)</div>
+                                <div className="text-sm font-extrabold">
+                                  R$ {(jogo.salarios_mandante ?? 0).toLocaleString('pt-BR')} / R${' '}
+                                  {(jogo.salarios_visitante ?? 0).toLocaleString('pt-BR')}
+                                </div>
+                              </div>
+                              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                                <div className="text-[11px] text-zinc-400">Bônus total (M/V)</div>
+                                <div className="text-sm font-extrabold">
+                                  R$ {(jogo.premiacao_mandante ?? 0).toLocaleString('pt-BR')} / R${' '}
+                                  {(jogo.premiacao_visitante ?? 0).toLocaleString('pt-BR')}
+                                </div>
+                              </div>
                             </div>
-                          ) : null}
+                          )}
                         </div>
                       )
                     })}
+                    {!lista.length && (
+                      <div className="px-4 py-6 text-center text-sm text-zinc-400">Nenhum jogo nesta seção.</div>
+                    )}
                   </div>
                 )}
               </div>
             )
           })}
+
+          {!gruposOuRodadas.length && (
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-8 text-center text-zinc-300">
+              Nenhum jogo encontrado. Se você é admin, clique em <span className="font-extrabold">Gerar Copa</span>.
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Modal simples das chaves */}
+      {/* Modal Mata-mata */}
       {abrirModalMM && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-zinc-950 p-4">
-            <div className="flex items-center justify-between">
-              <div className="font-black text-lg">Quartas geradas</div>
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-white/10 bg-zinc-950">
+            <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.04] px-5 py-4">
+              <div>
+                <div className="text-lg font-extrabold">{cfg.mataMataLabel} geradas</div>
+                <div className="text-xs text-zinc-400">Chaves salvas em {TABELA_MM} (fase=quartas).</div>
+              </div>
               <button
                 onClick={() => setAbrirModalMM(false)}
-                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 text-sm font-semibold"
+                className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-bold hover:bg-white/[0.10]"
               >
                 Fechar
               </button>
             </div>
 
-            <div className="mt-3 space-y-2">
-              {chavesMM.map((c, i) => (
-                <div key={i} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <div className="text-sm text-zinc-300">{c.label}</div>
-                  <div className="mt-1 flex items-center justify-between">
-                    <span className="font-black">{nomeTime(c.casaId)}</span>
-                    <span className="text-zinc-300 font-black">x</span>
-                    <span className="font-black">{nomeTime(c.foraId)}</span>
+            <div className="p-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                {chavesMM.map(c => (
+                  <div key={c.label} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="mb-3 text-sm font-extrabold">{c.label}</div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={logoTime(c.casaId)}
+                          alt=""
+                          className="h-7 w-7 rounded-full border border-white/10 bg-black/40 object-contain"
+                        />
+                        <div className="text-sm font-bold">{nomeTime(c.casaId)}</div>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={logoTime(c.foraId)}
+                          alt=""
+                          className="h-7 w-7 rounded-full border border-white/10 bg-black/40 object-contain"
+                        />
+                        <div className="text-sm font-bold">{nomeTime(c.foraId)}</div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="mt-3 text-xs text-zinc-400">
-              Obs: isso só cria as chaves no banco. A página de mata-mata usa a tabela <b>{TABELA_MM}</b>.
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-xs text-zinc-300">
+                <div className="font-extrabold text-zinc-200">Regras financeiras</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>Ao salvar placar: público/renda via estádio (fallback aleatório se não achar estádio).</li>
+                  <li>Renda: 95% mandante / 5% visitante + participação fixa por jogo (R$ 3.000.000 cada).</li>
+                  <li>Bônus por desempenho: vitória/empate/derrota + gols pró - gols contra (COPA padrão).</li>
+                  <li>Salários são descontados após a partida (com registro e bid).</li>
+                  <li>Excluir placar faz estorno de tudo (renda, bônus total e devolve salários) + ajusta jogos do elenco.</li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
@@ -1348,5 +1499,6 @@ export default function FaseGruposPage() {
     </div>
   )
 }
+
 
 
