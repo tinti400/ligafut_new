@@ -882,7 +882,16 @@ export default function LeilaoSistemaPage() {
             opacity: 1;
           }
           100% {
-            transform: scale(1);          0% {
+            transform: scale(1);
+            opacity: 0;
+          }
+        }
+        .lf-pop {
+          animation: lfPop 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes lfConfetti {
+          0% {
             transform: translateY(-6px) rotate(-8deg);
             opacity: 0;
           }
@@ -981,15 +990,3 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
-
-            opacity: 0;
-          }
-        }
-        .lf-pop {
-          animation: lfPop 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-        }
-
-        @keyframes lfConfetti {
-          0% {
-            transform: translateY(-6px) rotate(-8deg);
-            
