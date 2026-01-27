@@ -31,6 +31,12 @@ type Leilao = {
   criado_em: string
   status: 'ativo' | 'leiloado' | 'cancelado'
   anterior?: string | null
+
+  // ✅ tolerar colunas vindas do banco/planilha
+  foto?: string | null
+  imagem?: string | null
+  url_foto?: string | null
+  foto_url?: string | null
 }
 
 export default function LeilaoSistemaPage() {
@@ -66,7 +72,7 @@ export default function LeilaoSistemaPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [finalizando, setFinalizando] = useState<Record<string, boolean>>({})
 
-  // efeitos por leilão (vira ReactNode pro card)
+  // efeitos por leilão
   const [efeito, setEfeito] = useState<
     Record<string, { tipo: 'sad' | 'morno' | 'empolgado' | 'fogo' | 'explosao'; key: number }>
   >({})
@@ -114,8 +120,30 @@ export default function LeilaoSistemaPage() {
     return url
   }
 
+  // ✅ transforma link do SoFIFA em URL direta de imagem (quando possível)
+  const sofifaToCdnImage = (link?: string | null) => {
+    const s = String(link || '').trim()
+    if (!s) return ''
+
+    // já é imagem?
+    if (/\.(png|jpg|jpeg|webp)(\?.*)?$/i.test(s) && /^https?:\/\//i.test(s)) return normalizeUrl(s)
+
+    // pega id do jogador: /player/272505/...
+    const m = s.match(/\/player\/(\d+)/i)
+    if (!m) return ''
+    const id = m[1]
+
+    // padrão que costuma funcionar
+    return `https://cdn.sofifa.net/players/${id}/${id}_120.png`
+  }
+
+  // ✅ pega imagem em ordem de prioridade:
+  // 1) imagem_url (banco)
+  // 2) foto (planilha) e variações
+  // 3) link_sofifa (gera uma URL CDN)
   const pickImagemUrl = (row: any) => {
     const keys = [
+      // antigo
       'imagem_url',
       'Imagem_url',
       'Imagem URL',
@@ -123,20 +151,39 @@ export default function LeilaoSistemaPage() {
       'imagemURL',
       'url_imagem',
       'URL_Imagem',
+
+      // ✅ planilha
+      'foto',
+      'Foto',
+      'foto_url',
+      'Foto_url',
+      'url_foto',
+      'URL_Foto',
+      'imagem',
+      'Imagem',
     ]
+
     for (const k of keys) {
       if (row?.[k]) {
         const fixed = normalizeUrl(row[k])
         if (fixed) return fixed
       }
     }
+
+    // tolerar nome com espaços/variação
     for (const k in row || {}) {
-      if (k && k.replace(/\s+/g, '').toLowerCase() === 'imagem_url') {
+      const kk = String(k || '').replace(/\s+/g, '').toLowerCase()
+      if (kk === 'imagem_url' || kk === 'foto' || kk === 'foto_url' || kk === 'url_foto') {
         const fixed = normalizeUrl(row[k])
         if (fixed) return fixed
       }
     }
-    return row?.imagem_url ? normalizeUrl(row.imagem_url) : ''
+
+    // fallback por sofifa
+    const fromSofifa = sofifaToCdnImage(row?.link_sofifa)
+    if (fromSofifa) return fromSofifa
+
+    return ''
   }
 
   // parse de data estável
@@ -257,7 +304,10 @@ export default function LeilaoSistemaPage() {
       .limit(MAX_ATIVOS)
 
     if (!error && data) {
-      let arr = (data as any[]).map((l: any) => ({ ...l, imagem_url: pickImagemUrl(l) || null })) as Leilao[]
+      let arr = (data as any[]).map((l: any) => {
+        const img = pickImagemUrl(l)
+        return { ...l, imagem_url: img || null }
+      }) as Leilao[]
 
       // fixa ordem
       if (!inicializadoRef.current || orderRef.current.length === 0) {
@@ -466,17 +516,6 @@ export default function LeilaoSistemaPage() {
     if (!idTime || !isUuid(idTime) || !nomeTime) return 'Identificação do time inválida. Faça login novamente.'
     return null
   }, [idTime, nomeTime])
-
-  const formatarTempo = (segundos: number) => {
-    const h = Math.floor(segundos / 3600)
-    const min = Math.floor((segundos % 3600) / 60)
-      .toString()
-      .padStart(2, '0')
-    const sec = Math.max(0, Math.floor(segundos % 60))
-      .toString()
-      .padStart(2, '0')
-    return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
-  }
 
   const acionarAnimacao = (leilaoId: string) => {
     setTremores((prev) => ({ ...prev, [leilaoId]: true }))
@@ -729,7 +768,7 @@ export default function LeilaoSistemaPage() {
 
               {travadoPorIdentidade && (
                 <div className="rounded-xl border border-yellow-900/40 bg-yellow-950/40 px-3 py-2 text-xs text-yellow-200">
-                 ⚠️ {travadoPorIdentidade}
+                  ⚠️ {travadoPorIdentidade}
                 </div>
               )}
             </div>
@@ -767,11 +806,9 @@ export default function LeilaoSistemaPage() {
 
               const totalMs = Math.max(0, tempoFinal - tempoInicio)
               const remMs = Math.max(0, tempoFinal - serverNow)
-              const pctRestante =
-                totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
+              const pctRestante = totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
 
               const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
-              const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
 
               const vencedor = leilao.nome_time_vencedor || ''
               const logoVencedor = vencedor ? logos[vencedor] : undefined
@@ -793,7 +830,7 @@ export default function LeilaoSistemaPage() {
                   burst={!!burst[leilao.id]}
                   efeitoOverlay={efeitoOverlay(leilao.id)}
                   minimoPermitido={minimoPermitido}
-                  valorProposto={propostas[leilao.id] ?? String(minimoPermitido)}
+                  valorProposto={String(propostas[leilao.id] ?? minimoPermitido)}
                   setValorProposto={(v) => {
                     const onlyDigits = String(v || '').replace(/[^\d]/g, '')
                     setPropostas((prev) => ({ ...prev, [leilao.id]: onlyDigits }))
@@ -818,16 +855,6 @@ export default function LeilaoSistemaPage() {
 
       {/* keyframes */}
       <style jsx>{`
-        @keyframes fadeout {
-          0% {
-            opacity: 1;
-            transform: scale(1) translateY(0);
-          }
-          100% {
-            opacity: 0;
-            transform: scale(1.3) translateY(-10px);
-          }
-        }
         @keyframes lfFloat {
           0% {
             transform: translateY(8px) scale(0.98);
@@ -855,16 +882,7 @@ export default function LeilaoSistemaPage() {
             opacity: 1;
           }
           100% {
-            transform: scale(1);
-            opacity: 0;
-          }
-        }
-        .lf-pop {
-          animation: lfPop 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-        }
-
-        @keyframes lfConfetti {
-          0% {
+            transform: scale(1);          0% {
             transform: translateY(-6px) rotate(-8deg);
             opacity: 0;
           }
@@ -964,3 +982,14 @@ export default function LeilaoSistemaPage() {
   )
 }
 
+            opacity: 0;
+          }
+        }
+        .lf-pop {
+          animation: lfPop 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes lfConfetti {
+          0% {
+            transform: translateY(-6px) rotate(-8deg);
+            
