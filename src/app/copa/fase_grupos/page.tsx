@@ -76,12 +76,12 @@ const COPA_GOL_SOFRIDO = 40_000
 
 /* ================= MODELO FIXO (REGULAMENTO) =================
 ✅ 2 grupos (A/B)
-✅ APENAS times da 1ª divisão
+✅ inclui times da 1ª E 2ª divisão
 ✅ TOP 4 de cada grupo classifica
 ✅ Mata-mata começa nas Quartas
 ============================================================== */
-type CopaModel = 'div1_2grupos_top4_quartas'
-const MODELO_FIXO: CopaModel = 'div1_2grupos_top4_quartas'
+type CopaModel = 'div1e2_2grupos_top4_quartas'
+const MODELO_FIXO: CopaModel = 'div1e2_2grupos_top4_quartas'
 
 /* ================= HELPERS ================= */
 const clampInt = (n: number) => (Number.isNaN(n) || n < 0 ? 0 : n > 99 ? 99 : Math.floor(n))
@@ -114,7 +114,7 @@ async function safeSelectTimesByDivisoes(divisoes: string[], minimal = false) {
   return [] as any[]
 }
 
-/** Ordena “mais fracos” (pra cortar extras) */
+/** Ordena “mais fracos” (p/ desempate/utilidades) */
 function sortMaisFracosPrimeiro(a: TimeFull, b: TimeFull) {
   const oa = a.overall ?? 0
   const ob = b.overall ?? 0
@@ -184,14 +184,14 @@ function Badge({ tone = 'zinc', children }: { tone?: BadgeTone; children: ReactN
 export default function FaseGruposPage() {
   const { isAdmin } = useAdmin()
 
-  // 🔒 Modelo fixo (2 grupos, só div1, top4 classifica)
+  // 🔒 Modelo fixo
   const modelo: CopaModel = MODELO_FIXO
 
   const cfg = useMemo(() => {
     return {
-      title: 'Copa — 1ª Divisão',
+      title: 'Copa — 1ª + 2ª Divisão',
       subtitle: '2 Grupos (A/B)',
-      divisoes: ['1'],
+      divisoes: ['1', '2'], // ✅ inclui segunda
       grupos: ['A', 'B'] as const,
       classificam: 4,
       mataMataFase: 'quartas' as const,
@@ -261,7 +261,7 @@ export default function FaseGruposPage() {
       const nome = t.nome ?? t.name ?? t.team_name ?? t.time ?? t.apelido ?? String(t.id)
       const logo = t.logo_url ?? t.logo ?? t.escudo ?? t.badge ?? t.image_url ?? '/default.png'
       const associacao = t.associacao ?? t.pais ?? null
-      novo[t.id] = { nome, logo_url: logo, associacao }
+      novo[String(t.id)] = { nome, logo_url: logo, associacao }
     })
     setTimesMap(novo)
   }
@@ -415,7 +415,7 @@ export default function FaseGruposPage() {
     return valor
   }
 
-  /* ===================== GERAR GRUPOS + CALENDÁRIO (FIXO DIV1 2 GRUPOS) ===================== */
+  /* ===================== GERAR GRUPOS + CALENDÁRIO (DIV1+DIV2 2 GRUPOS) ===================== */
   const gerarFaseGrupos = async () => {
     if (!isAdmin) {
       toast.error('Apenas admin pode gerar a fase.')
@@ -425,7 +425,7 @@ export default function FaseGruposPage() {
     setGerando(true)
     try {
       const rows = await safeSelectTimesByDivisoes(cfg.divisoes, false)
-      toast(`Times encontrados (DIV1): ${rows?.length ?? 0}`, { icon: '🔎' })
+      toast(`Times encontrados (DIV1+DIV2): ${rows?.length ?? 0}`, { icon: '🔎' })
 
       let participantes: TimeFull[] = (rows || []).map((t: any) => ({
         id: String(t.id),
@@ -439,20 +439,17 @@ export default function FaseGruposPage() {
       }))
 
       if (participantes.length < 8) {
-        toast.error('Preciso de pelo menos 8 times na 1ª divisão para fazer 2 grupos e quartas.')
+        toast.error('Preciso de pelo menos 8 times somando 1ª+2ª divisão para fazer 2 grupos e quartas.')
         return
       }
 
-      // precisa ser par pra dividir em 2
-      if (participantes.length % 2 === 1) {
-        const ord = [...participantes].sort(sortMaisFracosPrimeiro)
-        const removido = ord[0]
-        participantes = participantes.filter(t => t.id !== removido.id)
-        toast(`⚠️ Nº ímpar de times na 1ª divisão. Removi 1 mais fraco: ${removido.nome}`, { icon: 'ℹ️' })
-      }
+      // ✅ NÃO remove mais fraco quando ímpar!
+      // Round-robin já lida com ímpar via BYE.
 
-      const half = participantes.length / 2
       const embaralhados = shuffle(participantes)
+
+      // ✅ divide A/B mesmo quando ímpar (A fica com +1)
+      const half = Math.ceil(embaralhados.length / 2)
 
       const grupos: Record<'A' | 'B', TimeFull[]> = {
         A: embaralhados.slice(0, half),
@@ -468,7 +465,7 @@ export default function FaseGruposPage() {
       })
 
       if (!calendario.length) {
-        toast.error('Falha ao gerar calendário (DIV1 2 grupos).')
+        toast.error('Falha ao gerar calendário (2 grupos).')
         return
       }
 
@@ -503,7 +500,7 @@ export default function FaseGruposPage() {
       const { error: insErr } = await supabase.from(TABELA_GRUPOS).insert(rowsInsert)
       if (insErr) {
         console.error(insErr)
-        toast.error('Erro ao inserir confrontos dos grupos (DIV1).')
+        toast.error('Erro ao inserir confrontos dos grupos.')
         return
       }
 
@@ -513,13 +510,13 @@ export default function FaseGruposPage() {
       await supabase.from('bid').insert([
         {
           tipo_evento: 'Sistema',
-          descricao: `Copa (DIV1) gerada — 2 grupos (${half} times por grupo) • Top 4 → Quartas.`,
+          descricao: `Copa (DIV1+DIV2) gerada — 2 grupos (A=${grupos.A.length} / B=${grupos.B.length}) • Top 4 → Quartas.`,
           valor: null,
           data_evento: new Date().toISOString(),
         },
       ])
 
-      toast.success(`✅ Copa DIV1 gerada: ${rowsInsert.length} jogos (2 grupos)`)
+      toast.success(`✅ Copa gerada: ${rowsInsert.length} jogos (2 grupos)`)
       topRef.current?.scrollIntoView({ behavior: 'smooth' })
     } finally {
       setGerando(false)
@@ -529,7 +526,10 @@ export default function FaseGruposPage() {
   /* ===================== Salvar / Ajuste / Excluir ===================== */
   async function salvarAjusteResultado(jogo: Jogo, gm: number, gv: number, silencioso = false) {
     if (!isAdmin) return
-    const { error } = await supabase.from(TABELA_GRUPOS).update({ gols_time1: gm, gols_time2: gv, bonus_pago: true }).eq('id', jogo.id)
+    const { error } = await supabase
+      .from(TABELA_GRUPOS)
+      .update({ gols_time1: gm, gols_time2: gv, bonus_pago: true })
+      .eq('id', jogo.id)
 
     if (error) {
       console.error(error)
@@ -857,7 +857,6 @@ export default function FaseGruposPage() {
         { casaId: A2, foraId: B3, label: 'QF4 — A2 x B3' },
       ]
 
-      // limpar fase no banco (quartas) — com temporada se existir
       const del = temColunaTemporada
         ? await supabase.from(TABELA_MM).delete().eq('fase', 'quartas').eq('temporada', TEMPORADA)
         : await supabase.from(TABELA_MM).delete().eq('fase', 'quartas')
@@ -870,336 +869,234 @@ export default function FaseGruposPage() {
       }
 
       const rowsInsert = chaves.map((c, idx) => ({
-        ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
+                ...(temColunaTemporada ? { temporada: TEMPORADA } : {}),
         fase: 'quartas',
         ordem: idx + 1,
         id_time1: c.casaId,
         id_time2: c.foraId,
-        time1: timesMap[c.casaId]?.nome ?? c.casaId,
-        time2: timesMap[c.foraId]?.nome ?? c.foraId,
         gols_time1: null,
         gols_time2: null,
+        bonus_pago: false,
       }))
 
       const { error: insErr } = await supabase.from(TABELA_MM).insert(rowsInsert)
       if (insErr) {
         console.error(insErr)
-        toast.error('Erro ao gravar quartas no banco (copa_mata_mata).')
+        toast.error('Erro ao inserir chaves do mata-mata (quartas).')
         setChavesMM(chaves)
         return
       }
 
+      await supabase.from('bid').insert([
+        {
+          tipo_evento: 'Sistema',
+          descricao: `Mata-mata (Quartas) gerado pela Copa — ${TEMPORADA}`,
+          valor: null,
+          data_evento: new Date().toISOString(),
+        },
+      ])
+
       setChavesMM(chaves)
-
-      await supabase.from('bid').insert({
-        tipo_evento: 'Sistema',
-        descricao: `Mata-mata gerado (Quartas) — Copa DIV1 — salvo em ${TABELA_MM}.`,
-        valor: null,
-        data_evento: new Date().toISOString(),
-      })
-
-      toast.success('✅ Quartas geradas (Top 4 de cada grupo)!')
+      toast.success('✅ Quartas de final geradas!')
+      setAbrirModalMM(true)
     } finally {
       setGerandoMM(false)
     }
   }
 
-  /* ===== UI DERIVED ===== */
-  const jogosFiltrados = useMemo(
-    () =>
-      jogos.filter(
-        j => filtroTime === 'Todos' || timesMap[j.time1]?.nome === filtroTime || timesMap[j.time2]?.nome === filtroTime
-      ),
-    [jogos, filtroTime, timesMap]
-  )
+  /* ===================== UI helpers ===================== */
+  const nomeTime = (id: string) => timesMap[id]?.nome ?? id
+  const logoTime = (id: string) => timesMap[id]?.logo_url ?? '/default.png'
 
-  const jogosPorGrupoRodada = useMemo(() => {
-    const map: Record<string, Record<number, Jogo[]>> = {}
-    jogosFiltrados.forEach(j => {
-      const g = (j.grupo ?? 'A') as string
-      map[g] ||= {}
-      map[g][j.rodada] ||= []
-      map[g][j.rodada].push(j)
-    })
-    return map
+  const jogosFiltrados = useMemo(() => {
+    if (filtroTime === 'Todos') return jogos
+    return jogos.filter(j => j.time1 === filtroTime || j.time2 === filtroTime)
+  }, [jogos, filtroTime])
+
+  const gruposOuRodadas = useMemo(() => {
+    const keyset = new Set<string>()
+    jogosFiltrados.forEach(j => keyset.add((j.grupo ?? `Rodada ${j.rodada}`) as string))
+    return Array.from(keyset)
   }, [jogosFiltrados])
 
-  const listaGrupos = useMemo(() => Object.keys(jogosPorGrupoRodada).sort(), [jogosPorGrupoRodada])
-  const nomesDosTimes = useMemo(() => Object.values(timesMap).map(t => t.nome).sort(), [timesMap])
-
-  const totalJogos = jogos.length
-  const totalParticipantes = useMemo(() => {
-    const ids = new Set<string>()
-    jogos.forEach(j => {
-      ids.add(j.time1)
-      ids.add(j.time2)
-    })
-    return ids.size
-  }, [jogos])
-
-    const Score = ({
-    value,
-    onChange,
-    disabled,
-  }: {
-    value: number | null
-    onChange: (v: number) => void
-    disabled?: boolean
-  }) => {
-    const v = value ?? 0
-    return (
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange(clampInt(v - 1))}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-40"
-          title="Diminuir"
-        >
-          <FiMinus />
-        </button>
-
-        <input
-          value={v}
-          disabled={disabled}
-          onChange={e => onChange(clampInt(Number(e.target.value)))}
-          inputMode="numeric"
-          className="h-8 w-14 rounded-md border border-white/10 bg-black/40 text-center text-sm text-zinc-100 outline-none focus:border-white/25 disabled:opacity-50"
-        />
-
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange(clampInt(v + 1))}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10 disabled:opacity-40"
-          title="Aumentar"
-        >
-          <FiPlus />
-        </button>
-      </div>
-    )
+  const toggleSecao = (k: string) => {
+    setSecoesAbertas(prev => ({ ...prev, [k]: !prev[k] }))
   }
 
-  const toggleSecao = (key: string) =>
-    setSecoesAbertas(prev => ({
-      ...prev,
-      [key]: !prev[key],
-    }))
-
-  const setGol = (id: number, side: 't1' | 't2', v: number) => {
-    setJogos(prev =>
-      prev.map(j => {
-        if (j.id !== id) return j
-        return {
-          ...j,
-          gols_time1: side === 't1' ? v : j.gols_time1,
-          gols_time2: side === 't2' ? v : j.gols_time2,
-        }
-      })
-    )
+  function limparTudo() {
+    setFiltroTime('Todos')
   }
 
-  const resetarInputsLocais = () => {
-    // volta para o que está no banco (recarrega)
-    buscarJogos()
-    toast('Revertido para os dados do banco.', { icon: '↩️' })
-  }
-
-  const renderTimeChip = (id: string) => {
-    const t = timesMap[id]
-    return (
-      <div className="flex min-w-0 items-center gap-2">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={t?.logo_url || '/default.png'}
-          alt=""
-          className="h-7 w-7 rounded-full border border-white/10 bg-white/5 object-cover"
-        />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-zinc-100">{t?.nome ?? id}</div>
-          {t?.associacao ? (
-            <div className="truncate text-[11px] text-zinc-400">{t.associacao}</div>
-          ) : (
-            <div className="text-[11px] text-zinc-500">—</div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  const SecaoHeader = ({ title, open }: { title: string; open: boolean }) => (
-    <button
-      type="button"
-      onClick={() => toggleSecao(title)}
-      className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left hover:bg-white/10"
-    >
-      <div className="flex items-center gap-3">
-        <Badge tone="sky">{cfg.subtitle}</Badge>
-        <div className="text-sm font-semibold text-zinc-100">{title}</div>
-      </div>
-      <div className="text-zinc-300">{open ? <FiChevronUp /> : <FiChevronDown />}</div>
-    </button>
-  )
-
+  /* ===================== RENDER ===================== */
   if (loading) {
     return (
-      <div className="min-h-[60vh] rounded-2xl border border-white/10 bg-black/40 p-6 text-zinc-200">
-        Carregando Copa…
+      <div className="p-6 text-zinc-200">
+        <div className="animate-pulse">Carregando Copa...</div>
       </div>
     )
   }
 
   return (
-    <div ref={topRef} className="space-y-5">
-      {/* HEADER */}
-      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-white/10 to-black/40 p-5">
-        <div className="absolute inset-0 opacity-20 [mask-image:radial-gradient(circle_at_top,black,transparent_60%)]">
-          <div className="h-full w-full bg-[url('/watermarks/ligafut26.png')] bg-center bg-no-repeat opacity-50" />
+    <div className="p-6 space-y-6 text-zinc-100" ref={topRef}>
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-black tracking-tight">{cfg.title}</h1>
+            <Badge tone="sky">{TEMPORADA}</Badge>
+            <Badge tone="violet">{cfg.subtitle}</Badge>
+            <Badge tone="emerald">Top {CLASSIFICAM_POR_GRUPO} → {cfg.mataMataLabel}</Badge>
+          </div>
+          <p className="text-sm text-zinc-300">
+            Fase de grupos (DIV1 + DIV2) • Financeiro automático por jogo • Estorno ao excluir placar
+          </p>
         </div>
 
-        <div className="relative flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-extrabold tracking-tight text-white">{cfg.title}</h1>
-              <Badge tone="violet">{TEMPORADA}</Badge>
-              <Badge tone="emerald">Modelo fixo</Badge>
-              <Badge tone="amber">Top {CLASSIFICAM_POR_GRUPO} → {cfg.mataMataLabel}</Badge>
-            </div>
-            <p className="mt-1 text-sm text-zinc-300">
-              Somente times da 1ª divisão • 2 grupos (A/B) • Calendário round-robin por grupo
-            </p>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-300">
-              <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1">
-                Participantes: <b className="text-white">{totalParticipantes}</b>
-              </span>
-              <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1">
-                Jogos: <b className="text-white">{totalJogos}</b>
-              </span>
-              <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1">
-                Financeiro: <b className="text-white">{temExtrasFinanceiros ? 'ON' : 'OFF'}</b>
-              </span>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
-              <span className="text-xs text-zinc-300">Filtrar time</span>
-              <select
-                value={filtroTime}
-                onChange={e => setFiltroTime(e.target.value)}
-                className="h-9 rounded-lg border border-white/10 bg-black/50 px-2 text-sm text-zinc-100 outline-none focus:border-white/25"
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin ? (
+            <>
+              <button
+                onClick={gerarFaseGrupos}
+                disabled={gerando}
+                className="rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 px-3 py-2 text-sm font-semibold"
               >
-                <option value="Todos">Todos</option>
-                {nomesDosTimes.map(n => (
-                  <option key={n} value={n}>
-                    {n}
+                {gerando ? 'Gerando...' : 'Gerar Grupos + Calendário'}
+              </button>
+
+              <button
+                onClick={gerarMataMata}
+                disabled={gerandoMM}
+                className="rounded-lg bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 px-3 py-2 text-sm font-semibold"
+              >
+                {gerandoMM ? 'Gerando...' : 'Gerar Mata-mata (Quartas)'}
+              </button>
+            </>
+          ) : (
+            <Badge tone="amber">Somente admin gera calendário</Badge>
+          )}
+
+          <button
+            onClick={async () => {
+              await buscarJogos()
+              toast.success('Atualizado!')
+            }}
+            className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 text-sm font-semibold"
+          >
+            <FiRotateCcw className="inline -mt-0.5 mr-2" />
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm text-zinc-300">Filtrar por time:</span>
+            <select
+              value={filtroTime}
+              onChange={e => setFiltroTime(e.target.value)}
+              className="rounded-lg bg-zinc-950/60 border border-white/10 px-3 py-2 text-sm"
+            >
+              <option value="Todos">Todos</option>
+              {Object.keys(timesMap)
+                .sort((a, b) => nomeTime(a).localeCompare(nomeTime(b)))
+                .map(id => (
+                  <option key={id} value={id}>
+                    {nomeTime(id)}
                   </option>
                 ))}
-              </select>
-            </div>
+            </select>
 
             <button
-              type="button"
-              onClick={resetarInputsLocais}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-zinc-100 hover:bg-white/10"
+              onClick={limparTudo}
+              className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 text-sm font-semibold"
             >
-              <FiRotateCcw />
-              Reverter
+              Limpar
             </button>
+          </div>
 
-            {isAdmin && (
-              <>
-                <button
-                  type="button"
-                  disabled={gerando}
-                  onClick={gerarFaseGrupos}
-                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-extrabold text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-40"
-                >
-                  {gerando ? 'Gerando…' : 'Gerar Grupos & Jogos'}
-                </button>
-
-                <button
-                  type="button"
-                  disabled={gerandoMM}
-                  onClick={async () => {
-                    await gerarMataMata()
-                    setAbrirModalMM(true)
-                  }}
-                  className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-extrabold text-sky-200 hover:bg-sky-500/15 disabled:opacity-40"
-                >
-                  {gerandoMM ? 'Gerando…' : `Gerar ${cfg.mataMataLabel}`}
-                </button>
-              </>
-            )}
+          <div className="flex items-center gap-2 flex-wrap text-xs text-zinc-300">
+            <Badge tone={temColunaGrupo ? 'emerald' : 'amber'}>
+              {temColunaGrupo ? 'coluna grupo: OK' : 'sem coluna grupo'}
+            </Badge>
+            <Badge tone={temColunaTemporada ? 'emerald' : 'amber'}>
+              {temColunaTemporada ? 'coluna temporada: OK' : 'sem coluna temporada'}
+            </Badge>
+            <Badge tone={temExtrasFinanceiros ? 'emerald' : 'amber'}>
+              {temExtrasFinanceiros ? 'extras financeiros: OK' : 'sem extras financeiros'}
+            </Badge>
           </div>
         </div>
       </div>
 
-      {/* CLASSIFICAÇÃO */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Classificação */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {GRUPOS.map(g => {
           const rows = classificacaoPorGrupo[g] || []
           return (
-            <div key={g} className="rounded-2xl border border-white/10 bg-black/40 p-4">
-              <div className="mb-3 flex items-center justify-between">
+            <div key={g} className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+              <div className="px-4 py-3 flex items-center justify-between border-b border-white/10">
                 <div className="flex items-center gap-2">
-                  <Badge tone={g === 'A' ? 'sky' : 'violet'}>Grupo {g}</Badge>
-                  <span className="text-sm font-semibold text-zinc-100">Classificação</span>
+                  <h2 className="font-black">Grupo {g}</h2>
+                  <Badge tone="emerald">Classificam: {CLASSIFICAM_POR_GRUPO}</Badge>
                 </div>
-                <span className="text-xs text-zinc-400">Critérios: Pts • SG • GP</span>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-white/10">
-                <div className="grid grid-cols-[36px_1fr_40px_40px_40px_40px_50px_50px_50px] gap-0 bg-white/5 px-3 py-2 text-[11px] font-bold uppercase text-zinc-300">
-                  <div>#</div>
-                  <div>Time</div>
-                  <div className="text-right">Pts</div>
-                  <div className="text-right">J</div>
-                  <div className="text-right">V</div>
-                  <div className="text-right">E</div>
-                  <div className="text-right">D</div>
-                  <div className="text-right">SG</div>
-                  <div className="text-right">GP</div>
-                </div>
-
+              <div className="p-4">
                 {rows.length === 0 ? (
-                  <div className="px-3 py-4 text-sm text-zinc-400">Sem dados ainda (salve placares).</div>
+                  <div className="text-sm text-zinc-300">Sem dados ainda (salve resultados para aparecer).</div>
                 ) : (
-                  rows.map((r, idx) => {
-                    const classifica = idx < CLASSIFICAM_POR_GRUPO
-                    const linhaCls = classifica
-                      ? 'bg-emerald-500/10'
-                      : 'bg-black/10'
-
-                    return (
-                      <div
-                        key={r.id}
-                        className={`grid grid-cols-[36px_1fr_40px_40px_40px_40px_50px_50px_50px] items-center gap-0 px-3 py-2 text-sm text-zinc-100 border-t border-white/10 ${linhaCls}`}
-                      >
-                        <div className="text-zinc-300">{idx + 1}</div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={timesMap[r.id]?.logo_url || '/default.png'}
-                              alt=""
-                              className="h-6 w-6 rounded-full border border-white/10 bg-white/5 object-cover"
-                            />
-                            <div className="truncate font-semibold">{timesMap[r.id]?.nome ?? r.id}</div>
-                            {classifica && <Badge tone="emerald">TOP {CLASSIFICAM_POR_GRUPO}</Badge>}
-                          </div>
-                        </div>
-                        <div className="text-right font-extrabold text-white">{r.pts}</div>
-                        <div className="text-right text-zinc-200">{r.j}</div>
-                        <div className="text-right text-zinc-200">{r.v}</div>
-                        <div className="text-right text-zinc-200">{r.e}</div>
-                        <div className="text-right text-zinc-200">{r.d}</div>
-                        <div className="text-right text-zinc-200">{r.sg}</div>
-                        <div className="text-right text-zinc-200">{r.gp}</div>
-                      </div>
-                    )
-                  })
+                  <div className="w-full overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-zinc-300">
+                        <tr className="text-left">
+                          <th className="py-2 pr-2">#</th>
+                          <th className="py-2 pr-2">Time</th>
+                          <th className="py-2 pr-2">PTS</th>
+                          <th className="py-2 pr-2">J</th>
+                          <th className="py-2 pr-2">V</th>
+                          <th className="py-2 pr-2">E</th>
+                          <th className="py-2 pr-2">D</th>
+                          <th className="py-2 pr-2">SG</th>
+                          <th className="py-2 pr-2">GP</th>
+                          <th className="py-2 pr-2">GC</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r, idx) => {
+                          const classifica = idx < CLASSIFICAM_POR_GRUPO
+                          return (
+                            <tr
+                              key={r.id}
+                              className={`border-t border-white/10 ${classifica ? 'bg-emerald-500/5' : ''}`}
+                            >
+                              <td className="py-2 pr-2 font-semibold">{idx + 1}</td>
+                              <td className="py-2 pr-2">
+                                <div className="flex items-center gap-2">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={logoTime(r.id)}
+                                    alt=""
+                                    className="h-6 w-6 rounded bg-white/5 border border-white/10 object-contain"
+                                  />
+                                  <span className="font-semibold">{nomeTime(r.id)}</span>
+                                </div>
+                              </td>
+                              <td className="py-2 pr-2 font-black">{r.pts}</td>
+                              <td className="py-2 pr-2">{r.j}</td>
+                              <td className="py-2 pr-2">{r.v}</td>
+                              <td className="py-2 pr-2">{r.e}</td>
+                              <td className="py-2 pr-2">{r.d}</td>
+                              <td className="py-2 pr-2">{r.sg}</td>
+                              <td className="py-2 pr-2">{r.gp}</td>
+                              <td className="py-2 pr-2">{r.gc}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
@@ -1207,197 +1104,243 @@ export default function FaseGruposPage() {
         })}
       </div>
 
-      {/* JOGOS */}
-      <div className="space-y-3">
-        {listaGrupos.map(grupo => {
-          const rodadas = Object.keys(jogosPorGrupoRodada[grupo] || {})
-            .map(Number)
-            .sort((a, b) => a - b)
+      {/* Jogos */}
+      <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+        <div className="px-4 py-3 flex items-center justify-between border-b border-white/10">
+          <h2 className="font-black">Jogos</h2>
+          <div className="text-xs text-zinc-300">{jogosFiltrados.length} jogos</div>
+        </div>
 
-          return (
-            <div key={grupo} className="space-y-3">
-              <SecaoHeader title={`Grupo ${grupo}`} open={!!secoesAbertas[`Grupo ${grupo}`]} />
-              {!!secoesAbertas[`Grupo ${grupo}`] && (
-                <div className="space-y-3">
-                  {rodadas.map(r => {
-                    const key = `Grupo ${grupo} — Rodada ${r}`
-                    const open = secoesAbertas[key] ?? (r <= 2)
-                    const itens = jogosPorGrupoRodada[grupo]?.[r] || []
+        <div className="p-4 space-y-3">
+          {gruposOuRodadas.map(sec => {
+            const opened = !!secoesAbertas[sec]
+            const lista = jogosFiltrados.filter(j => (j.grupo ?? `Rodada ${j.rodada}`) === sec)
 
-                    return (
-                      <div key={key} className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleSecao(key)}
-                          className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-left hover:bg-white/5"
+            return (
+              <div key={sec} className="rounded-xl border border-white/10 bg-zinc-950/30">
+                <button
+                  onClick={() => toggleSecao(sec)}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-black">{sec}</span>
+                    <Badge tone="zinc">{lista.length} jogos</Badge>
+                  </div>
+                  {opened ? <FiChevronUp /> : <FiChevronDown />}
+                </button>
+
+                {opened && (
+                  <div className="p-4 space-y-3">
+                    {lista.map(jogo => {
+                      const gm = jogo.gols_time1 ?? 0
+                      const gv = jogo.gols_time2 ?? 0
+                      const salvo = !!jogo.bonus_pago
+
+                      return (
+                        <div
+                          key={jogo.id}
+                          className="rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col gap-3"
                         >
-                          <div className="flex items-center gap-2">
-                            <Badge tone="zinc">Rodada {r}</Badge>
-                            <span className="text-sm font-semibold text-zinc-100">{itens.length} jogos</span>
-                          </div>
-                          <div className="text-zinc-300">{open ? <FiChevronUp /> : <FiChevronDown />}</div>
-                        </button>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-center gap-2">
+                              <Badge tone="sky">Rodada {jogo.rodada}</Badge>
+                              {salvo ? <Badge tone="emerald">Pago</Badge> : <Badge tone="amber">Pendente</Badge>}
+                              {temExtrasFinanceiros && jogo.publico != null && jogo.renda != null ? (
+                                <Badge tone="zinc">
+                                  🎟️ {Number(jogo.publico).toLocaleString('pt-BR')} • 💰 R$ {Number(jogo.renda).toLocaleString('pt-BR')}
+                                </Badge>
+                              ) : null}
+                            </div>
 
-                        {open && (
-                          <div className="grid gap-2">
-                            {itens.map(j => {
-                              const disabled = !isAdmin || salvandoId === j.id
-                              const temPlacar = j.gols_time1 != null && j.gols_time2 != null
-                              const pago = !!j.bonus_pago
-
-                              return (
-                                <div
-                                  key={j.id}
-                                  className="rounded-2xl border border-white/10 bg-black/40 p-4"
+                            {isAdmin ? (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  disabled={salvandoId === jogo.id}
+                                  onClick={() => salvarPlacar(jogo)}
+                                  className="rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 px-3 py-2 text-sm font-semibold"
                                 >
-                                  <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr_auto] md:items-center">
-                                    <div className="flex items-center justify-between gap-3">
-                                      {renderTimeChip(j.time1)}
-                                      <Badge tone="zinc">Mandante</Badge>
-                                    </div>
-
-                                    <div className="flex items-center justify-center gap-2">
-                                      <Score
-                                        value={j.gols_time1}
-                                        disabled={disabled}
-                                        onChange={v => setGol(j.id, 't1', v)}
-                                      />
-                                      <span className="px-2 text-zinc-400">x</span>
-                                      <Score
-                                        value={j.gols_time2}
-                                        disabled={disabled}
-                                        onChange={v => setGol(j.id, 't2', v)}
-                                      />
-                                    </div>
-
-                                    <div className="flex items-center justify-between gap-3 md:justify-end">
-                                      <Badge tone="zinc">Visitante</Badge>
-                                      {renderTimeChip(j.time2)}
-                                    </div>
-
-                                    <div className="flex flex-wrap items-center justify-end gap-2">
-                                      {temPlacar ? (
-                                        pago ? <Badge tone="emerald">Bônus pago</Badge> : <Badge tone="amber">Sem bônus</Badge>
-                                      ) : (
-                                        <Badge tone="zinc">Sem placar</Badge>
-                                      )}
-
-                                      {isAdmin && (
-                                        <>
-                                          <button
-                                            type="button"
-                                            disabled={disabled}
-                                            onClick={() => salvarPlacar(j)}
-                                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-extrabold text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-40"
-                                          >
-                                            <FiSave />
-                                            {salvandoId === j.id ? 'Salvando…' : 'Salvar'}
-                                          </button>
-
-                                          <button
-                                            type="button"
-                                            disabled={disabled || !pago}
-                                            onClick={() => excluirPlacar(j)}
-                                            className="inline-flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm font-extrabold text-rose-200 hover:bg-rose-500/15 disabled:opacity-40"
-                                          >
-                                            <FiTrash2 />
-                                            Excluir
-                                          </button>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {temExtrasFinanceiros && temPlacar && pago && (
-                                    <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-zinc-200 md:grid-cols-3">
-                                      <div>
-                                        <div className="text-zinc-400">Público</div>
-                                        <div className="font-bold">{(j.publico ?? 0).toLocaleString('pt-BR')}</div>
-                                      </div>
-                                      <div>
-                                        <div className="text-zinc-400">Renda</div>
-                                        <div className="font-bold">
-                                          {(j.renda ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-                                        </div>
-                                      </div>
-                                      <div className="md:text-right">
-                                        <div className="text-zinc-400">Receita (M/V)</div>
-                                        <div className="font-bold">
-                                          {(j.receita_mandante ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}{' '}
-                                          /{' '}
-                                          {(j.receita_visitante ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {isAdmin && temPlacar && pago && (
-                                    <div className="mt-2 text-[11px] text-zinc-400">
-                                      Dica: se quiser só corrigir o placar sem “pagar bônus de novo”, basta editar os gols e clicar em <b>Salvar</b>.
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
+                                  <FiSave className="inline -mt-0.5 mr-2" />
+                                  {salvandoId === jogo.id ? 'Salvando...' : 'Salvar'}
+                                </button>
+                                <button
+                                  disabled={salvandoId === jogo.id}
+                                  onClick={() => excluirPlacar(jogo)}
+                                  className="rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 px-3 py-2 text-sm font-semibold"
+                                >
+                                  <FiTrash2 className="inline -mt-0.5 mr-2" />
+                                  Excluir
+                                </button>
+                              </div>
+                            ) : (
+                              <Badge tone="amber">Somente admin salva placar</Badge>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+                            {/* Mandante */}
+                            <div className="flex items-center gap-3">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={logoTime(jogo.time1)}
+                                alt=""
+                                className="h-10 w-10 rounded bg-white/5 border border-white/10 object-contain"
+                              />
+                              <div>
+                                <div className="font-black">{nomeTime(jogo.time1)}</div>
+                                <div className="text-xs text-zinc-300">Mandante</div>
+                              </div>
+                            </div>
+
+                            {/* Placar */}
+                            <div className="flex items-center justify-center gap-3">
+                              <button
+                                onClick={() => {
+                                  if (!isAdmin) return
+                                  setJogos(prev =>
+                                    prev.map(x =>
+                                      x.id === jogo.id ? { ...x, gols_time1: clampInt((x.gols_time1 ?? 0) - 1) } : x
+                                    )
+                                  )
+                                }}
+                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
+                                title="Diminuir mandante"
+                              >
+                                <FiMinus />
+                              </button>
+
+                              <input
+                                type="number"
+                                min={0}
+                                max={99}
+                                value={jogo.gols_time1 ?? ''}
+                                onChange={e => {
+                                  if (!isAdmin) return
+                                  const v = clampInt(Number(e.target.value))
+                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time1: v } : x)))
+                                }}
+                                className="w-16 text-center rounded-lg bg-zinc-950/60 border border-white/10 px-2 py-2 font-black"
+                                placeholder="0"
+                              />
+
+                              <span className="text-zinc-300 font-black">x</span>
+
+                              <input
+                                type="number"
+                                min={0}
+                                max={99}
+                                value={jogo.gols_time2 ?? ''}
+                                onChange={e => {
+                                  if (!isAdmin) return
+                                  const v = clampInt(Number(e.target.value))
+                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time2: v } : x)))
+                                }}
+                                className="w-16 text-center rounded-lg bg-zinc-950/60 border border-white/10 px-2 py-2 font-black"
+                                placeholder="0"
+                              />
+
+                              <button
+                                onClick={() => {
+                                  if (!isAdmin) return
+                                  setJogos(prev =>
+                                    prev.map(x =>
+                                      x.id === jogo.id ? { ...x, gols_time2: clampInt((x.gols_time2 ?? 0) - 1) } : x
+                                    )
+                                  )
+                                }}
+                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
+                                title="Diminuir visitante"
+                              >
+                                <FiMinus />
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  if (!isAdmin) return
+                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time1: gm + 1 } : x)))
+                                }}
+                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
+                                title="Aumentar mandante"
+                              >
+                                <FiPlus />
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  if (!isAdmin) return
+                                  setJogos(prev => prev.map(x => (x.id === jogo.id ? { ...x, gols_time2: gv + 1 } : x)))
+                                }}
+                                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-2 py-2"
+                                title="Aumentar visitante"
+                              >
+                                <FiPlus />
+                              </button>
+                            </div>
+
+                            {/* Visitante */}
+                            <div className="flex items-center gap-3 justify-end">
+                              <div className="text-right">
+                                <div className="font-black">{nomeTime(jogo.time2)}</div>
+                                <div className="text-xs text-zinc-300">Visitante</div>
+                              </div>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={logoTime(jogo.time2)}
+                                alt=""
+                                className="h-10 w-10 rounded bg-white/5 border border-white/10 object-contain"
+                              />
+                            </div>
+                          </div>
+
+                          {temExtrasFinanceiros && jogo.bonus_pago ? (
+                            <div className="text-xs text-zinc-300 border-t border-white/10 pt-3 flex flex-wrap gap-2">
+                              <Badge tone="zinc">Receita M: R$ {(jogo.receita_mandante ?? 0).toLocaleString('pt-BR')}</Badge>
+                              <Badge tone="zinc">Receita V: R$ {(jogo.receita_visitante ?? 0).toLocaleString('pt-BR')}</Badge>
+                              <Badge tone="zinc">Salários M: R$ {(jogo.salarios_mandante ?? 0).toLocaleString('pt-BR')}</Badge>
+                              <Badge tone="zinc">Salários V: R$ {(jogo.salarios_visitante ?? 0).toLocaleString('pt-BR')}</Badge>
+                              <Badge tone="emerald">Bônus M: R$ {(jogo.premiacao_mandante ?? 0).toLocaleString('pt-BR')}</Badge>
+                              <Badge tone="emerald">Bônus V: R$ {(jogo.premiacao_visitante ?? 0).toLocaleString('pt-BR')}</Badge>
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
 
-      {/* MODAL CHAVES (simples) */}
+      {/* Modal simples das chaves */}
       {abrirModalMM && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 md:items-center">
-          <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-zinc-950">
-            <div className="flex items-center justify-between border-b border-white/10 p-4">
-              <div>
-                <div className="text-sm font-extrabold text-white">{cfg.mataMataLabel} — Chaves</div>
-                <div className="text-xs text-zinc-400">
-                  Gerado por classificação (A1×B4, B2×A3, B1×A4, A2×B3)
-                </div>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-zinc-950 p-4">
+            <div className="flex items-center justify-between">
+              <div className="font-black text-lg">Quartas geradas</div>
               <button
                 onClick={() => setAbrirModalMM(false)}
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10"
+                className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 text-sm font-semibold"
               >
                 Fechar
               </button>
             </div>
 
-            <div className="space-y-2 p-4">
-              {chavesMM.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-300">
-                  Ainda não foi possível gerar as chaves. Verifique se há classificados suficientes e se a tabela{' '}
-                  <b>{TABELA_MM}</b> existe no banco.
-                </div>
-              ) : (
-                chavesMM.map(c => (
-                  <div
-                    key={c.label}
-                    className="rounded-xl border border-white/10 bg-white/5 p-3"
-                  >
-                    <div className="text-xs font-bold text-zinc-300">{c.label}</div>
-                    <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      <div className="rounded-lg border border-white/10 bg-black/30 p-3">
-                        {renderTimeChip(c.casaId)}
-                      </div>
-                      <div className="rounded-lg border border-white/10 bg-black/30 p-3">
-                        {renderTimeChip(c.foraId)}
-                      </div>
-                    </div>
+            <div className="mt-3 space-y-2">
+              {chavesMM.map((c, i) => (
+                <div key={i} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="text-sm text-zinc-300">{c.label}</div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="font-black">{nomeTime(c.casaId)}</span>
+                    <span className="text-zinc-300 font-black">x</span>
+                    <span className="font-black">{nomeTime(c.foraId)}</span>
                   </div>
-                ))
-              )}
+                </div>
+              ))}
             </div>
 
-            <div className="border-t border-white/10 p-4 text-xs text-zinc-400">
-              Observação: este page apenas gera e salva as Quartas (fase “quartas”) na tabela <b>{TABELA_MM}</b>.
+            <div className="mt-3 text-xs text-zinc-400">
+              Obs: isso só cria as chaves no banco. A página de mata-mata usa a tabela <b>{TABELA_MM}</b>.
             </div>
           </div>
         </div>
