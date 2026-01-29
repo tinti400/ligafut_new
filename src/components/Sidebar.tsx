@@ -663,7 +663,7 @@ export default function Sidebar() {
                 <CollapsedItem href="/copa/mata-mata" label="Copa (Mata-mata)" emoji="🥊" />
 
                 {isAdmin && <CollapsedItem href="/admin/jogadores_base" label="Jogadores (Banco)" emoji="🗃️" />}
-                {isAdmin && <CollapsedItem href="/admin/leiloes-finalizados" label="Leilões Finalizados" emoji="📜" />}
+                {isAdmin && <CollapsedItem href="/admin/leiloes_finalizados" label="Leilões Finalizados" emoji="📜" />}
               </div>
             ) : (
               <>
@@ -736,7 +736,7 @@ export default function Sidebar() {
                       <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
 
                       {/* ✅ AGORA DENTRO DO ADMIN (só admin) */}
-                      {isAdmin && <NavLink href="/admin/leiloes-finalizados">📜 Leilões Finalizados</NavLink>}
+                      {isAdmin && <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>}
                     </div>
                   )}
                 </div>
@@ -758,7 +758,7 @@ export default function Sidebar() {
                       <div className="ml-3 mt-1 space-y-1 text-sm">
                         <NavLink href="/admin/jogadores_base">🗃️ Jogadores (Banco)</NavLink>
                         <NavLink href="/admin/leilao">🎯 Leilão</NavLink>
-                        <NavLink href="/admin/leiloes-finalizados">📜 Leilões Finalizados</NavLink>
+                        <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>
                         <NavLink href="/admin/painel_times">📋 Painel Times</NavLink>
                         <NavLink href="/admin/times">📝 Admin Times</NavLink>
                         <NavLink href="/admin">🗂️ Administração Geral</NavLink>
