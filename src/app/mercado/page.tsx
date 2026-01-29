@@ -150,6 +150,7 @@ type Jogador = {
   foto?: string | null
   link_sofifa?: string | null
   data_listagem?: string | null
+  time_origem?: string | null
 }
 
 type JogadorCardProps = {
@@ -164,7 +165,6 @@ type JogadorCardProps = {
 
 /** ================== Watermark overlay ================== */
 function WatermarkOverlay() {
-  // texto repetido (médio/pequeno) bem suave
   const itens = useMemo(() => Array.from({ length: 28 }), [])
 
   return (
@@ -178,7 +178,7 @@ function WatermarkOverlay() {
         draggable={false}
       />
 
-      {/* Texto LIGAFUT26 repetido (pequeno/médio) */}
+      {/* Texto LIGAFUT26 repetido */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute left-[-30%] top-[18%] rotate-[-22deg] w-[160%]">
           <div className="flex flex-wrap gap-x-6 gap-y-3 opacity-[0.10]">
@@ -197,7 +197,7 @@ function WatermarkOverlay() {
   )
 }
 
-/** ================== Card do jogador (ESTILO EA FC + watermark LIGAFUT26) ================== */
+/** ================== Card do jogador (EA FC style) ================== */
 const JogadorCard = ({
   jogador,
   isAdmin,
@@ -220,10 +220,7 @@ const JogadorCard = ({
 
   const botaoDesabilitado = loadingComprar || mercadoFechado
 
-  const imgPlayer =
-    safeImg(jogador.imagem_url) ||
-    safeImg(jogador.foto) ||
-    '/player-placeholder.png'
+  const imgPlayer = safeImg(jogador.imagem_url) || safeImg(jogador.foto) || '/player-placeholder.png'
 
   return (
     <div
@@ -267,7 +264,7 @@ const JogadorCard = ({
         <div className="text-3xl font-extrabold drop-shadow">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase drop-shadow">{jogador.posicao}</div>
 
-        {/* ✅ CORREÇÃO BUILD TURBOPACK: sem template string */}
+        {/* ✅ sem template string (turbopack safe) */}
         <img
           src={'https://flagcdn.com/w20/' + codigoPais + '.png'}
           alt={jogador.nacionalidade || 'País'}
@@ -417,7 +414,8 @@ export default function MercadoPage() {
               imagem_url,
               foto,
               link_sofifa,
-              data_listagem
+              data_listagem,
+              time_origem
             `
             ),
           supabase.from('times').select('saldo').eq('id', userData.id_time).single(),
@@ -508,7 +506,6 @@ export default function MercadoPage() {
             imagem_url,
             link_sofifa,
             nacionalidade,
-            // @ts-ignore - caso sua tabela aceite
             time_origem,
             data_listagem: new Date().toISOString(),
           } as any
@@ -560,36 +557,54 @@ export default function MercadoPage() {
       return
     }
 
-    const valorCompra = calcularValorComDesgaste(
-      jogadorParaComprar.valor,
-      jogadorParaComprar.data_listagem ?? null
-    )
-
-    // Limite de elenco
-    const { data: elencoAtual, error: errorElenco } = await supabase
-      .from('elenco')
-      .select('id')
-      .eq('id_time', user.id_time)
-
-    if (errorElenco) {
-      toast.error('Erro ao verificar o elenco atual.')
-      return
-    }
-
-    if ((elencoAtual?.length || 0) >= 25) {
-      toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco. Venda para comprar do mercado!')
-      return
-    }
-
-    setLoadingComprarId(jogadorParaComprar.id)
-
+    // 🔥 sempre pega o status/saldo mais recente antes de efetivar
     try {
-      // garante exclusividade
+      const [resTime, resMarketStatus] = await Promise.all([
+        supabase.from('times').select('saldo').eq('id', user.id_time).single(),
+        supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
+      ])
+
+      if (resTime.error) throw resTime.error
+      if (resMarketStatus.error) throw resMarketStatus.error
+
+      const saldoAtual = resTime.data?.saldo ?? 0
+      const mercadoAberto = !!resMarketStatus.data?.aberto
+
+      setSaldo(saldoAtual)
+      setMarketStatus(mercadoAberto ? 'aberto' : 'fechado')
+
+      if (!mercadoAberto) {
+        toast.error('O mercado foi fechado. Não é possível comprar agora.')
+        setModalComprarVisivel(false)
+        setJogadorParaComprar(null)
+        return
+      }
+
+      // Limite de elenco
+      const { data: elencoAtual, error: errorElenco } = await supabase
+        .from('elenco')
+        .select('id')
+        .eq('id_time', user.id_time)
+        .limit(26)
+
+      if (errorElenco) {
+        toast.error('Erro ao verificar o elenco atual.')
+        return
+      }
+
+      if ((elencoAtual?.length || 0) >= 25) {
+        toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco. Venda para comprar do mercado!')
+        return
+      }
+
+      setLoadingComprarId(jogadorParaComprar.id)
+
+      // garante exclusividade (concorrência)
       const { data: deletedJogador, error: deleteError } = await supabase
         .from('mercado_transferencias')
         .delete()
         .eq('id', jogadorParaComprar.id)
-        .select()
+        .select('*')
 
       if (deleteError) throw deleteError
       if (!deletedJogador || deletedJogador.length === 0) {
@@ -599,8 +614,12 @@ export default function MercadoPage() {
 
       const jogador = deletedJogador[0] as Jogador
 
-      if (valorCompra > saldo) {
-        toast.error('Saldo insuficiente.')
+      const valorCompra = calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null)
+
+      if (valorCompra > saldoAtual) {
+        // rollback best-effort: devolve pro mercado
+        await supabase.from('mercado_transferencias').insert({ ...(jogador as any) })
+        toast.error('Saldo insuficiente (atualizado).')
         return
       }
 
@@ -627,7 +646,11 @@ export default function MercadoPage() {
         jogos: 0,
         link_sofifa: jogador.link_sofifa || '',
       })
-      if (errorInsert) throw errorInsert
+
+      if (errorInsert) {
+        await supabase.from('mercado_transferencias').insert({ ...(jogador as any) })
+        throw errorInsert
+      }
 
       await registrarMovimentacao({
         id_time: user.id_time,
@@ -638,11 +661,17 @@ export default function MercadoPage() {
 
       const { error: errorUpdate } = await supabase
         .from('times')
-        .update({ saldo: saldo - valorCompra })
+        .update({ saldo: saldoAtual - valorCompra })
         .eq('id', user.id_time)
-      if (errorUpdate) throw errorUpdate
 
-      setSaldo((prev) => prev - valorCompra)
+      if (errorUpdate) {
+        // rollback best-effort
+        await supabase.from('elenco').delete().eq('id_time', user.id_time).eq('nome', jogador.nome)
+        await supabase.from('mercado_transferencias').insert({ ...(jogador as any) })
+        throw errorUpdate
+      }
+
+      setSaldo(saldoAtual - valorCompra)
       setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
       setSelecionados((prev) => prev.filter((id) => id !== jogador.id))
 
@@ -793,6 +822,12 @@ export default function MercadoPage() {
   const indexOfFirst = indexOfLast - itensPorPagina
   const jogadoresPaginados = jogadoresFiltrados.slice(indexOfFirst, indexOfLast)
 
+  // ✅ se filtros mudarem e a página ficar inválida, garante página 1
+  useEffect(() => {
+    if (paginaAtual > totalPaginas) setPaginaAtual(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalPaginas])
+
   const limparFiltros = () => {
     setFiltroNome('')
     setFiltroPosicao('')
@@ -811,8 +846,9 @@ export default function MercadoPage() {
 
   const mercadoFechado = marketStatus === 'fechado'
 
-  const valorModalCompra =
-    jogadorParaComprar ? calcularValorComDesgaste(jogadorParaComprar.valor, jogadorParaComprar.data_listagem ?? null) : 0
+  const valorModalCompra = jogadorParaComprar
+    ? calcularValorComDesgaste(jogadorParaComprar.valor, jogadorParaComprar.data_listagem ?? null)
+    : 0
 
   return (
     <>
@@ -826,9 +862,7 @@ export default function MercadoPage() {
               🛒
             </div>
             <div>
-              <h1 className="text-lg font-bold leading-tight text-white">
-                Mercado de Transferências
-              </h1>
+              <h1 className="text-lg font-bold leading-tight text-white">Mercado de Transferências</h1>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
                 <span
                   className={[
@@ -874,7 +908,9 @@ export default function MercadoPage() {
                   disabled={uploadLoading || mercadoFechado}
                   className={[
                     'rounded-xl px-3 py-2 text-sm font-semibold transition',
-                    uploadLoading ? 'bg-gray-700 text-gray-300' : 'bg-blue-600 text-white hover:bg-blue-700',
+                    uploadLoading
+                      ? 'bg-gray-700 text-gray-300'
+                      : 'bg-blue-600 text-white hover:bg-blue-700',
                     mercadoFechado ? 'opacity-60 cursor-not-allowed' : '',
                   ].join(' ')}
                 >
