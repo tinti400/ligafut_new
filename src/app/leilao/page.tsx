@@ -933,41 +933,6 @@ export default function LeilaoSistemaPage() {
           animation: lfRise 1.8s ease-out forwards, lfFlicker 0.6s ease-in-out infinite;
         }
 
-        @keyframes lfBurst {
-          0% {
-            transform: scale(0.7);
-            opacity: 0;
-          }
-          35% {
-            transform: scale(1.15);
-            opacity: 1;
-          }
-          100% {
-            transform: scale(1);
-            opacity: 0;
-          }
-        }
-        .lf-burst {
-          animation: lfBurst 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-        }
-
-        @keyframes lfSparkle {
-          0% {
-            transform: translateY(0) scale(0.8) rotate(0deg);
-            opacity: 0;
-          }
-          30% {
-            opacity: 1;
-          }
-          100% {
-            transform: translateY(-26px) scale(1.1) rotate(15deg);
-            opacity: 0;
-          }
-        }
-        .lf-sparkle {
-          animation: lfSparkle 1.6s ease-out forwards;
-        }
-
         @keyframes lfRing {
           0% {
             transform: translate(-50%, -50%) scale(0.6);
