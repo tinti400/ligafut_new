@@ -126,15 +126,22 @@ export default function Sidebar() {
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('sb_open', isOpen ? '1' : '0')
+    try {
+      localStorage.setItem('sb_open', isOpen ? '1' : '0')
+    } catch {}
   }, [isOpen])
 
-  const persistGroup = (key: GroupKey, open: boolean) =>
-    localStorage.setItem(`sb_g_${key}`, open ? '1' : '0')
+  const persistGroup = (key: GroupKey, open: boolean) => {
+    try {
+      localStorage.setItem(`sb_g_${key}`, open ? '1' : '0')
+    } catch {}
+  }
 
   const setHeaderPersist = (v: boolean) => {
     setHeaderVisible(v)
-    localStorage.setItem('sb_header_visible', v ? '1' : '0')
+    try {
+      localStorage.setItem('sb_header_visible', v ? '1' : '0')
+    } catch {}
   }
 
   // ========= Descobrir idTime + contadores + ADMIN
@@ -323,12 +330,16 @@ export default function Sidebar() {
     if (!idTime) return
     const ch = supabase
       .channel('sidebar-kpis')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'times', filter: `id=eq.${idTime}` }, (p: any) => {
-        setSaldoTime(Number(p.new?.saldo) || 0)
-        if (p.new?.moedas != null) setMoedas(Number(p.new.moedas) || 0)
-        if (p.new?.nome) setNomeTime(p.new.nome)
-        if (p.new?.logo || p.new?.logo_url) setLogoUrl(p.new.logo || p.new.logo_url)
-      })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'times', filter: `id=eq.${idTime}` },
+        (p: any) => {
+          setSaldoTime(Number(p.new?.saldo) || 0)
+          if (p.new?.moedas != null) setMoedas(Number(p.new.moedas) || 0)
+          if (p.new?.nome) setNomeTime(p.new.nome)
+          if (p.new?.logo || p.new?.logo_url) setLogoUrl(p.new.logo || p.new.logo_url)
+        }
+      )
       .subscribe()
     return () => {
       supabase.removeChannel(ch)
@@ -337,7 +348,9 @@ export default function Sidebar() {
 
   // ========= Logout
   const logout = () => {
-    localStorage.clear()
+    try {
+      localStorage.clear()
+    } catch {}
     router.push('/login')
   }
 
@@ -549,14 +562,16 @@ export default function Sidebar() {
               🚪 Logout
             </button>
           )}
+
+          {/* ✅ seta toggle abre/fecha header */}
           <button
-            onClick={() => setHeaderPersist(false)}
+            onClick={() => setHeaderPersist(!headerVisible)}
             className="h-9 w-9 grid place-items-center rounded-lg hover:bg-white/10 transition ring-1 ring-inset ring-white/10"
-            title="Ocultar cabeçalho"
-            aria-label="Ocultar cabeçalho"
+            title={headerVisible ? 'Ocultar barra do topo' : 'Mostrar barra do topo'}
+            aria-label={headerVisible ? 'Ocultar barra do topo' : 'Mostrar barra do topo'}
             type="button"
           >
-            ▲
+            {headerVisible ? '▲' : '▼'}
           </button>
         </div>
       </div>
@@ -567,12 +582,12 @@ export default function Sidebar() {
     headerVisible ? null : (
       <button
         onClick={() => setHeaderPersist(true)}
-        className="fixed top-2 right-3 z-50 px-3 py-1.5 rounded-lg text-xs bg-white/10 hover:bg-white/15 ring-1 ring-white/15 text-white/90 backdrop-blur"
-        title="Mostrar cabeçalho"
-        aria-label="Mostrar cabeçalho"
+        className="fixed top-2 right-3 z-50 h-10 w-10 grid place-items-center rounded-xl bg-white/10 hover:bg-white/15 ring-1 ring-white/15 text-white/90 backdrop-blur shadow-lg"
+        title="Mostrar barra do topo"
+        aria-label="Mostrar barra do topo"
         type="button"
       >
-        ▼ Mostrar cabeçalho
+        ▼
       </button>
     )
 
@@ -654,16 +669,16 @@ export default function Sidebar() {
                 <CollapsedItem href="/jogos" label="Jogos" emoji="📅" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/BID" label="BID" emoji="📰" />
-
-                {/* ✅ LEILÃO DO SISTEMA (para TODOS) */}
                 <CollapsedItem href="/leilao" label="Leilão do Sistema" emoji="🎯" />
-
-                {/* ✅ COPA (para TODOS) */}
                 <CollapsedItem href="/copa/fase_grupos" label="Copa (Grupos)" emoji="🏟️" />
                 <CollapsedItem href="/copa/mata-mata" label="Copa (Mata-mata)" emoji="🥊" />
 
-                {isAdmin && <CollapsedItem href="/admin/jogadores_base" label="Jogadores (Banco)" emoji="🗃️" />}
-                {isAdmin && <CollapsedItem href="/admin/leiloes_finalizados" label="Leilões Finalizados" emoji="📜" />}
+                {isAdmin && (
+                  <CollapsedItem href="/admin/jogadores_base" label="Jogadores (Banco)" emoji="🗃️" />
+                )}
+                {isAdmin && (
+                  <CollapsedItem href="/admin/leiloes_finalizados" label="Leilões Finalizados" emoji="📜" />
+                )}
               </div>
             ) : (
               <>
@@ -674,7 +689,6 @@ export default function Sidebar() {
                 <NavLink href="/mercado">💸 Mercado</NavLink>
                 <NavLink href="/BID">📰 BID</NavLink>
 
-                {/* ✅ Leilão do Sistema (para TODOS) */}
                 <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
 
                 {/* ===== Elenco ===== */}
@@ -699,7 +713,7 @@ export default function Sidebar() {
                   )}
                 </div>
 
-                {/* ✅ ===== Copa (para TODOS) ===== */}
+                {/* ===== Copa (todos) ===== */}
                 <div className="mt-2">
                   <ToggleBtn
                     open={abrirCopa}
@@ -719,7 +733,7 @@ export default function Sidebar() {
                   )}
                 </div>
 
-                {/* ✅ ===== Leilão (grupo) ===== */}
+                {/* ===== Leilão (grupo) ===== */}
                 <div className="mt-2">
                   <ToggleBtn
                     open={abrirLeilao}
@@ -734,8 +748,6 @@ export default function Sidebar() {
                   {abrirLeilao && (
                     <div className="ml-3 mt-1 space-y-1 text-sm">
                       <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
-
-                      {/* ✅ AGORA DENTRO DO ADMIN (só admin) */}
                       {isAdmin && <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>}
                     </div>
                   )}
@@ -780,3 +792,4 @@ export default function Sidebar() {
     </>
   )
 }
+
