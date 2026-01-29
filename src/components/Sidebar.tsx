@@ -211,7 +211,7 @@ export default function Sidebar() {
       if (idTime) {
         const r1 = await supabase
           .from('times')
-          .select('id, nome, tecnico, saldo, logo, logo_url')
+          .select('id, nome, tecnico, saldo, logo, logo_url, moedas')
           .eq('id', idTime)
           .maybeSingle()
         if (!r1.error && r1.data) timeRow = r1.data
@@ -229,7 +229,7 @@ export default function Sidebar() {
         if (tecnicoLS) {
           const r2 = await supabase
             .from('times')
-            .select('id, nome, tecnico, saldo, logo, logo_url')
+            .select('id, nome, tecnico, saldo, logo, logo_url, moedas')
             .eq('tecnico', tecnicoLS)
             .limit(1)
             .maybeSingle()
@@ -240,7 +240,7 @@ export default function Sidebar() {
       if (!timeRow && nomeTime) {
         const r3 = await supabase
           .from('times')
-          .select('id, nome, tecnico, saldo, logo, logo_url')
+          .select('id, nome, tecnico, saldo, logo, logo_url, moedas')
           .eq('nome', nomeTime)
           .limit(1)
           .maybeSingle()
@@ -250,6 +250,7 @@ export default function Sidebar() {
       if (timeRow) {
         setNomeTime(timeRow.nome ?? nomeTime)
         setSaldoTime(Number(timeRow.saldo) || 0)
+        if (timeRow.moedas != null) setMoedas(Number(timeRow.moedas) || 0)
         setLogoUrl(timeRow.logo || timeRow.logo_url || null)
         if (!idTime || idTime !== timeRow.id) setIdTime(timeRow.id)
 
@@ -480,6 +481,7 @@ export default function Sidebar() {
             ⚽ LigaFut
           </div>
           {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img src={logoUrl} alt="Escudo" className="h-7 w-7 rounded-md ring-1 ring-white/10 object-cover" />
           ) : null}
           <div
@@ -661,6 +663,7 @@ export default function Sidebar() {
                 <CollapsedItem href="/copa/mata-mata" label="Copa (Mata-mata)" emoji="🥊" />
 
                 {isAdmin && <CollapsedItem href="/admin/jogadores_base" label="Jogadores (Banco)" emoji="🗃️" />}
+                {isAdmin && <CollapsedItem href="/admin/leiloes-finalizados" label="Leilões Finalizados" emoji="📜" />}
               </div>
             ) : (
               <>
@@ -731,10 +734,9 @@ export default function Sidebar() {
                   {abrirLeilao && (
                     <div className="ml-3 mt-1 space-y-1 text-sm">
                       <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
-                      {/* se você tiver a página de leiloar jogador do elenco, deixa aqui */}
-                      {/* <NavLink href="/leiloar">📣 Leiloar Jogador</NavLink> */}
-                      {/* se você tiver a página de leilões finalizados */}
-                      {/* <NavLink href="/leiloes-finalizados">📜 Leilões Finalizados</NavLink> */}
+
+                      {/* ✅ AGORA DENTRO DO ADMIN (só admin) */}
+                      {isAdmin && <NavLink href="/admin/leiloes-finalizados">📜 Leilões Finalizados</NavLink>}
                     </div>
                   )}
                 </div>
@@ -756,6 +758,7 @@ export default function Sidebar() {
                       <div className="ml-3 mt-1 space-y-1 text-sm">
                         <NavLink href="/admin/jogadores_base">🗃️ Jogadores (Banco)</NavLink>
                         <NavLink href="/admin/leilao">🎯 Leilão</NavLink>
+                        <NavLink href="/admin/leiloes-finalizados">📜 Leilões Finalizados</NavLink>
                         <NavLink href="/admin/painel_times">📋 Painel Times</NavLink>
                         <NavLink href="/admin/times">📝 Admin Times</NavLink>
                         <NavLink href="/admin">🗂️ Administração Geral</NavLink>
