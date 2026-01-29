@@ -57,8 +57,12 @@ const brl = (v?: number | null) =>
 
 const formatarTempo = (segundos: number) => {
   const h = Math.floor(segundos / 3600)
-  const min = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0')
-  const sec = Math.max(0, Math.floor(segundos % 60)).toString().padStart(2, '0')
+  const min = Math.floor((segundos % 3600) / 60)
+    .toString()
+    .padStart(2, '0')
+  const sec = Math.max(0, Math.floor(segundos % 60))
+    .toString()
+    .padStart(2, '0')
   return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
 }
 
@@ -72,12 +76,9 @@ function cartaTierByOverall(overall: number) {
 function cartaClasses(overall: number) {
   const tier = cartaTierByOverall(Number(overall || 0))
 
-  // ✅ fundo (bem visível) + overlay “tinta” + borda
   if (tier === 'bronze') {
     return {
-      // fundo principal da carta
       bg: 'bg-gradient-to-b from-[#4a2b14] via-[#1a1210] to-zinc-950',
-      // “tinta” por cima pra dar cara de bronze (radial + brilho)
       tint: 'from-[#b87333]/22 via-transparent to-transparent',
       tint2: 'from-[#ffd9b8]/10 via-transparent to-transparent',
       border: 'border-[#b87333]/45',
@@ -99,7 +100,6 @@ function cartaClasses(overall: number) {
     }
   }
 
-  // ouro
   return {
     bg: 'bg-gradient-to-b from-[#3a2c07] via-[#15120a] to-zinc-950',
     tint: 'from-[#f5c84b]/22 via-transparent to-transparent',
@@ -151,7 +151,6 @@ export default function CardJogadorLeilao({
   finalizando,
 }: Props) {
   const encerrado = tempoRestante === 0
-
   const valorPropostoNum = useMemo(() => Math.floor(Number(valorProposto || 0)), [valorProposto])
 
   const invalido =
@@ -170,6 +169,9 @@ export default function CardJogadorLeilao({
 
   const c = cartaClasses(Number(leilao.overall || 0))
 
+  const vencedor = leilao.nome_time_vencedor || ''
+  const hasVencedor = Boolean(vencedor)
+
   return (
     <div className="relative">
       <div
@@ -179,112 +181,136 @@ export default function CardJogadorLeilao({
           c.border,
           tremendo ? 'ring-2 ring-emerald-400/40' : classNames('ring-1', c.ring)
         )}
-        style={{ aspectRatio: '3 / 4', minHeight: 380 }}
       >
-        {/* ✅ camadas que fazem o fundo ficar BRONZE/PRATA/OURO de verdade */}
+        {/* ✅ camadas do fundo (bronze/prata/ouro) */}
         <div className="pointer-events-none absolute inset-0">
-          <div className={classNames('absolute -top-24 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full blur-2xl bg-radial', `bg-gradient-to-b ${c.tint}`)} />
-          <div className={classNames('absolute -bottom-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full blur-3xl bg-radial', `bg-gradient-to-b ${c.tint2}`)} />
+          <div
+            className={classNames(
+              'absolute -top-24 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full blur-2xl bg-radial',
+              `bg-gradient-to-b ${c.tint}`
+            )}
+          />
+          <div
+            className={classNames(
+              'absolute -bottom-40 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full blur-3xl bg-radial',
+              `bg-gradient-to-b ${c.tint2}`
+            )}
+          />
           <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/35" />
         </div>
 
-        {/* barra tempo */}
-        <div className="absolute left-4 right-4 top-4 h-2 overflow-hidden rounded-full bg-black/30 ring-1 ring-white/5">
-          <div className={classNames('h-full transition-[width] duration-1000', barraCor)} style={{ width: `${pctRestante}%` }} />
-        </div>
-
-        {/* topo: overall + pos */}
-        <div className="absolute left-5 top-8 z-10">
-          <div className={classNames('text-4xl font-extrabold tracking-tight drop-shadow', c.accent)}>
-            {Number(leilao.overall ?? 0)}
+        {/* CONTEÚDO: layout em coluna (mobile-first) */}
+        <div className="relative z-10 flex flex-col p-4 sm:p-5">
+          {/* barra tempo */}
+          <div className="mb-3 h-2 overflow-hidden rounded-full bg-black/30 ring-1 ring-white/5">
+            <div
+              className={classNames('h-full transition-[width] duration-1000', barraCor)}
+              style={{ width: `${pctRestante}%` }}
+            />
           </div>
 
-          <div className="mt-1 inline-flex items-center gap-2">
-            <span className="rounded-lg bg-sky-500/20 px-2 py-1 text-[11px] font-bold text-sky-200 ring-1 ring-sky-500/25">
-              {posBadge(leilao.posicao)}
-            </span>
+          {/* topo: overall / badges / admin */}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className={classNames('text-4xl font-extrabold tracking-tight drop-shadow', c.accent)}>
+                {Number(leilao.overall ?? 0)}
+              </div>
 
-            {leilao.nacionalidade && (
-              <span className="rounded-lg bg-black/25 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10">
-                {leilao.nacionalidade}
-              </span>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="rounded-lg bg-sky-500/20 px-2 py-1 text-[11px] font-bold text-sky-200 ring-1 ring-sky-500/25">
+                  {posBadge(leilao.posicao)}
+                </span>
+
+                {leilao.nacionalidade && (
+                  <span className="rounded-lg bg-black/25 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10">
+                    {leilao.nacionalidade}
+                  </span>
+                )}
+
+                <span className={classNames('rounded-lg px-2 py-1 text-[11px] font-extrabold ring-1', c.badge)}>
+                  {cartaTierByOverall(Number(leilao.overall || 0)).toUpperCase()}
+                </span>
+              </div>
+            </div>
+
+            {isAdmin && onExcluir && (
+              <button
+                onClick={onExcluir}
+                className="shrink-0 rounded-xl border border-red-900/40 bg-red-950/40 px-3 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
+              >
+                🗑️ Excluir
+              </button>
             )}
-
-            <span className={classNames('rounded-lg px-2 py-1 text-[11px] font-extrabold ring-1', c.badge)}>
-              {cartaTierByOverall(Number(leilao.overall || 0)).toUpperCase()}
-            </span>
           </div>
-        </div>
 
-        {/* admin excluir */}
-        {isAdmin && onExcluir && (
-          <button
-            onClick={onExcluir}
-            className="absolute right-4 top-8 z-10 rounded-xl border border-red-900/40 bg-red-950/40 px-3 py-1 text-[11px] font-semibold text-red-200 hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-red-400/30"
-          >
-            🗑️ Excluir
-          </button>
-        )}
-
-        {/* ✅ imagem central (INTEIRA) */}
-        <div className="absolute inset-x-0 top-16 flex justify-center px-6">
-          <div className="relative h-[260px] w-full overflow-hidden rounded-3xl bg-black/20 ring-1 ring-white/10">
-            {leilao.imagem_url ? (
-              <img
-                src={leilao.imagem_url}
-                alt={leilao.nome}
-                className="h-full w-full object-contain object-center"
-                referrerPolicy="no-referrer"
-                loading="lazy"
-                onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-              />
-            ) : (
-              <div className="h-full w-full bg-black/20" />
-            )}
-
-            {leilao.nome_time_vencedor && (
-              <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-2xl bg-black/55 px-2 py-1 text-[11px] text-zinc-100 ring-1 ring-white/10">
-                👑
-                {logoVencedor ? (
+          {/* imagem (sem absolute) */}
+          <div className="mt-4">
+            <div className="relative overflow-hidden rounded-3xl bg-black/20 ring-1 ring-white/10">
+              <div className="aspect-[16/11] w-full">
+                {leilao.imagem_url ? (
                   <img
-                    src={logoVencedor}
-                    alt={leilao.nome_time_vencedor}
-                    className="h-4 w-4 rounded-full object-cover"
+                    src={leilao.imagem_url}
+                    alt={leilao.nome}
+                    className="h-full w-full object-contain object-center"
                     referrerPolicy="no-referrer"
+                    loading="lazy"
                     onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
                   />
                 ) : (
-                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 text-[9px]">
-                    {leilao.nome_time_vencedor.slice(0, 2).toUpperCase()}
-                  </span>
+                  <div className="h-full w-full bg-black/20" />
                 )}
-                <span className="max-w-[120px] truncate">{leilao.nome_time_vencedor}</span>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* nome (um pouco acima da área de lance) */}
-        <div className="absolute inset-x-0 top-[285px] px-6">
-          <div className="rounded-2xl bg-black/35 px-4 py-2 ring-1 ring-white/10">
+              {hasVencedor && (
+                <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-2xl bg-black/55 px-2 py-1 text-[11px] text-zinc-100 ring-1 ring-white/10">
+                  👑
+                  {logoVencedor ? (
+                    <img
+                      src={logoVencedor}
+                      alt={vencedor}
+                      className="h-4 w-4 rounded-full object-cover"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                    />
+                  ) : (
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 text-[9px]">
+                      {vencedor.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="max-w-[140px] truncate">{vencedor}</span>
+                </div>
+              )}
+
+              {encerrado && (
+                <div className="pointer-events-none absolute left-3 top-3 rotate-[-6deg] rounded-xl border border-red-900/50 bg-red-950/70 px-3 py-1 text-[11px] font-extrabold text-red-200 shadow">
+                  ENCERRADO
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* nome + infos */}
+          <div className="mt-4 rounded-2xl bg-black/35 px-4 py-3 ring-1 ring-white/10">
             <div className="truncate text-center text-sm font-extrabold uppercase tracking-wide text-zinc-100">
               {leilao.nome}
             </div>
 
-            <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="mt-3 flex items-center justify-between gap-2">
               <a
                 href={leilao.link_sofifa || '#'}
                 target={leilao.link_sofifa ? '_blank' : undefined}
                 rel="noopener noreferrer"
                 className={classNames(
                   'inline-flex items-center gap-2 text-[11px] font-semibold',
-                  leilao.link_sofifa ? 'text-sky-200 hover:text-sky-100' : 'text-zinc-500 pointer-events-none'
+                  leilao.link_sofifa ? 'text-sky-200 hover:text-sky-100' : 'pointer-events-none text-zinc-500'
                 )}
               >
                 🔗 SoFIFA
               </a>
 
-              <span className={classNames('rounded-xl px-2 py-1 text-[11px] font-bold ring-1', badgeTierValor(leilao.valor_atual))}>
+              <span
+                className={classNames('rounded-xl px-2 py-1 text-[11px] font-bold ring-1', badgeTierValor(leilao.valor_atual))}
+              >
                 {brl(leilao.valor_atual)}
               </span>
             </div>
@@ -296,18 +322,19 @@ export default function CardJogadorLeilao({
               </span>
             </div>
           </div>
-        </div>
 
-        {/* área de lances */}
-        <div className="absolute inset-x-0 bottom-4 px-6">
-          <div className="rounded-2xl bg-black/35 p-3 ring-1 ring-white/10">
-            <div className="flex items-center gap-2">
+          {/* área de lances — MOBILE FIRST */}
+          <div className="mt-4 rounded-2xl bg-black/35 p-3 ring-1 ring-white/10">
+            {/* ✅ no mobile vira coluna (input em cima, botão embaixo) */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
                 inputMode="numeric"
                 pattern="[0-9]*"
                 className={classNames(
                   'w-full rounded-xl border bg-black/25 px-3 py-2 text-sm tabular-nums outline-none',
-                  invalido ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30' : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
+                  invalido
+                    ? 'border-red-900/60 focus:ring-2 focus:ring-red-400/30'
+                    : 'border-emerald-900/40 focus:ring-2 focus:ring-emerald-400/30'
                 )}
                 value={valorProposto}
                 onChange={(e) => setValorProposto(e.target.value.replace(/[^\d]/g, ''))}
@@ -319,7 +346,7 @@ export default function CardJogadorLeilao({
                 onClick={() => onDarLanceManual(valorPropostoNum)}
                 disabled={disabledLance}
                 className={classNames(
-                  'shrink-0 rounded-xl px-4 py-2 text-sm font-extrabold transition',
+                  'w-full shrink-0 rounded-xl px-4 py-2 text-sm font-extrabold transition sm:w-auto',
                   disabledLance
                     ? 'cursor-not-allowed border border-white/10 bg-black/25 text-zinc-400'
                     : 'border border-emerald-900/40 bg-emerald-600/90 text-white hover:bg-emerald-600'
@@ -329,20 +356,22 @@ export default function CardJogadorLeilao({
               </button>
             </div>
 
-            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-zinc-200/90">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-[11px] text-zinc-200/90">
               <span>
                 Mínimo: <b className="tabular-nums text-zinc-100">{brl(minimoPermitido)}</b>
               </span>
+
               <button
                 type="button"
                 onClick={onResetMinimo}
-                className="rounded-xl border border-emerald-900/40 bg-emerald-950/40 px-3 py-1 font-bold text-emerald-200 hover:bg-emerald-900/40"
+                className="w-full rounded-xl border border-emerald-900/40 bg-emerald-950/40 px-3 py-2 font-bold text-emerald-200 hover:bg-emerald-900/40 sm:w-auto sm:py-1"
               >
                 +20mi (mínimo)
               </button>
             </div>
 
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            {/* ✅ increments: 2 colunas no mobile, 3 no sm+ */}
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {INCS.map((inc) => {
                 const disabled =
                   !!travadoPorIdentidade ||
@@ -358,15 +387,18 @@ export default function CardJogadorLeilao({
                     className={classNames(
                       'rounded-xl px-2 py-2 text-[12px] font-extrabold tabular-nums transition',
                       'border bg-black/25 hover:bg-black/35',
-                      disabled ? 'border-white/10 text-zinc-400 opacity-60' : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
+                      disabled
+                        ? 'border-white/10 text-zinc-400 opacity-60'
+                        : 'border-emerald-900/40 text-emerald-200 hover:text-emerald-100'
                     )}
                   >
-                    + {(inc / 1_000_000).toLocaleString()} mi
+                    + {(inc / 1_000_000).toLocaleString('pt-BR')} mi
                   </button>
                 )
               })}
             </div>
 
+            {/* admin finalizar */}
             {isAdmin && onFinalizar && encerrado && (
               <button
                 onClick={onFinalizar}
@@ -374,7 +406,7 @@ export default function CardJogadorLeilao({
                 className={classNames(
                   'mt-3 w-full rounded-xl border px-3 py-2 text-sm font-extrabold transition focus:outline-none focus:ring-2',
                   !!finalizando
-                    ? 'border-white/10 bg-black/25 text-zinc-400 cursor-not-allowed'
+                    ? 'cursor-not-allowed border-white/10 bg-black/25 text-zinc-400'
                     : 'border-red-700/40 bg-red-600/90 text-white hover:bg-red-600 focus:ring-red-400/30'
                 )}
               >
@@ -384,27 +416,27 @@ export default function CardJogadorLeilao({
           </div>
         </div>
 
+        {/* overlays (efeitos) */}
         {burst && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
             <div className="animate-[fadeout_0.7s_ease_forwards] select-none text-3xl">💥✨🔥</div>
           </div>
         )}
         {efeitoOverlay}
-
-        {encerrado && (
-          <div className="pointer-events-none absolute left-5 top-14 rotate-[-6deg] rounded-xl border border-red-900/50 bg-red-950/70 px-3 py-1 text-[11px] font-extrabold text-red-200 shadow">
-            ENCERRADO
-          </div>
-        )}
       </div>
 
       <style jsx>{`
         @keyframes fadeout {
-          0% { opacity: 1; transform: scale(1) translateY(0); }
-          100% { opacity: 0; transform: scale(1.3) translateY(-10px); }
+          0% {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+          100% {
+            opacity: 0;
+            transform: scale(1.3) translateY(-10px);
+          }
         }
       `}</style>
     </div>
   )
 }
-
