@@ -91,6 +91,55 @@ const formatBRL = (n: number | null | undefined) =>
     maximumFractionDigits: 0,
   }).format(Number(n || 0))
 
+
+function getTimeLogadoLocal() {
+  if (typeof window === 'undefined') {
+    return {
+      id_time: null as string | null,
+      nome_time: null as string | null,
+      user: null as any,
+    }
+  }
+
+  let user: any = null
+
+  try {
+    const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
+    user = raw ? JSON.parse(raw) : null
+  } catch {
+    user = null
+  }
+
+  const id_time =
+    localStorage.getItem('id_time') ||
+    localStorage.getItem('time_id') ||
+    user?.id_time ||
+    user?.time_id ||
+    user?.time?.id ||
+    null
+
+  const nome_time =
+    localStorage.getItem('nome_time') ||
+    localStorage.getItem('time_nome') ||
+    user?.nome_time ||
+    user?.time_nome ||
+    user?.nome ||
+    null
+
+  if (id_time) {
+    try {
+      localStorage.setItem('id_time', String(id_time))
+      if (nome_time) localStorage.setItem('nome_time', String(nome_time))
+    } catch {}
+  }
+
+  return {
+    id_time,
+    nome_time,
+    user,
+  }
+}
+
 /** ===== Componentes UI ===== */
 function StatPill({
   icon,
@@ -230,6 +279,8 @@ export default function ElencoPage() {
 
   // UI Mobile
   const [showFiltersMobile, setShowFiltersMobile] = useState(false)
+  const [modalBloqueioVenda, setModalBloqueioVenda] = useState<Jogador | null>(null)
+  const [animacaoVenda, setAnimacaoVenda] = useState<Jogador | null>(null)
 
   /** ===== Debounce busca ===== */
   useEffect(() => {
@@ -300,17 +351,17 @@ export default function ElencoPage() {
     setLoading(true)
     setErro(null)
     try {
-      const id_time =
-        typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+      const { id_time } = getTimeLogadoLocal()
 
       if (!id_time) {
         setElenco([])
         setSaldo(0)
         setNomeTime('')
-        setLogoTime('') // ✅
+        setLogoTime('')
         setSelecionados([])
         setTitulares([])
         setEscalaFixada(false)
+        toast.error('Time logado não identificado. Faça login novamente.')
         return
       }
 
@@ -318,11 +369,11 @@ export default function ElencoPage() {
         { data: elencoData, error: e1 },
         { data: timeData, error: e2 },
       ] = await Promise.all([
-        supabase.from('elenco').select('*').eq('id_time', id_time),
+        supabase.from('elenco').select('*').eq('id_time', id_time).order('created_at', { ascending: false }),
         // ✅ pega logo
         supabase
           .from('times')
-          .select('nome, saldo, logo')
+          .select('nome, saldo, logo, logo_url')
           .eq('id', id_time)
           .single(),
       ])
@@ -375,7 +426,7 @@ export default function ElencoPage() {
       setElenco(elencoComRegra)
       setSaldo(Number((timeData as any)?.saldo || 0))
       setNomeTime(String((timeData as any)?.nome || ''))
-      setLogoTime(String((timeData as any)?.logo || '')) // ✅
+      setLogoTime(String((timeData as any)?.logo || (timeData as any)?.logo_url || ''))
       setSelecionados([])
       setTitulares(titularesValidos)
       setEscalaFixada(fixada)
@@ -389,6 +440,17 @@ export default function ElencoPage() {
 
   useEffect(() => {
     fetchElenco()
+
+    const onFocus = () => fetchElenco()
+    const onStorage = () => fetchElenco()
+
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('storage', onStorage)
+
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('storage', onStorage)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -458,127 +520,190 @@ export default function ElencoPage() {
       prev.includes(id) ? prev.filter((pid) => pid !== id) : [...prev, id]
     )
   }
+
+  const tentarVenderJogador = async (jogador: Jogador) => {
+    const jogos = Number(jogador.jogos || 0)
+
+    if (jogos < 3) {
+      setModalBloqueioVenda(jogador)
+      return
+    }
+
+    await venderSelecionados([jogador])
+  }
+
   const selecionarTodosFiltrados = () =>
     setSelecionados(elencoFiltrado.map((j) => j.id))
   const limparSelecao = () => setSelecionados([])
 
   /** ===== Vender selecionados ===== */
-  const venderSelecionados = async () => {
-    const jogadores = elenco.filter((j) => selecionados.includes(j.id))
-    if (jogadores.length === 0) return
-    const id_time_local =
-      typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+  const venderSelecionados = async (jogadoresDiretos?: Jogador[]) => {
+    const jogadoresSelecionados = jogadoresDiretos ?? elenco.filter((j) => selecionados.includes(j.id))
 
-    for (const jogador of jogadores) {
+    if (jogadoresSelecionados.length === 0) {
+      toast.error('Selecione pelo menos um jogador para vender.')
+      return
+    }
+
+    const bloqueadosPorJogos = jogadoresSelecionados.filter((j) => Number(j.jogos || 0) < 3)
+
+    if (bloqueadosPorJogos.length > 0) {
+      const nomesBloqueados = bloqueadosPorJogos
+        .map((j) => `${j.nome} (${Number(j.jogos || 0)}/3 jogos)`)
+        .join(', ')
+
+      toast.error(
+        `Venda bloqueada: ${nomesBloqueados}. O jogador precisa ter pelo menos 3 jogos para ser vendido ao mercado.`,
+        { duration: 7000 }
+      )
+
+      return
+    }
+
+    const ok = confirm(
+      `Confirmar venda de ${jogadoresSelecionados.length} jogador(es) para o mercado?
+
+Regra: o jogador vai ao mercado pelo valor cheio e o clube recebe apenas 30%.`
+    )
+
+    if (!ok) return
+
+    const { id_time, nome_time } = getTimeLogadoLocal()
+
+    if (!id_time) {
+      toast.error('Time não identificado.')
+      return
+    }
+
+    let saldoAtualizado = saldo
+
+    for (const jogador of jogadoresSelecionados) {
       try {
-        if ((jogador.jogos || 0) < 3) {
-          toast('🚫 Jogador precisa de pelo menos 3 jogos.')
+        if (Number(jogador.jogos || 0) < 3) {
+          toast.error(`${jogador.nome} precisa de pelo menos 3 jogos para ser vendido.`)
           continue
         }
 
-        const percentualStr = prompt(
-          `Quantos % de ${jogador.nome} deseja vender?`,
-          String(jogador.percentual ?? 100)
-        )
-        if (percentualStr === null) continue
-
-        const percentualNum = Number(percentualStr)
         const percentualAtual = Number(jogador.percentual ?? 100)
 
-        if (
-          !Number.isFinite(percentualNum) ||
-          percentualNum <= 0 ||
-          percentualNum > percentualAtual
-        ) {
-          toast.error('❌ Percentual inválido.')
+        if (!Number.isFinite(percentualAtual) || percentualAtual <= 0) {
+          toast.error(`Percentual inválido para ${jogador.nome}.`)
           continue
         }
 
+        // Venda direta ao mercado será sempre de 100% do percentual disponível.
+        const percentualNum = percentualAtual
+
         const baseValor = Number(jogador.valor || 0)
-        const valorVenda = Math.round((baseValor * percentualNum) / 100 * 0.3)
 
-        // 1) Mercado
-        {
-          const { error } = await supabase.from('mercado_transferencias').insert({
-            jogador_id: jogador.id,
-            nome: jogador.nome,
-            posicao: jogador.posicao,
-            overall: jogador.overall,
-            valor: baseValor,
-            imagem_url: jogador.imagem_url || '',
-            salario: calcularSalario(baseValor),
-            link_sofifa: jogador.link_sofifa || '',
-            id_time_origem: jogador.id_time,
-            status: 'disponivel',
-            percentual: percentualNum,
-            created_at: new Date().toISOString(),
+        // REGRA OFICIAL:
+        // Mercado recebe pelo valor proporcional cheio.
+        // Clube recebe só 30% desse valor.
+        const valorMercado = Math.round((baseValor * percentualNum) / 100)
+        const valorRecebidoClube = Math.round(valorMercado * 0.3)
+
+        const { data: jaExiste, error: erroBuscaMercado } = await supabase
+          .from('mercado_transferencias')
+          .select('id')
+          .eq('jogador_id', jogador.id)
+          .eq('status', 'disponivel')
+          .maybeSingle()
+
+        if (erroBuscaMercado) throw erroBuscaMercado
+
+        if (jaExiste) {
+          toast.error(`${jogador.nome} já está anunciado no mercado.`)
+          continue
+        }
+
+        const payloadMercado = {
+          jogador_id: jogador.id,
+          nome: jogador.nome,
+          posicao: jogador.posicao,
+          overall: jogador.overall,
+          valor: valorMercado,
+          imagem_url: jogador.imagem_url || '',
+          salario: calcularSalario(valorMercado),
+          link_sofifa: jogador.link_sofifa || '',
+          id_time_origem: jogador.id_time || id_time,
+          time_origem: nomeTime || nome_time || '',
+          status: 'disponivel',
+          percentual: percentualNum,
+          data_listagem: new Date().toISOString(),
+        }
+
+        // 1) Primeiro anuncia no mercado.
+        const { error: erroMercado } = await supabase
+          .from('mercado_transferencias')
+          .insert(payloadMercado)
+
+        if (erroMercado) {
+          console.error('Erro ao inserir no mercado:', {
+            message: erroMercado.message,
+            details: erroMercado.details,
+            hint: erroMercado.hint,
+            code: erroMercado.code,
+            payloadMercado,
           })
-
-          if (error) {
-            console.error('Erro ao inserir no mercado:', error)
-            toast.error(`❌ Falha ao anunciar ${jogador.nome}.`)
-            continue
-          }
+          toast.error(`Falha ao anunciar ${jogador.nome}: ${erroMercado.message}`)
+          continue
         }
 
-        // 2) Atualizar percentual / remover
-        const novoPercentual = (jogador.percentual ?? 100) - percentualNum
-        if (novoPercentual <= 0) {
-          const { error } = await supabase.from('elenco').delete().eq('id', jogador.id)
-          if (error) {
-            console.error('Erro ao remover do elenco:', error)
-            toast('⚠️ Falha ao remover do elenco.')
-          }
+        // 2) Remove do elenco, pois vendeu 100% do percentual disponível.
+        const { error: erroRemove } = await supabase
+          .from('elenco')
+          .delete()
+          .eq('id', jogador.id)
+
+        if (erroRemove) {
+          console.error('Erro ao remover do elenco:', erroRemove)
+          toast.error(`${jogador.nome} foi anunciado, mas não saiu do elenco.`)
+          continue
+        }
+
+        // 3) Atualiza saldo direto na tabela times.
+        saldoAtualizado += valorRecebidoClube
+
+        const { error: erroSaldo } = await supabase
+          .from('times')
+          .update({ saldo: saldoAtualizado })
+          .eq('id', id_time)
+
+        if (erroSaldo) {
+          console.error('Erro ao atualizar saldo:', erroSaldo)
+          toast.error(`${jogador.nome} foi anunciado, mas o saldo não atualizou.`)
         } else {
-          const { error } = await supabase
-            .from('elenco')
-            .update({ percentual: novoPercentual })
-            .eq('id', jogador.id)
-          if (error) {
-            console.error(`Erro ao atualizar percentual de ${jogador.nome}.`, error)
-            toast('⚠️ Falha ao atualizar percentual.')
-          }
+          setSaldo(saldoAtualizado)
         }
 
-        // 3) Crédito (RPC)
-        {
-          const { data: dataRPC, error } = await supabase.rpc(
-            'increment_saldo_return',
-            {
-              p_time_id: jogador.id_time,
-              p_delta: valorVenda,
-            }
-          )
-          if (error) {
-            console.error('Erro RPC:', error)
-            toast.error(`❌ Falha ao creditar ${formatBRL(valorVenda)}.`)
-            continue
-          }
-
-          const novoSaldo = Number(dataRPC)
-          if (id_time_local && id_time_local === jogador.id_time) setSaldo(novoSaldo)
-
+        // 4) BID não trava a venda.
+        try {
           await registrarNoBID({
             tipo_evento: 'venda_mercado',
-            descricao: `Venda de ${percentualNum}% de ${jogador.nome} por ${formatBRL(
-              valorVenda
-            )}`,
-            id_time1: jogador.id_time,
-            valor: valorVenda,
+            descricao: `${nomeTime || nome_time || 'Clube'} colocou ${jogador.nome} no mercado por ${formatBRL(valorMercado)} e recebeu ${formatBRL(valorRecebidoClube)}.`,
+            id_time1: id_time,
+            valor: valorRecebidoClube,
           })
-
-          toast.success(
-            `✅ ${jogador.nome}: venda de ${percentualNum}% registrada (+${formatBRL(
-              valorVenda
-            )}).`
-          )
+        } catch (e) {
+          console.warn('Falha ao registrar BID, mas venda mantida:', e)
         }
-      } catch (err) {
+
+        toast.success(
+          `${jogador.nome} foi para o mercado por ${formatBRL(valorMercado)}. Clube recebeu ${formatBRL(valorRecebidoClube)}.`
+        )
+
+        setAnimacaoVenda(jogador)
+
+        setTimeout(() => {
+          setAnimacaoVenda(null)
+        }, 2400)
+      } catch (err: any) {
         console.error('Erro na venda:', err)
-        toast.error('❌ Ocorreu um erro ao processar a venda.')
+        toast.error(`Erro ao vender ${jogador.nome}: ${err?.message || 'erro desconhecido'}`)
       }
     }
 
+    if (!jogadoresDiretos) setSelecionados([])
     await fetchElenco()
   }
 
@@ -589,8 +714,7 @@ export default function ElencoPage() {
       toast('Selecione exatamente 11 titulares.')
       return
     }
-    const id_time =
-      typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+    const { id_time } = getTimeLogadoLocal()
     if (!id_time) {
       toast.error('Time não identificado.')
       return
@@ -625,8 +749,7 @@ export default function ElencoPage() {
   }
 
   const desbloquearEscalacao = async () => {
-    const id_time =
-      typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+    const { id_time } = getTimeLogadoLocal()
     if (!id_time) return
     const ok = confirm('Desbloquear a escalação para editar?')
     if (!ok) return
@@ -1210,6 +1333,65 @@ export default function ElencoPage() {
                     valor: jogador.valor ?? undefined,
                   }}
                 />
+
+                {(() => {
+                  const jogos = Number(jogador.jogos || 0)
+                  const faltam = Math.max(0, 3 - jogos)
+                  const vendivel = jogos >= 3
+                  const progresso = Math.min(100, (jogos / 3) * 100)
+
+                  return (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/35 p-3 shadow-[0_14px_30px_rgba(0,0,0,0.22)] backdrop-blur">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p
+                            className={`text-xs font-extrabold uppercase tracking-[0.16em] ${
+                              vendivel ? 'text-emerald-300' : 'text-red-300'
+                            }`}
+                          >
+                            {vendivel ? '✅ Liberado para venda' : '🔒 Venda bloqueada'}
+                          </p>
+
+                          <p className="mt-1 text-xs text-gray-300">
+                            🎮 {vendivel ? `${jogos} jogos disputados` : `${jogos}/3 jogos • faltam ${faltam}`}
+                          </p>
+                        </div>
+
+                        <div
+                          className={`grid h-10 w-10 place-items-center rounded-2xl border text-sm font-black ${
+                            vendivel
+                              ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-200 animate-pulse'
+                              : 'border-red-400/30 bg-red-500/15 text-red-200 animate-bounce'
+                          }`}
+                          title={vendivel ? 'Jogador já pode ser vendido' : 'Jogador ainda não completou 3 jogos'}
+                        >
+                          {jogos}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ${
+                            vendivel ? 'bg-emerald-400' : 'bg-red-400'
+                          }`}
+                          style={{ width: `${progresso}%` }}
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => tentarVenderJogador(jogador)}
+                        className={`mt-3 w-full rounded-xl px-3 py-2 text-sm font-extrabold transition ${
+                          vendivel
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700 hover:scale-[1.02]'
+                            : 'bg-gray-800 text-white/80 hover:bg-red-500/20 hover:text-red-100'
+                        }`}
+                      >
+                        {vendivel ? '💸 Vender ao mercado' : '🔒 Tentar vender'}
+                      </button>
+                    </div>
+                  )
+                })()}
               </div>
             ))}
           </div>
@@ -1284,17 +1466,19 @@ export default function ElencoPage() {
                             {isSel ? 'Selecionado' : 'Selecionar'}
                           </button>
 
-                          <span
-                            className={`px-3 py-2 rounded-xl border text-xs font-bold
+                          <button
+                            type="button"
+                            onClick={() => tentarVenderJogador(j)}
+                            className={`px-3 py-2 rounded-xl border text-xs font-bold transition
                               ${
                                 vendivel
-                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200'
-                                  : 'bg-red-500/10 border-red-500/20 text-red-200'
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-200 hover:bg-emerald-500/20'
+                                  : 'bg-red-500/10 border-red-500/20 text-red-200 hover:bg-red-500/20'
                               }`}
-                            title="Requisito para vender no mercado"
+                            title="Vender jogador ao mercado"
                           >
-                            {vendivel ? 'Vendível' : '3+ jogos'}
-                          </span>
+                            {vendivel ? '💸 Vender' : `🔒 ${Number(j.jogos || 0)}/3 jogos`}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1302,6 +1486,143 @@ export default function ElencoPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+
+
+        {animacaoVenda && (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-hidden bg-black/85 p-4 backdrop-blur-md">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(250,204,21,0.22),transparent_42%)] animate-pulse" />
+
+            <div className="pointer-events-none absolute inset-0">
+              {Array.from({ length: 18 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="absolute text-yellow-300/80 animate-bounce"
+                  style={{
+                    left: `${8 + ((i * 47) % 84)}%`,
+                    top: `${8 + ((i * 31) % 78)}%`,
+                    animationDelay: `${(i % 6) * 0.12}s`,
+                    animationDuration: `${1.1 + (i % 4) * 0.18}s`,
+                  }}
+                >
+                  ✨
+                </span>
+              ))}
+            </div>
+
+            <div className="relative animate-[packReveal_0.75s_ease-out]">
+              <div className="absolute -inset-8 rounded-full bg-yellow-400/25 blur-3xl animate-pulse" />
+
+              <div className="relative rounded-[2.4rem] bg-gradient-to-br from-yellow-200 via-amber-400 to-yellow-900 p-[3px] shadow-[0_0_95px_rgba(250,204,21,0.45)]">
+                <div className="relative overflow-hidden rounded-[2.25rem] bg-[#07111f] p-6 text-center">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.25),transparent_40%)]" />
+
+                  <p className="relative text-xs font-black uppercase tracking-[0.32em] text-yellow-200">
+                    Venda concluída
+                  </p>
+
+                  <div className="relative mx-auto mt-5 h-44 w-44 overflow-hidden rounded-[2rem] border border-white/10 bg-black/30 shadow-inner">
+                    {animacaoVenda.imagem_url ? (
+                      <img
+                        src={animacaoVenda.imagem_url}
+                        alt={animacaoVenda.nome}
+                        className="h-full w-full object-cover animate-[cardFloat_1.3s_ease-in-out_infinite]"
+                      />
+                    ) : (
+                      <div className="grid h-full place-items-center text-6xl">👤</div>
+                    )}
+                  </div>
+
+                  <h2 className="relative mt-5 text-3xl font-black text-white">
+                    {animacaoVenda.nome}
+                  </h2>
+
+                  <p className="relative mt-1 text-emerald-300 font-bold">
+                    foi enviado ao mercado
+                  </p>
+
+                  <div className="relative mt-4 rounded-2xl border border-yellow-300/25 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-100">
+                    💰 O clube recebeu 30% do valor da venda.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <style jsx>{`
+              @keyframes packReveal {
+                0% {
+                  transform: scale(0.45) rotate(-8deg);
+                  opacity: 0;
+                  filter: blur(8px);
+                }
+                55% {
+                  transform: scale(1.12) rotate(2deg);
+                  opacity: 1;
+                  filter: blur(0);
+                }
+                100% {
+                  transform: scale(1) rotate(0deg);
+                  opacity: 1;
+                }
+              }
+
+              @keyframes cardFloat {
+                0%, 100% {
+                  transform: translateY(0) scale(1);
+                }
+                50% {
+                  transform: translateY(-8px) scale(1.04);
+                }
+              }
+            `}</style>
+          </div>
+        )}
+
+        {modalBloqueioVenda && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-3xl border border-red-400/25 bg-gray-950 p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-3xl border border-red-400/30 bg-red-500/15 text-3xl animate-bounce">
+                🔒
+              </div>
+
+              <h2 className="mt-4 text-2xl font-black text-white">
+                Jogador não pode ser vendido
+              </h2>
+
+              <p className="mt-2 text-sm text-gray-300">
+                <strong className="text-red-300">{modalBloqueioVenda.nome}</strong> ainda não completou os jogos mínimos.
+              </p>
+
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <p className="text-sm text-gray-400">Progresso atual</p>
+                <p className="mt-1 text-3xl font-black text-red-300">
+                  {Number(modalBloqueioVenda.jogos || 0)}/3 jogos
+                </p>
+
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-red-400 transition-all duration-700"
+                    style={{
+                      width: `${Math.min(100, (Number(modalBloqueioVenda.jogos || 0) / 3) * 100)}%`,
+                    }}
+                  />
+                </div>
+
+                <p className="mt-3 text-xs text-gray-400">
+                  Para vender ao mercado, o jogador precisa disputar pelo menos <strong>3 jogos</strong>.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setModalBloqueioVenda(null)}
+                className="mt-5 w-full rounded-2xl bg-red-600 px-4 py-3 font-extrabold text-white transition hover:bg-red-700"
+              >
+                Entendi
+              </button>
+            </div>
           </div>
         )}
 

@@ -8,15 +8,13 @@ import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import * as XLSX from 'xlsx'
 import toast, { Toaster } from 'react-hot-toast'
 
-/** ================== Config ================== */
-const WATERMARK_LOGO_SRC = '/watermarks/ligafut26.png' // coloque o logo aqui em /public
+const WATERMARK_LOGO_SRC = '/watermarks/ligafut26.png'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-/** ================== Helpers ================== */
 const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string | null) => {
   if (!dataListagem) return valorInicial
 
@@ -68,18 +66,43 @@ const paisParaISO2 = (pais?: string | null) => {
     usa: 'us',
   }
 
-  // fallback (un = unknown)
   return mapa[p] ?? 'un'
 }
 
 const safeImg = (url?: string | null) => {
   const u = (url ?? '').trim()
   if (!u) return ''
-  // evita quebrar por espaços
   return u.replace(/\s/g, '%20')
 }
 
-/** ================== Modal genérico ================== */
+
+function getTimeLogadoLocal(userData?: any) {
+  if (typeof window === 'undefined') {
+    return {
+      id_time: null as string | null,
+      nome_time: null as string | null,
+    }
+  }
+
+  const id_time =
+    localStorage.getItem('id_time') ||
+    localStorage.getItem('time_id') ||
+    userData?.id_time ||
+    userData?.time_id ||
+    userData?.time?.id ||
+    null
+
+  const nome_time =
+    localStorage.getItem('nome_time') ||
+    localStorage.getItem('time_nome') ||
+    userData?.nome_time ||
+    userData?.time_nome ||
+    userData?.nome ||
+    'clube'
+
+  return { id_time, nome_time }
+}
+
 function ModalConfirm({
   visible,
   titulo,
@@ -96,12 +119,14 @@ function ModalConfirm({
   loading?: boolean
 }) {
   if (!visible) return null
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gray-900 shadow-2xl">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-gray-900 shadow-2xl">
         <div className="p-6">
           <h2 className="text-xl font-bold tracking-tight text-white">{titulo}</h2>
           <p className="mt-2 text-gray-300">{mensagem}</p>
+
           <div className="mt-6 flex items-center justify-end gap-3">
             <button
               onClick={onCancel}
@@ -110,6 +135,7 @@ function ModalConfirm({
             >
               Cancelar
             </button>
+
             <button
               onClick={onConfirm}
               disabled={loading}
@@ -117,14 +143,7 @@ function ModalConfirm({
             >
               {loading && (
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               )}
@@ -137,7 +156,6 @@ function ModalConfirm({
   )
 }
 
-/** ================== Tipos ================== */
 type Jogador = {
   id: string | number
   nome: string
@@ -163,13 +181,11 @@ type JogadorCardProps = {
   mercadoFechado: boolean
 }
 
-/** ================== Watermark overlay ================== */
 function WatermarkOverlay() {
   const itens = useMemo(() => Array.from({ length: 28 }), [])
 
   return (
     <>
-      {/* Logo atrás (marca d'água) */}
       <img
         src={WATERMARK_LOGO_SRC}
         alt=""
@@ -178,7 +194,6 @@ function WatermarkOverlay() {
         draggable={false}
       />
 
-      {/* Texto LIGAFUT26 repetido */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute left-[-30%] top-[18%] rotate-[-22deg] w-[160%]">
           <div className="flex flex-wrap gap-x-6 gap-y-3 opacity-[0.10]">
@@ -197,7 +212,6 @@ function WatermarkOverlay() {
   )
 }
 
-/** ================== Card do jogador (EA FC style) ================== */
 const JogadorCard = ({
   jogador,
   isAdmin,
@@ -219,14 +233,20 @@ const JogadorCard = ({
   const codigoPais = paisParaISO2(jogador.nacionalidade)
 
   const botaoDesabilitado = loadingComprar || mercadoFechado
-
   const imgPlayer = safeImg(jogador.imagem_url) || safeImg(jogador.foto) || '/player-placeholder.png'
+
+  const aura =
+    tipoCarta === 'ouro'
+      ? 'shadow-[0_20px_50px_rgba(245,158,11,0.22)]'
+      : tipoCarta === 'prata'
+      ? 'shadow-[0_20px_50px_rgba(156,163,175,0.18)]'
+      : 'shadow-[0_20px_50px_rgba(120,74,29,0.22)]'
 
   return (
     <div
       className={[
-        'relative w-full max-w-[260px] overflow-hidden rounded-[22px] shadow-xl',
-        'transition-transform duration-300 hover:scale-[1.03]',
+        'relative w-full max-w-[270px] overflow-hidden rounded-[26px] transition-all duration-300 hover:scale-[1.03]',
+        aura,
         tipoCarta === 'bronze' &&
           'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
         tipoCarta === 'prata' &&
@@ -235,17 +255,11 @@ const JogadorCard = ({
           'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
         selecionado ? 'ring-4 ring-red-500' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
+      ].join(' ')}
     >
-      {/* Marca d'água */}
       <WatermarkOverlay />
-
-      {/* brilho leve em cima */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/25" />
 
-      {/* CHECKBOX ADMIN */}
       {isAdmin && (
         <div className="absolute right-2 top-2 z-20">
           <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/70 backdrop-blur">
@@ -259,12 +273,9 @@ const JogadorCard = ({
         </div>
       )}
 
-      {/* OVR + POSIÇÃO + BANDEIRA */}
       <div className="absolute left-3 top-3 z-10 text-left leading-none">
         <div className="text-3xl font-extrabold drop-shadow">{jogador.overall}</div>
         <div className="text-xs font-bold uppercase drop-shadow">{jogador.posicao}</div>
-
-        {/* ✅ sem template string (turbopack safe) */}
         <img
           src={'https://flagcdn.com/w20/' + codigoPais + '.png'}
           alt={jogador.nacionalidade || 'País'}
@@ -273,7 +284,6 @@ const JogadorCard = ({
         />
       </div>
 
-      {/* IMAGEM */}
       <div className="relative z-10 flex justify-center pt-10">
         <img
           src={imgPlayer}
@@ -286,11 +296,16 @@ const JogadorCard = ({
         />
       </div>
 
-      {/* NOME + VALOR + SALÁRIO + DESVALORIZAÇÃO */}
       <div className="relative z-10 mt-3 bg-black/25 px-3 py-2 text-center">
-        <div className="text-sm font-extrabold uppercase tracking-wide drop-shadow">
+        <div className="text-sm font-extrabold uppercase tracking-wide drop-shadow line-clamp-1">
           {jogador.nome}
         </div>
+
+        {jogador.time_origem ? (
+          <div className="mt-1 text-[11px] text-white/80">
+            {jogador.time_origem}
+          </div>
+        ) : null}
 
         {jogador.link_sofifa && (
           <a
@@ -320,7 +335,6 @@ const JogadorCard = ({
         )}
       </div>
 
-      {/* BOTÃO COMPRAR */}
       <div className="relative z-10 px-3 pb-4 pt-3">
         <button
           onClick={onComprar}
@@ -339,7 +353,24 @@ const JogadorCard = ({
   )
 }
 
-/** ================== Página ================== */
+function ResumoCard({
+  titulo,
+  valor,
+  subtitulo,
+}: {
+  titulo: string
+  valor: string
+  subtitulo: string
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 shadow-xl backdrop-blur-md">
+      <div className="text-xs uppercase tracking-[0.18em] text-white/50">{titulo}</div>
+      <div className="mt-2 text-2xl font-black text-white">{valor}</div>
+      <div className="mt-1 text-xs text-white/60">{subtitulo}</div>
+    </div>
+  )
+}
+
 export default function MercadoPage() {
   const router = useRouter()
   const { isAdmin } = useAdmin()
@@ -349,7 +380,6 @@ export default function MercadoPage() {
   const [user, setUser] = useState<any>(null)
   const [selecionados, setSelecionados] = useState<(string | number)[]>([])
 
-  // filtros
   const [filtroNome, setFiltroNome] = useState('')
   const [filtroPosicao, setFiltroPosicao] = useState('')
   const [filtroOverallMin, setFiltroOverallMin] = useState<number | ''>('')
@@ -357,7 +387,6 @@ export default function MercadoPage() {
   const [filtroValorMax, setFiltroValorMax] = useState<number | ''>('')
   const [filtroNacionalidade, setFiltroNacionalidade] = useState('')
 
-  // admin: exclusão por faixa de OVR
   const [excluirOverallMin, setExcluirOverallMin] = useState<number>(79)
   const [excluirOverallMax, setExcluirOverallMax] = useState<number>(80)
   const [modalExcluirFaixaVisivel, setModalExcluirFaixaVisivel] = useState(false)
@@ -367,7 +396,6 @@ export default function MercadoPage() {
   const [itensPorPagina, setItensPorPagina] = useState(40)
   const [paginaAtual, setPaginaAtual] = useState(1)
 
-  // estados gerais
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [loadingComprarId, setLoadingComprarId] = useState<string | number | null>(null)
@@ -377,11 +405,9 @@ export default function MercadoPage() {
   const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false)
   const [jogadorParaComprar, setJogadorParaComprar] = useState<Jogador | null>(null)
 
-  // upload
   const [uploadLoading, setUploadLoading] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // mercado
   const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
 
   useEffect(() => {
@@ -395,15 +421,28 @@ export default function MercadoPage() {
     setErro(null)
 
     const userData = JSON.parse(userStorage)
-    setUser(userData)
+    const identidade = getTimeLogadoLocal(userData)
+
+    if (!identidade.id_time) {
+      toast.error('Time logado não identificado. Faça login novamente.')
+      router.push('/login')
+      return
+    }
+
+    const userPadronizado = {
+      ...userData,
+      id_time: identidade.id_time,
+      nome_time: identidade.nome_time,
+    }
+
+    setUser(userPadronizado)
 
     const carregarDados = async () => {
       try {
         const [resMercado, resTime, resMarketStatus] = await Promise.all([
           supabase
             .from('mercado_transferencias')
-            .select(
-              `
+            .select(`
               id,
               nome,
               posicao,
@@ -416,9 +455,8 @@ export default function MercadoPage() {
               link_sofifa,
               data_listagem,
               time_origem
-            `
-            ),
-          supabase.from('times').select('saldo').eq('id', userData.id_time).single(),
+            `),
+          supabase.from('times').select('saldo').eq('id', identidade.id_time).single(),
           supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
         ])
 
@@ -440,7 +478,6 @@ export default function MercadoPage() {
     carregarDados()
   }, [router])
 
-  /** ================= Upload XLSX ================= */
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -453,8 +490,7 @@ export default function MercadoPage() {
 
     const sanitizeUrl = (u?: any) => {
       if (!u) return ''
-      const s = String(u).trim().replace(/\s/g, '%20')
-      return s
+      return String(u).trim().replace(/\s/g, '%20')
     }
 
     const pickImagemUrl = (row: Record<string, any>) => {
@@ -533,7 +569,6 @@ export default function MercadoPage() {
     reader.readAsArrayBuffer(file)
   }
 
-  /** ================= Compra ================= */
   const solicitarCompra = (jogador: Jogador) => {
     if (marketStatus === 'fechado') {
       toast.error('O mercado está fechado. Não é possível comprar jogadores.')
@@ -557,128 +592,206 @@ export default function MercadoPage() {
       return
     }
 
-    // 🔥 sempre pega o status/saldo mais recente antes de efetivar
+    const identidade = getTimeLogadoLocal(user)
+
+    const idTimeComprador = identidade.id_time
+    const nomeTimeComprador = identidade.nome_time || 'clube'
+
+    if (!idTimeComprador) {
+      toast.error('Time comprador não identificado.')
+      console.error('❌ Sem id_time:', {
+        user,
+        localStorageId: localStorage.getItem('id_time'),
+      })
+      setModalComprarVisivel(false)
+      setJogadorParaComprar(null)
+      return
+    }
+
+    let idElencoInserido: string | number | null = null
+
     try {
-      const [resTime, resMarketStatus] = await Promise.all([
-        supabase.from('times').select('saldo').eq('id', user.id_time).single(),
+      setLoadingComprarId(jogadorParaComprar.id)
+
+      const [resTime, resMarketStatus, resJogadorMercado] = await Promise.all([
+        supabase.from('times').select('saldo').eq('id', idTimeComprador).single(),
         supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
+        supabase
+          .from('mercado_transferencias')
+          .select('*')
+          .eq('id', jogadorParaComprar.id)
+          .maybeSingle(),
       ])
 
       if (resTime.error) throw resTime.error
       if (resMarketStatus.error) throw resMarketStatus.error
+      if (resJogadorMercado.error) throw resJogadorMercado.error
 
-      const saldoAtual = resTime.data?.saldo ?? 0
+      const saldoAtual = Number(resTime.data?.saldo ?? 0)
       const mercadoAberto = !!resMarketStatus.data?.aberto
+      const jogadorMercado = resJogadorMercado.data as any
 
       setSaldo(saldoAtual)
       setMarketStatus(mercadoAberto ? 'aberto' : 'fechado')
 
       if (!mercadoAberto) {
         toast.error('O mercado foi fechado. Não é possível comprar agora.')
-        setModalComprarVisivel(false)
-        setJogadorParaComprar(null)
         return
       }
 
-      // Limite de elenco
+      if (!jogadorMercado) {
+        toast.error('Esse jogador já foi comprado por outro clube.')
+        setJogadores((prev) => prev.filter((j) => j.id !== jogadorParaComprar.id))
+        return
+      }
+
+      const valorCompra = calcularValorComDesgaste(
+        Number(jogadorMercado.valor || 0),
+        jogadorMercado.data_listagem ?? null
+      )
+
+      if (valorCompra > saldoAtual) {
+        toast.error('Saldo insuficiente.')
+        return
+      }
+
       const { data: elencoAtual, error: errorElenco } = await supabase
         .from('elenco')
         .select('id')
-        .eq('id_time', user.id_time)
-        .limit(26)
+        .eq('id_time', idTimeComprador)
 
-      if (errorElenco) {
-        toast.error('Erro ao verificar o elenco atual.')
-        return
-      }
+      if (errorElenco) throw errorElenco
 
       if ((elencoAtual?.length || 0) >= 25) {
         toast.error('🚫 Você tem 25 ou mais jogadores no seu elenco. Venda para comprar do mercado!')
         return
       }
 
-      setLoadingComprarId(jogadorParaComprar.id)
+      const { data: jaNoElenco, error: erroDuplicado } = await supabase
+        .from('elenco')
+        .select('id')
+        .eq('id_time', idTimeComprador)
+        .eq('nome', jogadorMercado.nome)
+        .maybeSingle()
 
-      // garante exclusividade (concorrência)
-      const { data: deletedJogador, error: deleteError } = await supabase
-        .from('mercado_transferencias')
-        .delete()
-        .eq('id', jogadorParaComprar.id)
-        .select('*')
+      if (erroDuplicado) throw erroDuplicado
 
-      if (deleteError) throw deleteError
-      if (!deletedJogador || deletedJogador.length === 0) {
-        toast.error('Esse jogador já foi comprado por outro clube.')
+      if (jaNoElenco) {
+        toast.error('Esse jogador já está no seu elenco.')
         return
       }
 
-      const jogador = deletedJogador[0] as Jogador
+      const salarioCalculado = jogadorMercado.salario || Math.round(valorCompra * 0.075)
 
-      const valorCompra = calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null)
-
-      if (valorCompra > saldoAtual) {
-        // rollback best-effort: devolve pro mercado
-        await supabase.from('mercado_transferencias').insert({ ...(jogador as any) })
-        toast.error('Saldo insuficiente (atualizado).')
-        return
-      }
-
-      // BID
-      await supabase.from('bid').insert({
-        tipo_evento: 'compra',
-        descricao: `O ${user.nome_time} comprou ${jogador.nome} por ${formatarValor(valorCompra)}.`,
-        id_time1: user.id_time,
+      const payloadElenco = {
+        id_time: idTimeComprador,
+        nome: jogadorMercado.nome,
+        posicao: jogadorMercado.posicao,
+        overall: jogadorMercado.overall,
         valor: valorCompra,
-        data_evento: new Date().toISOString(),
-      })
-
-      // Salário = 0.75% do valor REAL pago
-      const salario = Math.round(valorCompra * 0.0075)
-
-      const { error: errorInsert } = await supabase.from('elenco').insert({
-        id_time: user.id_time,
-        nome: jogador.nome,
-        posicao: jogador.posicao,
-        overall: jogador.overall,
-        valor: valorCompra,
-        imagem_url: (jogador.imagem_url || jogador.foto || '') as string,
-        salario,
+        imagem_url: jogadorMercado.imagem_url || jogadorMercado.foto || '',
+        salario: salarioCalculado,
         jogos: 0,
-        link_sofifa: jogador.link_sofifa || '',
-      })
+        nacionalidade: jogadorMercado.nacionalidade || null,
+        link_sofifa: jogadorMercado.link_sofifa || '',
+        percentual: 100,
+      }
+
+      // ✅ 1) Primeiro adiciona no elenco.
+      const { data: novoElenco, error: errorInsert } = await supabase
+        .from('elenco')
+        .insert(payloadElenco)
+        .select('*')
+        .single()
 
       if (errorInsert) {
-        await supabase.from('mercado_transferencias').insert({ ...(jogador as any) })
-        throw errorInsert
+        console.error('❌ Erro ao inserir jogador no elenco:', {
+          message: errorInsert.message,
+          details: errorInsert.details,
+          hint: errorInsert.hint,
+          code: errorInsert.code,
+          payloadElenco,
+        })
+        toast.error(`Erro ao inserir no elenco: ${errorInsert.message}`)
+        return
       }
 
-      await registrarMovimentacao({
-        id_time: user.id_time,
-        tipo: 'saida',
-        valor: valorCompra,
-        descricao: `Compra de ${jogador.nome} no mercado`,
-      })
+      idElencoInserido = novoElenco?.id ?? null
+      console.log('✅ Jogador inserido no elenco:', novoElenco)
 
-      const { error: errorUpdate } = await supabase
+      // ✅ 2) Depois debita o saldo.
+      const novoSaldo = saldoAtual - valorCompra
+      const { error: errorUpdateSaldo } = await supabase
         .from('times')
-        .update({ saldo: saldoAtual - valorCompra })
-        .eq('id', user.id_time)
+        .update({ saldo: novoSaldo })
+        .eq('id', idTimeComprador)
 
-      if (errorUpdate) {
-        // rollback best-effort
-        await supabase.from('elenco').delete().eq('id_time', user.id_time).eq('nome', jogador.nome)
-        await supabase.from('mercado_transferencias').insert({ ...(jogador as any) })
-        throw errorUpdate
+      if (errorUpdateSaldo) {
+        if (idElencoInserido) {
+          await supabase.from('elenco').delete().eq('id', idElencoInserido)
+        }
+        throw errorUpdateSaldo
       }
 
-      setSaldo(saldoAtual - valorCompra)
-      setJogadores((prev) => prev.filter((j) => j.id !== jogador.id))
-      setSelecionados((prev) => prev.filter((id) => id !== jogador.id))
+      // ✅ 3) Registra movimentação sem travar a compra.
+      try {
+        await registrarMovimentacao({
+          id_time: idTimeComprador,
+          tipo: 'saida',
+          valor: valorCompra,
+          descricao: `Compra de ${jogadorMercado.nome} no mercado`,
+        })
+      } catch (e) {
+        console.warn('⚠️ Movimentação não registrada, mas compra mantida:', e)
+      }
 
-      toast.success('Jogador comprado com sucesso!')
-    } catch (error) {
-      console.error('Erro na compra:', error)
-      toast.error('Ocorreu um erro ao comprar o jogador.')
+      // ✅ 4) Registra no BID sem travar a compra.
+      try {
+        const { error: errorBID } = await supabase.from('bid').insert({
+          tipo_evento: 'compra',
+          descricao: `O ${nomeTimeComprador} comprou ${jogadorMercado.nome} por ${formatarValor(valorCompra)}.`,
+          id_time1: idTimeComprador,
+          valor: valorCompra,
+          nome_jogador: jogadorMercado.nome,
+          foto_jogador_url: jogadorMercado.imagem_url || jogadorMercado.foto || null,
+          data_evento: new Date().toISOString(),
+        })
+
+        if (errorBID) {
+          console.warn('⚠️ BID não registrado, mas compra mantida:', errorBID)
+        }
+      } catch (e) {
+        console.warn('⚠️ Erro inesperado no BID, mas compra mantida:', e)
+      }
+
+      // ✅ 5) Só no final remove do mercado.
+      const { error: deleteError } = await supabase
+        .from('mercado_transferencias')
+        .delete()
+        .eq('id', jogadorMercado.id)
+
+      if (deleteError) {
+        console.warn('⚠️ Jogador entrou no elenco, mas não saiu do mercado:', deleteError)
+        toast.error('Jogador entrou no elenco, mas não saiu do mercado. Remova manualmente no admin.')
+      }
+
+      try {
+        localStorage.setItem('id_time', String(idTimeComprador))
+        if (nomeTimeComprador) localStorage.setItem('nome_time', String(nomeTimeComprador))
+      } catch {}
+
+      setSaldo(novoSaldo)
+      setJogadores((prev) => prev.filter((j) => j.id !== jogadorMercado.id))
+      setSelecionados((prev) => prev.filter((id) => id !== jogadorMercado.id))
+
+      toast.success(`${jogadorMercado.nome} foi contratado e entrou no elenco!`)
+    } catch (error: any) {
+      console.error('❌ Erro na compra:', error)
+      toast.error(error?.message || 'Ocorreu um erro ao comprar o jogador.')
+
+      if (idElencoInserido) {
+        await supabase.from('elenco').delete().eq('id', idElencoInserido)
+      }
     } finally {
       setLoadingComprarId(null)
       setModalComprarVisivel(false)
@@ -686,7 +799,6 @@ export default function MercadoPage() {
     }
   }
 
-  /** ================= Admin: excluir ================= */
   const toggleSelecionado = (id: string | number) => {
     setSelecionados((prev) => (prev.includes(id) ? prev.filter((sel) => sel !== id) : [...prev, id]))
   }
@@ -774,7 +886,6 @@ export default function MercadoPage() {
     }
   }
 
-  /** ================= Filtros e listagem ================= */
   const jogadoresFiltrados = useMemo(() => {
     const lista = jogadores
       .filter((j) => {
@@ -793,6 +904,7 @@ export default function MercadoPage() {
 
         const overallMatch = j.overall >= overallMin && j.overall <= overallMax
         const valorMatch = j.valor <= valorMax
+
         return nomeMatch && posicaoMatch && overallMatch && valorMatch && nacionalidadeMatch
       })
       .sort((a, b) => {
@@ -822,11 +934,9 @@ export default function MercadoPage() {
   const indexOfFirst = indexOfLast - itensPorPagina
   const jogadoresPaginados = jogadoresFiltrados.slice(indexOfFirst, indexOfLast)
 
-  // ✅ se filtros mudarem e a página ficar inválida, garante página 1
   useEffect(() => {
     if (paginaAtual > totalPaginas) setPaginaAtual(1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalPaginas])
+  }, [paginaAtual, totalPaginas])
 
   const limparFiltros = () => {
     setFiltroNome('')
@@ -839,7 +949,6 @@ export default function MercadoPage() {
     setPaginaAtual(1)
   }
 
-  /** ================= UI ================= */
   if (!user) return <p className="mt-10 text-center text-white">🔒 Carregando sessão...</p>
   if (loading) return <p className="mt-10 text-center text-white">⏳ Carregando dados...</p>
   if (erro) return <p className="mt-10 text-center text-red-500">{erro}</p>
@@ -850,190 +959,133 @@ export default function MercadoPage() {
     ? calcularValorComDesgaste(jogadorParaComprar.valor, jogadorParaComprar.data_listagem ?? null)
     : 0
 
+  const mediaOverall =
+    jogadores.length > 0
+      ? Math.round(jogadores.reduce((acc, j) => acc + Number(j.overall || 0), 0) / jogadores.length)
+      : 0
+
+  const maisCaro =
+    jogadores.length > 0
+      ? jogadores.reduce((prev, curr) => (curr.valor > prev.valor ? curr : prev), jogadores[0])
+      : null
+
   return (
     <>
       <Toaster position="top-right" />
 
-      {/* Topbar fixa */}
-      <div className="sticky top-0 z-50 border-b border-white/10 bg-gray-950/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-500/10 text-lg">
-              🛒
-            </div>
-            <div>
-              <h1 className="text-lg font-bold leading-tight text-white">Mercado de Transferências</h1>
-              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,#1f2937_0%,#050505_45%,#000_100%)] text-white">
+        <div className="border-b border-white/10 bg-black/40 backdrop-blur-xl">
+          <div className="mx-auto max-w-7xl px-4 py-5">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                  Mercado ativo
+                </div>
+
+                <h1 className="mt-4 text-4xl sm:text-5xl font-black tracking-tight">
+                  <span className="bg-gradient-to-r from-yellow-300 via-emerald-300 to-lime-300 bg-clip-text text-transparent">
+                    MERCADO DE TRANSFERÊNCIAS
+                  </span>
+                </h1>
+
+                <p className="mt-3 max-w-2xl text-sm text-white/65">
+                  Negocie, filtre, compare e fortaleça seu elenco com jogadores listados no mercado.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={[
-                    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 ring-1 ring-inset',
+                    'inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-bold ring-1 ring-inset',
                     mercadoFechado
                       ? 'bg-red-500/10 text-red-300 ring-red-500/30'
                       : 'bg-green-500/10 text-green-300 ring-green-500/30',
                   ].join(' ')}
                 >
-                  {mercadoFechado ? '🔒 Fechado' : '🔓 Aberto'}
+                  {mercadoFechado ? '🔒 Mercado fechado' : '🔓 Mercado aberto'}
                 </span>
-                <span className="rounded-full bg-white/5 px-2 py-0.5 text-gray-300 ring-1 ring-white/10">
-                  {totalResultados} jogadores
-                </span>
+
+                {isAdmin && (
+                  <>
+                    <button
+                      onClick={toggleMarketStatus}
+                      disabled={loading}
+                      className={[
+                        'rounded-2xl px-4 py-2.5 text-sm font-bold transition',
+                        mercadoFechado
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'bg-yellow-500 text-black hover:bg-yellow-400',
+                      ].join(' ')}
+                    >
+                      {loading ? 'Processando...' : mercadoFechado ? 'Abrir mercado' : 'Fechar mercado'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('input-xlsx-upload')?.click()}
+                      disabled={uploadLoading || mercadoFechado}
+                      className={[
+                        'rounded-2xl px-4 py-2.5 text-sm font-bold transition',
+                        uploadLoading
+                          ? 'bg-gray-700 text-gray-300'
+                          : 'bg-blue-600 text-white hover:bg-blue-700',
+                        mercadoFechado ? 'opacity-60 cursor-not-allowed' : '',
+                      ].join(' ')}
+                    >
+                      {uploadLoading ? 'Importando...' : 'Importar planilha'}
+                    </button>
+
+                    <input
+                      id="input-xlsx-upload"
+                      type="file"
+                      accept=".xlsx, .xls"
+                      onChange={handleFileUpload}
+                      disabled={uploadLoading || mercadoFechado}
+                      className="hidden"
+                    />
+                  </>
+                )}
               </div>
             </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="hidden text-right sm:block">
-              <p className="text-[11px] text-gray-400">Saldo disponível</p>
-              <p className="font-semibold text-green-400">{formatarValor(saldo)}</p>
-            </div>
-
-            {isAdmin && (
-              <>
-                <button
-                  onClick={toggleMarketStatus}
-                  disabled={loading}
-                  className={[
-                    'rounded-xl px-3 py-2 text-sm font-semibold transition',
-                    mercadoFechado
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-yellow-500 text-black hover:bg-yellow-400',
-                  ].join(' ')}
-                >
-                  {loading ? 'Processando...' : mercadoFechado ? 'Abrir mercado' : 'Fechar mercado'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => document.getElementById('input-xlsx-upload')?.click()}
-                  disabled={uploadLoading || mercadoFechado}
-                  className={[
-                    'rounded-xl px-3 py-2 text-sm font-semibold transition',
-                    uploadLoading
-                      ? 'bg-gray-700 text-gray-300'
-                      : 'bg-blue-600 text-white hover:bg-blue-700',
-                    mercadoFechado ? 'opacity-60 cursor-not-allowed' : '',
-                  ].join(' ')}
-                >
-                  {uploadLoading ? 'Importando...' : 'Importar planilha'}
-                </button>
-
-                <input
-                  id="input-xlsx-upload"
-                  type="file"
-                  accept=".xlsx, .xls"
-                  onChange={handleFileUpload}
-                  disabled={uploadLoading || mercadoFechado}
-                  className="hidden"
-                />
-              </>
-            )}
           </div>
         </div>
-      </div>
 
-      {/* Conteúdo */}
-      <div className="mx-auto max-w-7xl px-4 py-6 text-white">
-        {/* Painel de filtros */}
-        <div className="rounded-2xl border border-white/10 bg-gray-900 p-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
-            <input
-              type="text"
-              placeholder="🔎 Buscar por nome"
-              value={filtroNome}
-              onChange={(e) => setFiltroNome(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
+        <div className="mx-auto max-w-7xl px-4 py-6">
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <ResumoCard
+              titulo="Saldo disponível"
+              valor={formatarValor(saldo)}
+              subtitulo="Caixa atual do seu clube"
             />
-
-            <select
-              value={filtroPosicao}
-              onChange={(e) => setFiltroPosicao(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition focus:border-green-500"
-            >
-              <option value="">Todas as posições</option>
-              <option value="GL">Goleiro</option>
-              <option value="ZAG">Zagueiro</option>
-              <option value="LE">Lateral Esquerdo</option>
-              <option value="LD">Lateral Direito</option>
-              <option value="VOL">Volante</option>
-              <option value="MC">Meio Campo</option>
-              <option value="MD">Meia Direita</option>
-              <option value="ME">Meia Esquerda</option>
-              <option value="PD">Ponta Direita</option>
-              <option value="PE">Ponta Esquerda</option>
-              <option value="SA">Segundo Atacante</option>
-              <option value="CA">Centroavante</option>
-            </select>
-
-            <input
-              type="text"
-              placeholder="🌎 Filtrar por nacionalidade"
-              value={filtroNacionalidade}
-              onChange={(e) => setFiltroNacionalidade(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
+            <ResumoCard
+              titulo="Jogadores no mercado"
+              valor={String(jogadores.length)}
+              subtitulo="Total de atletas listados"
             />
-
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                placeholder="OVR mín"
-                value={filtroOverallMin}
-                onChange={(e) => setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
-                className="w-full rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
-                min={0}
-                max={99}
-              />
-              <input
-                type="number"
-                placeholder="máx"
-                value={filtroOverallMax}
-                onChange={(e) => setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
-                className="w-full rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
-                min={0}
-                max={99}
-              />
-            </div>
-
-            <input
-              type="number"
-              placeholder="💰 Valor máx (R$)"
-              value={filtroValorMax}
-              onChange={(e) => setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))}
-              className="w-full rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
-              min={0}
+            <ResumoCard
+              titulo="Overall médio"
+              valor={String(mediaOverall)}
+              subtitulo="Nível médio dos jogadores"
             />
+            <ResumoCard
+              titulo="Mais caro"
+              valor={maisCaro ? formatarValor(maisCaro.valor) : '—'}
+              subtitulo={maisCaro ? maisCaro.nome : 'Sem dados'}
+            />
+          </div>
 
-            <select
-              value={ordenarPor}
-              onChange={(e) => setOrdenarPor(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition focus:border-green-500"
-            >
-              <option value="">Ordenar...</option>
-              <option value="valor_asc">Valor ↑</option>
-              <option value="valor_desc">Valor ↓</option>
-              <option value="overall_asc">Overall ↑</option>
-              <option value="overall_desc">Overall ↓</option>
-            </select>
-
-            <div className="flex flex-wrap items-center justify-between gap-3 md:col-span-2 lg:col-span-1">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-300">Por página</label>
-                <select
-                  value={itensPorPagina}
-                  onChange={(e) => {
-                    setItensPorPagina(Number(e.target.value))
-                    setPaginaAtual(1)
-                  }}
-                  className="rounded-lg border border-white/10 bg-gray-800 px-2 py-1 text-sm outline-none transition focus:border-green-500"
-                >
-                  <option value={20}>20</option>
-                  <option value={40}>40</option>
-                  <option value={80}>80</option>
-                </select>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl backdrop-blur-md">
+            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h2 className="text-lg font-extrabold text-white">Filtros do mercado</h2>
+                <p className="text-sm text-white/60">
+                  Refine sua busca para encontrar exatamente o perfil que deseja.
+                </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-gray-300 ring-1 ring-white/10">
-                  💰 Saldo: <strong className="text-green-400">{formatarValor(saldo)}</strong>
+                  {totalResultados} resultado(s)
                 </span>
                 <button
                   onClick={limparFiltros}
@@ -1043,125 +1095,221 @@ export default function MercadoPage() {
                 </button>
               </div>
             </div>
-          </div>
 
-          {/* Ações Admin */}
-          {isAdmin && (
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                onClick={solicitarExcluirSelecionados}
-                disabled={loadingExcluir}
-                className={[
-                  'rounded-xl px-4 py-2 text-sm font-semibold transition',
-                  loadingExcluir ? 'bg-gray-700 text-gray-300' : 'bg-red-600 text-white hover:bg-red-700',
-                ].join(' ')}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+              <input
+                type="text"
+                placeholder="🔎 Buscar por nome"
+                value={filtroNome}
+                onChange={(e) => setFiltroNome(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
+              />
+
+              <select
+                value={filtroPosicao}
+                onChange={(e) => setFiltroPosicao(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition focus:border-green-500"
               >
-                {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
-              </button>
+                <option value="">Todas as posições</option>
+                <option value="GL">Goleiro</option>
+                <option value="ZAG">Zagueiro</option>
+                <option value="LE">Lateral Esquerdo</option>
+                <option value="LD">Lateral Direito</option>
+                <option value="VOL">Volante</option>
+                <option value="MC">Meio Campo</option>
+                <option value="MD">Meia Direita</option>
+                <option value="ME">Meia Esquerda</option>
+                <option value="PD">Ponta Direita</option>
+                <option value="PE">Ponta Esquerda</option>
+                <option value="SA">Segundo Atacante</option>
+                <option value="CA">Centroavante</option>
+              </select>
 
-              {/* Excluir por faixa de OVR */}
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-gray-800 px-3 py-2">
-                <span className="text-sm text-gray-300">Excluir OVR</span>
+              <input
+                type="text"
+                placeholder="🌎 Filtrar por nacionalidade"
+                value={filtroNacionalidade}
+                onChange={(e) => setFiltroNacionalidade(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
+              />
+
+              <select
+                value={ordenarPor}
+                onChange={(e) => setOrdenarPor(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition focus:border-green-500"
+              >
+                <option value="">Ordenar...</option>
+                <option value="valor_asc">Valor ↑</option>
+                <option value="valor_desc">Valor ↓</option>
+                <option value="overall_asc">Overall ↑</option>
+                <option value="overall_desc">Overall ↓</option>
+              </select>
+
+              <div className="flex items-center gap-2">
                 <input
                   type="number"
+                  placeholder="OVR mín"
+                  value={filtroOverallMin}
+                  onChange={(e) => setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
                   min={0}
                   max={99}
-                  value={excluirOverallMin}
-                  onChange={(e) => setExcluirOverallMin(Number(e.target.value))}
-                  className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
                 />
-                <span className="text-sm text-gray-400">até</span>
                 <input
                   type="number"
+                  placeholder="OVR máx"
+                  value={filtroOverallMax}
+                  onChange={(e) => setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
                   min={0}
                   max={99}
-                  value={excluirOverallMax}
-                  onChange={(e) => setExcluirOverallMax(Number(e.target.value))}
-                  className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
                 />
-                <button
-                  onClick={solicitarExcluirPorFaixa}
-                  disabled={loadingExcluirFaixa}
-                  className={[
-                    'rounded-lg px-3 py-1.5 text-sm font-semibold transition',
-                    loadingExcluirFaixa ? 'bg-gray-700 text-gray-300' : 'bg-red-600 text-white hover:bg-red-700',
-                  ].join(' ')}
-                >
-                  {loadingExcluirFaixa ? 'Processando...' : 'Excluir por OVR'}
-                </button>
               </div>
 
-              {msg && <span className="text-sm text-gray-300">{msg}</span>}
+              <input
+                type="number"
+                placeholder="💰 Valor máx (R$)"
+                value={filtroValorMax}
+                onChange={(e) => setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))}
+                className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
+                min={0}
+              />
+
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-300">Por página</label>
+                <select
+                  value={itensPorPagina}
+                  onChange={(e) => {
+                    setItensPorPagina(Number(e.target.value))
+                    setPaginaAtual(1)
+                  }}
+                  className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition focus:border-green-500"
+                >
+                  <option value={20}>20</option>
+                  <option value={40}>40</option>
+                  <option value={80}>80</option>
+                </select>
+              </div>
+            </div>
+
+            {isAdmin && (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                <button
+                  onClick={solicitarExcluirSelecionados}
+                  disabled={loadingExcluir}
+                  className={[
+                    'rounded-xl px-4 py-2 text-sm font-semibold transition',
+                    loadingExcluir ? 'bg-gray-700 text-gray-300' : 'bg-red-600 text-white hover:bg-red-700',
+                  ].join(' ')}
+                >
+                  {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
+                </button>
+
+                <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-gray-800 px-3 py-2">
+                  <span className="text-sm text-gray-300">Excluir OVR</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={excluirOverallMin}
+                    onChange={(e) => setExcluirOverallMin(Number(e.target.value))}
+                    className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
+                  />
+                  <span className="text-sm text-gray-400">até</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={excluirOverallMax}
+                    onChange={(e) => setExcluirOverallMax(Number(e.target.value))}
+                    className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
+                  />
+                  <button
+                    onClick={solicitarExcluirPorFaixa}
+                    disabled={loadingExcluirFaixa}
+                    className={[
+                      'rounded-lg px-3 py-1.5 text-sm font-semibold transition',
+                      loadingExcluirFaixa ? 'bg-gray-700 text-gray-300' : 'bg-red-600 text-white hover:bg-red-700',
+                    ].join(' ')}
+                  >
+                    {loadingExcluirFaixa ? 'Processando...' : 'Excluir por OVR'}
+                  </button>
+                </div>
+
+                {msg && <span className="text-sm text-gray-300">{msg}</span>}
+              </div>
+            )}
+          </div>
+
+          {totalPaginas > 1 && (
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              <button
+                onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
+                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
+              >
+                ← Anterior
+              </button>
+
+              <span className="rounded-xl bg-white/5 px-4 py-2 text-sm ring-1 ring-white/10">
+                Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
+              </span>
+
+              <button
+                onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
+              >
+                Próxima →
+              </button>
+            </div>
+          )}
+
+          <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {jogadoresPaginados.length > 0 ? (
+              jogadoresPaginados.map((jogador) => (
+                <JogadorCard
+                  key={String(jogador.id)}
+                  jogador={jogador}
+                  isAdmin={isAdmin}
+                  selecionado={selecionados.includes(jogador.id)}
+                  toggleSelecionado={() => toggleSelecionado(jogador.id)}
+                  onComprar={() => solicitarCompra(jogador)}
+                  loadingComprar={loadingComprarId === jogador.id}
+                  mercadoFechado={mercadoFechado}
+                />
+              ))
+            ) : (
+              <div className="col-span-full rounded-3xl border border-white/10 bg-white/[0.04] p-10 text-center">
+                <div className="text-2xl">🧐</div>
+                <p className="mt-3 text-gray-300">Nenhum jogador encontrado com os filtros atuais.</p>
+                <p className="mt-1 text-sm text-gray-500">Tente limpar os filtros ou ajustar a busca.</p>
+              </div>
+            )}
+          </div>
+
+          {totalPaginas > 1 && (
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+              <button
+                onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
+                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
+              >
+                ← Anterior
+              </button>
+
+              <span className="rounded-xl bg-white/5 px-4 py-2 text-sm ring-1 ring-white/10">
+                Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
+              </span>
+
+              <button
+                onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
+              >
+                Próxima →
+              </button>
             </div>
           )}
         </div>
+      </main>
 
-        {/* Paginação topo */}
-        {totalPaginas > 1 && (
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            <button
-              onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
-            >
-              ← Anterior
-            </button>
-            <span className="rounded-lg bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10">
-              Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
-            </span>
-            <button
-              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
-            >
-              Próxima →
-            </button>
-          </div>
-        )}
-
-        {/* Grid */}
-        <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {jogadoresPaginados.length > 0 ? (
-            jogadoresPaginados.map((jogador) => (
-              <JogadorCard
-                key={String(jogador.id)}
-                jogador={jogador}
-                isAdmin={isAdmin}
-                selecionado={selecionados.includes(jogador.id)}
-                toggleSelecionado={() => toggleSelecionado(jogador.id)}
-                onComprar={() => solicitarCompra(jogador)}
-                loadingComprar={loadingComprarId === jogador.id}
-                mercadoFechado={mercadoFechado}
-              />
-            ))
-          ) : (
-            <p className="col-span-full mt-6 text-center text-gray-400">
-              Nenhum jogador encontrado com os filtros atuais.
-            </p>
-          )}
-        </div>
-
-        {/* Paginação base */}
-        {totalPaginas > 1 && (
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
-            <button
-              onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
-            >
-              ← Anterior
-            </button>
-            <span className="rounded-lg bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10">
-              Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
-            </span>
-            <button
-              onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-              className="rounded-lg border border-white/10 bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700 transition"
-            >
-              Próxima →
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Modais */}
       <ModalConfirm
         visible={modalComprarVisivel}
         titulo="Confirmar Compra"

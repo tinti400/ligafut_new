@@ -6,37 +6,41 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
-type GroupKey = 'elenco' | 'roubo' | 'leilao' | 'admin' | 'copa'
+type GroupKey = 'clube' | 'competicoes' | 'mercado' | 'admin'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
-const fmtBRL0 = (n: number) =>
-  n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
-const fmtInt = (n: number) => n.toLocaleString('pt-BR')
+const HEADER_H = 74
+
 const safe = (v: any) => {
   const n = Number(v ?? 0)
   return Number.isFinite(n) ? n : 0
 }
+
+const fmtBRL0 = (n: number) =>
+  n.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    maximumFractionDigits: 0,
+  })
+
+const fmtInt = (n: number) => n.toLocaleString('pt-BR')
+
 const clamp99 = (n: number) => (n > 99 ? '99+' : String(n))
 
-const HEADER_H = 76
+const isEmail = (s: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim())
 
-const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim())
-
-/**
- * ✅ Admin real via RPC do Supabase (is_admin)
- * - tenta com email (preferencial)
- * - se não tiver email, tenta com "usuario" (ex: 'adm') somente se você permitir no seu SQL
- */
 async function checarAdmin(pIdent: string) {
   const ident = String(pIdent || '').trim().toLowerCase()
   if (!ident) return false
 
   const { data, error } = await supabase.rpc('is_admin', { p_email: ident })
   if (error) return false
+
   return data === true
 }
 
@@ -54,13 +58,35 @@ function pegarIdentidadeLocalStorage(): { email: string; usuario: string } {
   const u1 = tryParse('user')
   const u2 = tryParse('usuario')
   const u3 = tryParse('auth')
-  const rawEmail = localStorage.getItem('email') || localStorage.getItem('user_email') || ''
-  const rawUsuario = localStorage.getItem('usuario_nome') || localStorage.getItem('username') || ''
 
-  const email =
-    String(u1?.email || u2?.email || u3?.email || rawEmail || u1?.usuario || u2?.usuario || '').trim()
-  const usuario =
-    String(u1?.usuario || u2?.usuario || rawUsuario || u1?.login || u2?.login || '').trim()
+  const rawEmail =
+    localStorage.getItem('email') ||
+    localStorage.getItem('user_email') ||
+    ''
+
+  const rawUsuario =
+    localStorage.getItem('usuario_nome') ||
+    localStorage.getItem('username') ||
+    ''
+
+  const email = String(
+    u1?.email ||
+      u2?.email ||
+      u3?.email ||
+      rawEmail ||
+      u1?.usuario ||
+      u2?.usuario ||
+      ''
+  ).trim()
+
+  const usuario = String(
+    u1?.usuario ||
+      u2?.usuario ||
+      rawUsuario ||
+      u1?.login ||
+      u2?.login ||
+      ''
+  ).trim()
 
   return { email, usuario }
 }
@@ -69,20 +95,17 @@ export default function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
 
-  // ===== UI
   const [isOpen, setIsOpen] = useState(true)
-  const [abrirElenco, setAbrirElenco] = useState(false)
-  const [abrirRoubo, setAbrirRoubo] = useState(false)
-  const [abrirLeilao, setAbrirLeilao] = useState(false)
-  const [abrirAdmin, setAbrirAdmin] = useState(false)
-  const [abrirCopa, setAbrirCopa] = useState(false)
   const [headerVisible, setHeaderVisible] = useState(true)
 
-  // ===== Admin
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [checkingAdmin, setCheckingAdmin] = useState(true)
+  const [abrirClube, setAbrirClube] = useState(true)
+  const [abrirCompeticoes, setAbrirCompeticoes] = useState(true)
+  const [abrirMercado, setAbrirMercado] = useState(true)
+  const [abrirAdmin, setAbrirAdmin] = useState(false)
 
-  // ===== User / KPIs
+  const [checkingAdmin, setCheckingAdmin] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
+
   const [logado, setLogado] = useState(false)
   const [idTime, setIdTime] = useState<string | null>(null)
   const [nomeTime, setNomeTime] = useState('')
@@ -91,12 +114,10 @@ export default function Sidebar() {
   const [saldoTime, setSaldoTime] = useState(0)
   const [moedas, setMoedas] = useState(0)
   const [totalSalarios, setTotalSalarios] = useState(0)
-
   const [dividaEmprestimos, setDividaEmprestimos] = useState(0)
   const [valorParcela, setValorParcela] = useState(0)
   const [parcelasRestantes, setParcelasRestantes] = useState<number | null>(null)
 
-  // ===== Propostas
   const [countRecebidas, setCountRecebidas] = useState(0)
   const [countEnviadas, setCountEnviadas] = useState(0)
 
@@ -109,19 +130,18 @@ export default function Sidebar() {
     [pathname]
   )
 
-  // ========= Persistências
   useEffect(() => {
     try {
-      const collapsed = localStorage.getItem('sb_open')
-      if (collapsed !== null) setIsOpen(collapsed === '1')
-      setAbrirElenco(localStorage.getItem('sb_g_elenco') === '1')
-      setAbrirRoubo(localStorage.getItem('sb_g_roubo') === '1')
-      setAbrirLeilao(localStorage.getItem('sb_g_leilao') === '1')
-      setAbrirAdmin(localStorage.getItem('sb_g_admin') === '1')
-      setAbrirCopa(localStorage.getItem('sb_g_copa') === '1')
+      const open = localStorage.getItem('sb_open')
+      if (open !== null) setIsOpen(open === '1')
 
       const hv = localStorage.getItem('sb_header_visible')
       if (hv !== null) setHeaderVisible(hv === '1')
+
+      setAbrirClube(localStorage.getItem('sb_g_clube') !== '0')
+      setAbrirCompeticoes(localStorage.getItem('sb_g_competicoes') !== '0')
+      setAbrirMercado(localStorage.getItem('sb_g_mercado') !== '0')
+      setAbrirAdmin(localStorage.getItem('sb_g_admin') === '1')
     } catch {}
   }, [])
 
@@ -144,18 +164,20 @@ export default function Sidebar() {
     } catch {}
   }
 
-  // ========= Descobrir idTime + contadores + ADMIN
   useEffect(() => {
     const getIdTime = (): string | null => {
       const direct = localStorage.getItem('id_time') || localStorage.getItem('time_id')
       if (direct) return direct
+
       const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
+
       if (userStr) {
         try {
           const u = JSON.parse(userStr)
           return u?.id_time || u?.time_id || u?.time?.id || null
         } catch {}
       }
+
       return null
     }
 
@@ -166,7 +188,7 @@ export default function Sidebar() {
     setCountRecebidas(safe(localStorage.getItem('propostas_recebidas_count')))
     setCountEnviadas(safe(localStorage.getItem('propostas_enviadas_count')))
 
-    const mLS =
+    const moedasLS =
       Number(localStorage.getItem('moedas')) ||
       (() => {
         const s = localStorage.getItem('user') || localStorage.getItem('usuario')
@@ -178,14 +200,17 @@ export default function Sidebar() {
           return 0
         }
       })()
-    setMoedas(safe(mLS))
+
+    setMoedas(safe(moedasLS))
 
     ;(async () => {
       setCheckingAdmin(true)
+
       try {
         const { email, usuario } = pegarIdentidadeLocalStorage()
         const identPreferido = isEmail(email) ? email : usuario || email
         const ok = await checarAdmin(identPreferido)
+
         setIsAdmin(ok)
 
         if (!ok) {
@@ -202,7 +227,6 @@ export default function Sidebar() {
     })()
   }, [])
 
-  // ========= Helpers
   const getFirstNumber = (row: any, keys: string[]) => {
     for (const k of keys) {
       if (row?.[k] != null && Number(row[k]) >= 0) return safe(row[k])
@@ -210,7 +234,6 @@ export default function Sidebar() {
     return 0
   }
 
-  // ========= Carregar do Supabase: time, elenco, emprestimos
   useEffect(() => {
     ;(async () => {
       let timeRow: any = null
@@ -221,11 +244,13 @@ export default function Sidebar() {
           .select('id, nome, tecnico, saldo, logo, logo_url, moedas')
           .eq('id', idTime)
           .maybeSingle()
+
         if (!r1.error && r1.data) timeRow = r1.data
       }
 
       if (!timeRow) {
         let tecnicoLS: string | null = null
+
         try {
           const s = localStorage.getItem('user') || localStorage.getItem('usuario')
           if (s) {
@@ -233,6 +258,7 @@ export default function Sidebar() {
             tecnicoLS = j?.tecnico || j?.nome || null
           }
         } catch {}
+
         if (tecnicoLS) {
           const r2 = await supabase
             .from('times')
@@ -240,61 +266,82 @@ export default function Sidebar() {
             .eq('tecnico', tecnicoLS)
             .limit(1)
             .maybeSingle()
+
           if (!r2.error && r2.data) timeRow = r2.data
         }
       }
 
-      if (!timeRow && nomeTime) {
-        const r3 = await supabase
-          .from('times')
-          .select('id, nome, tecnico, saldo, logo, logo_url, moedas')
-          .eq('nome', nomeTime)
-          .limit(1)
-          .maybeSingle()
-        if (!r3.error && r3.data) timeRow = r3.data
-      }
-
       if (timeRow) {
-        setNomeTime(timeRow.nome ?? nomeTime)
+        setNomeTime(timeRow.nome || '')
         setSaldoTime(Number(timeRow.saldo) || 0)
-        if (timeRow.moedas != null) setMoedas(Number(timeRow.moedas) || 0)
         setLogoUrl(timeRow.logo || timeRow.logo_url || null)
+
+        if (timeRow.moedas != null) setMoedas(Number(timeRow.moedas) || 0)
         if (!idTime || idTime !== timeRow.id) setIdTime(timeRow.id)
 
-        const targetId = timeRow.id
-        const { data: elenc } = await supabase.from('elenco').select('*').eq('id_time', targetId)
+        const { data: elenco } = await supabase
+          .from('elenco')
+          .select('*')
+          .eq('id_time', timeRow.id)
 
-        if (elenc) {
-          const soma = elenc.reduce((acc: number, r: any) => {
-            const v = getFirstNumber(r, ['salario', 'salario_mensal', 'salario_total', 'salários'])
+        if (elenco) {
+          const soma = elenco.reduce((acc: number, r: any) => {
+            const v = getFirstNumber(r, [
+              'salario',
+              'salario_mensal',
+              'salario_total',
+              'salários',
+            ])
+
             return acc + v
           }, 0)
+
           setTotalSalarios(soma)
         }
 
         const { data: emp } = await supabase
           .from('emprestimos')
           .select('*')
-          .eq('id_time', targetId)
+          .eq('id_time', timeRow.id)
           .in('status', ['aberto', 'ativo', 'pendente'])
           .limit(1)
           .maybeSingle()
 
         if (emp) {
-          const total = getFirstNumber(emp, ['valor_total', 'valor', 'montante', 'principal', 'total'])
+          const total = getFirstNumber(emp, [
+            'valor_total',
+            'valor',
+            'montante',
+            'principal',
+            'total',
+          ])
+
           const totParcelas =
-            getFirstNumber(emp, ['parcelas_totais', 'total_parcelas', 'qtd_parcelas', 'numero_parcelas']) || 1
+            getFirstNumber(emp, [
+              'parcelas_totais',
+              'total_parcelas',
+              'qtd_parcelas',
+              'numero_parcelas',
+            ]) || 1
 
           const pagas = getFirstNumber(emp, ['parcelas_pagas'])
           const atual = getFirstNumber(emp, ['parcela_atual'])
+
           let restantes = getFirstNumber(emp, ['restantes', 'parcelas_restantes'])
+
           if (!restantes) {
             if (pagas) restantes = Math.max(totParcelas - pagas, 0)
             else if (atual) restantes = Math.max(totParcelas - (atual - 1), 0)
             else restantes = totParcelas
           }
 
-          let vParcela = getFirstNumber(emp, ['valor_parcela', 'parcela_valor', 'valor_por_turno', 'por_turno'])
+          let vParcela = getFirstNumber(emp, [
+            'valor_parcela',
+            'parcela_valor',
+            'valor_por_turno',
+            'por_turno',
+          ])
+
           if (!vParcela) vParcela = Math.ceil(total / Math.max(totParcelas, 1))
 
           const devedor =
@@ -315,118 +362,132 @@ export default function Sidebar() {
           setValorParcela(0)
           setParcelasRestantes(0)
         }
-      } else {
-        setSaldoTime(0)
-        setTotalSalarios(0)
-        setDividaEmprestimos(0)
-        setValorParcela(0)
-        setParcelasRestantes(0)
       }
     })()
-  }, [idTime, nomeTime])
+  }, [idTime])
 
-  // ========= Realtime
   useEffect(() => {
     if (!idTime) return
+
     const ch = supabase
       .channel('sidebar-kpis')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'times', filter: `id=eq.${idTime}` },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'times',
+          filter: `id=eq.${idTime}`,
+        },
         (p: any) => {
           setSaldoTime(Number(p.new?.saldo) || 0)
+
           if (p.new?.moedas != null) setMoedas(Number(p.new.moedas) || 0)
           if (p.new?.nome) setNomeTime(p.new.nome)
-          if (p.new?.logo || p.new?.logo_url) setLogoUrl(p.new.logo || p.new.logo_url)
+          if (p.new?.logo || p.new?.logo_url) {
+            setLogoUrl(p.new.logo || p.new.logo_url)
+          }
         }
       )
       .subscribe()
+
     return () => {
       supabase.removeChannel(ch)
     }
   }, [idTime])
 
-  // ========= Logout
   const logout = () => {
     try {
       localStorage.clear()
     } catch {}
+
     router.push('/login')
   }
 
-  // ========= Derivados
   const saldoFmt = useMemo(() => fmtBRL0(safe(saldoTime)), [saldoTime])
   const salariosFmt = useMemo(() => fmtBRL0(safe(totalSalarios)), [totalSalarios])
   const moedasFmt = useMemo(() => fmtInt(safe(moedas)), [moedas])
   const dividaFmt = useMemo(() => fmtBRL0(safe(dividaEmprestimos)), [dividaEmprestimos])
   const parcelaFmt = useMemo(() => fmtBRL0(safe(valorParcela)), [valorParcela])
 
-  // ========= UI helpers
-  const ToggleBtn = ({
-    open,
-    onClick,
-    label,
-    icon,
-  }: {
-    open: boolean
-    onClick: () => void
-    label: string
-    icon?: ReactNode
-  }) => (
-    <button
-      onClick={onClick}
-      aria-expanded={open}
-      className={[
-        'w-full flex items-center justify-between text-left px-2 py-2 rounded-lg transition',
-        open ? 'bg-white/5' : 'hover:bg-white/5',
-        'ring-1 ring-inset ring-white/10',
-      ].join(' ')}
-      title={label}
-      type="button"
-    >
-      <span className="flex items-center gap-2">
-        {icon ?? null}
-        <span>{label}</span>
-      </span>
-      <svg
-        className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`}
-        viewBox="0 0 20 20"
-        fill="currentColor"
-      >
-        <path
-          fillRule="evenodd"
-          d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.25a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08z"
-          clipRule="evenodd"
-        />
-      </svg>
-    </button>
-  )
+  const Badge = ({ n, tone = 'emerald' }: { n: number; tone?: 'emerald' | 'amber' | 'rose' }) => {
+    if (!n || n <= 0) return null
 
-  const NavLink = ({ href, children, badge }: { href: string; children: ReactNode; badge?: ReactNode }) => {
+    const color =
+      tone === 'amber'
+        ? 'bg-amber-500'
+        : tone === 'rose'
+          ? 'bg-rose-500'
+          : 'bg-emerald-500'
+
+    return (
+      <span className={`${color} min-w-[22px] h-[22px] px-1 rounded-full grid place-items-center text-[10px] font-black text-white shadow`}>
+        {clamp99(n)}
+      </span>
+    )
+  }
+
+  const NavLink = ({
+    href,
+    children,
+    badge,
+  }: {
+    href: string
+    children: ReactNode
+    badge?: ReactNode
+  }) => {
     const active = isActive(href)
+
     return (
       <Link
         href={href}
         className={[
-          'group flex items-center justify-between gap-2 px-2 py-2 rounded-lg transition ring-1 ring-inset',
+          'group flex items-center justify-between gap-2 px-3 py-2 rounded-xl transition ring-1 ring-inset',
           active
-            ? 'bg-emerald-600/15 text-emerald-300 ring-emerald-400/30 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.25)]'
-            : 'hover:bg-white/5 text-white/90 ring-white/10',
+            ? 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30 shadow-[inset_0_0_18px_rgba(16,185,129,0.08)]'
+            : 'text-white/85 hover:text-white hover:bg-white/7 ring-white/10',
         ].join(' ')}
       >
-        <span className="flex items-center gap-2">{children}</span>
-        {badge ? <span className="ml-2">{badge}</span> : null}
+        <span className="flex items-center gap-2 truncate">{children}</span>
+        {badge}
       </Link>
     )
   }
 
-  const TooltipShell = ({ label }: { label: string }) => (
-    <span
-      role="tooltip"
-      className="pointer-events-none absolute left-12 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md bg-white/10 px-2 py-1 text-xs text-white/90 ring-1 ring-white/15 opacity-0 group-hover:opacity-100 transition"
+  const ToggleGroup = ({
+    open,
+    setOpen,
+    storageKey,
+    label,
+    icon,
+  }: {
+    open: boolean
+    setOpen: (v: boolean) => void
+    storageKey: GroupKey
+    label: string
+    icon: ReactNode
+  }) => (
+    <button
+      type="button"
+      onClick={() => {
+        const v = !open
+        setOpen(v)
+        persistGroup(storageKey, v)
+      }}
+      className={[
+        'w-full flex items-center justify-between px-3 py-2 rounded-xl transition ring-1 ring-inset',
+        open ? 'bg-white/7 ring-white/12' : 'hover:bg-white/7 ring-white/10',
+      ].join(' ')}
     >
-      {label}
-    </span>
+      <span className="flex items-center gap-2 font-bold text-sm">
+        {icon}
+        {label}
+      </span>
+
+      <span className={`transition-transform text-white/70 ${open ? 'rotate-180' : ''}`}>
+        ▾
+      </span>
+    </button>
   )
 
   const CollapsedItem = ({
@@ -441,135 +502,110 @@ export default function Sidebar() {
     badge?: ReactNode
   }) => {
     const active = isActive(href)
+
     return (
       <Link
         href={href}
-        className={[
-          'group relative grid place-items-center h-10 w-10 rounded-lg transition ring-1 ring-inset',
-          active ? 'bg-emerald-600/20 ring-emerald-400/30' : 'hover:bg-white/10 ring-white/10',
-        ].join(' ')}
-        aria-label={label}
         title={label}
+        aria-label={label}
+        className={[
+          'relative h-11 w-11 rounded-xl grid place-items-center transition ring-1 ring-inset',
+          active
+            ? 'bg-emerald-500/20 ring-emerald-400/30'
+            : 'hover:bg-white/10 ring-white/10',
+        ].join(' ')}
       >
         <span className="text-lg">{emoji}</span>
-        <TooltipShell label={label} />
         {badge ? <span className="absolute -top-1 -right-1">{badge}</span> : null}
       </Link>
     )
   }
 
-  const DotBadge = ({ n, tone = 'emerald' }: { n: number; tone?: 'emerald' | 'amber' | 'rose' }) => {
-    if (!n || n <= 0) return null
-    const color = tone === 'amber' ? 'bg-amber-500' : tone === 'rose' ? 'bg-rose-500' : 'bg-emerald-500'
-    return (
-      <span
-        className={[
-          'min-w-[1.5rem] px-1 h-6 grid place-items-center text-[10px] font-bold rounded-full text-white',
-          color,
-          'shadow-lg shadow-black/20 animate-[pulse_2s_ease-in-out_infinite]',
-        ].join(' ')}
-      >
-        {clamp99(n)}
-      </span>
-    )
-  }
-
-  // ====== Header
   const HeaderBar = () => (
     <div
-      className={[
-        'fixed left-0 right-0 z-50 transition-transform duration-300',
-        'backdrop-blur bg-[#0B1220]/70 border-b border-white/10',
-        'shadow-[0_10px_30px_rgba(0,0,0,0.25)]',
-      ].join(' ')}
+      className="fixed left-0 right-0 z-50 transition-transform duration-300 bg-[#07111f]/80 backdrop-blur-xl border-b border-white/10 shadow-[0_14px_40px_rgba(0,0,0,0.28)]"
       style={{
         height: HEADER_H,
         top: 0,
         transform: headerVisible ? 'translateY(0)' : `translateY(-${HEADER_H}px)`,
       }}
     >
-      <div className="h-full max-w-[1400px] mx-auto px-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-sky-500/15 ring-1 ring-white/10 text-sm font-extrabold tracking-wide">
-            ⚽ LigaFut
+      <div className="h-full max-w-[1500px] mx-auto px-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-[210px]">
+          <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-emerald-400/25 to-sky-400/20 ring-1 ring-white/15 grid place-items-center font-black">
+            LF
           </div>
+
+          <div className="leading-tight">
+            <div className="text-sm font-black tracking-wide text-white">LigaFut</div>
+            <div className="text-[11px] text-white/50">Central do Clube</div>
+          </div>
+
           {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="Escudo" className="h-7 w-7 rounded-md ring-1 ring-white/10 object-cover" />
+            <img
+              src={logoUrl}
+              alt="Escudo"
+              className="h-8 w-8 rounded-xl object-cover ring-1 ring-white/15"
+            />
           ) : null}
-          <div
-            className={[
-              'hidden sm:block px-2 py-1 rounded-md text-xs ring-1',
-              logado
-                ? 'bg-emerald-600/15 text-emerald-300 ring-emerald-400/30'
-                : 'bg-rose-600/15 text-rose-300 ring-rose-400/30',
-            ].join(' ')}
-            title={logado ? (nomeTime || 'Usuário Logado') : 'Você não está logado'}
-          >
-            {logado ? `✅ ${nomeTime || 'Logado'}` : '❌ Deslogado'}
-          </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 w-full sm:w-auto">
-          <div className="px-3 py-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-xs min-w-[120px]">
-            <div className="flex items-center justify-between">
-              <span className="text-white/70">🪙 Moedas</span>
-              <span className="font-semibold text-sky-300 tabular-nums">{moedasFmt}</span>
-            </div>
+        <div className="hidden lg:grid grid-cols-5 gap-2 flex-1 max-w-[920px]">
+          <div className="px-3 py-2 rounded-xl bg-white/5 ring-1 ring-white/10 text-xs">
+            <div className="text-white/50">Moedas</div>
+            <div className="font-black text-sky-300 tabular-nums">🪙 {moedasFmt}</div>
           </div>
-          <div className="px-3 py-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-xs min-w-[140px]">
-            <div className="flex items-center justify-between">
-              <span className="text-white/70">💰 Caixa</span>
-              <span className="font-semibold text-emerald-300 tabular-nums">{saldoFmt}</span>
-            </div>
+
+          <div className="px-3 py-2 rounded-xl bg-white/5 ring-1 ring-white/10 text-xs">
+            <div className="text-white/50">Caixa</div>
+            <div className="font-black text-emerald-300 tabular-nums">{saldoFmt}</div>
           </div>
-          <div className="px-3 py-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-xs min-w-[140px]">
-            <div className="flex items-center justify-between">
-              <span className="text-white/70">🧩 Salários</span>
-              <span className="font-semibold text-amber-300 tabular-nums">{salariosFmt}</span>
-            </div>
+
+          <div className="px-3 py-2 rounded-xl bg-white/5 ring-1 ring-white/10 text-xs">
+            <div className="text-white/50">Salários</div>
+            <div className="font-black text-amber-300 tabular-nums">{salariosFmt}</div>
           </div>
-          <div className="px-3 py-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-xs min-w-[160px]">
-            <div className="flex items-center justify-between">
-              <span className="text-white/70">🏦 Dívida</span>
-              <span className="font-semibold text-rose-300 tabular-nums">{dividaFmt}</span>
-            </div>
+
+          <div className="px-3 py-2 rounded-xl bg-white/5 ring-1 ring-white/10 text-xs">
+            <div className="text-white/50">Dívida</div>
+            <div className="font-black text-rose-300 tabular-nums">{dividaFmt}</div>
           </div>
-          <div className="grid grid-cols-2 gap-2 min-w-[220px]">
-            <div className="px-3 py-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-white/70">Parcela</span>
-                <span className="font-semibold text-sky-200 tabular-nums">{parcelaFmt}</span>
-              </div>
-            </div>
-            <div className="px-3 py-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-white/70">Restantes</span>
-                <span className="font-semibold text-white tabular-nums">{parcelasRestantes ?? '—'}</span>
-              </div>
+
+          <div className="px-3 py-2 rounded-xl bg-white/5 ring-1 ring-white/10 text-xs">
+            <div className="text-white/50">Parcela</div>
+            <div className="font-black text-white tabular-nums">
+              {parcelaFmt} · {parcelasRestantes ?? 0}x
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <div
+            className={[
+              'hidden sm:block px-3 py-2 rounded-xl text-xs font-bold ring-1',
+              logado
+                ? 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30'
+                : 'bg-rose-500/15 text-rose-300 ring-rose-400/30',
+            ].join(' ')}
+          >
+            {logado ? `✅ ${nomeTime || 'Logado'}` : '❌ Deslogado'}
+          </div>
+
           {logado && (
             <button
-              onClick={logout}
-              className="hidden sm:inline-block text-xs py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 transition ring-1 ring-inset ring-white/10"
-              title="Sair da conta"
               type="button"
+              onClick={logout}
+              className="hidden sm:inline-flex items-center gap-2 text-xs font-bold py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 transition ring-1 ring-white/10"
             >
-              🚪 Logout
+              🚪 Sair
             </button>
           )}
 
-          {/* ✅ seta toggle abre/fecha header */}
           <button
-            onClick={() => setHeaderPersist(!headerVisible)}
-            className="h-9 w-9 grid place-items-center rounded-lg hover:bg-white/10 transition ring-1 ring-inset ring-white/10"
-            title={headerVisible ? 'Ocultar barra do topo' : 'Mostrar barra do topo'}
-            aria-label={headerVisible ? 'Ocultar barra do topo' : 'Mostrar barra do topo'}
             type="button"
+            onClick={() => setHeaderPersist(!headerVisible)}
+            className="h-10 w-10 rounded-xl grid place-items-center hover:bg-white/10 transition ring-1 ring-white/10"
+            title={headerVisible ? 'Ocultar topo' : 'Mostrar topo'}
           >
             {headerVisible ? '▲' : '▼'}
           </button>
@@ -581,26 +617,13 @@ export default function Sidebar() {
   const HeaderReveal = () =>
     headerVisible ? null : (
       <button
-        onClick={() => setHeaderPersist(true)}
-        className="fixed top-2 right-3 z-50 h-10 w-10 grid place-items-center rounded-xl bg-white/10 hover:bg-white/15 ring-1 ring-white/15 text-white/90 backdrop-blur shadow-lg"
-        title="Mostrar barra do topo"
-        aria-label="Mostrar barra do topo"
         type="button"
+        onClick={() => setHeaderPersist(true)}
+        className="fixed top-2 right-3 z-50 h-10 w-10 rounded-xl grid place-items-center bg-[#07111f]/80 hover:bg-white/15 ring-1 ring-white/15 text-white backdrop-blur shadow-lg"
       >
         ▼
       </button>
     )
-
-  const logoutBtn = logado ? (
-    <button
-      onClick={logout}
-      className="w-full text-xs py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 transition text-center ring-1 ring-inset ring-white/10"
-      title="Sair da conta"
-      type="button"
-    >
-      🚪 {isOpen && 'Logout'}
-    </button>
-  ) : null
 
   return (
     <>
@@ -609,185 +632,225 @@ export default function Sidebar() {
 
       <aside
         className={[
-          'relative text-white h-screen flex flex-col justify-between border-r border-white/10 transition-all duration-300',
-          'bg-[#0B1220]/90 backdrop-blur',
-          'shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]',
+          'relative h-screen text-white flex flex-col justify-between transition-all duration-300 border-r border-white/10',
+          'bg-[#07111f]/95 backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]',
           isOpen ? 'w-72' : 'w-20',
         ].join(' ')}
-        style={{ paddingTop: (headerVisible ? HEADER_H : 0) + 12 }}
+        style={{
+          paddingTop: (headerVisible ? HEADER_H : 0) + 12,
+        }}
       >
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-px bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.13),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_32%)]" />
 
-        <div className="px-3 pt-3">
-          <div className="flex items-center justify-between">
+        <div className="relative px-3 pt-3 overflow-hidden">
+          <div className="flex items-center justify-between mb-3">
             <button
-              onClick={() => setIsOpen(!isOpen)}
-              className="h-9 w-9 grid place-items-center rounded-lg hover:bg-white/10 transition ring-1 ring-inset ring-white/10"
-              aria-label={isOpen ? 'Recolher menu' : 'Expandir menu'}
-              title={isOpen ? 'Recolher' : 'Expandir'}
               type="button"
+              onClick={() => setIsOpen(!isOpen)}
+              className="h-10 w-10 rounded-xl grid place-items-center hover:bg-white/10 transition ring-1 ring-white/10"
+              title={isOpen ? 'Recolher menu' : 'Expandir menu'}
             >
               {isOpen ? '←' : '☰'}
             </button>
 
             {isOpen && (
-              <div className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-sky-500/15 ring-1 ring-white/10 text-xs font-bold tracking-wide">
-                Menu
+              <div className="px-3 py-2 rounded-xl bg-white/5 ring-1 ring-white/10 text-xs font-black">
+                Menu Principal
               </div>
             )}
           </div>
 
           {isOpen ? (
             <div
-              className={`mt-3 mb-2 px-3 py-2 rounded-lg font-semibold text-xs text-center ring-1 ${
+              className={[
+                'mb-3 p-3 rounded-2xl ring-1',
                 logado
-                  ? 'bg-emerald-600/15 text-emerald-300 ring-emerald-400/30'
-                  : 'bg-rose-600/15 text-rose-300 ring-rose-400/30'
-              }`}
+                  ? 'bg-emerald-500/10 ring-emerald-400/25'
+                  : 'bg-rose-500/10 ring-rose-400/25',
+              ].join(' ')}
             >
-              {logado ? `✅ ${nomeTime || 'Usuário Logado'}` : '❌ Você não está logado'}
+              <div className="text-[11px] text-white/50">Time logado</div>
+              <div className="font-black text-sm truncate">
+                {logado ? nomeTime || 'Usuário Logado' : 'Você não está logado'}
+              </div>
             </div>
           ) : (
             <div
-              className={`mt-3 mb-2 grid place-items-center h-8 w-full rounded-lg ring-1 ${
+              className={[
+                'mb-3 h-10 rounded-xl grid place-items-center ring-1',
                 logado
-                  ? 'bg-emerald-600/15 text-emerald-300 ring-emerald-400/30'
-                  : 'bg-rose-600/15 text-rose-300 ring-rose-400/30'
-              }`}
-              title={logado ? (nomeTime || 'Usuário Logado') : 'Você não está logado'}
+                  ? 'bg-emerald-500/10 ring-emerald-400/25'
+                  : 'bg-rose-500/10 ring-rose-400/25',
+              ].join(' ')}
+              title={logado ? nomeTime || 'Usuário Logado' : 'Você não está logado'}
             >
               {logado ? '✅' : '❌'}
             </div>
           )}
 
-          <nav className={`mt-4 ${isOpen ? 'space-y-2' : 'space-y-1'} overflow-y-auto pr-1`}>
+          <nav className={`${isOpen ? 'space-y-2' : 'grid gap-2 justify-center'} overflow-y-auto pr-1 max-h-[calc(100vh-190px)]`}>
             {!isOpen ? (
-              <div className="grid grid-cols-1 gap-1">
+              <>
                 {!logado && <CollapsedItem href="/login" label="Login" emoji="🔑" />}
-                <CollapsedItem href="/" label="Home" emoji="🏠" />
-                <CollapsedItem href="/classificacao" label="Classificação" emoji="🏆" />
-                <CollapsedItem href="/jogos" label="Jogos" emoji="📅" />
-                <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
-                <CollapsedItem href="/BID" label="BID" emoji="📰" />
-                <CollapsedItem href="/leilao" label="Leilão do Sistema" emoji="🎯" />
-                <CollapsedItem href="/copa/fase_grupos" label="Copa (Grupos)" emoji="🏟️" />
-                <CollapsedItem href="/copa/mata-mata" label="Copa (Mata-mata)" emoji="🥊" />
 
-                {isAdmin && (
-                  <CollapsedItem href="/admin/jogadores_base" label="Jogadores (Banco)" emoji="🗃️" />
-                )}
-                {isAdmin && (
-                  <CollapsedItem href="/admin/leiloes_finalizados" label="Leilões Finalizados" emoji="📜" />
-                )}
-              </div>
+                <CollapsedItem href="/" label="Home" emoji="🏠" />
+                <CollapsedItem href="/jogos" label="Jogos" emoji="📅" />
+                <CollapsedItem href="/classificacao" label="Classificação" emoji="🏆" />
+                <CollapsedItem href="/elenco" label="Elenco" emoji="👥" />
+                <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
+                <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
+                <CollapsedItem href="/propostas-recebidas" label="Propostas Recebidas" emoji="📥" badge={<Badge n={countRecebidas} />} />
+                <CollapsedItem href="/propostas-enviadas" label="Propostas Enviadas" emoji="📤" badge={<Badge n={countEnviadas} tone="amber" />} />
+                <CollapsedItem href="/leilao" label="Leilão" emoji="🎯" />
+                <CollapsedItem href="/BID" label="BID" emoji="📰" />
+
+                {isAdmin && <CollapsedItem href="/admin" label="Admin" emoji="🛠️" />}
+              </>
             ) : (
               <>
                 {!logado && <NavLink href="/login">🔑 Login</NavLink>}
+
                 <NavLink href="/">🏠 Home</NavLink>
-                <NavLink href="/classificacao">🏆 Classificação</NavLink>
                 <NavLink href="/jogos">📅 Jogos</NavLink>
-                <NavLink href="/mercado">💸 Mercado</NavLink>
+                <NavLink href="/classificacao">🏆 Classificação</NavLink>
                 <NavLink href="/BID">📰 BID</NavLink>
 
-                <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
-
-                {/* ===== Elenco ===== */}
-                <div className="mt-2">
-                  <ToggleBtn
-                    open={abrirElenco}
-                    onClick={() => {
-                      const v = !abrirElenco
-                      setAbrirElenco(v)
-                      persistGroup('elenco', v)
-                    }}
-                    label="Elenco"
-                    icon={<span className="text-lg">👥</span>}
+                <div className="pt-2">
+                  <ToggleGroup
+                    open={abrirClube}
+                    setOpen={setAbrirClube}
+                    storageKey="clube"
+                    label="Meu Clube"
+                    icon="👑"
                   />
-                  {abrirElenco && (
-                    <div className="ml-3 mt-1 space-y-1 text-sm">
-                      <NavLink href="/elenco">👥 Meu Elenco</NavLink>
-                      <NavLink href="/negociacoes">🤝 Negociações</NavLink>
-                      <NavLink href="/banco">🏦 Banco</NavLink>
+
+                  {abrirClube && (
+                    <div className="ml-3 mt-2 space-y-1 text-sm">
+                      <NavLink href="/elenco">👥 Elenco</NavLink>
                       <NavLink href="/financeiro">📊 Financeiro</NavLink>
+                      <NavLink href="/banco">🏦 Banco</NavLink>
+                      <NavLink href="/patrocinios">🤝 Patrocínios</NavLink>
+                      <NavLink href="/estadio">🏟️ Estádio</NavLink>
                     </div>
                   )}
                 </div>
 
-                {/* ===== Copa (todos) ===== */}
-                <div className="mt-2">
-                  <ToggleBtn
-                    open={abrirCopa}
-                    onClick={() => {
-                      const v = !abrirCopa
-                      setAbrirCopa(v)
-                      persistGroup('copa', v)
-                    }}
-                    label="Copa"
-                    icon={<span className="text-lg">🏟️</span>}
+                <div className="pt-2">
+                  <ToggleGroup
+                    open={abrirCompeticoes}
+                    setOpen={setAbrirCompeticoes}
+                    storageKey="competicoes"
+                    label="Competições"
+                    icon="🏆"
                   />
-                  {abrirCopa && (
-                    <div className="ml-3 mt-1 space-y-1 text-sm">
-                      <NavLink href="/copa/fase_grupos">🏟️ Fase de Grupos</NavLink>
-                      <NavLink href="/copa/mata-mata">🥊 Mata-mata</NavLink>
+
+                  {abrirCompeticoes && (
+                    <div className="ml-3 mt-2 space-y-1 text-sm">
+                      <NavLink href="/jogos">📅 Jogos</NavLink>
+                      <NavLink href="/classificacao">🏆 Classificação</NavLink>
+                      <NavLink href="/copa/fase_grupos">🏟️ Copa - Grupos</NavLink>
+                      <NavLink href="/copa/mata-mata">🥊 Copa - Mata-mata</NavLink>
                     </div>
                   )}
                 </div>
 
-                {/* ===== Leilão (grupo) ===== */}
-                <div className="mt-2">
-                  <ToggleBtn
-                    open={abrirLeilao}
-                    onClick={() => {
-                      const v = !abrirLeilao
-                      setAbrirLeilao(v)
-                      persistGroup('leilao', v)
-                    }}
-                    label="Leilão"
-                    icon={<span className="text-lg">🎯</span>}
+                <div className="pt-2">
+                  <ToggleGroup
+                    open={abrirMercado}
+                    setOpen={setAbrirMercado}
+                    storageKey="mercado"
+                    label="Mercado"
+                    icon="💸"
                   />
-                  {abrirLeilao && (
-                    <div className="ml-3 mt-1 space-y-1 text-sm">
+
+                  {abrirMercado && (
+                    <div className="ml-3 mt-2 space-y-1 text-sm">
+                      <NavLink href="/mercado">💸 Mercado</NavLink>
+                      <NavLink href="/negociacoes">🤝 Negociações</NavLink>
+                      <NavLink href="/propostas-recebidas" badge={<Badge n={countRecebidas} />}>
+                        📥 Propostas Recebidas
+                      </NavLink>
+                      <NavLink href="/propostas-enviadas" badge={<Badge n={countEnviadas} tone="amber" />}>
+                        📤 Propostas Enviadas
+                      </NavLink>
                       <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
-                      {isAdmin && <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>}
+                      <NavLink href="/leiloar-jogador">📢 Leiloar Jogador</NavLink>
                     </div>
                   )}
                 </div>
 
-                {/* ===== Admin (só admin) ===== */}
                 {isAdmin && (
-                  <div className="mt-2 mb-1">
-                    <ToggleBtn
+                  <div className="pt-2">
+                    <ToggleGroup
                       open={abrirAdmin}
-                      onClick={() => {
-                        const v = !abrirAdmin
-                        setAbrirAdmin(v)
-                        persistGroup('admin', v)
-                      }}
+                      setOpen={setAbrirAdmin}
+                      storageKey="admin"
                       label="Admin"
-                      icon={<span className="text-lg">🛠️</span>}
+                      icon="🛠️"
                     />
+
                     {abrirAdmin && (
-                      <div className="ml-3 mt-1 space-y-1 text-sm">
-                        <NavLink href="/admin/jogadores_base">🗃️ Jogadores (Banco)</NavLink>
-                        <NavLink href="/admin/leilao">🎯 Leilão</NavLink>
-                        <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>
-                        <NavLink href="/admin/painel_times">📋 Painel Times</NavLink>
-                        <NavLink href="/admin/times">📝 Admin Times</NavLink>
+                      <div className="ml-3 mt-2 space-y-1 text-sm">
                         <NavLink href="/admin">🗂️ Administração Geral</NavLink>
+                        <NavLink href="/admin/times">📝 Times</NavLink>
+                        <NavLink href="/admin/painel_times">📋 Painel Times</NavLink>
+                        <NavLink href="/admin/jogadores_base">🗃️ Jogadores Base</NavLink>
+                        <NavLink href="/admin/leilao">🎯 Admin Leilão</NavLink>
+                        <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>
+                        <NavLink href="/admin/mercado">💼 Admin Mercado</NavLink>
                       </div>
                     )}
                   </div>
                 )}
 
                 {checkingAdmin && (
-                  <div className="mt-2 text-[11px] text-white/50 px-2">Verificando permissões...</div>
+                  <div className="px-3 pt-2 text-[11px] text-white/45">
+                    Verificando permissões...
+                  </div>
                 )}
               </>
             )}
           </nav>
         </div>
 
-        <div className="px-3 pb-3">{logoutBtn}</div>
+        <div className="relative px-3 pb-4">
+          {isOpen ? (
+            <div className="space-y-2">
+              <div className="lg:hidden p-3 rounded-2xl bg-white/5 ring-1 ring-white/10 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-white/50">Caixa</span>
+                  <strong className="text-emerald-300">{saldoFmt}</strong>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-white/50">Moedas</span>
+                  <strong className="text-sky-300">{moedasFmt}</strong>
+                </div>
+              </div>
+
+              {logado && (
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="w-full py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 transition text-sm font-black ring-1 ring-white/10"
+                >
+                  🚪 Logout
+                </button>
+              )}
+            </div>
+          ) : (
+            logado && (
+              <button
+                type="button"
+                onClick={logout}
+                className="h-11 w-11 rounded-xl grid place-items-center bg-rose-600 hover:bg-rose-700 transition ring-1 ring-white/10"
+                title="Logout"
+              >
+                🚪
+              </button>
+            )
+          )}
+        </div>
       </aside>
     </>
   )

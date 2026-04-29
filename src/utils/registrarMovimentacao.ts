@@ -21,7 +21,7 @@ export async function registrarMovimentacao({
     return false
   }
 
-  const { error } = await supabase.from('financeiro').insert({
+  const { error } = await supabase.from('movimentacoes').insert({
     id_time,
     tipo,
     descricao,

@@ -29,7 +29,7 @@ type Leilao = {
   id_time_vencedor?: string | null
   fim: string
   criado_em: string
-  status: 'ativo' | 'leiloado' | 'cancelado'
+  status: 'ativo' | 'leiloado' | 'concluido' | 'cancelado'
   anterior?: string | null
 
   // ✅ tolerar colunas vindas do banco/planilha
@@ -71,6 +71,15 @@ export default function LeilaoSistemaPage() {
   // admin
   const [isAdmin, setIsAdmin] = useState(false)
   const [finalizando, setFinalizando] = useState<Record<string, boolean>>({})
+  const [autoFinalizados, setAutoFinalizados] = useState<Record<string, boolean>>({})
+  const [somLigado, setSomLigado] = useState(true)
+  const [vitoriaLeilao, setVitoriaLeilao] = useState<Leilao | null>(null)
+
+  // filtros
+  const [busca, setBusca] = useState('')
+  const [filtroPosicao, setFiltroPosicao] = useState('')
+  const [overallMin, setOverallMin] = useState<number | ''>('')
+  const [valorMax, setValorMax] = useState<number | ''>('')
 
   // efeitos por leilão
   const [efeito, setEfeito] = useState<
@@ -273,6 +282,89 @@ export default function LeilaoSistemaPage() {
     }
   }
 
+  async function registrarBidLeilao({
+    leilao,
+    tipo_evento,
+    descricao,
+    id_time1,
+    valor,
+  }: {
+    leilao: Partial<Leilao>
+    tipo_evento: string
+    descricao: string
+    id_time1?: string | null
+    valor?: number | null
+  }) {
+    try {
+      const { error } = await supabase.from('bid').insert({
+        tipo_evento,
+        descricao,
+        id_time1: id_time1 || null,
+        valor: valor ?? null,
+        id_jogador: leilao.id || null,
+        nome_jogador: leilao.nome || null,
+        foto_jogador_url: leilao.imagem_url || leilao.foto || null,
+        data_evento: new Date().toISOString(),
+      })
+
+      if (error) console.warn('⚠️ BID não registrado:', error)
+    } catch (e) {
+      console.warn('⚠️ Erro inesperado ao registrar BID:', e)
+    }
+  }
+
+  async function registrarMovimentacaoLeilao({
+    id_time,
+    valor,
+    descricao,
+  }: {
+    id_time: string
+    valor: number
+    descricao: string
+  }) {
+    try {
+      const { error } = await supabase.from('movimentacoes').insert({
+        id_time,
+        tipo: 'saida',
+        valor,
+        descricao,
+        data: new Date().toISOString(),
+      })
+
+      if (error) console.warn('⚠️ Movimentação não registrada:', error)
+    } catch (e) {
+      console.warn('⚠️ Erro inesperado em movimentações:', e)
+    }
+  }
+
+  async function registrarHistoricoLance({
+    leilaoId,
+    valor,
+    idTimeLance,
+    nomeTimeLance,
+  }: {
+    leilaoId: string
+    valor: number
+    idTimeLance?: string | null
+    nomeTimeLance?: string | null
+  }) {
+    // Opcional: só funciona se existir a tabela lances_leilao.
+    try {
+      const { error } = await supabase.from('lances_leilao').insert({
+        id_leilao: leilaoId,
+        id_time: idTimeLance || null,
+        nome_time: nomeTimeLance || null,
+        valor,
+        criado_em: new Date().toISOString(),
+      })
+
+      if (error) console.warn('⚠️ Histórico de lance não registrado:', error.message)
+    } catch (e) {
+      console.warn('⚠️ Histórico de lance indisponível:', e)
+    }
+  }
+
+
   // ---------- TOAST helpers + dedupe ----------
   const prevLeiloesRef = useRef<Record<string, { valor: number; vencedor?: string | null; nome: string }>>({})
   const inicializadoRef = useRef(false)
@@ -342,7 +434,7 @@ export default function LeilaoSistemaPage() {
       // beep quando você perde a liderança
       arr.forEach((leilao: any) => {
         if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
-          audioRef.current?.play().catch(() => {})
+          if (somLigado) audioRef.current?.play().catch(() => {})
         }
       })
 
@@ -488,6 +580,22 @@ export default function LeilaoSistemaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idTime, nomeTime])
 
+
+  // finalização automática: quando zerar, envia jogador ao elenco, debita saldo e publica no BID
+  useEffect(() => {
+    if (!leiloes.length) return
+
+    const expirados = leiloes.filter((l) => {
+      const tempoRestante = Math.floor((toMs(l.fim) - nowServerMs()) / 1000)
+      return tempoRestante <= 0 && l.status === 'ativo' && !autoFinalizados[l.id]
+    })
+
+    expirados.forEach((l) => {
+      finalizarLeilao(l.id, true)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leiloes, serverOffsetMs, autoFinalizados, idTime])
+
   // realtime: notificação única + dedupe
   useEffect(() => {
     const channel = supabase
@@ -580,24 +688,96 @@ export default function LeilaoSistemaPage() {
     }
   }
 
-  async function finalizarLeilao(leilaoId: string) {
-    if (!isAdmin) return
+  async function finalizarLeilao(leilaoId: string, automatico = false) {
+    if (!automatico && !isAdmin) return
+
+    if (finalizando[leilaoId] || autoFinalizados[leilaoId]) return
+
     setFinalizando((p) => ({ ...p, [leilaoId]: true }))
+    setAutoFinalizados((p) => ({ ...p, [leilaoId]: true }))
+
     try {
-      const { data, error } = await supabase.from('leiloes_sistema').select('fim').eq('id', leilaoId).single()
-      if (error) throw new Error('Erro ao validar fim do leilão.')
-      const fimMs = toMs((data as any)?.fim)
-      const agoraSrv = nowServerMs()
-      if (fimMs - agoraSrv > 0) {
-        toast.error('Ainda não chegou a 0s no servidor.')
+      const leilaoLocal = leiloes.find((l) => l.id === leilaoId) || null
+
+      const { data, error } = await supabase.rpc('finalizar_leilao_sistema', {
+        p_leilao_id: String(leilaoId),
+      })
+
+      if (error) {
+        console.error('Erro RPC finalizar_leilao_sistema:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          raw: JSON.stringify(error),
+        })
+        throw new Error(error.message || error.details || 'Erro ao finalizar leilão no banco.')
+      }
+
+      const resp = data as any
+
+      if (!resp?.ok) {
+        if (!automatico) {
+          toast.error(resp?.erro || 'Leilão não finalizado.')
+        }
+
+        setAutoFinalizados((p) => {
+          const next = { ...p }
+          delete next[leilaoId]
+          return next
+        })
+
         return
       }
-      const { error: e2 } = await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilaoId)
-      if (e2) throw new Error(e2.message)
-      toast.success('Leilão finalizado!')
-      await buscarLeiloesAtivos()
+
+      if (resp?.cancelado) {
+        toast('Leilão expirado sem lances.', { icon: '⏱️' })
+        await buscarLeiloesAtivos()
+        return
+      }
+
+      if (resp?.ja_finalizado) {
+        await buscarLeiloesAtivos()
+        return
+      }
+
+      if (resp?.leiloado || resp?.concluido) {
+        const leilaoVitoria =
+          leilaoLocal ||
+          ({
+            id: leilaoId,
+            nome: resp.nome_jogador || 'Jogador',
+            posicao: '',
+            overall: 0,
+            valor_atual: Number(resp.valor_final || 0),
+            id_time_vencedor: resp.id_time_vencedor,
+            nome_time_vencedor: resp.nome_time_vencedor,
+            fim: new Date().toISOString(),
+            criado_em: new Date().toISOString(),
+            status: 'concluido',
+          } as Leilao)
+
+        if (resp.id_time_vencedor === idTime) {
+          setVitoriaLeilao(leilaoVitoria)
+          setTimeout(() => setVitoriaLeilao(null), 3200)
+        }
+
+        toast.success(
+          `Leilão finalizado: ${resp.nome_jogador || leilaoVitoria.nome} foi para ${resp.nome_time_vencedor || 'o vencedor'}.`
+        )
+
+        await Promise.all([buscarLeiloesAtivos(), buscarSaldo()])
+      }
     } catch (e: any) {
-      toast.error(e?.message || 'Erro ao finalizar.')
+      console.error('Erro ao finalizar leilão:', e)
+
+      if (!automatico) toast.error(e?.message || 'Erro ao finalizar.')
+
+      setAutoFinalizados((p) => {
+        const next = { ...p }
+        delete next[leilaoId]
+        return next
+      })
     } finally {
       setFinalizando((p) => ({ ...p, [leilaoId]: false }))
     }
@@ -655,6 +835,7 @@ export default function LeilaoSistemaPage() {
       if (error) throw new Error(error.message || 'Falha ao registrar lance.')
 
       toast.success(`Lance registrado: ${brl(novoValor)}`, { id: LANCE_TOAST_ID })
+      await registrarHistoricoLance({ leilaoId, valor: novoValor, idTimeLance: idTime, nomeTimeLance: nomeTime })
       efeitoPorDelta(leilaoId, incremento)
 
       await buscarLeiloesAtivos()
@@ -711,6 +892,7 @@ export default function LeilaoSistemaPage() {
       if (error) throw new Error(error.message || 'Falha ao registrar lance.')
 
       toast.success(`Lance registrado: ${brl(novoValor)}`, { id: LANCE_TOAST_ID })
+      await registrarHistoricoLance({ leilaoId, valor: novoValor, idTimeLance: idTime, nomeTimeLance: nomeTime })
       efeitoPorDelta(leilaoId, incremento)
 
       await buscarLeiloesAtivos()
@@ -723,6 +905,36 @@ export default function LeilaoSistemaPage() {
       setTimeout(() => setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false })), 150)
     }
   }
+
+
+  const leiloesFiltrados = useMemo(() => {
+    return leiloes.filter((l) => {
+      const texto = `${l.nome || ''} ${l.posicao || ''} ${l.nacionalidade || ''}`.toLowerCase()
+      const buscaOk = !busca || texto.includes(busca.toLowerCase())
+      const posOk = !filtroPosicao || l.posicao === filtroPosicao
+      const overallOk = overallMin === '' || Number(l.overall || 0) >= Number(overallMin)
+      const valorOk = valorMax === '' || Number(l.valor_atual || 0) <= Number(valorMax)
+      return buscaOk && posOk && overallOk && valorOk
+    })
+  }, [leiloes, busca, filtroPosicao, overallMin, valorMax])
+
+  const posicoesDisponiveis = useMemo(() => {
+    return Array.from(new Set(leiloes.map((l) => l.posicao).filter(Boolean))).sort()
+  }, [leiloes])
+
+  const leilaoMaisCaro = useMemo(() => {
+    if (!leiloes.length) return null
+    return leiloes.reduce((a, b) => (Number(b.valor_atual || 0) > Number(a.valor_atual || 0) ? b : a), leiloes[0])
+  }, [leiloes])
+
+  const leilaoAcabando = useMemo(() => {
+    const ativos = leiloes
+      .map((l) => ({ ...l, restante: Math.max(0, Math.floor((toMs(l.fim) - nowServerMs()) / 1000)) }))
+      .filter((l) => l.restante > 0)
+      .sort((a, b) => a.restante - b.restante)
+
+    return ativos[0] || null
+  }, [leiloes, serverOffsetMs])
 
   // ================== RENDER ==================
   return (
@@ -760,6 +972,15 @@ export default function LeilaoSistemaPage() {
                 💳 Saldo: <b className="ml-1 tabular-nums">{brl(saldo ?? undefined)}</b>
               </div>
 
+              <button
+                type="button"
+                onClick={() => setSomLigado((v) => !v)}
+                className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                title="Ligar/desligar som"
+              >
+                {somLigado ? '🔊 Som ligado' : '🔇 Som desligado'}
+              </button>
+
               {isAdmin && (
                 <span className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
                   Modo Admin
@@ -782,6 +1003,89 @@ export default function LeilaoSistemaPage() {
         </div>
       </header>
 
+
+      <section className="mx-auto w-full max-w-6xl px-4 pt-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Ativos</p>
+            <h3 className="mt-1 text-2xl font-black">{leiloes.length}</h3>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-900/40 bg-emerald-950/30 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-300/60">Mais caro</p>
+            <h3 className="mt-1 truncate text-2xl font-black text-emerald-200">{leilaoMaisCaro ? brl(leilaoMaisCaro.valor_atual) : '—'}</h3>
+            <p className="mt-1 truncate text-xs text-emerald-100/50">{leilaoMaisCaro?.nome || 'Sem leilões'}</p>
+          </div>
+
+          <div className="rounded-2xl border border-yellow-900/40 bg-yellow-950/30 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-yellow-300/60">Acabando</p>
+            <h3 className="mt-1 truncate text-2xl font-black text-yellow-200">{leilaoAcabando ? `${leilaoAcabando.restante}s` : '—'}</h3>
+            <p className="mt-1 truncate text-xs text-yellow-100/50">{leilaoAcabando?.nome || 'Sem contagem'}</p>
+          </div>
+
+          <div className="rounded-2xl border border-cyan-900/40 bg-cyan-950/30 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-cyan-300/60">Exibindo</p>
+            <h3 className="mt-1 text-2xl font-black text-cyan-200">{leiloesFiltrados.length}</h3>
+            <p className="mt-1 text-xs text-cyan-100/50">Após filtros</p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar jogador..."
+              className="rounded-xl border border-zinc-800 bg-neutral-950 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+            />
+
+            <select
+              value={filtroPosicao}
+              onChange={(e) => setFiltroPosicao(e.target.value)}
+              className="rounded-xl border border-zinc-800 bg-neutral-950 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+            >
+              <option value="">Todas posições</option>
+              {posicoesDisponiveis.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="number"
+              value={overallMin}
+              onChange={(e) => setOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="OVR mínimo"
+              className="rounded-xl border border-zinc-800 bg-neutral-950 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+            />
+
+            <input
+              type="number"
+              value={valorMax}
+              onChange={(e) => setValorMax(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="Valor máximo"
+              className="rounded-xl border border-zinc-800 bg-neutral-950 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+            />
+          </div>
+
+          {(busca || filtroPosicao || overallMin !== '' || valorMax !== '') && (
+            <button
+              type="button"
+              onClick={() => {
+                setBusca('')
+                setFiltroPosicao('')
+                setOverallMin('')
+                setValorMax('')
+              }}
+              className="mt-3 rounded-xl border border-zinc-800 bg-neutral-950 px-4 py-2 text-sm hover:bg-zinc-900"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      </section>
+
       <section className="mx-auto w-full max-w-6xl px-4 pb-10 pt-4">
         {carregando ? (
           <div className="grid grid-cols-1 gap-4 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
@@ -789,14 +1093,14 @@ export default function LeilaoSistemaPage() {
               <div key={i} className="animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5" />
             ))}
           </div>
-        ) : leiloes.length === 0 ? (
+        ) : leiloesFiltrados.length === 0 ? (
           <div className="mx-auto max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
             <h3 className="text-base font-semibold">Nenhum leilão ativo</h3>
             <p className="mt-1 text-sm text-zinc-400">Volte em instantes ou verifique com o administrador.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
-            {leiloes.map((leilao, index) => {
+            {leiloesFiltrados.map((leilao, index) => {
               const serverNow = nowServerMs()
               const tempoFinal = toMs(leilao.fim)
               const tempoInicio = toMs(leilao.criado_em)
@@ -844,7 +1148,7 @@ export default function LeilaoSistemaPage() {
                     setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido + 20_000_000) }))
                   }
                   onExcluir={isAdmin ? () => excluirDoLeilao(leilao.id) : undefined}
-                  onFinalizar={isAdmin ? () => finalizarLeilao(leilao.id) : undefined}
+                  onFinalizar={isAdmin ? () => finalizarLeilao(leilao.id, false) : undefined}
                   finalizando={!!finalizando[leilao.id]}
                 />
               )
@@ -853,8 +1157,72 @@ export default function LeilaoSistemaPage() {
         )}
       </section>
 
+
+      {vitoriaLeilao && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-hidden bg-black/85 p-4 backdrop-blur-md">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.22),transparent_42%)] animate-pulse" />
+
+          <div className="relative animate-[lfWinReveal_0.8s_ease-out]">
+            <div className="absolute -inset-10 rounded-full bg-emerald-400/20 blur-3xl animate-pulse" />
+
+            <div className="relative rounded-[2.4rem] bg-gradient-to-br from-emerald-200 via-cyan-400 to-emerald-900 p-[3px] shadow-[0_0_95px_rgba(16,185,129,0.45)]">
+              <div className="relative overflow-hidden rounded-[2.25rem] bg-[#07111f] p-6 text-center">
+                <p className="text-xs font-black uppercase tracking-[0.32em] text-emerald-200">
+                  Leilão vencido
+                </p>
+
+                <div className="mx-auto mt-5 h-44 w-44 overflow-hidden rounded-[2rem] border border-white/10 bg-black/30 shadow-inner">
+                  {vitoriaLeilao.imagem_url ? (
+                    <img
+                      src={vitoriaLeilao.imagem_url}
+                      alt={vitoriaLeilao.nome}
+                      className="h-full w-full object-cover animate-[lfCardFloat_1.3s_ease-in-out_infinite]"
+                    />
+                  ) : (
+                    <div className="grid h-full place-items-center text-6xl">👤</div>
+                  )}
+                </div>
+
+                <h2 className="mt-5 text-3xl font-black text-white">{vitoriaLeilao.nome}</h2>
+                <p className="mt-1 text-emerald-300 font-bold">entrou no seu elenco</p>
+
+                <div className="mt-4 rounded-2xl border border-emerald-300/25 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+                  💰 Valor final: {brl(vitoriaLeilao.valor_atual)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* keyframes */}
       <style jsx>{`
+        @keyframes lfWinReveal {
+          0% {
+            transform: scale(0.45) rotate(-8deg);
+            opacity: 0;
+            filter: blur(8px);
+          }
+          55% {
+            transform: scale(1.12) rotate(2deg);
+            opacity: 1;
+            filter: blur(0);
+          }
+          100% {
+            transform: scale(1) rotate(0deg);
+            opacity: 1;
+          }
+        }
+
+        @keyframes lfCardFloat {
+          0%, 100% {
+            transform: translateY(0) scale(1);
+          }
+          50% {
+            transform: translateY(-8px) scale(1.04);
+          }
+        }
+
         @keyframes lfFloat {
           0% {
             transform: translateY(8px) scale(0.98);
