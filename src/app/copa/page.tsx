@@ -496,7 +496,8 @@ export default function CopaPage() {
       return;
     }
 
-    setAba("grupos");
+    // Mantém na aba Seleção, onde fica o painel visual do sorteio ao vivo.
+    setAba("selecao");
     setSorteandoAoVivo(true);
     setSorteioConfirmavel(false);
     setPreviewGrupos(vazioGrupos());
