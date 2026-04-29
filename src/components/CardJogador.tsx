@@ -72,6 +72,11 @@ export default function CardJogador({
   const overallNumero = Number(jogador.overall ?? 0)
   const tipoCarta = getTipoCarta(overallNumero)
 
+  const imagemJogador =
+    jogador.imagem_url ||
+    jogador.foto ||
+    '/player-placeholder.png'
+
   const salario =
     typeof jogador.valor === 'number'
       ? Math.round(jogador.valor * 0.0075)
@@ -106,62 +111,10 @@ export default function CardJogador({
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
       ].join(' ')}
     >
-      <div className="pointer-events-none absolute inset-0 opacity-[0.18] bg-[radial-gradient(circle_at_top,_#fff,_transparent_65%)]" />
-
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.24] mix-blend-overlay"
-        style={{
-          backgroundImage: `url("${pattern}")`,
-          backgroundRepeat: 'repeat',
-          backgroundSize: '260px 200px',
-        }}
-      />
-
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      {/* FOTO OCUPANDO A CARTA TODA */}
+      <div className="absolute inset-0 z-0">
         <img
-          src="/watermarks/ligafut26.png"
-          alt=""
-          className="w-[92%] opacity-[0.11] select-none"
-        />
-      </div>
-
-      {tipoCarta === 'especial' && (
-        <div className="pointer-events-none absolute inset-0 bg-[conic-gradient(from_180deg_at_50%_50%,rgba(0,245,212,0.25),transparent,rgba(255,255,255,0.25),transparent)] animate-pulse" />
-      )}
-
-      <div className="absolute left-3 top-3 z-20 leading-none">
-        <div className="text-[34px] font-black drop-shadow-[0_2px_0_rgba(0,0,0,0.45)]">
-          {overallNumero}
-        </div>
-        <div className="text-[11px] font-black uppercase drop-shadow-[0_1px_0_rgba(0,0,0,0.45)]">
-          {jogador.posicao}
-        </div>
-      </div>
-
-      {flagCode && (
-        <div className="absolute left-3 top-[70px] z-20">
-          <img
-            src={`https://flagcdn.com/w40/${flagCode}.png`}
-            alt={jogador.nacionalidade ?? ''}
-            className="w-7 h-5 rounded-sm shadow"
-          />
-        </div>
-      )}
-
-      {modo !== 'mercado' && onToggleSelecionado && (
-        <button
-          type="button"
-          onClick={onToggleSelecionado}
-          className="absolute right-3 top-3 z-30 flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/35 text-white shadow-md backdrop-blur-sm"
-        >
-          {selecionado ? '✓' : '+'}
-        </button>
-      )}
-
-      {/* IMAGEM DO JOGADOR GRANDE COM FALLBACK */}
-      <div className="absolute inset-0 z-10 flex items-center justify-center pt-6">
-        <img
-          src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
+          src={imagemJogador}
           alt={jogador.nome}
           onError={(e) => {
             const img = e.currentTarget
@@ -174,12 +127,74 @@ export default function CardJogador({
               img.src = '/player-placeholder.png'
             }
           }}
-          className="h-[245px] max-w-[230px] object-contain drop-shadow-[0_25px_40px_rgba(0,0,0,0.8)]"
+          className="absolute inset-0 h-full w-full object-cover scale-110 brightness-95 contrast-110"
+        />
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/35 via-transparent to-black/20" />
+      </div>
+
+      {/* BRILHO DA CARTA */}
+      <div className="pointer-events-none absolute inset-0 z-10 opacity-[0.22] bg-[radial-gradient(circle_at_top,_#fff,_transparent_62%)]" />
+
+      {/* PADRÃO LIGAFUT */}
+      <div
+        className="pointer-events-none absolute inset-0 z-10 opacity-[0.18] mix-blend-overlay"
+        style={{
+          backgroundImage: `url("${pattern}")`,
+          backgroundRepeat: 'repeat',
+          backgroundSize: '260px 200px',
+        }}
+      />
+
+      {/* MARCA D'ÁGUA */}
+      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+        <img
+          src="/watermarks/ligafut26.png"
+          alt=""
+          className="w-[92%] opacity-[0.08] select-none"
         />
       </div>
 
-      <div className="absolute bottom-3 left-0 z-30 w-full px-2">
-        <div className="rounded-2xl border border-white/20 bg-black/50 px-3 py-3 text-center shadow-lg backdrop-blur-md">
+      {tipoCarta === 'especial' && (
+        <div className="pointer-events-none absolute inset-0 z-20 bg-[conic-gradient(from_180deg_at_50%_50%,rgba(0,245,212,0.25),transparent,rgba(255,255,255,0.25),transparent)] animate-pulse" />
+      )}
+
+      {/* OVERALL + POSIÇÃO */}
+      <div className="absolute left-3 top-3 z-30 leading-none text-white">
+        <div className="text-[34px] font-black drop-shadow-[0_2px_0_rgba(0,0,0,0.65)]">
+          {overallNumero}
+        </div>
+        <div className="text-[11px] font-black uppercase drop-shadow-[0_1px_0_rgba(0,0,0,0.65)]">
+          {jogador.posicao}
+        </div>
+      </div>
+
+      {/* BANDEIRA */}
+      {flagCode && (
+        <div className="absolute left-3 top-[70px] z-30">
+          <img
+            src={`https://flagcdn.com/w40/${flagCode}.png`}
+            alt={jogador.nacionalidade ?? ''}
+            className="w-7 h-5 rounded-sm shadow"
+          />
+        </div>
+      )}
+
+      {/* BOTÃO SELECIONAR */}
+      {modo !== 'mercado' && onToggleSelecionado && (
+        <button
+          type="button"
+          onClick={onToggleSelecionado}
+          className="absolute right-3 top-3 z-40 flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/45 text-white shadow-md backdrop-blur-sm"
+        >
+          {selecionado ? '✓' : '+'}
+        </button>
+      )}
+
+      {/* INFO FINAL */}
+      <div className="absolute bottom-3 left-0 z-40 w-full px-2">
+        <div className="rounded-2xl border border-white/20 bg-black/60 px-3 py-3 text-center shadow-lg backdrop-blur-md">
           <div className="truncate text-sm font-black uppercase tracking-wide text-white">
             {jogador.nome}
           </div>
