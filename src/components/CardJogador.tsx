@@ -27,6 +27,7 @@ type CardJogadorProps = {
   onComprar?: () => void
   loadingComprar?: boolean
   mercadoFechado?: boolean
+  onToggleSelecionado?: () => void
 }
 
 const bandeiras: Record<string, string> = {
@@ -41,15 +42,40 @@ const bandeiras: Record<string, string> = {
   Holanda: 'nl',
 }
 
+const textPatternSvg = (text = 'LIGAFUT') => {
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="260" height="200">
+    <rect width="100%" height="100%" fill="transparent"/>
+    <g transform="rotate(-18 130 100)">
+      <text x="10" y="70" font-family="Arial" font-size="28" font-weight="800"
+        fill="rgba(255,255,255,0.10)" letter-spacing="3">${text}</text>
+      <text x="10" y="130" font-family="Arial" font-size="28" font-weight="800"
+        fill="rgba(255,255,255,0.06)" letter-spacing="3">${text}</text>
+      <text x="10" y="190" font-family="Arial" font-size="28" font-weight="800"
+        fill="rgba(255,255,255,0.04)" letter-spacing="3">${text}</text>
+    </g>
+  </svg>`
+
+  const enc = encodeURIComponent(svg).replace(/'/g, '%27').replace(/"/g, '%22')
+  return `data:image/svg+xml;charset=utf-8,${enc}`
+}
+
 export default function CardJogador({
   jogador,
   modo = 'mercado',
+  selecionado = false,
   onComprar,
   loadingComprar = false,
   mercadoFechado = false,
+  onToggleSelecionado,
 }: CardJogadorProps) {
   const overallNumero = Number(jogador.overall ?? 0)
   const tipoCarta = getTipoCarta(overallNumero)
+
+  const salario =
+    typeof jogador.valor === 'number'
+      ? Math.round(jogador.valor * 0.0075)
+      : null
 
   const flagCode = jogador.nacionalidade
     ? bandeiras[jogador.nacionalidade]
@@ -57,80 +83,126 @@ export default function CardJogador({
 
   const gradiente =
     tipoCarta === 'bronze'
-      ? 'from-[#7a4a2e] to-[#3a2416]'
+      ? 'bg-gradient-to-b from-[#8b5a2b] via-[#b37a45] to-[#3a2416] text-yellow-100'
       : tipoCarta === 'prata'
-        ? 'from-[#d1d5db] to-[#4b5563]'
+        ? 'bg-gradient-to-b from-[#f3f4f6] via-[#9ca3af] to-[#4b5563] text-gray-900'
         : tipoCarta === 'ouro'
-          ? 'from-[#f5d061] to-[#b88900]'
-          : 'from-[#0f172a] to-[#00f5d4]'
+          ? 'bg-gradient-to-b from-[#fff2a8] via-[#f6c453] to-[#b88900] text-black'
+          : 'bg-gradient-to-b from-[#050816] via-[#123c69] to-[#00f5d4] text-white'
+
+  const pattern = textPatternSvg('LIGAFUT26')
 
   return (
-    <div className="relative w-[220px] h-[360px] rounded-[20px] overflow-hidden shadow-2xl">
+    <div
+      className={[
+        'relative',
+        'w-[220px] h-[400px]',
+        'rounded-[22px]',
+        'overflow-hidden',
+        'shadow-[0_18px_45px_rgba(0,0,0,0.45)]',
+        'transition-all duration-300 hover:scale-[1.04] hover:-translate-y-1',
+        gradiente,
+        selecionado ? 'ring-4 ring-emerald-400/80' : '',
+        loadingComprar ? 'opacity-70 pointer-events-none' : '',
+      ].join(' ')}
+    >
+      {/* brilho */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.16] bg-[radial-gradient(circle_at_top,_#fff,_transparent_65%)]" />
 
-      {/* FUNDO */}
-      <div className={`absolute inset-0 bg-gradient-to-b ${gradiente}`} />
+      {/* pattern */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.28] mix-blend-overlay"
+        style={{
+          backgroundImage: `url("${pattern}")`,
+          backgroundRepeat: 'repeat',
+          backgroundSize: '260px 200px',
+        }}
+      />
 
-      {/* IMAGEM GRANDE (AGORA CORRETO 🔥) */}
-      <div className="absolute inset-0 flex items-center justify-center pt-8">
+      {/* logo watermark */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
         <img
-          src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
-          alt={jogador.nome}
-          className="h-[240px] object-contain drop-shadow-[0_25px_40px_rgba(0,0,0,0.8)]"
+          src="/watermarks/ligafut26.png"
+          alt=""
+          className="w-[92%] opacity-[0.12]"
         />
       </div>
 
-      {/* OVERALL */}
-      <div className="absolute top-3 left-3 text-black z-10">
-        <div className="text-[30px] font-extrabold">{overallNumero}</div>
-        <div className="text-[11px] font-bold">{jogador.posicao}</div>
-      </div>
-
-      {/* BANDEIRA */}
-      {flagCode && (
-        <img
-          src={`https://flagcdn.com/w40/${flagCode}.png`}
-          className="absolute top-[55px] left-3 w-6"
-        />
+      {/* efeito especial */}
+      {tipoCarta === 'especial' && (
+        <div className="pointer-events-none absolute inset-0 bg-[conic-gradient(from_180deg_at_50%_50%,rgba(0,245,212,0.25),transparent,rgba(255,255,255,0.25),transparent)] animate-pulse" />
       )}
 
-      {/* BASE INFERIOR */}
-      <div className="absolute bottom-0 w-full bg-black/60 backdrop-blur px-3 py-3 text-center">
-
-        <div className="text-sm font-extrabold text-white truncate">
-          {jogador.nome}
+      {/* OVR */}
+      <div className="absolute left-3 top-3 z-10">
+        <div className="text-[34px] font-black">{overallNumero}</div>
+        <div className="text-[11px] font-black uppercase">
+          {jogador.posicao}
         </div>
+      </div>
 
-        {/* ATRIBUTOS */}
-        <div className="mt-2 grid grid-cols-3 text-[10px] text-white font-bold">
-          <span>PAC {jogador.pace ?? 0}</span>
-          <span>SHO {jogador.shooting ?? 0}</span>
-          <span>PAS {jogador.passing ?? 0}</span>
-          <span>DRI {jogador.dribbling ?? 0}</span>
-          <span>DEF {jogador.defending ?? 0}</span>
-          <span>PHY {jogador.physical ?? 0}</span>
+      {/* bandeira */}
+      {flagCode && (
+        <div className="absolute left-3 top-[70px] z-10">
+          <img
+            src={`https://flagcdn.com/w40/${flagCode}.png`}
+            className="w-7 h-5"
+          />
         </div>
+      )}
 
-        {/* VALOR */}
-        {typeof jogador.valor === 'number' && (
-          <div className="mt-2 text-emerald-400 font-extrabold">
-            R$ {jogador.valor.toLocaleString('pt-BR')}
+      {/* imagem */}
+      <div className="flex justify-center pt-14">
+        <img
+          src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
+          className="h-[180px] object-contain"
+        />
+      </div>
+
+      {/* info */}
+      <div className="absolute bottom-3 left-0 w-full px-2">
+        <div className="rounded-2xl bg-black/40 backdrop-blur px-3 py-3 text-center">
+          <div className="text-sm font-black uppercase text-white">
+            {jogador.nome}
           </div>
-        )}
 
-        {/* BOTÃO */}
-        {modo === 'mercado' && onComprar && (
-          <button
-            onClick={onComprar}
-            disabled={loadingComprar || mercadoFechado}
-            className="mt-3 w-full bg-green-600 hover:bg-green-700 py-2 rounded-xl font-bold text-white"
-          >
-            {loadingComprar
-              ? 'Comprando...'
-              : mercadoFechado
-                ? 'Mercado fechado'
-                : 'Comprar'}
-          </button>
-        )}
+          {salario !== null && (
+            <div className="text-[11px] text-white/80">
+              💼 R$ {salario.toLocaleString('pt-BR')}
+            </div>
+          )}
+
+          {typeof jogador.valor === 'number' && (
+            <div className="text-sm font-black text-emerald-300">
+              💰 R$ {jogador.valor.toLocaleString('pt-BR')}
+            </div>
+          )}
+
+          {/* ATRIBUTOS */}
+          <div className="mt-2 grid grid-cols-3 text-[10px] font-black text-white">
+            <span>PAC {jogador.pace ?? 0}</span>
+            <span>SHO {jogador.shooting ?? 0}</span>
+            <span>PAS {jogador.passing ?? 0}</span>
+            <span>DRI {jogador.dribbling ?? 0}</span>
+            <span>DEF {jogador.defending ?? 0}</span>
+            <span>PHY {jogador.physical ?? 0}</span>
+          </div>
+
+          {/* botão */}
+          {modo === 'mercado' && onComprar && (
+            <button
+              onClick={onComprar}
+              disabled={loadingComprar || mercadoFechado}
+              className="mt-3 w-full rounded-xl py-2 font-black bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {loadingComprar
+                ? 'Comprando...'
+                : mercadoFechado
+                  ? 'Mercado fechado'
+                  : 'Comprar'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
