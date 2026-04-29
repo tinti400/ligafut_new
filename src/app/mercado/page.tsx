@@ -1,5 +1,6 @@
 'use client'
 
+import CardJogador from '@/components/CardJogador'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
@@ -7,8 +8,6 @@ import { useAdmin } from '@/hooks/useAdmin'
 import { registrarMovimentacao } from '@/utils/registrarMovimentacao'
 import * as XLSX from 'xlsx'
 import toast, { Toaster } from 'react-hot-toast'
-
-const WATERMARK_LOGO_SRC = '/watermarks/ligafut26.png'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,41 +68,10 @@ const paisParaISO2 = (pais?: string | null) => {
   return mapa[p] ?? 'un'
 }
 
-const limparImg = (url?: string | null) => {
-  const u = String(url || '').trim()
-  if (!u || u === 'null' || u === 'undefined') return ''
+const safeImg = (url?: string | null) => {
+  const u = (url ?? '').trim()
+  if (!u) return ''
   return u.replace(/\s/g, '%20')
-}
-
-const gerarImagensPossiveis = (jogador: Jogador) => {
-  const original = limparImg(jogador.imagem_url || jogador.foto)
-
-  if (!original) return ['/player-placeholder.png']
-
-  const urls = new Set<string>()
-
-  // 1) tenta exatamente o link que está salvo no banco
-  urls.add(original)
-
-  // 2) força https se vier http
-  if (original.startsWith('http://')) {
-    urls.add(original.replace('http://', 'https://'))
-  }
-
-  // 3) tenta variações do SoFIFA
-  if (original.includes('cdn.sofifa.net')) {
-    urls.add(original.replace('26_120.png', '25_120.png'))
-    urls.add(original.replace('25_120.png', '24_120.png'))
-    urls.add(original.replace('24_120.png', '25_120.png'))
-
-    const semProtocolo = original.replace('https://', '').replace('http://', '')
-    urls.add(`https://images.weserv.nl/?url=${encodeURIComponent(semProtocolo)}`)
-  }
-
-  // 4) último caso: placeholder local
-  urls.add('/player-placeholder.png')
-
-  return Array.from(urls)
 }
 
 function getTimeLogadoLocal(userData?: any) {
@@ -206,222 +174,19 @@ type Jogador = {
   dribbling?: number | null
   defending?: number | null
   physical?: number | null
-}
 
-type JogadorCardProps = {
-  jogador: Jogador
-  isAdmin: boolean
-  selecionado: boolean
-  toggleSelecionado: () => void
-  onComprar: () => void
-  loadingComprar: boolean
-  mercadoFechado: boolean
-}
-
-function WatermarkOverlay() {
-  const itens = useMemo(() => Array.from({ length: 28 }), [])
-
-  return (
-    <>
-      <img
-        src={WATERMARK_LOGO_SRC}
-        alt=""
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 m-auto w-[78%] opacity-[0.10] rotate-[-10deg] blur-[0.2px]"
-        draggable={false}
-      />
-
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-[-30%] top-[18%] rotate-[-22deg] w-[160%]">
-          <div className="flex flex-wrap gap-x-6 gap-y-3 opacity-[0.10]">
-            {itens.map((_, i) => (
-              <span
-                key={i}
-                className="text-[12px] font-extrabold tracking-[0.28em] text-white/80 select-none"
-              >
-                LIGAFUT26
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
-  )
-}
-
-const JogadorCard = ({
-  jogador,
-  isAdmin,
-  selecionado,
-  toggleSelecionado,
-  onComprar,
-  loadingComprar,
-  mercadoFechado,
-}: JogadorCardProps) => {
-  const valorAtual = useMemo(
-    () => calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null),
-    [jogador.valor, jogador.data_listagem]
-  )
-
-  const percentualDesconto =
-    jogador.valor > valorAtual ? Math.round(((jogador.valor - valorAtual) / jogador.valor) * 100) : 0
-
-  const tipoCarta = jogador.overall <= 64 ? 'bronze' : jogador.overall <= 74 ? 'prata' : 'ouro'
-  const codigoPais = paisParaISO2(jogador.nacionalidade)
-
-  const botaoDesabilitado = loadingComprar || mercadoFechado
-
-  const imagensPossiveis = useMemo(
-    () => gerarImagensPossiveis(jogador),
-    [jogador.imagem_url, jogador.foto]
-  )
-
-  const [imgIndex, setImgIndex] = useState(0)
-
-  useEffect(() => {
-    setImgIndex(0)
-  }, [jogador.imagem_url, jogador.foto])
-
-  const imgPlayer = imagensPossiveis[imgIndex] || '/player-placeholder.png'
-
-  const stats = {
-    pace: Number(jogador.pace ?? 0),
-    shooting: Number(jogador.shooting ?? 0),
-    passing: Number(jogador.passing ?? 0),
-    dribbling: Number(jogador.dribbling ?? 0),
-    defending: Number(jogador.defending ?? 0),
-    physical: Number(jogador.physical ?? 0),
-  }
-
-  const aura =
-    tipoCarta === 'ouro'
-      ? 'shadow-[0_20px_50px_rgba(245,158,11,0.22)]'
-      : tipoCarta === 'prata'
-      ? 'shadow-[0_20px_50px_rgba(156,163,175,0.18)]'
-      : 'shadow-[0_20px_50px_rgba(120,74,29,0.22)]'
-
-  return (
-    <div
-      className={[
-        'relative w-full max-w-[270px] overflow-hidden rounded-[26px] transition-all duration-300 hover:scale-[1.03]',
-        aura,
-        tipoCarta === 'bronze' &&
-          'bg-gradient-to-b from-[#7a4a1d] via-[#a97142] to-[#2a1a0f] text-yellow-100',
-        tipoCarta === 'prata' &&
-          'bg-gradient-to-b from-[#e5e7eb] via-[#9ca3af] to-[#374151] text-gray-900',
-        tipoCarta === 'ouro' &&
-          'bg-gradient-to-b from-[#fff4b0] via-[#f6c453] to-[#b88900] text-black',
-        loadingComprar ? 'opacity-70 pointer-events-none' : '',
-        selecionado ? 'ring-4 ring-red-500' : '',
-      ].join(' ')}
-    >
-      <WatermarkOverlay />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/25" />
-
-      {isAdmin && (
-        <div className="absolute right-2 top-2 z-20">
-          <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/70 backdrop-blur">
-            <input
-              type="checkbox"
-              checked={selecionado}
-              onChange={toggleSelecionado}
-              className="h-4 w-4 accent-red-500"
-            />
-          </label>
-        </div>
-      )}
-
-      <div className="absolute left-3 top-3 z-10 text-left leading-none">
-        <div className="text-3xl font-extrabold drop-shadow">{jogador.overall}</div>
-        <div className="text-xs font-bold uppercase drop-shadow">{jogador.posicao}</div>
-        <img
-          src={'https://flagcdn.com/w20/' + codigoPais + '.png'}
-          alt={jogador.nacionalidade || 'País'}
-          className="mt-1 h-4 w-6 rounded-sm shadow"
-          loading="lazy"
-        />
-      </div>
-
-      <div className="relative z-10 flex justify-center pt-10">
-        <img
-          src={imgPlayer}
-          alt={jogador.nome}
-          className="h-[205px] max-w-[230px] object-contain drop-shadow-2xl"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          onError={() => {
-            setImgIndex((atual) => {
-              const proximo = atual + 1
-              return proximo < imagensPossiveis.length ? proximo : imagensPossiveis.length - 1
-            })
-          }}
-        />
-      </div>
-
-      <div className="relative z-10 mt-3 bg-black/25 px-3 py-2 text-center">
-        <div className="text-sm font-extrabold uppercase tracking-wide drop-shadow line-clamp-1">
-          {jogador.nome}
-        </div>
-
-        {jogador.time_origem ? (
-          <div className="mt-1 text-[11px] text-white/80">
-            {jogador.time_origem}
-          </div>
-        ) : null}
-
-        {jogador.link_sofifa && (
-          <a
-            href={jogador.link_sofifa}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-200 hover:text-blue-400 transition"
-          >
-            🔗 SoFIFA
-          </a>
-        )}
-
-        <div className="mt-1 text-sm font-semibold text-green-300 drop-shadow">
-          {formatarValor(valorAtual)}
-        </div>
-
-        {jogador.salario ? (
-          <div className="mt-0.5 text-[11px] text-gray-200">
-            💸 Salário: <strong>{formatarValor(jogador.salario)}</strong>
-          </div>
-        ) : null}
-
-        {percentualDesconto > 0 && (
-          <div className="mt-0.5 text-[11px] font-semibold text-red-300">
-            🔻 -{percentualDesconto}% desde a listagem
-          </div>
-        )}
-
-        <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-black/30 px-2 py-2 text-[10px] font-black text-white ring-1 ring-white/10">
-          <span>PAC {stats.pace}</span>
-          <span>SHO {stats.shooting}</span>
-          <span>PAS {stats.passing}</span>
-          <span>DRI {stats.dribbling}</span>
-          <span>DEF {stats.defending}</span>
-          <span>PHY {stats.physical}</span>
-        </div>
-      </div>
-
-      <div className="relative z-10 px-3 pb-4 pt-3">
-        <button
-          onClick={onComprar}
-          disabled={botaoDesabilitado}
-          className={[
-            'w-full rounded-xl py-2 text-sm font-bold transition-all',
-            botaoDesabilitado
-              ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-              : 'bg-green-600 text-white hover:bg-green-700 hover:scale-[1.02]',
-          ].join(' ')}
-        >
-          {loadingComprar ? 'Comprando...' : mercadoFechado ? 'Mercado fechado' : 'Comprar'}
-        </button>
-      </div>
-    </div>
-  )
+  pac?: number | null
+  sho?: number | null
+  pas?: number | null
+  dri?: number | null
+  def?: number | null
+  phy?: number | null
+  ritmo?: number | null
+  finalizacao?: number | null
+  passe?: number | null
+  drible?: number | null
+  defesa?: number | null
+  fisico?: number | null
 }
 
 function ResumoCard({
@@ -1318,19 +1083,60 @@ export default function MercadoPage() {
             )}
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 justify-items-center">
             {jogadoresPaginados.length > 0 ? (
               jogadoresPaginados.map((jogador) => (
-                <JogadorCard
-                  key={String(jogador.id)}
-                  jogador={jogador}
-                  isAdmin={isAdmin}
-                  selecionado={selecionados.includes(jogador.id)}
-                  toggleSelecionado={() => toggleSelecionado(jogador.id)}
-                  onComprar={() => solicitarCompra(jogador)}
-                  loadingComprar={loadingComprarId === jogador.id}
-                  mercadoFechado={mercadoFechado}
-                />
+                <div key={String(jogador.id)} className="relative flex justify-center">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => toggleSelecionado(jogador.id)}
+                      className={[
+                        'absolute right-2 top-2 z-30 flex h-9 w-9 items-center justify-center rounded-xl border text-sm font-black shadow-lg backdrop-blur-md transition',
+                        selecionados.includes(jogador.id)
+                          ? 'border-red-400/60 bg-red-500/30 text-white'
+                          : 'border-white/20 bg-black/45 text-white hover:bg-white/15',
+                      ].join(' ')}
+                      title="Selecionar para excluir"
+                    >
+                      {selecionados.includes(jogador.id) ? '✓' : '+'}
+                    </button>
+                  )}
+
+                  <CardJogador
+                    modo="mercado"
+                    selecionado={selecionados.includes(jogador.id)}
+                    onToggleSelecionado={isAdmin ? () => toggleSelecionado(jogador.id) : undefined}
+                    onComprar={() => solicitarCompra(jogador)}
+                    loadingComprar={loadingComprarId === jogador.id}
+                    mercadoFechado={mercadoFechado}
+                    jogador={{
+                      id: jogador.id,
+                      nome: jogador.nome,
+                      overall: jogador.overall ?? 0,
+                      posicao: jogador.posicao,
+                      nacionalidade: jogador.nacionalidade ?? undefined,
+                      imagem_url: jogador.imagem_url ?? jogador.foto ?? undefined,
+                      foto: jogador.foto ?? undefined,
+                      valor: calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null),
+                      salario: jogador.salario ?? Math.round(calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null) * 0.075),
+
+                      pace: jogador.pace ?? jogador.pac ?? jogador.ritmo ?? null,
+                      shooting: jogador.shooting ?? jogador.sho ?? jogador.finalizacao ?? null,
+                      passing: jogador.passing ?? jogador.pas ?? jogador.passe ?? null,
+                      dribbling: jogador.dribbling ?? jogador.dri ?? jogador.drible ?? null,
+                      defending: jogador.defending ?? jogador.def ?? jogador.defesa ?? null,
+                      physical: jogador.physical ?? jogador.phy ?? jogador.fisico ?? null,
+
+                      pac: jogador.pac ?? jogador.pace ?? jogador.ritmo ?? null,
+                      sho: jogador.sho ?? jogador.shooting ?? jogador.finalizacao ?? null,
+                      pas: jogador.pas ?? jogador.passing ?? jogador.passe ?? null,
+                      dri: jogador.dri ?? jogador.dribbling ?? jogador.drible ?? null,
+                      def: jogador.def ?? jogador.defending ?? jogador.defesa ?? null,
+                      phy: jogador.phy ?? jogador.physical ?? jogador.fisico ?? null,
+                    }}
+                  />
+                </div>
               ))
             ) : (
               <div className="col-span-full rounded-3xl border border-white/10 bg-white/[0.04] p-10 text-center">
