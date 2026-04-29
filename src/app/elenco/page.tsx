@@ -1228,7 +1228,7 @@ Regra: o jogador vai ao mercado pelo valor cheio e o clube recebe apenas 30%.`
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={venderSelecionados}
+                    onClick={() => venderSelecionados()}
                     className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-2xl font-extrabold"
                   >
                     💸 Vender
