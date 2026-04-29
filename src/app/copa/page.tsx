@@ -41,9 +41,11 @@ const FASES_MATA_MATA = ["quartas", "semi", "final"] as const;
 type Time = {
   id: string;
   nome: string;
+  logo?: string | null;
   logo_url?: string | null;
   overall?: number | null;
   valor?: number | null;
+  saldo?: number | null;
   divisao?: string | number | null;
 };
 
@@ -212,13 +214,28 @@ export default function CopaPage() {
 
     const { data: timesData, error: timesErr } = await supabase
       .from("times")
-      .select("id,nome,logo_url,overall,valor,divisao")
-      .not("divisao", "is", null)
-      .order("divisao", { ascending: true })
-      .order("nome", { ascending: true });
+      .select("*");
 
-    if (timesErr) toast.error("Erro ao carregar times.");
-    setTimes((timesData || []) as Time[]);
+    if (timesErr) toast.error("Erro ao carregar times da tabela times.");
+
+    const timesNormalizados = ((timesData || []) as any[])
+      .filter((t) => t.divisao !== null && t.divisao !== undefined && String(t.divisao).trim() !== "")
+      .map((t) => ({
+        id: String(t.id),
+        nome: t.nome || t.name || t.time || "Sem nome",
+        logo: t.logo || null,
+        logo_url: t.logo_url || t.logo || t.escudo || "/default.png",
+        overall: Number(t.overall || t.ovr || 0),
+        valor: Number(t.valor || t.value || t.saldo || 0),
+        saldo: Number(t.saldo || 0),
+        divisao: t.divisao,
+      }))
+      .sort((a, b) =>
+        String(a.divisao).localeCompare(String(b.divisao), "pt-BR", { numeric: true }) ||
+        String(a.nome).localeCompare(String(b.nome), "pt-BR"),
+      );
+
+    setTimes(timesNormalizados as Time[]);
 
     let copaAtual: Copa | null = null;
     const { data: copaData, error: copaErr } = await supabase
@@ -292,7 +309,7 @@ export default function CopaPage() {
 
   function logoTime(id?: string | null) {
     if (!id) return "/default.png";
-    return timesMap[id]?.logo_url || "/default.png";
+    return timesMap[id]?.logo_url || timesMap[id]?.logo || "/default.png";
   }
 
   async function salvarParticipantes() {
@@ -1534,7 +1551,7 @@ export default function CopaPage() {
                       <div className="flex items-center gap-2">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={t.logo_url || "/default.png"}
+                          src={t.logo_url || t.logo || "/default.png"}
                           className="h-8 w-8 object-contain"
                           alt=""
                         />
@@ -1544,7 +1561,7 @@ export default function CopaPage() {
                           </div>
                           <div className="text-xs text-zinc-400">
                             Divisão {t.divisao ?? "-"} • OVR {t.overall || "-"}{" "}
-                            • {dinheiro(Number(t.valor || 0))}
+                            • {dinheiro(Number(t.valor || t.saldo || 0))}
                           </div>
                         </div>
                       </div>
