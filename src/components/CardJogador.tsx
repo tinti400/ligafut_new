@@ -106,12 +106,10 @@ export default function CardJogador({
         loadingComprar ? 'opacity-70 pointer-events-none' : '',
       ].join(' ')}
     >
-      {/* brilho */}
-      <div className="pointer-events-none absolute inset-0 opacity-[0.16] bg-[radial-gradient(circle_at_top,_#fff,_transparent_65%)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.18] bg-[radial-gradient(circle_at_top,_#fff,_transparent_65%)]" />
 
-      {/* pattern */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.28] mix-blend-overlay"
+        className="pointer-events-none absolute inset-0 opacity-[0.24] mix-blend-overlay"
         style={{
           backgroundImage: `url("${pattern}")`,
           backgroundRepeat: 'repeat',
@@ -119,67 +117,86 @@ export default function CardJogador({
         }}
       />
 
-      {/* logo watermark */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
         <img
           src="/watermarks/ligafut26.png"
           alt=""
-          className="w-[92%] opacity-[0.12]"
+          className="w-[92%] opacity-[0.11] select-none"
         />
       </div>
 
-      {/* efeito especial */}
       {tipoCarta === 'especial' && (
         <div className="pointer-events-none absolute inset-0 bg-[conic-gradient(from_180deg_at_50%_50%,rgba(0,245,212,0.25),transparent,rgba(255,255,255,0.25),transparent)] animate-pulse" />
       )}
 
-      {/* OVR */}
-      <div className="absolute left-3 top-3 z-10">
-        <div className="text-[34px] font-black">{overallNumero}</div>
-        <div className="text-[11px] font-black uppercase">
+      <div className="absolute left-3 top-3 z-20 leading-none">
+        <div className="text-[34px] font-black drop-shadow-[0_2px_0_rgba(0,0,0,0.45)]">
+          {overallNumero}
+        </div>
+        <div className="text-[11px] font-black uppercase drop-shadow-[0_1px_0_rgba(0,0,0,0.45)]">
           {jogador.posicao}
         </div>
       </div>
 
-      {/* bandeira */}
       {flagCode && (
-        <div className="absolute left-3 top-[70px] z-10">
+        <div className="absolute left-3 top-[70px] z-20">
           <img
             src={`https://flagcdn.com/w40/${flagCode}.png`}
-            className="w-7 h-5"
+            alt={jogador.nacionalidade ?? ''}
+            className="w-7 h-5 rounded-sm shadow"
           />
         </div>
       )}
 
-      {/* imagem */}
-      <div className="flex justify-center pt-14">
+      {modo !== 'mercado' && onToggleSelecionado && (
+        <button
+          type="button"
+          onClick={onToggleSelecionado}
+          className="absolute right-3 top-3 z-30 flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/35 text-white shadow-md backdrop-blur-sm"
+        >
+          {selecionado ? '✓' : '+'}
+        </button>
+      )}
+
+      {/* IMAGEM DO JOGADOR GRANDE COM FALLBACK */}
+      <div className="absolute inset-0 z-10 flex items-center justify-center pt-6">
         <img
           src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
-          className="h-[180px] object-contain"
+          alt={jogador.nome}
+          onError={(e) => {
+            const img = e.currentTarget
+
+            if (img.src.includes('26_120.png')) {
+              img.src = img.src.replace('26_120.png', '25_120.png')
+            } else if (img.src.includes('25_120.png')) {
+              img.src = img.src.replace('25_120.png', '24_120.png')
+            } else {
+              img.src = '/player-placeholder.png'
+            }
+          }}
+          className="h-[245px] max-w-[230px] object-contain drop-shadow-[0_25px_40px_rgba(0,0,0,0.8)]"
         />
       </div>
 
-      {/* info */}
-      <div className="absolute bottom-3 left-0 w-full px-2">
-        <div className="rounded-2xl bg-black/40 backdrop-blur px-3 py-3 text-center">
-          <div className="text-sm font-black uppercase text-white">
+      <div className="absolute bottom-3 left-0 z-30 w-full px-2">
+        <div className="rounded-2xl border border-white/20 bg-black/50 px-3 py-3 text-center shadow-lg backdrop-blur-md">
+          <div className="truncate text-sm font-black uppercase tracking-wide text-white">
             {jogador.nome}
           </div>
 
           {salario !== null && (
-            <div className="text-[11px] text-white/80">
-              💼 R$ {salario.toLocaleString('pt-BR')}
+            <div className="mt-1 text-[11px] text-white/80">
+              💼 Salário: <b>R$ {salario.toLocaleString('pt-BR')}</b>
             </div>
           )}
 
           {typeof jogador.valor === 'number' && (
-            <div className="text-sm font-black text-emerald-300">
+            <div className="mt-1 text-sm font-black text-emerald-300">
               💰 R$ {jogador.valor.toLocaleString('pt-BR')}
             </div>
           )}
 
-          {/* ATRIBUTOS */}
-          <div className="mt-2 grid grid-cols-3 text-[10px] font-black text-white">
+          <div className="mt-2 grid grid-cols-3 gap-y-1 text-[10px] font-black text-white">
             <span>PAC {jogador.pace ?? 0}</span>
             <span>SHO {jogador.shooting ?? 0}</span>
             <span>PAS {jogador.passing ?? 0}</span>
@@ -188,12 +205,17 @@ export default function CardJogador({
             <span>PHY {jogador.physical ?? 0}</span>
           </div>
 
-          {/* botão */}
           {modo === 'mercado' && onComprar && (
             <button
+              type="button"
               onClick={onComprar}
               disabled={loadingComprar || mercadoFechado}
-              className="mt-3 w-full rounded-xl py-2 font-black bg-emerald-600 hover:bg-emerald-700 text-white"
+              className={[
+                'mt-3 w-full rounded-xl py-2 text-sm font-black transition-all',
+                loadingComprar || mercadoFechado
+                  ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-700 hover:scale-[1.03]',
+              ].join(' ')}
             >
               {loadingComprar
                 ? 'Comprando...'
