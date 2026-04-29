@@ -30,6 +30,24 @@ interface Jogador {
   protegido?: boolean | null
   lesionado?: boolean | null
   percentual?: number | null
+  pace?: number | null
+  shooting?: number | null
+  passing?: number | null
+  dribbling?: number | null
+  defending?: number | null
+  physical?: number | null
+  pac?: number | null
+  sho?: number | null
+  pas?: number | null
+  dri?: number | null
+  def?: number | null
+  phy?: number | null
+  ritmo?: number | null
+  finalizacao?: number | null
+  passe?: number | null
+  drible?: number | null
+  defesa?: number | null
+  fisico?: number | null
 }
 
 /** ===== Regra de salário (7.5%) ===== */
@@ -1331,6 +1349,21 @@ Regra: o jogador vai ao mercado pelo valor cheio e o clube recebe apenas 30%.`
                     nacionalidade: jogador.nacionalidade ?? undefined,
                     imagem_url: jogador.imagem_url ?? undefined,
                     valor: jogador.valor ?? undefined,
+                    salario: calcularSalario(jogador.valor),
+
+                    pace: jogador.pace ?? jogador.pac ?? jogador.ritmo ?? null,
+                    shooting: jogador.shooting ?? jogador.sho ?? jogador.finalizacao ?? null,
+                    passing: jogador.passing ?? jogador.pas ?? jogador.passe ?? null,
+                    dribbling: jogador.dribbling ?? jogador.dri ?? jogador.drible ?? null,
+                    defending: jogador.defending ?? jogador.def ?? jogador.defesa ?? null,
+                    physical: jogador.physical ?? jogador.phy ?? jogador.fisico ?? null,
+
+                    pac: jogador.pac ?? jogador.pace ?? jogador.ritmo ?? null,
+                    sho: jogador.sho ?? jogador.shooting ?? jogador.finalizacao ?? null,
+                    pas: jogador.pas ?? jogador.passing ?? jogador.passe ?? null,
+                    dri: jogador.dri ?? jogador.dribbling ?? jogador.drible ?? null,
+                    def: jogador.def ?? jogador.defending ?? jogador.defesa ?? null,
+                    phy: jogador.phy ?? jogador.physical ?? jogador.fisico ?? null,
                   }}
                 />
 
