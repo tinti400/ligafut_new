@@ -312,8 +312,73 @@ export default function CopaPage() {
     return timesMap[id]?.logo_url || timesMap[id]?.logo || "/default.png";
   }
 
+  async function garantirCopaAtual() {
+    if (!isAdmin) {
+      toast.error("Apenas admin pode alterar a Copa.");
+      return null;
+    }
+
+    if (copa?.id) return copa;
+
+    const { data: existente, error: erroBusca } = await supabase
+      .from("copa")
+      .select("*")
+      .eq("temporada", TEMPORADA)
+      .maybeSingle();
+
+    if (erroBusca) {
+      console.error("Erro ao buscar copa:", erroBusca);
+      toast.error("Erro ao buscar Copa da temporada.");
+      return null;
+    }
+
+    if (existente?.id) {
+      setCopa(existente as Copa);
+      return existente as Copa;
+    }
+
+    const { data: nova, error: erroCriar } = await supabase
+      .from("copa")
+      .insert({
+        temporada: TEMPORADA,
+        nome: "Copa LigaFut",
+        formato: "champions",
+        status: "selecao",
+      })
+      .select("*")
+      .single();
+
+    if (erroCriar || !nova) {
+      console.error("Erro ao criar copa:", erroCriar);
+      toast.error("Erro ao criar Copa da temporada.");
+      return null;
+    }
+
+    setCopa(nova as Copa);
+    return nova as Copa;
+  }
+
+  async function buscarParticipantesAtualizados(copaId: string) {
+    const { data, error } = await supabase
+      .from("copa_participantes")
+      .select("*")
+      .eq("copa_id", copaId);
+
+    if (error) {
+      console.error("Erro ao buscar participantes:", error);
+      toast.error("Erro ao buscar participantes salvos.");
+      return [] as Participante[];
+    }
+
+    const lista = (data || []) as Participante[];
+    setParticipantes(lista);
+    setSelecionados(lista.map((p) => p.id_time));
+    return lista;
+  }
+
   async function salvarParticipantes() {
-    if (!isAdmin || !copa) return;
+    const copaBase = await garantirCopaAtual();
+    if (!copaBase) return;
 
     if (selecionados.length !== 16) {
       toast.error("Selecione exatamente 16 times.");
@@ -329,8 +394,8 @@ export default function CopaPage() {
     )
       return;
 
-    await supabase.from("copa_participantes").delete().eq("copa_id", copa.id);
-    await supabase.from("copa_jogos").delete().eq("copa_id", copa.id);
+    await supabase.from("copa_participantes").delete().eq("copa_id", copaBase.id);
+    await supabase.from("copa_jogos").delete().eq("copa_id", copaBase.id);
 
     const ordenados = selecionados
       .map((id) => timesMap[id])
@@ -342,7 +407,7 @@ export default function CopaPage() {
       );
 
     const rows = ordenados.map((t, idx) => ({
-      copa_id: copa.id,
+      copa_id: copaBase.id,
       id_time: t.id,
       pote: Math.floor(idx / 4) + 1,
       grupo: null,
@@ -351,21 +416,34 @@ export default function CopaPage() {
     const { error } = await supabase.from("copa_participantes").insert(rows);
 
     if (error) {
-      toast.error("Erro ao salvar participantes.");
+      console.error("Erro ao salvar participantes:", error);
+      toast.error(error.message || "Erro ao salvar participantes.");
       return;
     }
 
     await supabase
       .from("copa")
       .update({ status: "potes", campeao_id: null })
-      .eq("id", copa.id);
+      .eq("id", copaBase.id);
+
+    setCopa({ ...copaBase, status: "potes", campeao_id: null });
+    setParticipantes(rows.map((r, idx) => ({
+      id: `local_${idx}`,
+      copa_id: copaBase.id,
+      id_time: r.id_time,
+      pote: r.pote,
+      grupo: null,
+    })));
+    setPreviewGrupos(vazioGrupos());
+    setSorteioConfirmavel(false);
+    setPassoSorteio(0);
     toast.success("Participantes salvos e potes definidos!");
     setAba("selecao");
     await carregarTudo();
   }
 
-  function montarPorPote() {
-    if (participantes.length !== 16) {
+  function montarPorPote(listaParticipantes = participantes) {
+    if (listaParticipantes.length !== 16) {
       toast.error("Salve os 16 participantes primeiro.");
       return null;
     }
@@ -377,7 +455,7 @@ export default function CopaPage() {
       4: [],
     };
 
-    participantes.forEach((p) => {
+    listaParticipantes.forEach((p) => {
       const pote = p.pote || 4;
       porPote[pote] ||= [];
       porPote[pote].push(p);
@@ -394,9 +472,15 @@ export default function CopaPage() {
   }
 
   async function iniciarSorteioAnimado() {
-    if (!isAdmin || !copa) return;
+    const copaBase = await garantirCopaAtual();
+    if (!copaBase) return;
 
-    const porPote = montarPorPote();
+    let participantesBase = participantes;
+    if (participantesBase.length !== 16) {
+      participantesBase = await buscarParticipantesAtualizados(copaBase.id);
+    }
+
+    const porPote = montarPorPote(participantesBase);
     if (!porPote) return;
 
     const jogosComPlacar = jogos.some(
@@ -467,7 +551,8 @@ export default function CopaPage() {
   }
 
   async function confirmarSorteioEGerarJogos() {
-    if (!isAdmin || !copa) return;
+    const copaBase = await garantirCopaAtual();
+    if (!copaBase) return;
 
     const totalPreview = GRUPOS.reduce(
       (acc, g) => acc + (previewGrupos[g]?.length || 0),
@@ -498,14 +583,14 @@ export default function CopaPage() {
       return;
     }
 
-    await supabase.from("copa_jogos").delete().eq("copa_id", copa.id);
+    await supabase.from("copa_jogos").delete().eq("copa_id", copaBase.id);
 
     for (const g of GRUPOS) {
       for (const idTime of previewGrupos[g]) {
         await supabase
           .from("copa_participantes")
           .update({ grupo: g })
-          .eq("copa_id", copa.id)
+          .eq("copa_id", copaBase.id)
           .eq("id_time", idTime);
       }
     }
@@ -516,7 +601,7 @@ export default function CopaPage() {
       const jogosGrupo = gerarJogosIdaVolta(previewGrupos[g]);
       jogosGrupo.forEach((j, idx) => {
         jogosInsert.push({
-          copa_id: copa.id,
+          copa_id: copaBase.id,
           fase: "grupos",
           grupo: g,
           rodada: j.rodada,
@@ -536,14 +621,15 @@ export default function CopaPage() {
 
     const { error } = await supabase.from("copa_jogos").insert(jogosInsert);
     if (error) {
-      toast.error("Erro ao confirmar sorteio e gerar jogos.");
+      console.error("Erro ao confirmar sorteio e gerar jogos:", error);
+      toast.error(error.message || "Erro ao confirmar sorteio e gerar jogos.");
       return;
     }
 
     await supabase
       .from("copa")
       .update({ status: "grupos", campeao_id: null })
-      .eq("id", copa.id);
+      .eq("id", copaBase.id);
 
     await supabase.from("bid").insert({
       tipo_evento: "Sistema",
