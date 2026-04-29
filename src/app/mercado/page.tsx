@@ -33,47 +33,6 @@ const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string | 
 const formatarValor = (valor: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor || 0)
 
-const normalizarTexto = (s?: string | null) =>
-  (s ?? '')
-    .toString()
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-
-const paisParaISO2 = (pais?: string | null) => {
-  const p = normalizarTexto(pais)
-
-  const mapa: Record<string, string> = {
-    brasil: 'br',
-    argentina: 'ar',
-    franca: 'fr',
-    inglaterra: 'gb',
-    espanha: 'es',
-    portugal: 'pt',
-    alemanha: 'de',
-    italia: 'it',
-    holanda: 'nl',
-    belgica: 'be',
-    uruguai: 'uy',
-    paraguai: 'py',
-    chile: 'cl',
-    colombia: 'co',
-    mexico: 'mx',
-    eua: 'us',
-    estadosunidos: 'us',
-    usa: 'us',
-  }
-
-  return mapa[p] ?? 'un'
-}
-
-const safeImg = (url?: string | null) => {
-  const u = (url ?? '').trim()
-  if (!u) return ''
-  return u.replace(/\s/g, '%20')
-}
-
 function getTimeLogadoLocal(userData?: any) {
   if (typeof window === 'undefined') {
     return {
@@ -129,7 +88,7 @@ function ModalConfirm({
             <button
               onClick={onCancel}
               disabled={loading}
-              className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition disabled:opacity-70"
+              className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-700 disabled:opacity-70"
             >
               Cancelar
             </button>
@@ -137,7 +96,7 @@ function ModalConfirm({
             <button
               onClick={onConfirm}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 transition disabled:opacity-70"
+              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-70"
             >
               {loading && (
                 <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -203,6 +162,96 @@ function ResumoCard({
       <div className="text-xs uppercase tracking-[0.18em] text-white/50">{titulo}</div>
       <div className="mt-2 text-2xl font-black text-white">{valor}</div>
       <div className="mt-1 text-xs text-white/60">{subtitulo}</div>
+    </div>
+  )
+}
+
+function Paginacao({
+  paginaAtual,
+  totalPaginas,
+  totalResultados,
+  exibindo,
+  onChange,
+}: {
+  paginaAtual: number
+  totalPaginas: number
+  totalResultados: number
+  exibindo: number
+  onChange: (page: number) => void
+}) {
+  if (totalPaginas <= 1) return null
+
+  const paginaSegura = Math.min(Math.max(1, paginaAtual), totalPaginas)
+
+  const paginasVisiveis = Array.from({ length: totalPaginas }, (_, i) => i + 1).filter((page) => {
+    return page === 1 || page === totalPaginas || Math.abs(page - paginaSegura) <= 2
+  })
+
+  return (
+    <div className="mt-10 flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-4 shadow-xl backdrop-blur-md">
+      <div className="text-center text-sm text-white/60">
+        Página <strong className="text-white">{paginaSegura}</strong> de{' '}
+        <strong className="text-white">{totalPaginas}</strong> — exibindo{' '}
+        <strong className="text-white">{exibindo}</strong> de{' '}
+        <strong className="text-white">{totalResultados}</strong> jogador(es)
+      </div>
+
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <button
+          onClick={() => onChange(1)}
+          disabled={paginaSegura === 1}
+          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          « Primeira
+        </button>
+
+        <button
+          onClick={() => onChange(Math.max(1, paginaSegura - 1))}
+          disabled={paginaSegura === 1}
+          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          ‹ Anterior
+        </button>
+
+        {paginasVisiveis.map((page, index, array) => {
+          const previousPage = array[index - 1]
+          const mostrarReticencias = previousPage && page - previousPage > 1
+
+          return (
+            <div key={page} className="flex items-center gap-2">
+              {mostrarReticencias && <span className="px-1 text-white/40">...</span>}
+
+              <button
+                onClick={() => onChange(page)}
+                className={[
+                  'rounded-xl px-4 py-2 text-sm font-black transition',
+                  page === paginaSegura
+                    ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
+                    : 'border border-white/10 bg-gray-800 text-white hover:bg-gray-700',
+                ].join(' ')}
+              >
+                {page}
+              </button>
+            </div>
+          )
+        })}
+
+        <button
+          onClick={() => onChange(Math.min(totalPaginas, paginaSegura + 1))}
+          disabled={paginaSegura === totalPaginas}
+          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Próxima ›
+        </button>
+
+        <button
+          onClick={() => onChange(totalPaginas)}
+          disabled={paginaSegura === totalPaginas}
+          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Última »
+        </button>
+      </div>
     </div>
   )
 }
@@ -320,6 +369,17 @@ export default function MercadoPage() {
     carregarDados()
   }, [router])
 
+  const irParaPagina = (page: number) => {
+    setPaginaAtual(page)
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  const resetarPagina = () => {
+    setPaginaAtual(1)
+  }
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -336,8 +396,7 @@ export default function MercadoPage() {
     }
 
     const pickImagemUrl = (row: Record<string, any>) => {
-      const cand =
-        row['imagem_url'] ?? row['foto'] ?? row['imagem url'] ?? row['url_imagem'] ?? row['imagem']
+      const cand = row['imagem_url'] ?? row['foto'] ?? row['imagem url'] ?? row['url_imagem'] ?? row['imagem']
       return sanitizeUrl(cand)
     }
 
@@ -363,9 +422,7 @@ export default function MercadoPage() {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer)
         const workbook = XLSX.read(data, { type: 'array' })
-        const sheetName = workbook.SheetNames.includes('Consolidado')
-          ? 'Consolidado'
-          : workbook.SheetNames[0]
+        const sheetName = workbook.SheetNames.includes('Consolidado') ? 'Consolidado' : workbook.SheetNames[0]
         const sheet = workbook.Sheets[sheetName]
         const json = XLSX.utils.sheet_to_json(sheet)
 
@@ -420,6 +477,7 @@ export default function MercadoPage() {
 
         toast.success(`Importados ${inseridos?.length ?? 0} jogadores com sucesso!`)
         setJogadores((prev) => [...prev, ...((inseridos as unknown as Jogador[]) ?? [])])
+        resetarPagina()
       } catch (error: any) {
         console.error('Erro ao importar:', error)
         toast.error(`Erro no upload: ${error.message || error}`)
@@ -476,11 +534,7 @@ export default function MercadoPage() {
       const [resTime, resMarketStatus, resJogadorMercado] = await Promise.all([
         supabase.from('times').select('saldo').eq('id', idTimeComprador).single(),
         supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
-        supabase
-          .from('mercado_transferencias')
-          .select('*')
-          .eq('id', jogadorParaComprar.id)
-          .maybeSingle(),
+        supabase.from('mercado_transferencias').select('*').eq('id', jogadorParaComprar.id).maybeSingle(),
       ])
 
       if (resTime.error) throw resTime.error
@@ -679,6 +733,7 @@ export default function MercadoPage() {
 
       setJogadores((prev) => prev.filter((j) => !selecionados.includes(j.id)))
       setSelecionados([])
+      resetarPagina()
       toast.success('Jogadores excluídos com sucesso!')
     } catch (error) {
       console.error('Erro ao excluir:', error)
@@ -713,9 +768,8 @@ export default function MercadoPage() {
       const ids = (deletados ?? []).map((d: any) => d.id)
       setJogadores((prev) => prev.filter((j) => !ids.includes(j.id)))
       setSelecionados((prev) => prev.filter((id) => !ids.includes(id)))
-      toast.success(
-        `Excluídos ${ids.length} jogador(es) com OVR entre ${excluirOverallMin} e ${excluirOverallMax}.`
-      )
+      resetarPagina()
+      toast.success(`Excluídos ${ids.length} jogador(es) com OVR entre ${excluirOverallMin} e ${excluirOverallMax}.`)
     } catch (e) {
       console.error(e)
       toast.error('Erro ao excluir por faixa de OVR.')
@@ -762,16 +816,16 @@ export default function MercadoPage() {
           ? nacionalidadeJogador.toLowerCase().includes(filtroNacionalidade.toLowerCase())
           : true
 
-        const overallMatch = j.overall >= overallMin && j.overall <= overallMax
-        const valorMatch = j.valor <= valorMax
+        const overallMatch = Number(j.overall || 0) >= overallMin && Number(j.overall || 0) <= overallMax
+        const valorMatch = Number(j.valor || 0) <= valorMax
 
         return nomeMatch && posicaoMatch && overallMatch && valorMatch && nacionalidadeMatch
       })
       .sort((a, b) => {
-        if (ordenarPor === 'valor_asc') return a.valor - b.valor
-        if (ordenarPor === 'valor_desc') return b.valor - a.valor
-        if (ordenarPor === 'overall_asc') return a.overall - b.overall
-        if (ordenarPor === 'overall_desc') return b.overall - a.overall
+        if (ordenarPor === 'valor_asc') return Number(a.valor || 0) - Number(b.valor || 0)
+        if (ordenarPor === 'valor_desc') return Number(b.valor || 0) - Number(a.valor || 0)
+        if (ordenarPor === 'overall_asc') return Number(a.overall || 0) - Number(b.overall || 0)
+        if (ordenarPor === 'overall_desc') return Number(b.overall || 0) - Number(a.overall || 0)
         return 0
       })
 
@@ -795,7 +849,9 @@ export default function MercadoPage() {
   const jogadoresPaginados = jogadoresFiltrados.slice(indexOfFirst, indexOfLast)
 
   useEffect(() => {
-    if (paginaAtual > totalPaginas) setPaginaAtual(1)
+    if (paginaAtual > totalPaginas) {
+      setPaginaAtual(1)
+    }
   }, [paginaAtual, totalPaginas])
 
   const limparFiltros = () => {
@@ -825,9 +881,7 @@ export default function MercadoPage() {
       : 0
 
   const maisCaro =
-    jogadores.length > 0
-      ? jogadores.reduce((prev, curr) => (curr.valor > prev.valor ? curr : prev), jogadores[0])
-      : null
+    jogadores.length > 0 ? jogadores.reduce((prev, curr) => (curr.valor > prev.valor ? curr : prev), jogadores[0]) : null
 
   return (
     <>
@@ -842,7 +896,7 @@ export default function MercadoPage() {
                   Mercado ativo
                 </div>
 
-                <h1 className="mt-4 text-4xl sm:text-5xl font-black tracking-tight">
+                <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">
                   <span className="bg-gradient-to-r from-yellow-300 via-emerald-300 to-lime-300 bg-clip-text text-transparent">
                     MERCADO DE TRANSFERÊNCIAS
                   </span>
@@ -886,10 +940,8 @@ export default function MercadoPage() {
                       disabled={uploadLoading || mercadoFechado}
                       className={[
                         'rounded-2xl px-4 py-2.5 text-sm font-bold transition',
-                        uploadLoading
-                          ? 'bg-gray-700 text-gray-300'
-                          : 'bg-blue-600 text-white hover:bg-blue-700',
-                        mercadoFechado ? 'opacity-60 cursor-not-allowed' : '',
+                        uploadLoading ? 'bg-gray-700 text-gray-300' : 'bg-blue-600 text-white hover:bg-blue-700',
+                        mercadoFechado ? 'cursor-not-allowed opacity-60' : '',
                       ].join(' ')}
                     >
                       {uploadLoading ? 'Importando...' : 'Importar planilha'}
@@ -931,7 +983,7 @@ export default function MercadoPage() {
                 </span>
                 <button
                   onClick={limparFiltros}
-                  className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm hover:bg-gray-700 transition"
+                  className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm transition hover:bg-gray-700"
                 >
                   Limpar filtros
                 </button>
@@ -943,13 +995,19 @@ export default function MercadoPage() {
                 type="text"
                 placeholder="🔎 Buscar por nome"
                 value={filtroNome}
-                onChange={(e) => setFiltroNome(e.target.value)}
+                onChange={(e) => {
+                  setFiltroNome(e.target.value)
+                  resetarPagina()
+                }}
                 className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
               />
 
               <select
                 value={filtroPosicao}
-                onChange={(e) => setFiltroPosicao(e.target.value)}
+                onChange={(e) => {
+                  setFiltroPosicao(e.target.value)
+                  resetarPagina()
+                }}
                 className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition focus:border-green-500"
               >
                 <option value="">Todas as posições</option>
@@ -971,13 +1029,19 @@ export default function MercadoPage() {
                 type="text"
                 placeholder="🌎 Filtrar por nacionalidade"
                 value={filtroNacionalidade}
-                onChange={(e) => setFiltroNacionalidade(e.target.value)}
+                onChange={(e) => {
+                  setFiltroNacionalidade(e.target.value)
+                  resetarPagina()
+                }}
                 className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
               />
 
               <select
                 value={ordenarPor}
-                onChange={(e) => setOrdenarPor(e.target.value)}
+                onChange={(e) => {
+                  setOrdenarPor(e.target.value)
+                  resetarPagina()
+                }}
                 className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition focus:border-green-500"
               >
                 <option value="">Ordenar...</option>
@@ -992,7 +1056,10 @@ export default function MercadoPage() {
                   type="number"
                   placeholder="OVR mín"
                   value={filtroOverallMin}
-                  onChange={(e) => setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))}
+                  onChange={(e) => {
+                    setFiltroOverallMin(e.target.value === '' ? '' : Number(e.target.value))
+                    resetarPagina()
+                  }}
                   className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
                   min={0}
                   max={99}
@@ -1001,7 +1068,10 @@ export default function MercadoPage() {
                   type="number"
                   placeholder="OVR máx"
                   value={filtroOverallMax}
-                  onChange={(e) => setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))}
+                  onChange={(e) => {
+                    setFiltroOverallMax(e.target.value === '' ? '' : Number(e.target.value))
+                    resetarPagina()
+                  }}
                   className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
                   min={0}
                   max={99}
@@ -1012,7 +1082,10 @@ export default function MercadoPage() {
                 type="number"
                 placeholder="💰 Valor máx (R$)"
                 value={filtroValorMax}
-                onChange={(e) => setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))}
+                onChange={(e) => {
+                  setFiltroValorMax(e.target.value === '' ? '' : Number(e.target.value))
+                  resetarPagina()
+                }}
                 className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition placeholder:text-gray-500 focus:border-green-500"
                 min={0}
               />
@@ -1030,6 +1103,7 @@ export default function MercadoPage() {
                   <option value={20}>20</option>
                   <option value={40}>40</option>
                   <option value={80}>80</option>
+                  <option value={120}>120</option>
                 </select>
               </div>
             </div>
@@ -1083,7 +1157,15 @@ export default function MercadoPage() {
             )}
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 justify-items-center">
+          <Paginacao
+            paginaAtual={paginaSegura}
+            totalPaginas={totalPaginas}
+            totalResultados={totalResultados}
+            exibindo={jogadoresPaginados.length}
+            onChange={irParaPagina}
+          />
+
+          <div className="mt-6 grid grid-cols-1 justify-items-center gap-6 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
             {jogadoresPaginados.length > 0 ? (
               jogadoresPaginados.map((jogador) => (
                 <div key={String(jogador.id)} className="relative flex justify-center">
@@ -1119,7 +1201,9 @@ export default function MercadoPage() {
                       imagem_url: jogador.imagem_url ?? jogador.foto ?? undefined,
                       foto: jogador.foto ?? undefined,
                       valor: calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null),
-                      salario: jogador.salario ?? Math.round(calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null) * 0.075),
+                      salario:
+                        jogador.salario ??
+                        Math.round(calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null) * 0.075),
 
                       pace: jogador.pace ?? jogador.pac ?? jogador.ritmo ?? null,
                       shooting: jogador.shooting ?? jogador.sho ?? jogador.finalizacao ?? null,
@@ -1146,6 +1230,14 @@ export default function MercadoPage() {
               </div>
             )}
           </div>
+
+          <Paginacao
+            paginaAtual={paginaSegura}
+            totalPaginas={totalPaginas}
+            totalResultados={totalResultados}
+            exibindo={jogadoresPaginados.length}
+            onChange={irParaPagina}
+          />
         </div>
       </main>
 
