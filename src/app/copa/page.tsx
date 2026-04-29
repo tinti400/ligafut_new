@@ -9,7 +9,7 @@ import {
   FiSave,
   FiShuffle,
   FiTrash2,
-  FiTrophy,
+  FiAward,
 } from "react-icons/fi";
 
 import {
@@ -1300,7 +1300,7 @@ export default function CopaPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-black flex items-center gap-2">
-              <FiTrophy className="text-yellow-400" /> Copa LigaFut — Champions
+              <FiAward className="text-yellow-300 drop-shadow" /> Copa LigaFut — Champions
             </h1>
             <p className="text-sm text-zinc-400">
               4 grupos de 4 times • ida e volta • top 2 passam • mata-mata por
