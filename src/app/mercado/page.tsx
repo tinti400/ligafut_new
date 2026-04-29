@@ -69,10 +69,41 @@ const paisParaISO2 = (pais?: string | null) => {
   return mapa[p] ?? 'un'
 }
 
-const safeImg = (url?: string | null) => {
-  const u = (url ?? '').trim()
-  if (!u) return ''
+const limparImg = (url?: string | null) => {
+  const u = String(url || '').trim()
+  if (!u || u === 'null' || u === 'undefined') return ''
   return u.replace(/\s/g, '%20')
+}
+
+const gerarImagensPossiveis = (jogador: Jogador) => {
+  const original = limparImg(jogador.imagem_url || jogador.foto)
+
+  if (!original) return ['/player-placeholder.png']
+
+  const urls = new Set<string>()
+
+  // 1) tenta exatamente o link que está salvo no banco
+  urls.add(original)
+
+  // 2) força https se vier http
+  if (original.startsWith('http://')) {
+    urls.add(original.replace('http://', 'https://'))
+  }
+
+  // 3) tenta variações do SoFIFA
+  if (original.includes('cdn.sofifa.net')) {
+    urls.add(original.replace('26_120.png', '25_120.png'))
+    urls.add(original.replace('25_120.png', '24_120.png'))
+    urls.add(original.replace('24_120.png', '25_120.png'))
+
+    const semProtocolo = original.replace('https://', '').replace('http://', '')
+    urls.add(`https://images.weserv.nl/?url=${encodeURIComponent(semProtocolo)}`)
+  }
+
+  // 4) último caso: placeholder local
+  urls.add('/player-placeholder.png')
+
+  return Array.from(urls)
 }
 
 function getTimeLogadoLocal(userData?: any) {
@@ -239,7 +270,19 @@ const JogadorCard = ({
   const codigoPais = paisParaISO2(jogador.nacionalidade)
 
   const botaoDesabilitado = loadingComprar || mercadoFechado
-  const imgPlayer = safeImg(jogador.imagem_url) || safeImg(jogador.foto) || '/player-placeholder.png'
+
+  const imagensPossiveis = useMemo(
+    () => gerarImagensPossiveis(jogador),
+    [jogador.imagem_url, jogador.foto]
+  )
+
+  const [imgIndex, setImgIndex] = useState(0)
+
+  useEffect(() => {
+    setImgIndex(0)
+  }, [jogador.imagem_url, jogador.foto])
+
+  const imgPlayer = imagensPossiveis[imgIndex] || '/player-placeholder.png'
 
   const stats = {
     pace: Number(jogador.pace ?? 0),
@@ -303,10 +346,14 @@ const JogadorCard = ({
         <img
           src={imgPlayer}
           alt={jogador.nome}
-          className="h-[180px] object-contain drop-shadow-2xl"
+          className="h-[205px] max-w-[230px] object-contain drop-shadow-2xl"
           loading="lazy"
-          onError={(e) => {
-            ;(e.currentTarget as HTMLImageElement).src = '/player-placeholder.png'
+          referrerPolicy="no-referrer"
+          onError={() => {
+            setImgIndex((atual) => {
+              const proximo = atual + 1
+              return proximo < imagensPossiveis.length ? proximo : imagensPossiveis.length - 1
+            })
           }}
         />
       </div>
