@@ -12,12 +12,30 @@ type Jogador = {
   foto?: string | null
   valor?: number | null
 
+  // ✅ NOVO (resolve seu erro)
+  salario?: number | null
+
+  // atributos (todas variações)
   pace?: number | null
   shooting?: number | null
   passing?: number | null
   dribbling?: number | null
   defending?: number | null
   physical?: number | null
+
+  pac?: number | null
+  sho?: number | null
+  pas?: number | null
+  dri?: number | null
+  def?: number | null
+  phy?: number | null
+
+  ritmo?: number | null
+  finalizacao?: number | null
+  passe?: number | null
+  drible?: number | null
+  defesa?: number | null
+  fisico?: number | null
 }
 
 type CardJogadorProps = {
@@ -30,34 +48,12 @@ type CardJogadorProps = {
   onToggleSelecionado?: () => void
 }
 
-const bandeiras: Record<string, string> = {
-  Brasil: 'br',
-  Argentina: 'ar',
-  Portugal: 'pt',
-  Espanha: 'es',
-  França: 'fr',
-  Alemanha: 'de',
-  Itália: 'it',
-  Inglaterra: 'gb',
-  Holanda: 'nl',
-}
-
-const textPatternSvg = (text = 'LIGAFUT') => {
-  const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="260" height="200">
-    <rect width="100%" height="100%" fill="transparent"/>
-    <g transform="rotate(-18 130 100)">
-      <text x="10" y="70" font-family="Arial" font-size="28" font-weight="800"
-        fill="rgba(255,255,255,0.10)" letter-spacing="3">${text}</text>
-      <text x="10" y="130" font-family="Arial" font-size="28" font-weight="800"
-        fill="rgba(255,255,255,0.06)" letter-spacing="3">${text}</text>
-      <text x="10" y="190" font-family="Arial" font-size="28" font-weight="800"
-        fill="rgba(255,255,255,0.04)" letter-spacing="3">${text}</text>
-    </g>
-  </svg>`
-
-  const enc = encodeURIComponent(svg).replace(/'/g, '%27').replace(/"/g, '%22')
-  return `data:image/svg+xml;charset=utf-8,${enc}`
+const getAttr = (j: Jogador, keys: (keyof Jogador)[]) => {
+  for (const k of keys) {
+    const val = Number(j[k] ?? 0)
+    if (val > 0) return val
+  }
+  return 0
 }
 
 export default function CardJogador({
@@ -72,160 +68,104 @@ export default function CardJogador({
   const overallNumero = Number(jogador.overall ?? 0)
   const tipoCarta = getTipoCarta(overallNumero)
 
+  // ✅ salario inteligente
   const salario =
-    typeof jogador.valor === 'number'
+    jogador.salario ??
+    (typeof jogador.valor === 'number'
       ? Math.round(jogador.valor * 0.0075)
-      : null
+      : null)
 
-  const flagCode = jogador.nacionalidade
-    ? bandeiras[jogador.nacionalidade]
-    : null
+  // ✅ atributos inteligentes (aceita qualquer base)
+  const attrs = {
+    pac: getAttr(jogador, ['pace', 'pac', 'ritmo']),
+    sho: getAttr(jogador, ['shooting', 'sho', 'finalizacao']),
+    pas: getAttr(jogador, ['passing', 'pas', 'passe']),
+    dri: getAttr(jogador, ['dribbling', 'dri', 'drible']),
+    def: getAttr(jogador, ['defending', 'def', 'defesa']),
+    phy: getAttr(jogador, ['physical', 'phy', 'fisico']),
+  }
 
   const gradiente =
     tipoCarta === 'bronze'
-      ? 'bg-gradient-to-b from-[#8b5a2b] via-[#b37a45] to-[#3a2416] text-yellow-100'
+      ? 'from-[#8b5a2b] to-[#3a2416]'
       : tipoCarta === 'prata'
-        ? 'bg-gradient-to-b from-[#f3f4f6] via-[#9ca3af] to-[#4b5563] text-gray-900'
+        ? 'from-[#e5e7eb] to-[#4b5563]'
         : tipoCarta === 'ouro'
-          ? 'bg-gradient-to-b from-[#fff2a8] via-[#f6c453] to-[#b88900] text-black'
-          : 'bg-gradient-to-b from-[#050816] via-[#123c69] to-[#00f5d4] text-white'
-
-  const pattern = textPatternSvg('LIGAFUT26')
+          ? 'from-[#fff2a8] to-[#b88900]'
+          : 'from-[#00f5d4] to-[#001f3f]'
 
   return (
     <div
-      className={[
-        'relative',
-        'w-[220px] h-[400px]',
-        'rounded-[22px]',
-        'overflow-hidden',
-        'shadow-[0_18px_45px_rgba(0,0,0,0.45)]',
-        'transition-all duration-300 hover:scale-[1.04] hover:-translate-y-1',
-        gradiente,
-        selecionado ? 'ring-4 ring-emerald-400/80' : '',
-        loadingComprar ? 'opacity-70 pointer-events-none' : '',
-      ].join(' ')}
+      className={`relative w-[220px] h-[400px] rounded-[20px] overflow-hidden shadow-xl 
+      bg-gradient-to-b ${gradiente} text-white
+      ${selecionado ? 'ring-4 ring-emerald-400' : ''}
+      transition hover:scale-105`}
     >
-      <div className="pointer-events-none absolute inset-0 opacity-[0.18] bg-[radial-gradient(circle_at_top,_#fff,_transparent_65%)]" />
-
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.24] mix-blend-overlay"
-        style={{
-          backgroundImage: `url("${pattern}")`,
-          backgroundRepeat: 'repeat',
-          backgroundSize: '260px 200px',
-        }}
-      />
-
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <img
-          src="/watermarks/ligafut26.png"
-          alt=""
-          className="w-[92%] opacity-[0.11] select-none"
-        />
+      {/* OVERALL */}
+      <div className="absolute top-3 left-3 text-3xl font-black">
+        {overallNumero}
       </div>
 
-      {tipoCarta === 'especial' && (
-        <div className="pointer-events-none absolute inset-0 bg-[conic-gradient(from_180deg_at_50%_50%,rgba(0,245,212,0.25),transparent,rgba(255,255,255,0.25),transparent)] animate-pulse" />
-      )}
-
-      <div className="absolute left-3 top-3 z-20 leading-none">
-        <div className="text-[34px] font-black drop-shadow-[0_2px_0_rgba(0,0,0,0.45)]">
-          {overallNumero}
-        </div>
-        <div className="text-[11px] font-black uppercase drop-shadow-[0_1px_0_rgba(0,0,0,0.45)]">
-          {jogador.posicao}
-        </div>
+      <div className="absolute top-10 left-3 text-xs font-bold">
+        {jogador.posicao}
       </div>
 
-      {flagCode && (
-        <div className="absolute left-3 top-[70px] z-20">
-          <img
-            src={`https://flagcdn.com/w40/${flagCode}.png`}
-            alt={jogador.nacionalidade ?? ''}
-            className="w-7 h-5 rounded-sm shadow"
-          />
-        </div>
-      )}
-
+      {/* BOTÃO SELECT */}
       {modo !== 'mercado' && onToggleSelecionado && (
         <button
-          type="button"
           onClick={onToggleSelecionado}
-          className="absolute right-3 top-3 z-30 flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/35 text-white shadow-md backdrop-blur-sm"
+          className="absolute top-3 right-3 bg-black/50 px-2 py-1 rounded"
         >
           {selecionado ? '✓' : '+'}
         </button>
       )}
 
-      {/* IMAGEM DO JOGADOR GRANDE COM FALLBACK */}
-      <div className="absolute inset-0 z-10 flex items-center justify-center pt-6">
+      {/* IMAGEM */}
+      <div className="flex justify-center items-center h-[230px] mt-8">
         <img
           src={jogador.imagem_url || jogador.foto || '/player-placeholder.png'}
-          alt={jogador.nome}
-          onError={(e) => {
-            const img = e.currentTarget
-
-            if (img.src.includes('26_120.png')) {
-              img.src = img.src.replace('26_120.png', '25_120.png')
-            } else if (img.src.includes('25_120.png')) {
-              img.src = img.src.replace('25_120.png', '24_120.png')
-            } else {
-              img.src = '/player-placeholder.png'
-            }
-          }}
-          className="h-[245px] max-w-[230px] object-contain drop-shadow-[0_25px_40px_rgba(0,0,0,0.8)]"
+          className="h-[220px] object-contain"
         />
       </div>
 
-      <div className="absolute bottom-3 left-0 z-30 w-full px-2">
-        <div className="rounded-2xl border border-white/20 bg-black/50 px-3 py-3 text-center shadow-lg backdrop-blur-md">
-          <div className="truncate text-sm font-black uppercase tracking-wide text-white">
-            {jogador.nome}
-          </div>
-
-          {salario !== null && (
-            <div className="mt-1 text-[11px] text-white/80">
-              💼 Salário: <b>R$ {salario.toLocaleString('pt-BR')}</b>
-            </div>
-          )}
-
-          {typeof jogador.valor === 'number' && (
-            <div className="mt-1 text-sm font-black text-emerald-300">
-              💰 R$ {jogador.valor.toLocaleString('pt-BR')}
-            </div>
-          )}
-
-          <div className="mt-2 grid grid-cols-3 gap-y-1 text-[10px] font-black text-white">
-            <span>PAC {jogador.pace ?? 0}</span>
-            <span>SHO {jogador.shooting ?? 0}</span>
-            <span>PAS {jogador.passing ?? 0}</span>
-            <span>DRI {jogador.dribbling ?? 0}</span>
-            <span>DEF {jogador.defending ?? 0}</span>
-            <span>PHY {jogador.physical ?? 0}</span>
-          </div>
-
-          {modo === 'mercado' && onComprar && (
-            <button
-              type="button"
-              onClick={onComprar}
-              disabled={loadingComprar || mercadoFechado}
-              className={[
-                'mt-3 w-full rounded-xl py-2 text-sm font-black transition-all',
-                loadingComprar || mercadoFechado
-                  ? 'bg-gray-700 text-gray-300 cursor-not-allowed'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-700 hover:scale-[1.03]',
-              ].join(' ')}
-            >
-              {loadingComprar
-                ? 'Comprando...'
-                : mercadoFechado
-                  ? 'Mercado fechado'
-                  : 'Comprar'}
-            </button>
-          )}
-        </div>
+      {/* NOME */}
+      <div className="text-center font-bold text-sm truncate">
+        {jogador.nome}
       </div>
+
+      {/* SALARIO + VALOR */}
+      <div className="text-center text-xs mt-1">
+        {salario && <>💼 R$ {salario.toLocaleString('pt-BR')}</>}
+      </div>
+
+      <div className="text-center text-emerald-300 font-bold">
+        {jogador.valor && `R$ ${jogador.valor.toLocaleString('pt-BR')}`}
+      </div>
+
+      {/* ATRIBUTOS */}
+      <div className="grid grid-cols-3 text-[10px] mt-2 px-2 text-center font-bold">
+        <span>PAC {attrs.pac}</span>
+        <span>SHO {attrs.sho}</span>
+        <span>PAS {attrs.pas}</span>
+        <span>DRI {attrs.dri}</span>
+        <span>DEF {attrs.def}</span>
+        <span>PHY {attrs.phy}</span>
+      </div>
+
+      {/* BOTÃO COMPRAR */}
+      {modo === 'mercado' && onComprar && (
+        <button
+          onClick={onComprar}
+          disabled={loadingComprar || mercadoFechado}
+          className="absolute bottom-2 left-2 right-2 bg-emerald-600 py-2 rounded text-xs font-bold"
+        >
+          {loadingComprar
+            ? 'Comprando...'
+            : mercadoFechado
+              ? 'Mercado fechado'
+              : 'Comprar'}
+        </button>
+      )}
     </div>
   )
 }
