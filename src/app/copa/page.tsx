@@ -442,33 +442,21 @@ export default function CopaPage() {
     await carregarTudo();
   }
 
-  function montarPorPote(listaParticipantes = participantes) {
-    if (listaParticipantes.length !== 16) {
-      toast.error("Salve os 16 participantes primeiro.");
+  function montarListaSorteio(listaParticipantes = participantes) {
+    // Novo sorteio: NÃO separa por potes.
+    // Usa os 16 times selecionados/salvos, embaralha tudo e distribui:
+    // Grupo A recebe 1, depois B, C, D, repetindo até completar 4 por grupo.
+    const idsSalvos = listaParticipantes.map((p) => p.id_time).filter(Boolean);
+    const idsSelecionados = selecionados.filter(Boolean);
+    const baseIds = idsSalvos.length === 16 ? idsSalvos : idsSelecionados;
+    const unicos = Array.from(new Set(baseIds));
+
+    if (unicos.length !== 16) {
+      toast.error("Selecione exatamente 16 times antes de sortear.");
       return null;
     }
 
-    const porPote: Record<number, Participante[]> = {
-      1: [],
-      2: [],
-      3: [],
-      4: [],
-    };
-
-    listaParticipantes.forEach((p) => {
-      const pote = p.pote || 4;
-      porPote[pote] ||= [];
-      porPote[pote].push(p);
-    });
-
-    for (let pote = 1; pote <= 4; pote++) {
-      if ((porPote[pote] || []).length !== 4) {
-        toast.error(`Pote ${pote} precisa ter 4 times.`);
-        return null;
-      }
-    }
-
-    return porPote;
+    return shuffle(unicos);
   }
 
   async function iniciarSorteioAnimado() {
@@ -480,8 +468,8 @@ export default function CopaPage() {
       participantesBase = await buscarParticipantesAtualizados(copaBase.id);
     }
 
-    const porPote = montarPorPote(participantesBase);
-    if (!porPote) return;
+    const listaSorteio = montarListaSorteio(participantesBase);
+    if (!listaSorteio) return;
 
     const jogosComPlacar = jogos.some(
       (j) => j.gols_time1 !== null || j.gols_time2 !== null,
@@ -496,7 +484,6 @@ export default function CopaPage() {
       return;
     }
 
-    // Mantém na aba Seleção, onde fica o painel visual do sorteio ao vivo.
     setAba("selecao");
     setSorteandoAoVivo(true);
     setSorteioConfirmavel(false);
@@ -507,25 +494,20 @@ export default function CopaPage() {
     setPassoSorteio(0);
 
     const grupoTimes: Record<string, string[]> = vazioGrupos();
-    let passo = 0;
 
-    for (let pote = 1; pote <= 4; pote++) {
-      const embaralhado = shuffle(porPote[pote]);
+    for (let idx = 0; idx < listaSorteio.length; idx++) {
+      const grupo = GRUPOS[idx % GRUPOS.length];
+      const idTime = listaSorteio[idx];
 
-      for (let idx = 0; idx < GRUPOS.length; idx++) {
-        const grupo = GRUPOS[idx];
-        const time = embaralhado[idx];
+      setPoteAtual(null);
+      setGrupoAtual(grupo);
+      setTimeAtual(idTime);
+      setPassoSorteio(idx + 1);
 
-        setPoteAtual(pote);
-        setGrupoAtual(grupo);
-        setTimeAtual(time.id_time);
-        setPassoSorteio(++passo);
+      await sleep(2000);
 
-        await sleep(2000);
-
-        grupoTimes[grupo].push(time.id_time);
-        setPreviewGrupos(cloneGrupos(grupoTimes));
-      }
+      grupoTimes[grupo].push(idTime);
+      setPreviewGrupos(cloneGrupos(grupoTimes));
     }
 
     setPoteAtual(null);
@@ -586,14 +568,30 @@ export default function CopaPage() {
 
     await supabase.from("copa_jogos").delete().eq("copa_id", copaBase.id);
 
-    for (const g of GRUPOS) {
-      for (const idTime of previewGrupos[g]) {
-        await supabase
-          .from("copa_participantes")
-          .update({ grupo: g })
-          .eq("copa_id", copaBase.id)
-          .eq("id_time", idTime);
-      }
+    // Garante que os participantes existem no banco mesmo se o admin clicou direto em
+    // "Sorteio ao vivo" usando apenas os selecionados na tela.
+    await supabase.from("copa_participantes").delete().eq("copa_id", copaBase.id);
+
+    const participantesInsert: any[] = [];
+    GRUPOS.forEach((g) => {
+      previewGrupos[g].forEach((idTime, idx) => {
+        participantesInsert.push({
+          copa_id: copaBase.id,
+          id_time: idTime,
+          pote: idx + 1,
+          grupo: g,
+        });
+      });
+    });
+
+    const { error: partError } = await supabase
+      .from("copa_participantes")
+      .insert(participantesInsert);
+
+    if (partError) {
+      console.error("Erro ao salvar participantes do sorteio:", partError);
+      toast.error(partError.message || "Erro ao salvar participantes do sorteio.");
+      return;
     }
 
     const jogosInsert: any[] = [];
@@ -1718,7 +1716,7 @@ export default function CopaPage() {
                   <div>
                     <div className="text-lg font-black">🎥 Sorteio ao vivo dos grupos</div>
                     <div className="text-xs text-zinc-400">
-                      Delay de 2 segundos por time. Primeiro teste, depois clique em Confirmar sorteio para salvar no banco.
+                      Delay de 2 segundos por time. O sistema embaralha os 16 selecionados e preenche A, B, C e D, um time por grupo, até completar 4 em cada.
                     </div>
                   </div>
 
@@ -1741,7 +1739,7 @@ export default function CopaPage() {
                         <div className="h-14 w-14 rounded-2xl bg-white/10 grid place-items-center text-2xl animate-pulse">🏆</div>
                         <div>
                           <div className="text-sm text-zinc-400">
-                            {poteAtual ? `Pote ${poteAtual} → Grupo ${grupoAtual}` : "Sorteio finalizado"}
+                            {grupoAtual ? `Sorteando para o Grupo ${grupoAtual}` : "Sorteio finalizado"}
                           </div>
                           <div className="text-xl font-black text-white">
                             {timeAtual ? nomeTime(timeAtual) : "Aguardando confirmação"}
