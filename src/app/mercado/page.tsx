@@ -75,7 +75,6 @@ const safeImg = (url?: string | null) => {
   return u.replace(/\s/g, '%20')
 }
 
-
 function getTimeLogadoLocal(userData?: any) {
   if (typeof window === 'undefined') {
     return {
@@ -169,6 +168,13 @@ type Jogador = {
   link_sofifa?: string | null
   data_listagem?: string | null
   time_origem?: string | null
+
+  pace?: number | null
+  shooting?: number | null
+  passing?: number | null
+  dribbling?: number | null
+  defending?: number | null
+  physical?: number | null
 }
 
 type JogadorCardProps = {
@@ -234,6 +240,15 @@ const JogadorCard = ({
 
   const botaoDesabilitado = loadingComprar || mercadoFechado
   const imgPlayer = safeImg(jogador.imagem_url) || safeImg(jogador.foto) || '/player-placeholder.png'
+
+  const stats = {
+    pace: Number(jogador.pace ?? 0),
+    shooting: Number(jogador.shooting ?? 0),
+    passing: Number(jogador.passing ?? 0),
+    dribbling: Number(jogador.dribbling ?? 0),
+    defending: Number(jogador.defending ?? 0),
+    physical: Number(jogador.physical ?? 0),
+  }
 
   const aura =
     tipoCarta === 'ouro'
@@ -333,6 +348,15 @@ const JogadorCard = ({
             🔻 -{percentualDesconto}% desde a listagem
           </div>
         )}
+
+        <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-black/30 px-2 py-2 text-[10px] font-black text-white ring-1 ring-white/10">
+          <span>PAC {stats.pace}</span>
+          <span>SHO {stats.shooting}</span>
+          <span>PAS {stats.passing}</span>
+          <span>DRI {stats.dribbling}</span>
+          <span>DEF {stats.defending}</span>
+          <span>PHY {stats.physical}</span>
+        </div>
       </div>
 
       <div className="relative z-10 px-3 pb-4 pt-3">
@@ -454,7 +478,13 @@ export default function MercadoPage() {
               foto,
               link_sofifa,
               data_listagem,
-              time_origem
+              time_origem,
+              pace,
+              shooting,
+              passing,
+              dribbling,
+              defending,
+              physical
             `),
           supabase.from('times').select('saldo').eq('id', identidade.id_time).single(),
           supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
@@ -505,6 +535,15 @@ export default function MercadoPage() {
       return Number.isFinite(num) ? num : 0
     }
 
+    const pickNumber = (row: Record<string, any>, keys: string[]) => {
+      for (const key of keys) {
+        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+          return toNumber(row[key])
+        }
+      }
+      return 0
+    }
+
     type NovoJogador = Omit<Jogador, 'id'>
 
     const reader = new FileReader()
@@ -530,6 +569,13 @@ export default function MercadoPage() {
           const time_origem = row['time_origem'] ?? row['time'] ?? ''
           const imagem_url = pickImagemUrl(row)
 
+          const pace = pickNumber(row, ['pace', 'pac', 'velocidade'])
+          const shooting = pickNumber(row, ['shooting', 'sho', 'finalizacao', 'chute'])
+          const passing = pickNumber(row, ['passing', 'pas', 'passe'])
+          const dribbling = pickNumber(row, ['dribbling', 'dri', 'drible'])
+          const defending = pickNumber(row, ['defending', 'def', 'defesa'])
+          const physical = pickNumber(row, ['physical', 'phy', 'fisico', 'físico'])
+
           if (!nome || !posicao || !overall || !valor) {
             throw new Error('Colunas obrigatórias: nome, posicao, overall, valor')
           }
@@ -544,6 +590,12 @@ export default function MercadoPage() {
             nacionalidade,
             time_origem,
             data_listagem: new Date().toISOString(),
+            pace,
+            shooting,
+            passing,
+            dribbling,
+            defending,
+            physical,
           } as any
         })
 
@@ -599,10 +651,6 @@ export default function MercadoPage() {
 
     if (!idTimeComprador) {
       toast.error('Time comprador não identificado.')
-      console.error('❌ Sem id_time:', {
-        user,
-        localStorageId: localStorage.getItem('id_time'),
-      })
       setModalComprarVisivel(false)
       setJogadorParaComprar(null)
       return
@@ -695,9 +743,14 @@ export default function MercadoPage() {
         nacionalidade: jogadorMercado.nacionalidade || null,
         link_sofifa: jogadorMercado.link_sofifa || '',
         percentual: 100,
+        pace: jogadorMercado.pace ?? 0,
+        shooting: jogadorMercado.shooting ?? 0,
+        passing: jogadorMercado.passing ?? 0,
+        dribbling: jogadorMercado.dribbling ?? 0,
+        defending: jogadorMercado.defending ?? 0,
+        physical: jogadorMercado.physical ?? 0,
       }
 
-      // ✅ 1) Primeiro adiciona no elenco.
       const { data: novoElenco, error: errorInsert } = await supabase
         .from('elenco')
         .insert(payloadElenco)
@@ -717,9 +770,7 @@ export default function MercadoPage() {
       }
 
       idElencoInserido = novoElenco?.id ?? null
-      console.log('✅ Jogador inserido no elenco:', novoElenco)
 
-      // ✅ 2) Depois debita o saldo.
       const novoSaldo = saldoAtual - valorCompra
       const { error: errorUpdateSaldo } = await supabase
         .from('times')
@@ -733,7 +784,6 @@ export default function MercadoPage() {
         throw errorUpdateSaldo
       }
 
-      // ✅ 3) Registra movimentação sem travar a compra.
       try {
         await registrarMovimentacao({
           id_time: idTimeComprador,
@@ -745,7 +795,6 @@ export default function MercadoPage() {
         console.warn('⚠️ Movimentação não registrada, mas compra mantida:', e)
       }
 
-      // ✅ 4) Registra no BID sem travar a compra.
       try {
         const { error: errorBID } = await supabase.from('bid').insert({
           tipo_evento: 'compra',
@@ -764,7 +813,6 @@ export default function MercadoPage() {
         console.warn('⚠️ Erro inesperado no BID, mas compra mantida:', e)
       }
 
-      // ✅ 5) Só no final remove do mercado.
       const { error: deleteError } = await supabase
         .from('mercado_transferencias')
         .delete()
@@ -1052,35 +1100,17 @@ export default function MercadoPage() {
 
         <div className="mx-auto max-w-7xl px-4 py-6">
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <ResumoCard
-              titulo="Saldo disponível"
-              valor={formatarValor(saldo)}
-              subtitulo="Caixa atual do seu clube"
-            />
-            <ResumoCard
-              titulo="Jogadores no mercado"
-              valor={String(jogadores.length)}
-              subtitulo="Total de atletas listados"
-            />
-            <ResumoCard
-              titulo="Overall médio"
-              valor={String(mediaOverall)}
-              subtitulo="Nível médio dos jogadores"
-            />
-            <ResumoCard
-              titulo="Mais caro"
-              valor={maisCaro ? formatarValor(maisCaro.valor) : '—'}
-              subtitulo={maisCaro ? maisCaro.nome : 'Sem dados'}
-            />
+            <ResumoCard titulo="Saldo disponível" valor={formatarValor(saldo)} subtitulo="Caixa atual do seu clube" />
+            <ResumoCard titulo="Jogadores no mercado" valor={String(jogadores.length)} subtitulo="Total de atletas listados" />
+            <ResumoCard titulo="Overall médio" valor={String(mediaOverall)} subtitulo="Nível médio dos jogadores" />
+            <ResumoCard titulo="Mais caro" valor={maisCaro ? formatarValor(maisCaro.valor) : '—'} subtitulo={maisCaro ? maisCaro.nome : 'Sem dados'} />
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl backdrop-blur-md">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
                 <h2 className="text-lg font-extrabold text-white">Filtros do mercado</h2>
-                <p className="text-sm text-white/60">
-                  Refine sua busca para encontrar exatamente o perfil que deseja.
-                </p>
+                <p className="text-sm text-white/60">Refine sua busca para encontrar exatamente o perfil que deseja.</p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -1241,28 +1271,6 @@ export default function MercadoPage() {
             )}
           </div>
 
-          {totalPaginas > 1 && (
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-              <button
-                onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
-              >
-                ← Anterior
-              </button>
-
-              <span className="rounded-xl bg-white/5 px-4 py-2 text-sm ring-1 ring-white/10">
-                Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
-              </span>
-
-              <button
-                onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
-              >
-                Próxima →
-              </button>
-            </div>
-          )}
-
           <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {jogadoresPaginados.length > 0 ? (
               jogadoresPaginados.map((jogador) => (
@@ -1285,28 +1293,6 @@ export default function MercadoPage() {
               </div>
             )}
           </div>
-
-          {totalPaginas > 1 && (
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
-              <button
-                onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
-                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
-              >
-                ← Anterior
-              </button>
-
-              <span className="rounded-xl bg-white/5 px-4 py-2 text-sm ring-1 ring-white/10">
-                Página <strong>{paginaSegura}</strong> de <strong>{totalPaginas}</strong>
-              </span>
-
-              <button
-                onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
-                className="rounded-xl border border-white/10 bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700 transition"
-              >
-                Próxima →
-              </button>
-            </div>
-          )}
         </div>
       </main>
 
