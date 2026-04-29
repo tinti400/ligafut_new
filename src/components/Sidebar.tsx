@@ -694,8 +694,7 @@ export default function Sidebar() {
                 {!logado && <CollapsedItem href="/login" label="Login" emoji="🔑" />}
 
                 <CollapsedItem href="/" label="Home" emoji="🏠" />
-                <CollapsedItem href="/jogos" label="Jogos" emoji="📅" />
-                <CollapsedItem href="/classificacao" label="Classificação" emoji="🏆" />
+                <CollapsedItem href="/copa" label="Copa Champions" emoji="🏆" />
                 <CollapsedItem href="/elenco" label="Elenco" emoji="👥" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
@@ -711,8 +710,14 @@ export default function Sidebar() {
                 {!logado && <NavLink href="/login">🔑 Login</NavLink>}
 
                 <NavLink href="/">🏠 Home</NavLink>
-                <NavLink href="/jogos">📅 Jogos</NavLink>
-                <NavLink href="/classificacao">🏆 Classificação</NavLink>
+                <NavLink href="/copa">
+                  <span className="flex items-center gap-2">
+                    🏆 Copa Champions
+                    <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] font-black text-yellow-300 ring-1 ring-yellow-400/25">
+                      NOVA
+                    </span>
+                  </span>
+                </NavLink>
                 <NavLink href="/BID">📰 BID</NavLink>
 
                 <div className="pt-2">
@@ -746,10 +751,14 @@ export default function Sidebar() {
 
                   {abrirCompeticoes && (
                     <div className="ml-3 mt-2 space-y-1 text-sm">
-                      <NavLink href="/jogos">📅 Jogos</NavLink>
-                      <NavLink href="/classificacao">🏆 Classificação</NavLink>
-                      <NavLink href="/copa/fase_grupos">🏟️ Copa - Grupos</NavLink>
-                      <NavLink href="/copa/mata-mata">🥊 Copa - Mata-mata</NavLink>
+                      <NavLink href="/copa">
+                        <span className="flex items-center gap-2">
+                          🏆 Copa Champions
+                          <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] font-black text-yellow-300 ring-1 ring-yellow-400/25">
+                            NOVA
+                          </span>
+                        </span>
+                      </NavLink>
                     </div>
                   )}
                 </div>
