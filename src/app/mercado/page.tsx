@@ -871,22 +871,25 @@ export default function MercadoPage() {
         throw errorUpdateSaldo
       }
 
+      const descricaoCompra = `${nomeTimeComprador} comprou ${jogadorMercado.nome} no Mercado de Transferências por ${formatarValor(valorCompra)}.`
+
       try {
         await registrarMovimentacao({
           id_time: idTimeComprador,
           tipo: 'saida',
           valor: valorCompra,
-          descricao: `Compra de ${jogadorMercado.nome} no mercado`,
+          descricao: `Compra no mercado: ${jogadorMercado.nome}`,
         })
       } catch (e) {
-        console.warn('⚠️ Movimentação não registrada, mas compra mantida:', e)
+        console.warn('⚠️ Erro ao registrar no painel financeiro, mas compra mantida:', e)
       }
 
       try {
         const { error: errorBID } = await supabase.from('bid').insert({
-          tipo_evento: 'compra',
-          descricao: `O ${nomeTimeComprador} comprou ${jogadorMercado.nome} por ${formatarValor(valorCompra)}.`,
+          tipo_evento: 'compra_mercado',
+          descricao: descricaoCompra,
           id_time1: idTimeComprador,
+          id_time2: null,
           valor: valorCompra,
           nome_jogador: jogadorMercado.nome,
           foto_jogador_url: jogadorMercado.imagem_url || jogadorMercado.foto || null,
@@ -894,10 +897,10 @@ export default function MercadoPage() {
         })
 
         if (errorBID) {
-          console.warn('⚠️ BID não registrado, mas compra mantida:', errorBID)
+          console.warn('⚠️ Erro ao registrar compra no BID, mas compra mantida:', errorBID)
         }
       } catch (e) {
-        console.warn('⚠️ Erro inesperado no BID, mas compra mantida:', e)
+        console.warn('⚠️ Erro inesperado ao registrar compra no BID, mas compra mantida:', e)
       }
 
       const { error: deleteError } = await supabase
