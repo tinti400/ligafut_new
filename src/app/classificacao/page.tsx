@@ -79,8 +79,8 @@ export default function ClassificacaoPage() {
   const [pagando, setPagando] = useState(false)
   const [pagandoTudo, setPagandoTudo] = useState(false)
 
-  // começa na Temporada 4
-  const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(4)
+  // resetado: começa somente na Temporada 1
+  const [temporadaSelecionada, setTemporadaSelecionada] = useState<number>(1)
   const [divisaoSelecionada, setDivisaoSelecionada] = useState<number | null>(1)
 
   const [jaPagoDivisao, setJaPagoDivisao] = useState<boolean>(false)
@@ -169,11 +169,18 @@ export default function ClassificacaoPage() {
   /** -- agrupamentos/derivações -- */
   const classificacaoPorDivisao = useMemo(() => {
     const map: Record<number, ClassificacaoItem[]> = {}
+
     for (const item of classificacao) {
-      const d = (item.divisao ?? 99) as number
+      const d = Number(item.divisao ?? 0)
+
+      // Mantém a classificação limpa: não mostra Divisão 0, 99 ou valores inválidos.
+      // Assim cada página/aba exibe somente os times da divisão real.
+      if (!Number.isFinite(d) || d <= 0 || d === 99) continue
+
       map[d] ??= []
       map[d].push(item)
     }
+
     return map
   }, [classificacao])
 
@@ -181,6 +188,13 @@ export default function ClassificacaoPage() {
     () => Object.keys(classificacaoPorDivisao).map(Number).sort((a, b) => a - b),
     [classificacaoPorDivisao]
   )
+
+  useEffect(() => {
+    if (divisoesDisponiveis.length === 0) return
+    if (!divisaoSelecionada || !divisoesDisponiveis.includes(divisaoSelecionada)) {
+      setDivisaoSelecionada(divisoesDisponiveis[0])
+    }
+  }, [divisoesDisponiveis, divisaoSelecionada])
 
   const timesDaDivisao = useMemo(() => {
     if (!divisaoSelecionada) return []
@@ -411,7 +425,7 @@ export default function ClassificacaoPage() {
       {/* Controles */}
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-          {[1, 2, 3, 4].map((temp) => (
+          {[1].map((temp) => (
             <button
               key={temp}
               onClick={() => setTemporadaSelecionada(temp)}
