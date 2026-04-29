@@ -44,6 +44,7 @@ type Time = {
   logo_url?: string | null;
   overall?: number | null;
   valor?: number | null;
+  divisao?: string | number | null;
 };
 
 type Copa = {
@@ -118,6 +119,23 @@ function shuffle<T>(arr: T[]) {
   return a;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function cloneGrupos(grupos: Record<string, string[]>) {
+  return {
+    A: [...(grupos.A || [])],
+    B: [...(grupos.B || [])],
+    C: [...(grupos.C || [])],
+    D: [...(grupos.D || [])],
+  };
+}
+
+function vazioGrupos() {
+  return { A: [], B: [], C: [], D: [] } as Record<string, string[]>;
+}
+
 function clampGol(v: unknown) {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -159,6 +177,13 @@ export default function CopaPage() {
   const [aba, setAba] = useState<"selecao" | "grupos" | "jogos" | "mata">(
     "selecao",
   );
+  const [sorteandoAoVivo, setSorteandoAoVivo] = useState(false);
+  const [sorteioConfirmavel, setSorteioConfirmavel] = useState(false);
+  const [previewGrupos, setPreviewGrupos] = useState<Record<string, string[]>>(vazioGrupos());
+  const [poteAtual, setPoteAtual] = useState<number | null>(null);
+  const [grupoAtual, setGrupoAtual] = useState<string | null>(null);
+  const [timeAtual, setTimeAtual] = useState<string | null>(null);
+  const [passoSorteio, setPassoSorteio] = useState(0);
 
   const timesMap = useMemo(() => {
     const map: Record<string, Time> = {};
@@ -166,6 +191,15 @@ export default function CopaPage() {
       map[t.id] = t;
     });
     return map;
+  }, [times]);
+
+  const timesComDivisao = useMemo(() => {
+    return times.filter(
+      (t) =>
+        t.divisao !== null &&
+        t.divisao !== undefined &&
+        String(t.divisao).trim() !== "",
+    );
   }, [times]);
 
   useEffect(() => {
@@ -178,7 +212,9 @@ export default function CopaPage() {
 
     const { data: timesData, error: timesErr } = await supabase
       .from("times")
-      .select("id,nome,logo_url,overall,valor")
+      .select("id,nome,logo_url,overall,valor,divisao")
+      .not("divisao", "is", null)
+      .order("divisao", { ascending: true })
       .order("nome", { ascending: true });
 
     if (timesErr) toast.error("Erro ao carregar times.");
@@ -311,26 +347,11 @@ export default function CopaPage() {
     await carregarTudo();
   }
 
-  async function sortearGruposEGerarJogos() {
-    if (!isAdmin || !copa) return;
-
+  function montarPorPote() {
     if (participantes.length !== 16) {
       toast.error("Salve os 16 participantes primeiro.");
-      return;
+      return null;
     }
-
-    const jogosComPlacar = jogos.some(
-      (j) => j.gols_time1 !== null || j.gols_time2 !== null,
-    );
-    if (
-      jogosComPlacar &&
-      !confirm(
-        "Já existem placares salvos. Sortear novamente apaga os jogos atuais. Continuar?",
-      )
-    )
-      return;
-
-    await supabase.from("copa_jogos").delete().eq("copa_id", copa.id);
 
     const porPote: Record<number, Participante[]> = {
       1: [],
@@ -348,21 +369,122 @@ export default function CopaPage() {
     for (let pote = 1; pote <= 4; pote++) {
       if ((porPote[pote] || []).length !== 4) {
         toast.error(`Pote ${pote} precisa ter 4 times.`);
-        return;
+        return null;
       }
     }
 
-    const grupoTimes: Record<string, string[]> = { A: [], B: [], C: [], D: [] };
+    return porPote;
+  }
+
+  async function iniciarSorteioAnimado() {
+    if (!isAdmin || !copa) return;
+
+    const porPote = montarPorPote();
+    if (!porPote) return;
+
+    const jogosComPlacar = jogos.some(
+      (j) => j.gols_time1 !== null || j.gols_time2 !== null,
+    );
+
+    if (
+      jogosComPlacar &&
+      !confirm(
+        "Já existem placares salvos. O sorteio ainda será só teste, mas confirmar depois apagará os jogos atuais. Continuar?",
+      )
+    ) {
+      return;
+    }
+
+    setAba("grupos");
+    setSorteandoAoVivo(true);
+    setSorteioConfirmavel(false);
+    setPreviewGrupos(vazioGrupos());
+    setPoteAtual(null);
+    setGrupoAtual(null);
+    setTimeAtual(null);
+    setPassoSorteio(0);
+
+    const grupoTimes: Record<string, string[]> = vazioGrupos();
+    let passo = 0;
 
     for (let pote = 1; pote <= 4; pote++) {
       const embaralhado = shuffle(porPote[pote]);
-      GRUPOS.forEach((g, idx) => {
-        grupoTimes[g].push(embaralhado[idx].id_time);
-      });
+
+      for (let idx = 0; idx < GRUPOS.length; idx++) {
+        const grupo = GRUPOS[idx];
+        const time = embaralhado[idx];
+
+        setPoteAtual(pote);
+        setGrupoAtual(grupo);
+        setTimeAtual(time.id_time);
+        setPassoSorteio(++passo);
+
+        await sleep(2000);
+
+        grupoTimes[grupo].push(time.id_time);
+        setPreviewGrupos(cloneGrupos(grupoTimes));
+      }
     }
 
+    setPoteAtual(null);
+    setGrupoAtual(null);
+    setTimeAtual(null);
+    setSorteandoAoVivo(false);
+    setSorteioConfirmavel(true);
+    toast.success("Sorteio teste concluído. Agora confirme para salvar no banco.");
+  }
+
+  function reiniciarSorteioTeste() {
+    if (sorteandoAoVivo) {
+      toast.error("Aguarde o sorteio atual terminar para reiniciar.");
+      return;
+    }
+
+    setPreviewGrupos(vazioGrupos());
+    setSorteioConfirmavel(false);
+    setPoteAtual(null);
+    setGrupoAtual(null);
+    setTimeAtual(null);
+    setPassoSorteio(0);
+    toast("Sorteio teste reiniciado.");
+  }
+
+  async function confirmarSorteioEGerarJogos() {
+    if (!isAdmin || !copa) return;
+
+    const totalPreview = GRUPOS.reduce(
+      (acc, g) => acc + (previewGrupos[g]?.length || 0),
+      0,
+    );
+
+    if (!sorteioConfirmavel || totalPreview !== 16) {
+      toast.error("Faça o sorteio ao vivo completo antes de confirmar.");
+      return;
+    }
+
+    const gruposCom4 = GRUPOS.every((g) => (previewGrupos[g] || []).length === 4);
+    if (!gruposCom4) {
+      toast.error("Todos os grupos precisam ter 4 times.");
+      return;
+    }
+
+    const jogosComPlacar = jogos.some(
+      (j) => j.gols_time1 !== null || j.gols_time2 !== null,
+    );
+
+    if (
+      jogosComPlacar &&
+      !confirm(
+        "Confirmar este sorteio apagará os jogos atuais e placares salvos. Continuar?",
+      )
+    ) {
+      return;
+    }
+
+    await supabase.from("copa_jogos").delete().eq("copa_id", copa.id);
+
     for (const g of GRUPOS) {
-      for (const idTime of grupoTimes[g]) {
+      for (const idTime of previewGrupos[g]) {
         await supabase
           .from("copa_participantes")
           .update({ grupo: g })
@@ -374,7 +496,7 @@ export default function CopaPage() {
     const jogosInsert: any[] = [];
 
     GRUPOS.forEach((g) => {
-      const jogosGrupo = gerarJogosIdaVolta(grupoTimes[g]);
+      const jogosGrupo = gerarJogosIdaVolta(previewGrupos[g]);
       jogosGrupo.forEach((j, idx) => {
         jogosInsert.push({
           copa_id: copa.id,
@@ -397,7 +519,7 @@ export default function CopaPage() {
 
     const { error } = await supabase.from("copa_jogos").insert(jogosInsert);
     if (error) {
-      toast.error("Erro ao gerar jogos.");
+      toast.error("Erro ao confirmar sorteio e gerar jogos.");
       return;
     }
 
@@ -405,16 +527,22 @@ export default function CopaPage() {
       .from("copa")
       .update({ status: "grupos", campeao_id: null })
       .eq("id", copa.id);
+
     await supabase.from("bid").insert({
       tipo_evento: "Sistema",
-      descricao: "Copa Champions sorteada: 4 grupos de 4 times, ida e volta.",
+      descricao: "Copa Champions confirmada: sorteio ao vivo, 4 grupos de 4 times, ida e volta.",
       valor: null,
       data_evento: new Date().toISOString(),
     });
 
-    toast.success("Sorteio Champions realizado! Jogos ida e volta gerados.");
+    toast.success("Sorteio confirmado! Jogos ida e volta gerados.");
+    setSorteioConfirmavel(false);
     setAba("grupos");
     await carregarTudo();
+  }
+
+  async function sortearGruposEGerarJogos() {
+    await iniciarSorteioAnimado();
   }
 
   async function calcularPublicoERendaPeloEstadio(idTime: string) {
@@ -1300,7 +1428,8 @@ export default function CopaPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-black flex items-center gap-2">
-              <FiAward className="text-yellow-300 drop-shadow" /> Copa LigaFut — Champions
+              <FiAward className="text-yellow-300 drop-shadow" /> Copa LigaFut —
+              Champions
             </h1>
             <p className="text-sm text-zinc-400">
               4 grupos de 4 times • ida e volta • top 2 passam • mata-mata por
@@ -1372,9 +1501,13 @@ export default function CopaPage() {
           {isAdmin && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 space-y-4">
               <h2 className="text-xl font-black">1. Selecionar 16 times</h2>
+              <p className="text-sm text-zinc-400">
+                Aparecem aqui somente os times que possuem o campo{" "}
+                <strong>divisao</strong> preenchido.
+              </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-                {times.map((t) => {
+                {timesComDivisao.map((t) => {
                   const checked = selecionados.includes(t.id);
                   return (
                     <button
@@ -1410,8 +1543,8 @@ export default function CopaPage() {
                             {t.nome}
                           </div>
                           <div className="text-xs text-zinc-400">
-                            OVR {t.overall || "-"} •{" "}
-                            {dinheiro(Number(t.valor || 0))}
+                            Divisão {t.divisao ?? "-"} • OVR {t.overall || "-"}{" "}
+                            • {dinheiro(Number(t.valor || 0))}
                           </div>
                         </div>
                       </div>
@@ -1422,6 +1555,29 @@ export default function CopaPage() {
 
               <div className="flex flex-wrap gap-2">
                 <button
+                  onClick={() => {
+                    const ids = timesComDivisao.slice(0, 16).map((t) => t.id);
+                    setSelecionados(ids);
+                    toast.success(
+                      `${ids.length} times com divisão selecionados.`,
+                    );
+                  }}
+                  className="rounded-xl bg-yellow-500/20 px-4 py-2 text-yellow-300 font-black hover:bg-yellow-500/30"
+                >
+                  Selecionar 16 com divisão
+                </button>
+
+                <button
+                  onClick={() => {
+                    setSelecionados([]);
+                    toast("Seleção limpa.");
+                  }}
+                  className="rounded-xl bg-white/10 px-4 py-2 text-white font-black hover:bg-white/20"
+                >
+                  Limpar seleção
+                </button>
+
+                <button
                   onClick={salvarParticipantes}
                   className="rounded-xl bg-emerald-500/20 px-4 py-2 text-emerald-300 font-black hover:bg-emerald-500/30"
                 >
@@ -1429,11 +1585,105 @@ export default function CopaPage() {
                 </button>
 
                 <button
-                  onClick={sortearGruposEGerarJogos}
-                  className="rounded-xl bg-sky-500/20 px-4 py-2 text-sky-300 font-black hover:bg-sky-500/30 flex items-center gap-2"
+                  onClick={iniciarSorteioAnimado}
+                  disabled={sorteandoAoVivo}
+                  className="rounded-xl bg-sky-500/20 px-4 py-2 text-sky-300 font-black hover:bg-sky-500/30 disabled:opacity-50 flex items-center gap-2"
                 >
-                  <FiShuffle /> Sortear grupos e gerar jogos
+                  <FiShuffle /> {sorteandoAoVivo ? "Sorteando..." : "Sorteio ao vivo"}
                 </button>
+
+                <button
+                  onClick={reiniciarSorteioTeste}
+                  disabled={sorteandoAoVivo}
+                  className="rounded-xl bg-white/10 px-4 py-2 text-white font-black hover:bg-white/20 disabled:opacity-50"
+                >
+                  Reiniciar sorteio
+                </button>
+
+                <button
+                  onClick={confirmarSorteioEGerarJogos}
+                  disabled={sorteandoAoVivo || !sorteioConfirmavel}
+                  className="rounded-xl bg-emerald-500/20 px-4 py-2 text-emerald-300 font-black hover:bg-emerald-500/30 disabled:opacity-50"
+                >
+                  Confirmar sorteio
+                </button>
+              </div>
+
+              <div className="mt-5 rounded-3xl border border-white/10 bg-gradient-to-br from-sky-500/10 via-violet-500/10 to-emerald-500/10 p-4 overflow-hidden">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-lg font-black">🎥 Sorteio ao vivo dos grupos</div>
+                    <div className="text-xs text-zinc-400">
+                      Delay de 2 segundos por time. Primeiro teste, depois clique em Confirmar sorteio para salvar no banco.
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-black">
+                    {sorteandoAoVivo ? (
+                      <span className="text-sky-300">Sorteando {passoSorteio}/16</span>
+                    ) : sorteioConfirmavel ? (
+                      <span className="text-emerald-300">Pronto para confirmar</span>
+                    ) : (
+                      <span className="text-zinc-300">Aguardando sorteio</span>
+                    )}
+                  </div>
+                </div>
+
+                {(sorteandoAoVivo || sorteioConfirmavel || passoSorteio > 0) && (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+                    <div className="text-xs uppercase tracking-[0.25em] text-zinc-500 font-black">Agora</div>
+                    <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="h-14 w-14 rounded-2xl bg-white/10 grid place-items-center text-2xl animate-pulse">🏆</div>
+                        <div>
+                          <div className="text-sm text-zinc-400">
+                            {poteAtual ? `Pote ${poteAtual} → Grupo ${grupoAtual}` : "Sorteio finalizado"}
+                          </div>
+                          <div className="text-xl font-black text-white">
+                            {timeAtual ? nomeTime(timeAtual) : "Aguardando confirmação"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {timeAtual && (
+                        <img
+                          src={logoTime(timeAtual)}
+                          className="h-16 w-16 rounded-2xl object-contain bg-black/40 ring-1 ring-white/15 shadow-[0_0_35px_rgba(59,130,246,0.35)]"
+                          alt=""
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
+                  {GRUPOS.map((g) => (
+                    <div key={g} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="font-black">Grupo {g}</div>
+                        <div className="text-xs text-zinc-400">{previewGrupos[g]?.length || 0}/4</div>
+                      </div>
+
+                      <div className="space-y-2 min-h-[176px]">
+                        {(previewGrupos[g] || []).map((id) => (
+                          <div
+                            key={id}
+                            className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-2 animate-[pulse_0.7s_ease-in-out_1]"
+                          >
+                            <img src={logoTime(id)} className="h-7 w-7 object-contain" alt="" />
+                            <span className="truncate text-sm font-bold">{nomeTime(id)}</span>
+                          </div>
+                        ))}
+
+                        {Array.from({ length: Math.max(0, 4 - (previewGrupos[g]?.length || 0)) }).map((_, idx) => (
+                          <div key={idx} className="rounded-xl border border-dashed border-white/10 bg-white/[0.03] p-2 text-sm text-zinc-500">
+                            Aguardando time...
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
