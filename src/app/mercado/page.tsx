@@ -33,6 +33,102 @@ const calcularValorComDesgaste = (valorInicial: number, dataListagem?: string | 
 const formatarValor = (valor: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor || 0)
 
+const formatarDataHora = (valor?: string | null) => {
+  if (!valor) return 'Não definido'
+
+  const data = new Date(valor)
+  if (!Number.isFinite(data.getTime())) return 'Não definido'
+
+  return data.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const converterDatetimeLocalParaISO = (valor: string) => {
+  if (!valor) return null
+  const data = new Date(valor)
+  if (!Number.isFinite(data.getTime())) return null
+  return data.toISOString()
+}
+
+const converterISOParaDatetimeLocal = (valor?: string | null) => {
+  if (!valor) return ''
+
+  const data = new Date(valor)
+  if (!Number.isFinite(data.getTime())) return ''
+
+  const ano = data.getFullYear()
+  const mes = String(data.getMonth() + 1).padStart(2, '0')
+  const dia = String(data.getDate()).padStart(2, '0')
+  const hora = String(data.getHours()).padStart(2, '0')
+  const minuto = String(data.getMinutes()).padStart(2, '0')
+
+  return `${ano}-${mes}-${dia}T${hora}:${minuto}`
+}
+
+type StatusMercadoCalculado = {
+  abertoManual: boolean
+  abertoAgora: boolean
+  abreEm: string | null
+  fechaEm: string | null
+  motivoFechado: string
+}
+
+const calcularStatusMercado = (config: any): StatusMercadoCalculado => {
+  const abertoManual = !!config?.aberto
+  const abreEm = config?.abre_em ?? null
+  const fechaEm = config?.fecha_em ?? null
+
+  const agora = new Date()
+  const dataAbertura = abreEm ? new Date(abreEm) : null
+  const dataFechamento = fechaEm ? new Date(fechaEm) : null
+
+  const aberturaValida = dataAbertura && Number.isFinite(dataAbertura.getTime())
+  const fechamentoValido = dataFechamento && Number.isFinite(dataFechamento.getTime())
+
+  if (!abertoManual) {
+    return {
+      abertoManual,
+      abertoAgora: false,
+      abreEm,
+      fechaEm,
+      motivoFechado: 'Fechado manualmente pelo administrador',
+    }
+  }
+
+  if (aberturaValida && agora < dataAbertura) {
+    return {
+      abertoManual,
+      abertoAgora: false,
+      abreEm,
+      fechaEm,
+      motivoFechado: `Mercado abre em ${formatarDataHora(abreEm)}`,
+    }
+  }
+
+  if (fechamentoValido && agora > dataFechamento) {
+    return {
+      abertoManual,
+      abertoAgora: false,
+      abreEm,
+      fechaEm,
+      motivoFechado: `Mercado fechou em ${formatarDataHora(fechaEm)}`,
+    }
+  }
+
+  return {
+    abertoManual,
+    abertoAgora: true,
+    abreEm,
+    fechaEm,
+    motivoFechado: '',
+  }
+}
+
 function getTimeLogadoLocal(userData?: any) {
   if (typeof window === 'undefined') {
     return {
@@ -294,6 +390,13 @@ export default function MercadoPage() {
   const [msg, setMsg] = useState('')
 
   const [marketStatus, setMarketStatus] = useState<'aberto' | 'fechado'>('fechado')
+  const [mercadoAbertoManual, setMercadoAbertoManual] = useState(false)
+  const [mercadoMotivoFechado, setMercadoMotivoFechado] = useState('')
+  const [mercadoAbreEm, setMercadoAbreEm] = useState<string | null>(null)
+  const [mercadoFechaEm, setMercadoFechaEm] = useState<string | null>(null)
+  const [inputAbreEm, setInputAbreEm] = useState('')
+  const [inputFechaEm, setInputFechaEm] = useState('')
+  const [loadingSalvarHorario, setLoadingSalvarHorario] = useState(false)
 
   useEffect(() => {
     const userStorage = localStorage.getItem('user')
@@ -348,16 +451,24 @@ export default function MercadoPage() {
               physical
             `),
           supabase.from('times').select('saldo').eq('id', identidade.id_time).single(),
-          supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
+          supabase.from('configuracoes').select('aberto, abre_em, fecha_em').eq('id', 'estado_mercado').single(),
         ])
 
         if (resMercado.error) throw resMercado.error
         if (resTime.error) throw resTime.error
         if (resMarketStatus.error) throw resMarketStatus.error
 
+        const statusCalculado = calcularStatusMercado(resMarketStatus.data)
+
         setJogadores(resMercado.data || [])
         setSaldo(resTime.data?.saldo || 0)
-        setMarketStatus(resMarketStatus.data?.aberto ? 'aberto' : 'fechado')
+        setMarketStatus(statusCalculado.abertoAgora ? 'aberto' : 'fechado')
+        setMercadoAbertoManual(statusCalculado.abertoManual)
+        setMercadoMotivoFechado(statusCalculado.motivoFechado)
+        setMercadoAbreEm(statusCalculado.abreEm)
+        setMercadoFechaEm(statusCalculado.fechaEm)
+        setInputAbreEm(converterISOParaDatetimeLocal(statusCalculado.abreEm))
+        setInputFechaEm(converterISOParaDatetimeLocal(statusCalculado.fechaEm))
       } catch (e: any) {
         console.error('Erro ao carregar dados:', e)
         setErro('Erro ao carregar dados. ' + (e?.message || e?.toString() || ''))
@@ -369,6 +480,21 @@ export default function MercadoPage() {
     carregarDados()
   }, [router])
 
+  useEffect(() => {
+    const intervalo = setInterval(() => {
+      const statusCalculado = calcularStatusMercado({
+        aberto: mercadoAbertoManual,
+        abre_em: mercadoAbreEm,
+        fecha_em: mercadoFechaEm,
+      })
+
+      setMarketStatus(statusCalculado.abertoAgora ? 'aberto' : 'fechado')
+      setMercadoMotivoFechado(statusCalculado.motivoFechado)
+    }, 15000)
+
+    return () => clearInterval(intervalo)
+  }, [mercadoAbertoManual, mercadoAbreEm, mercadoFechaEm])
+
   const irParaPagina = (page: number) => {
     setPaginaAtual(page)
     if (typeof window !== 'undefined') {
@@ -378,6 +504,88 @@ export default function MercadoPage() {
 
   const resetarPagina = () => {
     setPaginaAtual(1)
+  }
+
+  const recarregarStatusMercado = async () => {
+    const { data, error } = await supabase
+      .from('configuracoes')
+      .select('aberto, abre_em, fecha_em')
+      .eq('id', 'estado_mercado')
+      .single()
+
+    if (error) throw error
+
+    const statusCalculado = calcularStatusMercado(data)
+
+    setMarketStatus(statusCalculado.abertoAgora ? 'aberto' : 'fechado')
+    setMercadoAbertoManual(statusCalculado.abertoManual)
+    setMercadoMotivoFechado(statusCalculado.motivoFechado)
+    setMercadoAbreEm(statusCalculado.abreEm)
+    setMercadoFechaEm(statusCalculado.fechaEm)
+    setInputAbreEm(converterISOParaDatetimeLocal(statusCalculado.abreEm))
+    setInputFechaEm(converterISOParaDatetimeLocal(statusCalculado.fechaEm))
+
+    return statusCalculado
+  }
+
+  const salvarHorarioMercado = async () => {
+    if (!isAdmin) return
+
+    const abreEmISO = converterDatetimeLocalParaISO(inputAbreEm)
+    const fechaEmISO = converterDatetimeLocalParaISO(inputFechaEm)
+
+    if (abreEmISO && fechaEmISO && new Date(abreEmISO).getTime() >= new Date(fechaEmISO).getTime()) {
+      toast.error('O horário de abertura precisa ser antes do horário de fechamento.')
+      return
+    }
+
+    setLoadingSalvarHorario(true)
+
+    try {
+      const { error } = await supabase
+        .from('configuracoes')
+        .update({
+          abre_em: abreEmISO,
+          fecha_em: fechaEmISO,
+        })
+        .eq('id', 'estado_mercado')
+
+      if (error) throw error
+
+      await recarregarStatusMercado()
+      toast.success('Horário do mercado salvo com sucesso!')
+    } catch (error) {
+      console.error('Erro ao salvar horário do mercado:', error)
+      toast.error('Erro ao salvar horário do mercado.')
+    } finally {
+      setLoadingSalvarHorario(false)
+    }
+  }
+
+  const limparHorarioMercado = async () => {
+    if (!isAdmin) return
+
+    setLoadingSalvarHorario(true)
+
+    try {
+      const { error } = await supabase
+        .from('configuracoes')
+        .update({
+          abre_em: null,
+          fecha_em: null,
+        })
+        .eq('id', 'estado_mercado')
+
+      if (error) throw error
+
+      await recarregarStatusMercado()
+      toast.success('Horários removidos. O mercado agora depende apenas do botão abrir/fechar.')
+    } catch (error) {
+      console.error('Erro ao limpar horário do mercado:', error)
+      toast.error('Erro ao limpar horário do mercado.')
+    } finally {
+      setLoadingSalvarHorario(false)
+    }
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -491,10 +699,19 @@ export default function MercadoPage() {
     reader.readAsArrayBuffer(file)
   }
 
-  const solicitarCompra = (jogador: Jogador) => {
-    if (marketStatus === 'fechado') {
-      toast.error('O mercado está fechado. Não é possível comprar jogadores.')
-      return
+  const solicitarCompra = async (jogador: Jogador) => {
+    try {
+      const statusAtual = await recarregarStatusMercado()
+
+      if (!statusAtual.abertoAgora) {
+        toast.error(statusAtual.motivoFechado || 'O mercado está fechado. Não é possível comprar jogadores.')
+        return
+      }
+    } catch {
+      if (marketStatus === 'fechado') {
+        toast.error(mercadoMotivoFechado || 'O mercado está fechado. Não é possível comprar jogadores.')
+        return
+      }
     }
 
     const valorCompra = calcularValorComDesgaste(jogador.valor, jogador.data_listagem ?? null)
@@ -533,7 +750,7 @@ export default function MercadoPage() {
 
       const [resTime, resMarketStatus, resJogadorMercado] = await Promise.all([
         supabase.from('times').select('saldo').eq('id', idTimeComprador).single(),
-        supabase.from('configuracoes').select('aberto').eq('id', 'estado_mercado').single(),
+        supabase.from('configuracoes').select('aberto, abre_em, fecha_em').eq('id', 'estado_mercado').single(),
         supabase.from('mercado_transferencias').select('*').eq('id', jogadorParaComprar.id).maybeSingle(),
       ])
 
@@ -541,15 +758,19 @@ export default function MercadoPage() {
       if (resMarketStatus.error) throw resMarketStatus.error
       if (resJogadorMercado.error) throw resJogadorMercado.error
 
+      const statusCalculado = calcularStatusMercado(resMarketStatus.data)
       const saldoAtual = Number(resTime.data?.saldo ?? 0)
-      const mercadoAberto = !!resMarketStatus.data?.aberto
       const jogadorMercado = resJogadorMercado.data as any
 
       setSaldo(saldoAtual)
-      setMarketStatus(mercadoAberto ? 'aberto' : 'fechado')
+      setMarketStatus(statusCalculado.abertoAgora ? 'aberto' : 'fechado')
+      setMercadoAbertoManual(statusCalculado.abertoManual)
+      setMercadoMotivoFechado(statusCalculado.motivoFechado)
+      setMercadoAbreEm(statusCalculado.abreEm)
+      setMercadoFechaEm(statusCalculado.fechaEm)
 
-      if (!mercadoAberto) {
-        toast.error('O mercado foi fechado. Não é possível comprar agora.')
+      if (!statusCalculado.abertoAgora) {
+        toast.error(statusCalculado.motivoFechado || 'O mercado está fechado. Não é possível comprar agora.')
         return
       }
 
@@ -783,15 +1004,15 @@ export default function MercadoPage() {
     if (!isAdmin) return
     setLoading(true)
     try {
-      const novoStatus = marketStatus === 'aberto' ? false : true
+      const novoStatus = !mercadoAbertoManual
       const { error } = await supabase
         .from('configuracoes')
         .update({ aberto: novoStatus })
         .eq('id', 'estado_mercado')
 
       if (error) throw error
-      setMarketStatus(novoStatus ? 'aberto' : 'fechado')
-      toast.success(`Mercado ${novoStatus ? 'aberto' : 'fechado'} com sucesso!`)
+      await recarregarStatusMercado()
+      toast.success(`Mercado ${novoStatus ? 'liberado pelo admin' : 'fechado manualmente'} com sucesso!`)
     } catch (error) {
       console.error('Erro ao alterar status do mercado:', error)
       toast.error('Erro ao alterar status do mercado.')
@@ -892,8 +1113,15 @@ export default function MercadoPage() {
           <div className="mx-auto max-w-7xl px-4 py-5">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                  Mercado ativo
+                <div
+                  className={[
+                    'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]',
+                    mercadoFechado
+                      ? 'border-red-500/20 bg-red-500/10 text-red-300'
+                      : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300',
+                  ].join(' ')}
+                >
+                  {mercadoFechado ? 'Mercado fechado' : 'Mercado aberto'}
                 </div>
 
                 <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">
@@ -926,12 +1154,12 @@ export default function MercadoPage() {
                       disabled={loading}
                       className={[
                         'rounded-2xl px-4 py-2.5 text-sm font-bold transition',
-                        mercadoFechado
+                        !mercadoAbertoManual
                           ? 'bg-green-600 text-white hover:bg-green-700'
                           : 'bg-yellow-500 text-black hover:bg-yellow-400',
                       ].join(' ')}
                     >
-                      {loading ? 'Processando...' : mercadoFechado ? 'Abrir mercado' : 'Fechar mercado'}
+                      {loading ? 'Processando...' : !mercadoAbertoManual ? 'Liberar mercado' : 'Fechar manualmente'}
                     </button>
 
                     <button
@@ -968,6 +1196,73 @@ export default function MercadoPage() {
             <ResumoCard titulo="Jogadores no mercado" valor={String(jogadores.length)} subtitulo="Total de atletas listados" />
             <ResumoCard titulo="Overall médio" valor={String(mediaOverall)} subtitulo="Nível médio dos jogadores" />
             <ResumoCard titulo="Mais caro" valor={maisCaro ? formatarValor(maisCaro.valor) : '—'} subtitulo={maisCaro ? maisCaro.nome : 'Sem dados'} />
+          </div>
+
+          <div className="mb-6 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl backdrop-blur-md">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-lg font-extrabold text-white">Janela do mercado</h2>
+                <p className="mt-1 text-sm text-white/60">
+                  {mercadoFechado
+                    ? mercadoMotivoFechado || 'O mercado está fechado no momento.'
+                    : 'O mercado está aberto para compras.'}
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-white/70 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2">
+                    <span className="text-white/45">Abre em:</span>{' '}
+                    <strong className="text-emerald-300">{formatarDataHora(mercadoAbreEm)}</strong>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2">
+                    <span className="text-white/45">Fecha em:</span>{' '}
+                    <strong className="text-red-300">{formatarDataHora(mercadoFechaEm)}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div className="grid w-full gap-3 lg:max-w-2xl lg:grid-cols-[1fr_1fr_auto_auto]">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-[0.14em] text-white/45">
+                      Abrir em
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={inputAbreEm}
+                      onChange={(e) => setInputAbreEm(e.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition focus:border-green-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase tracking-[0.14em] text-white/45">
+                      Fechar em
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={inputFechaEm}
+                      onChange={(e) => setInputFechaEm(e.target.value)}
+                      className="w-full rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm outline-none transition focus:border-green-500"
+                    />
+                  </div>
+
+                  <button
+                    onClick={salvarHorarioMercado}
+                    disabled={loadingSalvarHorario}
+                    className="self-end rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {loadingSalvarHorario ? 'Salvando...' : 'Salvar horário'}
+                  </button>
+
+                  <button
+                    onClick={limparHorarioMercado}
+                    disabled={loadingSalvarHorario}
+                    className="self-end rounded-2xl border border-white/10 bg-gray-800 px-4 py-3 text-sm font-black text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Limpar
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl backdrop-blur-md">
