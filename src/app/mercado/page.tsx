@@ -725,6 +725,80 @@ export default function MercadoPage() {
     setModalComprarVisivel(true)
   }
 
+  const registrarFinanceiroCompraMercado = async ({
+    idTimeComprador,
+    jogadorMercado,
+    valorCompra,
+    saldoAtual,
+    novoSaldo,
+  }: {
+    idTimeComprador: string
+    jogadorMercado: any
+    valorCompra: number
+    saldoAtual: number
+    novoSaldo: number
+  }) => {
+    const registrar = registrarMovimentacao as unknown as (payload: any) => Promise<boolean>
+
+    const ok = await registrar({
+      id_time: idTimeComprador,
+      tipo: 'saida',
+      valor: valorCompra,
+      descricao: `Compra no mercado: ${jogadorMercado.nome}`,
+      origem: 'mercado_transferencias',
+      id_referencia: String(jogadorMercado.id),
+      saldo_antes: saldoAtual,
+      saldo_depois: novoSaldo,
+    })
+
+    if (!ok) {
+      console.warn('⚠️ Compra mantida, mas a movimentação financeira não foi registrada.')
+    }
+  }
+
+  const registrarBIDCompraMercado = async ({
+    idTimeComprador,
+    nomeTimeComprador,
+    jogadorMercado,
+    valorCompra,
+  }: {
+    idTimeComprador: string
+    nomeTimeComprador: string
+    jogadorMercado: any
+    valorCompra: number
+  }) => {
+    const descricaoCompra = `${nomeTimeComprador} comprou ${jogadorMercado.nome} no Mercado de Transferências por ${formatarValor(valorCompra)}.`
+
+    const payloadCompleto = {
+      tipo_evento: 'compra_mercado',
+      descricao: descricaoCompra,
+      id_time1: idTimeComprador,
+      id_time2: null,
+      valor: valorCompra,
+      nome_jogador: jogadorMercado.nome,
+      foto_jogador_url: jogadorMercado.imagem_url || jogadorMercado.foto || null,
+      data_evento: new Date().toISOString(),
+    }
+
+    const { error } = await supabase.from('bid').insert(payloadCompleto)
+
+    if (!error) return
+
+    console.warn('⚠️ Erro ao registrar BID completo. Tentando payload básico:', error)
+
+    const { error: errorBasico } = await supabase.from('bid').insert({
+      tipo_evento: 'compra_mercado',
+      descricao: descricaoCompra,
+      id_time1: idTimeComprador,
+      valor: valorCompra,
+      data_evento: new Date().toISOString(),
+    })
+
+    if (errorBasico) {
+      console.warn('⚠️ Compra mantida, mas não foi possível registrar no BID:', errorBasico)
+    }
+  }
+
   const confirmarCompra = async () => {
     if (!jogadorParaComprar || !user) {
       setModalComprarVisivel(false)
@@ -871,34 +945,25 @@ export default function MercadoPage() {
         throw errorUpdateSaldo
       }
 
-      const descricaoCompra = `${nomeTimeComprador} comprou ${jogadorMercado.nome} no Mercado de Transferências por ${formatarValor(valorCompra)}.`
-
       try {
-        await registrarMovimentacao({
-          id_time: idTimeComprador,
-          tipo: 'saida',
-          valor: valorCompra,
-          descricao: `Compra no mercado: ${jogadorMercado.nome}`,
+        await registrarFinanceiroCompraMercado({
+          idTimeComprador,
+          jogadorMercado,
+          valorCompra,
+          saldoAtual,
+          novoSaldo,
         })
       } catch (e) {
         console.warn('⚠️ Erro ao registrar no painel financeiro, mas compra mantida:', e)
       }
 
       try {
-        const { error: errorBID } = await supabase.from('bid').insert({
-          tipo_evento: 'compra_mercado',
-          descricao: descricaoCompra,
-          id_time1: idTimeComprador,
-          id_time2: null,
-          valor: valorCompra,
-          nome_jogador: jogadorMercado.nome,
-          foto_jogador_url: jogadorMercado.imagem_url || jogadorMercado.foto || null,
-          data_evento: new Date().toISOString(),
+        await registrarBIDCompraMercado({
+          idTimeComprador,
+          nomeTimeComprador,
+          jogadorMercado,
+          valorCompra,
         })
-
-        if (errorBID) {
-          console.warn('⚠️ Erro ao registrar compra no BID, mas compra mantida:', errorBID)
-        }
       } catch (e) {
         console.warn('⚠️ Erro inesperado ao registrar compra no BID, mas compra mantida:', e)
       }
