@@ -1,6 +1,7 @@
 'use client'
 
 import CardJogador from '@/components/CardJogador'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast, { Toaster } from 'react-hot-toast'
@@ -11,7 +12,13 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-type StatusProposta = 'pendente' | 'aceita' | 'recusada'
+const STATUS = {
+  PENDENTE: 'pendente',
+  ACEITA: 'aceita',
+  RECUSADA: 'recusada',
+} as const
+
+type StatusProposta = (typeof STATUS)[keyof typeof STATUS]
 type AbaFiltro = 'pendentes' | 'concluidas'
 
 type JogadorCard = {
@@ -121,9 +128,9 @@ const tipoLabel = (tipo?: string | null) => {
 }
 
 const statusStyle: Record<StatusProposta, string> = {
-  pendente: 'border-yellow-400/30 bg-yellow-400/10 text-yellow-200',
-  aceita: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200',
-  recusada: 'border-red-400/30 bg-red-400/10 text-red-200',
+  pendente: 'border-yellow-400/30 bg-yellow-400/10 text-yellow-200 shadow-yellow-500/10',
+  aceita: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200 shadow-emerald-500/10',
+  recusada: 'border-red-400/30 bg-red-400/10 text-red-200 shadow-red-500/10',
 }
 
 const statusLabel: Record<StatusProposta, string> = {
@@ -132,22 +139,41 @@ const statusLabel: Record<StatusProposta, string> = {
   recusada: 'Recusada',
 }
 
+const pageFade = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { duration: 0.35, staggerChildren: 0.08 } },
+}
+
+const itemUp = {
+  hidden: { opacity: 0, y: 18, scale: 0.98 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35 } },
+}
+
 function ResumoCard({
   titulo,
   valor,
   subtitulo,
+  delay = 0,
 }: {
   titulo: string
   valor: string
   subtitulo: string
+  delay?: number
 }) {
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.055] p-4 shadow-2xl backdrop-blur-xl">
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.35 }}
+      whileHover={{ y: -4, scale: 1.01 }}
+      className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.055] p-4 shadow-2xl backdrop-blur-xl"
+    >
       <div className="absolute -right-10 -top-10 h-24 w-24 rounded-full bg-emerald-400/10 blur-2xl" />
-      <div className="text-[11px] font-black uppercase tracking-[0.22em] text-white/45">{titulo}</div>
-      <div className="mt-2 text-2xl font-black text-white">{valor}</div>
-      <div className="mt-1 text-xs text-white/55">{subtitulo}</div>
-    </div>
+      <div className="absolute -bottom-10 left-4 h-20 w-20 rounded-full bg-yellow-300/10 blur-2xl" />
+      <div className="relative text-[11px] font-black uppercase tracking-[0.22em] text-white/45">{titulo}</div>
+      <div className="relative mt-2 text-2xl font-black text-white">{valor}</div>
+      <div className="relative mt-1 text-xs text-white/55">{subtitulo}</div>
+    </motion.div>
   )
 }
 
@@ -159,7 +185,7 @@ function Badge({
   className?: string
 }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] ${className}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] shadow-lg ${className}`}>
       {children}
     </span>
   )
@@ -184,13 +210,15 @@ function ActionButton({
         : 'border border-white/10 bg-white/5 text-white hover:bg-white/10'
 
   return (
-    <button
+    <motion.button
+      whileHover={disabled ? undefined : { y: -2, scale: 1.02 }}
+      whileTap={disabled ? undefined : { scale: 0.97 }}
       onClick={onClick}
       disabled={disabled}
       className={`inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-50 ${cls}`}
     >
       {children}
-    </button>
+    </motion.button>
   )
 }
 
@@ -211,11 +239,21 @@ function EmptyState({
   subtitle: string
 }) {
   return (
-    <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.035] p-10 text-center shadow-xl backdrop-blur-xl">
-      <div className="text-4xl">📭</div>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-3xl border border-dashed border-white/10 bg-white/[0.035] p-10 text-center shadow-xl backdrop-blur-xl"
+    >
+      <motion.div
+        animate={{ y: [0, -7, 0] }}
+        transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+        className="text-4xl"
+      >
+        📭
+      </motion.div>
       <div className="mt-3 text-lg font-black text-white">{title}</div>
       <div className="mt-1 text-sm text-white/50">{subtitle}</div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -230,6 +268,7 @@ export default function PropostasRecebidasPage() {
   const [loadingPropostaId, setLoadingPropostaId] = useState<string | null>(null)
   const [deletingPropostaId, setDeletingPropostaId] = useState<string | null>(null)
   const [aba, setAba] = useState<AbaFiltro>('pendentes')
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string>('')
 
   useEffect(() => {
     const id_time = localStorage.getItem('id_time') || ''
@@ -325,7 +364,7 @@ export default function PropostasRecebidasPage() {
           .from('propostas_app')
           .select('*')
           .eq('id_time_alvo', id_time)
-          .eq('status', 'pendente')
+          .eq('status', STATUS.PENDENTE)
           .order('created_at', { ascending: false })
           .limit(20),
 
@@ -333,7 +372,7 @@ export default function PropostasRecebidasPage() {
           .from('propostas_app')
           .select('*')
           .eq('id_time_alvo', id_time)
-          .not('status', 'eq', 'pendente')
+          .not('status', 'eq', STATUS.PENDENTE)
           .order('created_at', { ascending: false })
           .limit(12),
       ])
@@ -364,6 +403,7 @@ export default function PropostasRecebidasPage() {
       )
 
       await buscarJogadoresOferecidos(idsOferecidos)
+      setUltimaAtualizacao(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
     } catch (e) {
       console.error(e)
       toast.error('Erro ao carregar propostas recebidas.')
@@ -429,7 +469,7 @@ export default function PropostasRecebidasPage() {
     try {
       const { error: eStatus } = await supabase
         .from('propostas_app')
-        .update({ status: 'aceita', aceita_em: new Date().toISOString() })
+        .update({ status: STATUS.ACEITA, aceita_em: new Date().toISOString() })
         .eq('id', proposta.id)
 
       if (eStatus) throw eStatus
@@ -473,6 +513,10 @@ export default function PropostasRecebidasPage() {
           tipo: 'saida',
           valor: valorTransacao,
           descricao: `Compra de ${jogadorData.nome} via proposta`,
+          origem: 'propostas_recebidas',
+          id_referencia: proposta.id,
+          saldo_antes: saldoCompradorAntes,
+          saldo_depois: saldoCompradorDepois,
         } as any)
 
         await registrarMovimentacao({
@@ -480,6 +524,10 @@ export default function PropostasRecebidasPage() {
           tipo: 'entrada',
           valor: valorTransacao,
           descricao: `Venda de ${jogadorData.nome} via proposta`,
+          origem: 'propostas_recebidas',
+          id_referencia: proposta.id,
+          saldo_antes: saldoVendedorAntes,
+          saldo_depois: saldoVendedorDepois,
         } as any)
 
         const extraTroca = isTrocaComposta && offeredNamesForBid.length ? ` + ${offeredNamesForBid.join(', ')}` : ''
@@ -570,7 +618,10 @@ export default function PropostasRecebidasPage() {
       })
 
       setPendentes((prev) => prev.filter((p) => p.id !== proposta.id))
-      setConcluidas((prev) => [{ ...proposta, status: 'aceita' }, ...prev].slice(0, 12))
+      setConcluidas((prev) => [
+        { ...proposta, status: STATUS.ACEITA },
+        ...prev,
+      ].slice(0, 12))
       setAba('concluidas')
     } catch (err) {
       console.error(err)
@@ -588,7 +639,7 @@ export default function PropostasRecebidasPage() {
 
     const { error } = await supabase
       .from('propostas_app')
-      .update({ status: 'recusada' })
+      .update({ status: STATUS.RECUSADA })
       .eq('id', id)
 
     if (error) {
@@ -605,14 +656,17 @@ export default function PropostasRecebidasPage() {
     })
 
     setPendentes((prev) => prev.filter((p) => p.id !== id))
-    setConcluidas((prev) => [{ ...recusada, status: 'recusada' }, ...prev].slice(0, 12))
+    setConcluidas((prev) => [
+      { ...recusada, status: STATUS.RECUSADA },
+      ...prev,
+    ].slice(0, 12))
     setAba('concluidas')
     toast('Proposta recusada.', { icon: '❌' })
   }
 
   const excluirProposta = async (p: Proposta) => {
     const textoAviso =
-      p.status === 'aceita'
+      p.status === STATUS.ACEITA
         ? 'Excluir esta proposta do histórico? Isso NÃO desfaz a transferência.'
         : 'Excluir esta proposta?'
 
@@ -650,24 +704,36 @@ export default function PropostasRecebidasPage() {
     return Math.max(...todas.map((p) => Number(p.valor_oferecido || 0)))
   }, [pendentes, concluidas])
 
-  const renderProposta = (p: Proposta) => {
+  const renderProposta = (p: Proposta, index: number) => {
     const jog = jogadores[p.jogador_id]
     const offeredIds = extractOfferedIds(p.jogadores_oferecidos)
     const offeredRows = offeredIds.map((id) => jogadoresOferecidosData[id]).filter(Boolean)
     const status = p.status as StatusProposta
-    const isPendente = status === 'pendente'
+    const isPendente = status === STATUS.PENDENTE
 
     return (
-      <article
+      <motion.article
+        layout
         key={p.id}
+        variants={itemUp}
+        initial="hidden"
+        animate="show"
+        exit={{ opacity: 0, y: -15, scale: 0.98, transition: { duration: 0.2 } }}
+        transition={{ delay: index * 0.035 }}
+        whileHover={{ y: -3 }}
         className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045] p-4 shadow-2xl backdrop-blur-xl"
       >
+        <motion.div
+          animate={{ x: ['-20%', '120%'] }}
+          transition={{ duration: 5.5, repeat: Infinity, ease: 'linear' }}
+          className="pointer-events-none absolute top-0 h-px w-1/2 bg-gradient-to-r from-transparent via-emerald-300/50 to-transparent"
+        />
         <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-emerald-400/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-yellow-400/10 blur-3xl" />
 
         <div className="relative flex flex-wrap items-center justify-between gap-2">
           <Badge className={statusStyle[status]}>
-            {status === 'pendente' ? '⏳' : status === 'aceita' ? '✅' : '❌'} {statusLabel[status]}
+            {status === STATUS.PENDENTE ? '⏳' : status === STATUS.ACEITA ? '✅' : '❌'} {statusLabel[status]}
           </Badge>
 
           <Badge className="border-white/10 bg-black/30 text-white/70">
@@ -676,7 +742,12 @@ export default function PropostasRecebidasPage() {
         </div>
 
         <div className="relative mt-4 grid gap-4 lg:grid-cols-[270px_1fr]">
-          <div className="flex justify-center">
+          <motion.div
+            initial={{ opacity: 0, rotateY: -8 }}
+            animate={{ opacity: 1, rotateY: 0 }}
+            transition={{ duration: 0.35, delay: index * 0.04 }}
+            className="flex justify-center"
+          >
             <CardJogador
               modo="elenco"
               jogador={{
@@ -703,7 +774,7 @@ export default function PropostasRecebidasPage() {
                 phy: jog?.phy ?? jog?.physical ?? null,
               }}
             />
-          </div>
+          </motion.div>
 
           <div className="min-w-0">
             <div className="rounded-3xl border border-white/10 bg-black/25 p-4">
@@ -711,61 +782,72 @@ export default function PropostasRecebidasPage() {
               <div className="mt-1 text-2xl font-black text-white">{p.nome_time_origem || 'Clube interessado'}</div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <motion.div whileHover={{ scale: 1.02 }} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
                   <div className="text-[11px] uppercase tracking-[0.14em] text-white/40">Valor</div>
                   <div className="mt-1 text-lg font-black text-emerald-300">{toBRL(p.valor_oferecido ?? null)}</div>
-                </div>
+                </motion.div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <motion.div whileHover={{ scale: 1.02 }} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
                   <div className="text-[11px] uppercase tracking-[0.14em] text-white/40">Enviada</div>
                   <div className="mt-1 text-sm font-bold text-white/80">{formatData(p.created_at)}</div>
-                </div>
+                </motion.div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <motion.div whileHover={{ scale: 1.02 }} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
                   <div className="text-[11px] uppercase tracking-[0.14em] text-white/40">Percentual</div>
                   <div className="mt-1 text-sm font-bold text-white/80">
                     {['comprar_percentual', 'percentual'].includes(normalizarTipo(p.tipo_proposta))
                       ? `${p.percentual_desejado || p.percentual || 0}%`
                       : '—'}
                   </div>
-                </div>
+                </motion.div>
               </div>
 
-              {offeredRows.length > 0 && (
-                <div className="mt-4">
-                  <div className="mb-2 text-xs font-black uppercase tracking-[0.16em] text-white/45">
-                    Jogadores oferecidos na troca
-                  </div>
+              <AnimatePresence>
+                {offeredRows.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-4 overflow-hidden"
+                  >
+                    <div className="mb-2 text-xs font-black uppercase tracking-[0.16em] text-white/45">
+                      Jogadores oferecidos na troca
+                    </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {offeredRows.map((j) => (
-                      <div
-                        key={j.id}
-                        className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={j.imagem_url || j.foto || '/jogador_padrao.png'}
-                            alt={j.nome}
-                            className="h-12 w-12 rounded-2xl object-cover ring-1 ring-white/10"
-                            onError={(e) => {
-                              ;(e.currentTarget as HTMLImageElement).src = '/jogador_padrao.png'
-                            }}
-                          />
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {offeredRows.map((j, i) => (
+                        <motion.div
+                          key={j.id}
+                          initial={{ opacity: 0, x: 12 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.06 }}
+                          whileHover={{ y: -2, scale: 1.02 }}
+                          className="rounded-2xl border border-white/10 bg-white/[0.05] p-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={j.imagem_url || j.foto || '/jogador_padrao.png'}
+                              alt={j.nome}
+                              className="h-12 w-12 rounded-2xl object-cover ring-1 ring-white/10"
+                              onError={(e) => {
+                                ;(e.currentTarget as HTMLImageElement).src = '/jogador_padrao.png'
+                              }}
+                            />
 
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-black text-white">{j.nome}</div>
-                            <div className="text-xs text-white/50">
-                              {j.posicao || '—'} • OVR {j.overall ?? 0}
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-black text-white">{j.nome}</div>
+                              <div className="text-xs text-white/50">
+                                {j.posicao || '—'} • OVR {j.overall ?? 0}
+                              </div>
+                              <div className="text-xs font-bold text-emerald-300">{toBRL(j.valor)}</div>
                             </div>
-                            <div className="text-xs font-bold text-emerald-300">{toBRL(j.valor)}</div>
                           </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 {isPendente && (
@@ -807,7 +889,7 @@ export default function PropostasRecebidasPage() {
             </div>
           </div>
         </div>
-      </article>
+      </motion.article>
     )
   }
 
@@ -823,21 +905,37 @@ export default function PropostasRecebidasPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#123524_0%,#050505_42%,#000_100%)] text-white">
+    <main className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,#123524_0%,#050505_42%,#000_100%)] text-white">
       <Toaster position="top-right" />
 
       <div className="pointer-events-none fixed inset-0 opacity-40">
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.035)_1px,transparent_1px)] bg-[size:42px_42px]" />
-        <div className="absolute left-1/2 top-0 h-72 w-72 -translate-x-1/2 rounded-full bg-emerald-400/20 blur-3xl" />
+        <motion.div
+          animate={{ backgroundPosition: ['0px 0px', '42px 42px'] }}
+          transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
+          className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.035)_1px,transparent_1px)] bg-[size:42px_42px]"
+        />
+        <motion.div
+          animate={{ scale: [1, 1.2, 1], opacity: [0.35, 0.65, 0.35] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+          className="absolute left-1/2 top-0 h-72 w-72 -translate-x-1/2 rounded-full bg-emerald-400/20 blur-3xl"
+        />
+        <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-yellow-400/10 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 py-6">
-        <section className="mb-6 overflow-hidden rounded-[2rem] border border-white/10 bg-black/35 p-5 shadow-2xl backdrop-blur-xl">
+      <motion.div variants={pageFade} initial="hidden" animate="show" className="relative mx-auto max-w-7xl px-4 py-6">
+        <motion.section
+          variants={itemUp}
+          className="mb-6 overflow-hidden rounded-[2rem] border border-white/10 bg-black/35 p-5 shadow-2xl backdrop-blur-xl"
+        >
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="inline-flex rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-emerald-200">
+              <motion.div
+                animate={{ boxShadow: ['0 0 0 rgba(16,185,129,0)', '0 0 24px rgba(16,185,129,.25)', '0 0 0 rgba(16,185,129,0)'] }}
+                transition={{ duration: 2.6, repeat: Infinity }}
+                className="inline-flex rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-emerald-200"
+              >
                 Central de negociações
-              </div>
+              </motion.div>
 
               <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">
                 <span className="bg-gradient-to-r from-emerald-300 via-yellow-200 to-lime-300 bg-clip-text text-transparent">
@@ -848,74 +946,101 @@ export default function PropostasRecebidasPage() {
               <p className="mt-3 max-w-2xl text-sm text-white/60">
                 Analise ofertas pelo seu elenco, aceite transferências, recuse propostas e acompanhe o histórico recente.
               </p>
+
+              {ultimaAtualizacao && (
+                <p className="mt-2 text-xs text-white/40">Última atualização: {ultimaAtualizacao}</p>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
+              <motion.button
+                whileHover={{ y: -2, scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => idTime && carregarPropostas(idTime)}
                 className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/[0.1]"
               >
                 🔄 Atualizar
-              </button>
+              </motion.button>
             </div>
           </div>
-        </section>
+        </motion.section>
 
         <section className="mb-6 grid gap-4 sm:grid-cols-3">
-          <ResumoCard titulo="Pendentes" valor={String(pendentes.length)} subtitulo="Aguardando sua decisão" />
-          <ResumoCard titulo="Valor em aberto" valor={toBRL(totalValorPendente)} subtitulo="Soma das propostas pendentes" />
-          <ResumoCard titulo="Maior oferta" valor={toBRL(maiorOferta)} subtitulo="Entre recebidas e concluídas" />
+          <ResumoCard titulo="Pendentes" valor={String(pendentes.length)} subtitulo="Aguardando sua decisão" delay={0.05} />
+          <ResumoCard titulo="Valor em aberto" valor={toBRL(totalValorPendente)} subtitulo="Soma das propostas pendentes" delay={0.1} />
+          <ResumoCard titulo="Maior oferta" valor={toBRL(maiorOferta)} subtitulo="Entre recebidas e concluídas" delay={0.15} />
         </section>
 
-        <section className="mb-6 rounded-3xl border border-white/10 bg-white/[0.045] p-3 shadow-xl backdrop-blur-xl">
+        <motion.section variants={itemUp} className="mb-6 rounded-3xl border border-white/10 bg-white/[0.045] p-3 shadow-xl backdrop-blur-xl">
           <div className="flex flex-wrap gap-2">
-            <button
+            <motion.button
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.97 }}
               onClick={() => setAba('pendentes')}
               className={[
                 'rounded-2xl px-4 py-2.5 text-sm font-black transition',
                 aba === 'pendentes'
-                  ? 'bg-emerald-400 text-black'
+                  ? 'bg-emerald-400 text-black shadow-lg shadow-emerald-500/20'
                   : 'border border-white/10 bg-black/30 text-white hover:bg-white/10',
               ].join(' ')}
             >
               ⏳ Pendentes ({pendentes.length})
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.97 }}
               onClick={() => setAba('concluidas')}
               className={[
                 'rounded-2xl px-4 py-2.5 text-sm font-black transition',
                 aba === 'concluidas'
-                  ? 'bg-yellow-300 text-black'
+                  ? 'bg-yellow-300 text-black shadow-lg shadow-yellow-500/20'
                   : 'border border-white/10 bg-black/30 text-white hover:bg-white/10',
               ].join(' ')}
             >
               📜 Concluídas ({concluidas.length})
-            </button>
+            </motion.button>
           </div>
-        </section>
+        </motion.section>
 
-        {loadingInicial ? (
-          <div className="grid gap-5">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-80 animate-pulse rounded-[2rem] border border-white/10 bg-white/[0.045]" />
-            ))}
-          </div>
-        ) : propostasVisiveis.length === 0 ? (
-          <EmptyState
-            title={aba === 'pendentes' ? 'Nenhuma proposta pendente' : 'Nenhuma proposta concluída'}
-            subtitle={
-              aba === 'pendentes'
-                ? 'Quando algum clube enviar proposta por seus jogadores, ela aparecerá aqui.'
-                : 'Propostas aceitas e recusadas aparecerão nesta área.'
-            }
-          />
-        ) : (
-          <div className="grid gap-5">
-            {propostasVisiveis.map(renderProposta)}
-          </div>
-        )}
-      </div>
+        <AnimatePresence mode="wait">
+          {loadingInicial ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="grid gap-5"
+            >
+              {Array.from({ length: 3 }).map((_, i) => (
+                <motion.div
+                  key={i}
+                  animate={{ opacity: [0.35, 0.75, 0.35] }}
+                  transition={{ duration: 1.4, repeat: Infinity, delay: i * 0.15 }}
+                  className="h-80 rounded-[2rem] border border-white/10 bg-white/[0.045]"
+                />
+              ))}
+            </motion.div>
+          ) : propostasVisiveis.length === 0 ? (
+            <motion.div key="empty" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              <EmptyState
+                title={aba === 'pendentes' ? 'Nenhuma proposta pendente' : 'Nenhuma proposta concluída'}
+                subtitle={
+                  aba === 'pendentes'
+                    ? 'Quando algum clube enviar proposta por seus jogadores, ela aparecerá aqui.'
+                    : 'Propostas aceitas e recusadas aparecerão nesta área.'
+                }
+              />
+            </motion.div>
+          ) : (
+            <motion.div key={aba} variants={pageFade} initial="hidden" animate="show" exit={{ opacity: 0, y: 10 }} className="grid gap-5">
+              <AnimatePresence>
+                {propostasVisiveis.map((p, index) => renderProposta(p, index))}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </main>
   )
 }
