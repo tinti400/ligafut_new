@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { supabase } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import * as XLSX from 'xlsx'
 import {
@@ -46,7 +46,7 @@ type JogadorBase = {
   destino: string | null
 }
 
-const supabase = createClient()
+
 
 function dinheiro(valor?: number | null) {
   return Number(valor || 0).toLocaleString('pt-BR', {
