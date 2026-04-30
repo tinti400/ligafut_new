@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import ImagemComFallback from '@/components/ImagemComFallback'
@@ -386,24 +386,24 @@ export default function NegociacoesPage() {
 
   // ===== UI Helpers =====
   const InputBase =
-    'w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-emerald-600/60 focus:border-emerald-600/40'
+    'w-full rounded-2xl border border-white/10 bg-black/45 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-500/25'
 
   const ButtonBase =
-    'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-emerald-600/60 disabled:opacity-60 disabled:cursor-not-allowed'
+    'inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-black transition focus:outline-none focus:ring-2 focus:ring-emerald-600/60 disabled:opacity-60 disabled:cursor-not-allowed'
 
   const EmptyState = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-8 text-center">
-      <div className="text-lg font-semibold text-zinc-200">{title}</div>
-      {subtitle && <div className="mt-1 text-sm text-zinc-400">{subtitle}</div>}
+    <div className="rounded-2xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl p-8 text-center">
+      <div className="text-lg font-semibold text-white/85">{title}</div>
+      {subtitle && <div className="mt-1 text-sm text-white/50">{subtitle}</div>}
     </div>
   )
 
   const SkeletonCard = () => (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4 animate-pulse">
-      <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-zinc-800" />
-      <div className="mb-2 h-3 rounded bg-zinc-800" />
-      <div className="mx-auto mb-3 h-3 w-3/5 rounded bg-zinc-800" />
-      <div className="mx-auto h-3 w-2/5 rounded bg-zinc-800" />
+    <div className="rounded-2xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl p-4 animate-pulse">
+      <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-white/10" />
+      <div className="mb-2 h-3 rounded bg-white/10" />
+      <div className="mx-auto mb-3 h-3 w-3/5 rounded bg-white/10" />
+      <div className="mx-auto h-3 w-2/5 rounded bg-white/10" />
     </div>
   )
 
@@ -416,14 +416,14 @@ export default function NegociacoesPage() {
       </div>
 
       {/* Topbar */}
-      <header className="sticky top-0 z-30 border-b border-zinc-800/70 bg-black/40 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-black/40 backdrop-blur">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg sm:text-2xl font-extrabold tracking-tight">
-              📩 Negociações <span className="ml-2 text-xs sm:text-sm font-semibold text-zinc-400">Entre clubes</span>
+              ⚽ LigaFut Negociações <span className="ml-2 text-xs sm:text-sm font-semibold text-white/50">Central de propostas</span>
             </h1>
-            <div className="text-[11px] sm:text-xs text-zinc-500">
-              Envie propostas • Trocas • Percentual • Controle suas pendências
+            <div className="text-[11px] sm:text-xs text-white/40">
+              Mercado entre clubes • Trocas • Percentual • Pendências em tempo real
             </div>
           </div>
 
@@ -434,19 +434,37 @@ export default function NegociacoesPage() {
                 Seu time: <b className="text-white">{nome_time}</b>
               </span>
             ) : (
-              <span className="text-xs text-zinc-400">—</span>
+              <span className="text-xs text-white/50">—</span>
             )}
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+      <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6">
+        <div className="overflow-hidden rounded-[34px] border border-white/10 bg-[linear-gradient(135deg,rgba(16,185,129,.18),rgba(255,255,255,.055)_45%,rgba(250,204,21,.10))] p-5 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="inline-flex rounded-full border border-yellow-300/20 bg-yellow-300/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-yellow-200">LigaFut • Mercado de negociações</div>
+              <h2 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-5xl">Negocie como dirigente</h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Mantive sua lógica e dei upgrade no visual: cards em glass, fundo dark premium, detalhes neon e experiência melhor no mobile.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[520px]">
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-3"><div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Clubes</div><div className="mt-1 text-2xl font-black">{times.length}</div></div>
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-3"><div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Elenco alvo</div><div className="mt-1 text-2xl font-black">{elencoAdversario.length}</div></div>
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-3"><div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Pendentes</div><div className="mt-1 text-2xl font-black">{pendentes.length}</div></div>
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-3"><div className="text-[10px] uppercase tracking-[0.18em] text-white/40">Meu time</div><div className="mt-1 truncate text-sm font-black text-emerald-200">{nome_time || '—'}</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 px-4 py-4 sm:gap-6 sm:px-6 sm:py-6 lg:grid-cols-12">
         {/* Painéis Mobile */}
         <div className="lg:hidden space-y-3">
-          <details className="rounded-2xl border border-zinc-800/70 bg-zinc-950/40 p-3" open>
+          <details className="rounded-2xl border border-white/10 bg-white/[0.055] shadow-2xl shadow-black/30 backdrop-blur-xl p-3" open>
             <summary className="list-none flex items-center justify-between cursor-pointer">
               <h2 className="text-base font-semibold">🎯 Selecionar Time</h2>
-              <span className="text-sm text-zinc-500">abrir/fechar</span>
+              <span className="text-sm text-white/40">abrir/fechar</span>
             </summary>
 
             <div className="mt-3 space-y-3">
@@ -473,16 +491,16 @@ export default function NegociacoesPage() {
                     setFiltro('')
                     setTimeSelecionado('')
                   }}
-                  className={`${ButtonBase} w-full border border-zinc-800 bg-zinc-950/40 hover:bg-zinc-900/60`}
+                  className={`${ButtonBase} w-full border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl hover:bg-white/10`}
                 >
                   Limpar seleção
                 </button>
-                {carregandoTimes && <span className="text-xs text-zinc-400">carregando…</span>}
+                {carregandoTimes && <span className="text-xs text-white/50">carregando…</span>}
               </div>
             </div>
           </details>
 
-          <details className="rounded-2xl border border-zinc-800/70 bg-zinc-950/40 p-3">
+          <details className="rounded-2xl border border-white/10 bg-white/[0.055] shadow-2xl shadow-black/30 backdrop-blur-xl p-3">
             <summary className="list-none flex items-center justify-between cursor-pointer">
               <h2 className="text-base font-semibold">🕒 Minhas pendências</h2>
               <button
@@ -490,7 +508,7 @@ export default function NegociacoesPage() {
                   e.preventDefault()
                   fetchPendentes()
                 }}
-                className="text-xs px-2 py-1 rounded-lg border border-zinc-800 hover:bg-zinc-900/60"
+                className="text-xs px-2 py-1 rounded-lg border border-white/10 hover:bg-white/10"
                 title="Atualizar"
               >
                 Atualizar
@@ -500,8 +518,8 @@ export default function NegociacoesPage() {
             <div className="mt-3">
               {carregandoPendentes ? (
                 <div className="space-y-2">
-                  <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
-                  <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
+                  <div className="h-10 rounded-xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl animate-pulse" />
+                  <div className="h-10 rounded-xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl animate-pulse" />
                 </div>
               ) : pendentes.length === 0 ? (
                 <EmptyState title="Nenhuma proposta pendente" subtitle="Envie uma proposta para ver aqui." />
@@ -512,14 +530,14 @@ export default function NegociacoesPage() {
                     return (
                       <div
                         key={p.id}
-                        className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 hover:bg-zinc-900/40 transition"
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl px-3 py-2 hover:bg-white/10 transition"
                       >
                         <div className="min-w-0">
                           <div className="text-sm font-semibold truncate">
                             {nome}{' '}
-                            <span className="ml-1 text-zinc-400 font-medium">• {p.tipo_proposta.replaceAll('_', ' ')}</span>
+                            <span className="ml-1 text-white/50 font-medium">• {p.tipo_proposta.replaceAll('_', ' ')}</span>
                           </div>
-                          <div className="text-[11px] text-zinc-500">
+                          <div className="text-[11px] text-white/40">
                             {p.valor_oferecido != null ? `Valor: ${formatBRL(p.valor_oferecido)}` : 'Sem valor'}
                             {p.percentual ? ` • %: ${p.percentual}%` : ''}
                             {' • '} {formatDataCurta(p.created_at)}
@@ -529,7 +547,7 @@ export default function NegociacoesPage() {
                         <button
                           onClick={() => excluirProposta(p.id)}
                           disabled={!!excluindo[p.id]}
-                          className={`${ButtonBase} ${excluindo[p.id] ? 'bg-zinc-800' : 'bg-red-600 hover:bg-red-700'}`}
+                          className={`${ButtonBase} ${excluindo[p.id] ? 'bg-white/10' : 'bg-red-600 hover:bg-red-700'}`}
                           title="Excluir proposta"
                         >
                           {excluindo[p.id] ? 'Excluindo…' : 'Excluir'}
@@ -545,9 +563,9 @@ export default function NegociacoesPage() {
 
         {/* Lateral Desktop */}
         <aside className="hidden lg:flex lg:flex-col lg:col-span-4 space-y-4">
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-4">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.055] shadow-2xl shadow-black/30 backdrop-blur-xl p-4">
             <h2 className="text-lg font-semibold mb-1">🎯 Selecionar Time Alvo</h2>
-            <p className="text-xs text-zinc-500 mb-3">Escolha um clube para listar o elenco e enviar proposta.</p>
+            <p className="text-xs text-white/40 mb-3">Escolha um clube para listar o elenco e enviar proposta.</p>
 
             <input
               type="text"
@@ -576,25 +594,25 @@ export default function NegociacoesPage() {
                   setFiltro('')
                   setTimeSelecionado('')
                 }}
-                className={`${ButtonBase} border border-zinc-800 bg-zinc-950/40 hover:bg-zinc-900/60`}
+                className={`${ButtonBase} border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl hover:bg-white/10`}
               >
                 Limpar seleção
               </button>
 
-              {carregandoTimes && <span className="text-xs text-zinc-400">carregando…</span>}
+              {carregandoTimes && <span className="text-xs text-white/50">carregando…</span>}
             </div>
           </div>
 
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-4">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.055] shadow-2xl shadow-black/30 backdrop-blur-xl p-4">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h2 className="text-lg font-semibold">🕒 Minhas pendências</h2>
-                <p className="text-xs text-zinc-500">Propostas pendentes que você pode cancelar.</p>
+                <p className="text-xs text-white/40">Propostas pendentes que você pode cancelar.</p>
               </div>
 
               <button
                 onClick={fetchPendentes}
-                className="text-xs px-2 py-1 rounded-lg border border-zinc-800 hover:bg-zinc-900/60"
+                className="text-xs px-2 py-1 rounded-lg border border-white/10 hover:bg-white/10"
                 title="Atualizar"
               >
                 Atualizar
@@ -603,8 +621,8 @@ export default function NegociacoesPage() {
 
             {carregandoPendentes ? (
               <div className="space-y-2">
-                <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
-                <div className="h-10 rounded-xl border border-zinc-800 bg-zinc-950/40 animate-pulse" />
+                <div className="h-10 rounded-xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl animate-pulse" />
+                <div className="h-10 rounded-xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl animate-pulse" />
               </div>
             ) : pendentes.length === 0 ? (
               <EmptyState title="Nenhuma proposta pendente" subtitle="Envie uma proposta para ver aqui." />
@@ -615,14 +633,14 @@ export default function NegociacoesPage() {
                   return (
                     <div
                       key={p.id}
-                      className="group flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/40 px-3 py-2 hover:bg-zinc-900/40 transition"
+                      className="group flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl px-3 py-2 hover:bg-white/10 transition"
                     >
                       <div className="min-w-0">
                         <div className="text-sm font-semibold truncate">
                           {nome}{' '}
-                          <span className="ml-1 text-zinc-400 font-medium">• {p.tipo_proposta.replaceAll('_', ' ')}</span>
+                          <span className="ml-1 text-white/50 font-medium">• {p.tipo_proposta.replaceAll('_', ' ')}</span>
                         </div>
-                        <div className="text-[11px] text-zinc-500">
+                        <div className="text-[11px] text-white/40">
                           {p.valor_oferecido != null ? `Valor: ${formatBRL(p.valor_oferecido)}` : 'Sem valor'}
                           {p.percentual ? ` • %: ${p.percentual}%` : ''}
                           {' • '} {formatDataCurta(p.created_at)}
@@ -632,7 +650,7 @@ export default function NegociacoesPage() {
                       <button
                         onClick={() => excluirProposta(p.id)}
                         disabled={!!excluindo[p.id]}
-                        className={`${ButtonBase} ${excluindo[p.id] ? 'bg-zinc-800' : 'bg-red-600 hover:bg-red-700'}`}
+                        className={`${ButtonBase} ${excluindo[p.id] ? 'bg-white/10' : 'bg-red-600 hover:bg-red-700'}`}
                         title="Excluir proposta"
                       >
                         {excluindo[p.id] ? 'Excluindo…' : 'Excluir'}
@@ -647,17 +665,17 @@ export default function NegociacoesPage() {
 
         {/* Conteúdo principal */}
         <section className="lg:col-span-8">
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-3 sm:p-4">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.055] shadow-2xl shadow-black/30 backdrop-blur-xl p-3 sm:p-4">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h2 className="text-base sm:text-lg font-semibold">
                   👥 Jogadores do {timeSelecionado ? 'time selecionado' : 'adversário'}
                 </h2>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-white/40">
                   Clique em <b>Fazer proposta</b> no card para abrir o painel.
                 </p>
               </div>
-              {carregandoElencos && <span className="text-xs text-zinc-400">carregando elenco…</span>}
+              {carregandoElencos && <span className="text-xs text-white/50">carregando elenco…</span>}
             </div>
 
             {!timeSelecionado ? (
@@ -731,13 +749,13 @@ export default function NegociacoesPage() {
                           setJogadorSelecionadoId((prev) => (prev === jogador.id ? '' : jogador.id))
                           setTipoProposta((prev) => ({ ...prev, [jogador.id]: prev[jogador.id] ?? 'dinheiro' }))
                         }}
-                        className="mt-2 text-[11px] text-zinc-400 underline hover:no-underline"
+                        className="mt-2 text-[11px] text-white/50 underline hover:no-underline"
                       >
                         {sel ? 'Fechar painel' : 'Abrir painel'}
                       </button>
 
                       {sel && (
-                        <div className="mt-4 w-full max-w-[320px] rounded-3xl border border-zinc-800/70 bg-zinc-950/40 p-4">
+                        <div className="mt-4 w-full max-w-[320px] rounded-3xl border border-white/10 bg-white/[0.055] shadow-2xl shadow-black/30 backdrop-blur-xl p-4">
                           {temPendentes && (
                             <div className="mb-3 rounded-2xl border border-amber-600/30 bg-amber-500/10 px-3 py-2 text-amber-200">
                               <div className="text-[12px] font-semibold">
@@ -755,7 +773,7 @@ export default function NegociacoesPage() {
 
                           <div className="space-y-3">
                             <div>
-                              <label className="text-xs font-semibold text-zinc-300">Tipo de proposta</label>
+                              <label className="text-xs font-semibold text-white/70">Tipo de proposta</label>
                               <select
                                 className={`${InputBase} mt-1`}
                                 value={tp}
@@ -769,14 +787,14 @@ export default function NegociacoesPage() {
                                 <option value="comprar_percentual">📈 Comprar percentual</option>
                               </select>
 
-                              <div className="mt-1 text-[11px] text-zinc-500">
+                              <div className="mt-1 text-[11px] text-white/40">
                                 Dica: em <b>Troca</b>, selecione jogadores do seu elenco com <b>≥ 3 jogos</b>.
                               </div>
                             </div>
 
                             {(tp === 'dinheiro' || tp === 'troca_composta' || tp === 'comprar_percentual') && (
                               <div>
-                                <label className="text-xs font-semibold text-zinc-300">
+                                <label className="text-xs font-semibold text-white/70">
                                   Valor oferecido (R$){tp === 'troca_composta' ? ' — opcional' : ''}:
                                 </label>
                                 <input
@@ -791,7 +809,7 @@ export default function NegociacoesPage() {
 
                             {tp === 'comprar_percentual' && (
                               <div>
-                                <label className="text-xs font-semibold text-zinc-300">Percentual desejado (%)</label>
+                                <label className="text-xs font-semibold text-white/70">Percentual desejado (%)</label>
                                 <input
                                   type="number"
                                   min={1}
@@ -807,12 +825,12 @@ export default function NegociacoesPage() {
                             )}
 
                             {(tp === 'troca_simples' || tp === 'troca_composta') && (
-                              <div className="rounded-2xl border border-zinc-800/70 bg-zinc-950/30 p-3">
+                              <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                                 <div className="flex items-end justify-between gap-2">
-                                  <label className="text-xs font-semibold text-zinc-300">
+                                  <label className="text-xs font-semibold text-white/70">
                                     Jogadores oferecidos (mín. 1 / ≥ 3 jogos)
                                   </label>
-                                  <div className="text-[11px] text-zinc-500">
+                                  <div className="text-[11px] text-white/40">
                                     Selecionados:{' '}
                                     <b className="text-white">{(jogadoresOferecidos[jogador.id] || []).length}</b>
                                   </div>
@@ -829,7 +847,7 @@ export default function NegociacoesPage() {
                                         className={`flex items-center justify-between gap-2 rounded-2xl p-2 border transition ${
                                           marcado
                                             ? 'border-emerald-500/60 bg-emerald-900/15'
-                                            : 'border-zinc-800/70 bg-zinc-950/40 hover:bg-zinc-900/40'
+                                            : 'border-white/10 bg-white/[0.055] shadow-2xl shadow-black/30 backdrop-blur-xl hover:bg-white/10'
                                         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                         onClick={() => toggleOferecido(jogador.id, j.id, j.podeOferecer)}
                                       >
@@ -852,9 +870,9 @@ export default function NegociacoesPage() {
 
                                           <div className="min-w-0">
                                             <div className="truncate text-[13px] font-semibold">
-                                              {j.nome} <span className="text-zinc-400 font-medium">• {j.posicao}</span>
+                                              {j.nome} <span className="text-white/50 font-medium">• {j.posicao}</span>
                                             </div>
-                                            <div className="text-[12px] text-zinc-400">{formatBRL(j.valor)}</div>
+                                            <div className="text-[12px] text-white/50">{formatBRL(j.valor)}</div>
                                           </div>
                                         </div>
 
@@ -862,7 +880,7 @@ export default function NegociacoesPage() {
                                           className={`text-[11px] px-2 py-0.5 rounded-full border ${
                                             j.podeOferecer
                                               ? 'border-emerald-600/40 bg-emerald-700/20 text-emerald-200'
-                                              : 'border-zinc-700 bg-zinc-800/40 text-zinc-300'
+                                              : 'border-zinc-700 bg-white/10/40 text-white/70'
                                           }`}
                                           title={j.podeOferecer ? 'Apto para troca' : 'Menos de 3 jogos'}
                                         >
@@ -880,7 +898,7 @@ export default function NegociacoesPage() {
                               disabled={disableEnviar || !!enviando[jogador.id]}
                               className={`${ButtonBase} w-full py-3 text-sm font-extrabold ${
                                 disableEnviar || enviando[jogador.id]
-                                  ? 'bg-zinc-800'
+                                  ? 'bg-white/10'
                                   : 'bg-emerald-600 hover:bg-emerald-700 shadow-[0_0_0_1px_rgba(16,185,129,.25)]'
                               }`}
                             >
@@ -888,7 +906,7 @@ export default function NegociacoesPage() {
                             </button>
 
                             {(valorInvalido || invalidoPercentual || jogadoresVazios) && (
-                              <div className="text-[11px] text-zinc-500">
+                              <div className="text-[11px] text-white/40">
                                 {valorInvalido && '• Informe um valor numérico. '}
                                 {invalidoPercentual && '• Informe um percentual válido (1 a 100). '}
                                 {jogadoresVazios && '• Selecione ao menos 1 jogador para troca. '}
