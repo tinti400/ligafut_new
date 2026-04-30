@@ -776,10 +776,10 @@ export default function Sidebar() {
                     <div className="ml-3 mt-2 space-y-1 text-sm">
                       <NavLink href="/mercado">💸 Mercado</NavLink>
                       <NavLink href="/negociacoes">🤝 Negociações</NavLink>
-                      <NavLink href="/propostas-recebidas" badge={<Badge n={countRecebidas} />}>
+                      <NavLink href="/propostas_recebidas" badge={<Badge n={countRecebidas} />}>
                         📥 Propostas Recebidas
                       </NavLink>
-                      <NavLink href="/propostas-enviadas" badge={<Badge n={countEnviadas} tone="amber" />}>
+                      <NavLink href="/propostas_enviadas" badge={<Badge n={countEnviadas} tone="amber" />}>
                         📤 Propostas Enviadas
                       </NavLink>
                       <NavLink href="/leilao">🎯 Leilão do Sistema</NavLink>
