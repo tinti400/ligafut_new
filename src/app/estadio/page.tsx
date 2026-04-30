@@ -16,14 +16,12 @@ import {
   type PriceMap,
 } from '@/utils/estadioEngine'
 
-// Componente 3D (mini)
 const StadiumMini3D = dynamic(() => import('@/components/StadiumMini3D'), { ssr: false })
 
-// ===== Constantes
-const UPGRADE_COST = 150_000_000
+const BASE_UPGRADE_COST = 150_000_000
 const GROWTH_PER_LEVEL = 1.12
+const UPGRADE_MULTIPLIER = 1.45
 
-// ===== Supabase
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -38,8 +36,6 @@ type EstadioRow = {
   socio_percentual?: number | null
   socio_preco?: number | null
   infra_score?: number | null
-
-  // contexto persistido
   ctx_importancia?: 'normal' | 'decisao' | 'final' | null
   ctx_derby?: boolean | null
   ctx_clima?: 'bom' | 'chuva' | null
@@ -48,14 +44,18 @@ type EstadioRow = {
   ctx_forca_adv?: number | null
   ctx_moral_tecnico?: number | null
   ctx_moral_torcida?: number | null
+  snapshot_proximo_jogo?: any
+  naming_rights_nome?: string | null
+  naming_rights_valor?: number | null
+  naming_rights_ativo?: boolean | null
 }
 
 export default function EstadioPage() {
   const [estadio, setEstadio] = useState<EstadioRow | null>(null)
   const [prices, setPrices] = useState<PriceMap>(() => ({ ...referencePrices(1) }))
   const [saldo, setSaldo] = useState(0)
+  const [emprestimoAtivo, setEmprestimoAtivo] = useState(false)
 
-  // contexto
   const [importance, setImportance] = useState<'normal' | 'decisao' | 'final'>('normal')
   const [derby, setDerby] = useState(false)
   const [weather, setWeather] = useState<'bom' | 'chuva'>('bom')
@@ -65,47 +65,49 @@ export default function EstadioPage() {
   const [moraleTec, setMoraleTec] = useState(7.5)
   const [moraleTor, setMoraleTor] = useState(60)
 
-  // extras
   const [sociosPct, setSociosPct] = useState(15)
   const [sociosPreco, setSociosPreco] = useState(25)
   const [infraScore, setInfraScore] = useState(55)
 
-  // 3D
   const [previewLevel, setPreviewLevel] = useState(1)
   const [previewNight, setPreviewNight] = useState(false)
-
-  // equilíbrio preço x público (0..1) para autopreço equilibrado
   const [balanceWeight, setBalanceWeight] = useState(0.35)
 
-  const idTime =
-    typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
-  const nomeTime =
-    typeof window !== 'undefined' ? localStorage.getItem('nome_time') || '' : ''
+  const [saving, setSaving] = useState(false)
+  const [upgrading, setUpgrading] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const idTime = typeof window !== 'undefined' ? localStorage.getItem('id_time') || '' : ''
+  const nomeTime = typeof window !== 'undefined' ? localStorage.getItem('nome_time') || '' : ''
 
   useEffect(() => {
     if (!idTime) return
-    loadEstadio()
-    loadSaldo()
-    loadMorais()
+    loadAll()
   }, [idTime])
+
+  async function loadAll() {
+    await Promise.all([loadEstadio(), loadSaldo(), loadMorais(), verificarEmprestimoAtivo()])
+  }
 
   useEffect(() => {
     if (estadio?.nivel) setPreviewLevel(estadio.nivel)
   }, [estadio?.nivel])
 
-  async function loadEstadio() {
-    const { data, error } = await supabase
-      .from('estadios')
-      .select('*')
+  async function verificarEmprestimoAtivo() {
+    const { data } = await supabase
+      .from('emprestimos')
+      .select('id')
       .eq('id_time', idTime)
-      .maybeSingle()
+      .eq('status', 'ativo')
+      .limit(1)
 
-    if (error) {
-      console.warn('[loadEstadio] supabase error:', error.message)
-    }
+    setEmprestimoAtivo(!!data?.length)
+  }
+
+  async function loadEstadio() {
+    const { data } = await supabase.from('estadios').select('*').eq('id_time', idTime).maybeSingle()
 
     if (!data) {
-      // cria registro inicial
       const refLvl1 = referencePrices(1)
       const novo: EstadioRow = {
         id_time: idTime,
@@ -113,33 +115,28 @@ export default function EstadioPage() {
         nivel: 1,
         capacidade: 18000,
         ...Object.fromEntries(
-          (Object.keys(sectorProportion) as Sector[]).map((s) => [
-            `preco_${s}`,
-            refLvl1[s],
-          ])
+          (Object.keys(sectorProportion) as Sector[]).map((s) => [`preco_${s}`, refLvl1[s]])
         ),
         socio_percentual: 15,
         socio_preco: 25,
         infra_score: 55,
       }
+
       await supabase.from('estadios').insert(novo)
       setEstadio(novo)
       setPrices({ ...refLvl1 })
-      setSociosPct(15)
-      setSociosPreco(25)
-      setInfraScore(55)
       return
     }
 
-    // normaliza preços
     const lvl = clamp(Number(data.nivel || 1), 1, NIVEL_MAXIMO)
-    const patch: Partial<EstadioRow> = {}
     const refLvl = referencePrices(lvl)
     const loaded: PriceMap = { ...refLvl }
+    const patch: any = {}
 
     ;(Object.keys(sectorProportion) as Sector[]).forEach((s) => {
       const col = `preco_${s}` as const
       const v = Number((data as any)[col])
+
       if (!Number.isFinite(v) || v <= 0) {
         patch[col] = refLvl[s]
         loaded[s] = refLvl[s]
@@ -152,59 +149,27 @@ export default function EstadioPage() {
       await supabase.from('estadios').update(patch).eq('id_time', idTime)
     }
 
-    setEstadio(data as EstadioRow)
+    const d = data as EstadioRow
+
+    setEstadio(d)
     setPrices(loaded)
 
-    // carrega contexto persistido, se existir
-    const d = data as EstadioRow
-    if (typeof d.ctx_importancia === 'string') setImportance(d.ctx_importancia)
-    if (typeof d.ctx_derby === 'boolean') setDerby(!!d.ctx_derby)
-    if (typeof d.ctx_clima === 'string') setWeather(d.ctx_clima)
-    if (typeof d.ctx_dia === 'string') setDayType(d.ctx_dia)
-    if (typeof d.ctx_horario === 'string') setDayTime(d.ctx_horario)
-    if (typeof d.ctx_forca_adv === 'number') setOpponentStrength(d.ctx_forca_adv || 0)
-    if (typeof d.ctx_moral_tecnico === 'number') setMoraleTec(d.ctx_moral_tecnico || 0)
-    if (typeof d.ctx_moral_torcida === 'number') setMoraleTor(d.ctx_moral_torcida || 0)
-
-    if (typeof d.socio_percentual === 'number') setSociosPct(d.socio_percentual || 0)
-    if (typeof d.socio_preco === 'number') setSociosPreco(d.socio_preco || 0)
-    if (typeof d.infra_score === 'number') setInfraScore(d.infra_score || 50)
-
-    // fallback: se não tem ctx_* no banco, tenta cache local
-    if (
-      d.ctx_importancia == null &&
-      typeof window !== 'undefined'
-    ) {
-      const raw = localStorage.getItem(`ctx_estadio_${idTime}`)
-      if (raw) {
-        try {
-          const cache = JSON.parse(raw)
-          if (cache) {
-            if (cache.importance) setImportance(cache.importance)
-            if (typeof cache.derby === 'boolean') setDerby(cache.derby)
-            if (cache.weather) setWeather(cache.weather)
-            if (cache.dayType) setDayType(cache.dayType)
-            if (cache.dayTime) setDayTime(cache.dayTime)
-            if (typeof cache.opponentStrength === 'number') setOpponentStrength(cache.opponentStrength)
-            if (typeof cache.moraleTec === 'number') setMoraleTec(cache.moraleTec)
-            if (typeof cache.moraleTor === 'number') setMoraleTor(cache.moraleTor)
-            if (typeof cache.sociosPct === 'number') setSociosPct(cache.sociosPct)
-            if (typeof cache.sociosPreco === 'number') setSociosPreco(cache.sociosPreco)
-            if (typeof cache.infraScore === 'number') setInfraScore(cache.infraScore)
-            if (cache.prices) setPrices(cache.prices)
-          }
-        } catch {}
-      }
-    }
+    if (d.ctx_importancia) setImportance(d.ctx_importancia)
+    if (typeof d.ctx_derby === 'boolean') setDerby(d.ctx_derby)
+    if (d.ctx_clima) setWeather(d.ctx_clima)
+    if (d.ctx_dia) setDayType(d.ctx_dia)
+    if (d.ctx_horario) setDayTime(d.ctx_horario)
+    if (typeof d.ctx_forca_adv === 'number') setOpponentStrength(d.ctx_forca_adv)
+    if (typeof d.ctx_moral_tecnico === 'number') setMoraleTec(d.ctx_moral_tecnico)
+    if (typeof d.ctx_moral_torcida === 'number') setMoraleTor(d.ctx_moral_torcida)
+    if (typeof d.socio_percentual === 'number') setSociosPct(d.socio_percentual)
+    if (typeof d.socio_preco === 'number') setSociosPreco(d.socio_preco)
+    if (typeof d.infra_score === 'number') setInfraScore(d.infra_score)
   }
 
   async function loadSaldo() {
-    const { data } = await supabase
-      .from('times')
-      .select('saldo')
-      .eq('id', idTime)
-      .maybeSingle()
-    if (data?.saldo != null) setSaldo(data.saldo)
+    const { data } = await supabase.from('times').select('saldo').eq('id', idTime).maybeSingle()
+    if (data?.saldo != null) setSaldo(Number(data.saldo))
   }
 
   async function loadMorais() {
@@ -213,25 +178,28 @@ export default function EstadioPage() {
       .select('pontos')
       .eq('id_time', idTime)
       .maybeSingle()
+
     if (c?.pontos != null) {
       const pts = Number(c.pontos) || 0
       const mt = clamp(4 + Math.min(6, pts / 10), 0, 10)
       setMoraleTec(mt)
       await supabase.from('times').update({ moral_tecnico: mt }).eq('id', idTime)
     }
+
     const { data: t } = await supabase
       .from('times')
       .select('moral_torcida')
       .eq('id', idTime)
       .maybeSingle()
-    if (t?.moral_torcida != null) setMoraleTor(t.moral_torcida || 50)
+
+    if (t?.moral_torcida != null) setMoraleTor(Number(t.moral_torcida) || 50)
   }
 
-  // ======= helpers
   const level = estadio?.nivel ?? 1
   const capacity = estadio?.capacidade ?? 10000
   const refPrices = referencePrices(level)
   const limits = priceLimits(level)
+  const custoUpgrade = Math.round(BASE_UPGRADE_COST * Math.pow(UPGRADE_MULTIPLIER, level - 1))
 
   const ctx: EstadioContext = useMemo(
     () => ({
@@ -266,7 +234,20 @@ export default function EstadioPage() {
 
   const result = useMemo(() => simulate(capacity, prices, ctx), [capacity, prices, ctx])
 
-  // Projeções (cards da maquete)
+  const alertas = useMemo(() => {
+    const arr: { tipo: 'ok' | 'warn' | 'danger'; texto: string }[] = []
+    const occ = result.occupancy
+
+    if (occ < 0.5) arr.push({ tipo: 'danger', texto: 'Ocupação muito baixa. Reduza preços ou melhore moral/infra.' })
+    if (occ > 0.95) arr.push({ tipo: 'ok', texto: 'Estádio quase lotado. Dá para testar aumento de preço.' })
+    if (result.profit < 0) arr.push({ tipo: 'danger', texto: 'Renda líquida negativa. O estádio está dando prejuízo.' })
+    if (infraScore < 40) arr.push({ tipo: 'warn', texto: 'Infraestrutura baixa. Pode reduzir público e aumentar custos.' })
+    if (weather === 'chuva') arr.push({ tipo: 'warn', texto: 'Chuva reduz demanda e aumenta custo operacional.' })
+    if (derby || importance !== 'normal') arr.push({ tipo: 'ok', texto: 'Jogo grande: potencial alto de renda.' })
+
+    return arr
+  }, [result.occupancy, result.profit, infraScore, weather, derby, importance])
+
   const baseCapL1 = useMemo(() => {
     const est = Math.round(capacity / Math.pow(GROWTH_PER_LEVEL, level - 1))
     return Math.max(1000, est)
@@ -276,25 +257,23 @@ export default function EstadioPage() {
     const arr: { lvl: number; cap: number; sim: ReturnType<typeof simulate> }[] = []
     for (let lvl = 1; lvl <= NIVEL_MAXIMO; lvl++) {
       const cap = Math.round(baseCapL1 * Math.pow(GROWTH_PER_LEVEL, lvl - 1))
-      const pricesRef = referencePrices(lvl)
-      const ctxLvl: EstadioContext = { ...ctx, level: lvl }
-      const sim = simulate(cap, pricesRef, ctxLvl)
+      const sim = simulate(cap, referencePrices(lvl), { ...ctx, level: lvl })
       arr.push({ lvl, cap, sim })
     }
     return arr
   }, [baseCapL1, ctx])
 
-  // ======= ações
   function setPrice(s: Sector, v: number) {
     setPrices((p) => ({ ...p, [s]: clamp(Math.round(v || 0), 1, limits[s]) }))
   }
 
-  // Salva tudo: contexto + preços + sócios/infra
   async function saveEverything() {
     if (!estadio) return
 
+    setSaving(true)
+    setMsg(null)
+
     const payload: any = {
-      // contexto
       ctx_importancia: importance,
       ctx_derby: derby,
       ctx_clima: weather,
@@ -303,608 +282,530 @@ export default function EstadioPage() {
       ctx_forca_adv: opponentStrength,
       ctx_moral_tecnico: moraleTec,
       ctx_moral_torcida: moraleTor,
-      // sócios/infra
       socio_percentual: sociosPct,
       socio_preco: sociosPreco,
       infra_score: infraScore,
     }
+
     ;(Object.keys(prices) as Sector[]).forEach((s) => {
       payload[`preco_${s}`] = prices[s]
     })
 
     const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
 
+    setSaving(false)
+
     if (error) {
-      console.warn('[saveEverything] erro:', error.message)
-      alert('Não foi possível salvar agora.')
+      setMsg(`Erro ao salvar: ${error.message}`)
       return
     }
 
-    // cache de segurança: mantém UI e fallback se ctx_* não existir
-    localStorage.setItem(
-      `ctx_estadio_${idTime}`,
-      JSON.stringify({
-        importance,
-        derby,
-        weather,
-        dayType,
-        dayTime,
-        opponentStrength,
-        moraleTec,
-        moraleTor,
-        sociosPct,
-        sociosPreco,
-        infraScore,
-        prices,
-      })
-    )
-
-    setEstadio((e) => (e ? ({ ...(e as any), ...payload } as any) : e))
-    alert('✅ Parâmetros e preços salvos!')
+    setEstadio((e) => (e ? ({ ...e, ...payload } as any) : e))
+    setMsg('Parâmetros, preços e contexto salvos com sucesso.')
   }
 
-  // (opcional) salvar só preços/sócios/infra — continua disponível no card “Preços por setor”
-  async function saveAll() {
+  async function salvarSnapshotProximoJogo() {
     if (!estadio) return
-    const payload: any = {}
-    ;(Object.keys(prices) as Sector[]).forEach((s) => (payload[`preco_${s}`] = prices[s]))
-    payload.socio_percentual = sociosPct
-    payload.socio_preco = sociosPreco
-    payload.infra_score = infraScore
 
-    const { error } = await supabase.from('estadios').update(payload).eq('id_time', idTime)
-    if (error) {
-      console.warn('[saveAll] erro:', error.message)
-      alert('Não foi possível salvar agora.')
-    } else {
-      alert('💾 Preços/Sócios/Infra salvos!')
-      setEstadio((e) => (e ? ({ ...(e as any), ...payload } as any) : e))
-      localStorage.setItem(
-        `ctx_estadio_${idTime}`,
-        JSON.stringify({
-          importance,
-          derby,
-          weather,
-          dayType,
-          dayTime,
-          opponentStrength,
-          moraleTec,
-          moraleTor,
-          sociosPct,
-          sociosPreco,
-          infraScore,
-          prices,
-        })
-      )
+    const snapshot = {
+      criado_em: new Date().toISOString(),
+      capacidade: capacity,
+      nivel: level,
+      prices,
+      contexto: ctx,
+      simulacao: {
+        publico: result.totalAudience,
+        renda_bruta: result.totalRevenue,
+        renda_liquida: result.profit,
+        custo_fixo: result.fixedCost,
+        custo_variavel: result.variableCost,
+        custo_total: result.totalCost,
+        ocupacao: result.occupancy,
+        renda_ingressos: result.revenueTickets,
+        renda_socios: result.revenueSocios,
+      },
     }
+
+    const { error } = await supabase
+      .from('estadios')
+      .update({ snapshot_proximo_jogo: snapshot })
+      .eq('id_time', idTime)
+
+    if (error) {
+      setMsg(`Erro ao salvar snapshot: ${error.message}`)
+      return
+    }
+
+    await supabase.from('estadio_snapshots').insert({
+      id_time: idTime,
+      nome_time: nomeTime,
+      nivel: level,
+      capacidade: capacity,
+      publico_estimado: result.totalAudience,
+      renda_bruta: result.totalRevenue,
+      renda_liquida: result.profit,
+      ocupacao: result.occupancy,
+      dados: snapshot,
+      criado_em: new Date().toISOString(),
+    })
+
+    setMsg('Snapshot salvo para o próximo jogo.')
   }
 
   function autoPriceRevenue() {
-    const p = optimizePrices(capacity, prices, ctx, 'maxProfit')
-    setPrices(p)
+    setPrices(optimizePrices(capacity, prices, ctx, 'maxProfit'))
   }
+
   function autoPriceOccupancy(target = 0.92) {
-    const p = optimizePrices(capacity, prices, ctx, 'targetOccupancy', target)
-    setPrices(p)
+    setPrices(optimizePrices(capacity, prices, ctx, 'targetOccupancy', target))
   }
+
   function autoPriceBalanced() {
-    const p = optimizePrices(capacity, prices, ctx, 'balanced', balanceWeight)
-    setPrices(p)
+    setPrices(optimizePrices(capacity, prices, ctx, 'balanced', balanceWeight))
   }
 
   async function upgradeLevel() {
     if (!estadio) return
-    if (level >= NIVEL_MAXIMO) return alert('Nível máximo atingido.')
-    const custo = UPGRADE_COST
-    if (saldo < custo) return alert('💸 Saldo insuficiente para evoluir o estádio.')
+
+    if (level >= NIVEL_MAXIMO) {
+      setMsg('Nível máximo atingido.')
+      return
+    }
+
+    if (emprestimoAtivo) {
+      setMsg('Você possui empréstimo ativo. Quite antes de evoluir o estádio.')
+      return
+    }
+
+    if (saldo < custoUpgrade) {
+      setMsg('Saldo insuficiente para evoluir o estádio.')
+      return
+    }
+
+    setUpgrading(true)
+    setMsg(null)
+
     const novoNivel = level + 1
     const novaCapacidade = Math.round(capacity * GROWTH_PER_LEVEL)
+    const novoSaldo = saldo - custoUpgrade
+
     const { error: e1 } = await supabase
       .from('estadios')
       .update({ nivel: novoNivel, capacidade: novaCapacidade })
       .eq('id_time', idTime)
-    const { error: e2 } = await supabase.from('times').update({ saldo: saldo - custo }).eq('id', idTime)
+
+    const { error: e2 } = await supabase.from('times').update({ saldo: novoSaldo }).eq('id', idTime)
+
     if (e1 || e2) {
-      console.warn(e1?.message || e2?.message)
-      return alert('Não foi possível melhorar agora.')
+      setUpgrading(false)
+      setMsg(e1?.message || e2?.message || 'Erro ao evoluir estádio.')
+      return
     }
-    alert('🏗️ Estádio evoluído com sucesso!')
+
+    await supabase.from('estadios_historico').insert({
+      id_time: idTime,
+      nome_time: nomeTime,
+      nivel_antigo: level,
+      nivel_novo: novoNivel,
+      capacidade_antiga: capacity,
+      capacidade_nova: novaCapacidade,
+      custo: custoUpgrade,
+      saldo_apos: novoSaldo,
+      criado_em: new Date().toISOString(),
+    })
+
+    await supabase.from('movimentacoes').insert({
+      id_time: idTime,
+      tipo: 'saida',
+      valor: custoUpgrade,
+      descricao: `Evolução do estádio: nível ${level} para ${novoNivel}`,
+      data: new Date().toISOString(),
+    })
+
     setEstadio((e) => (e ? ({ ...e, nivel: novoNivel, capacidade: novaCapacidade } as any) : e))
-    setSaldo((s) => s - custo)
+    setSaldo(novoSaldo)
+    setUpgrading(false)
+    setMsg('Estádio evoluído com sucesso. Histórico registrado.')
   }
 
   if (!estadio) {
-    return <div className="p-6 text-white">🔄 Carregando Estádio 3D...</div>
-  }
-
-  // ======= UI
-  return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <div className="border-b border-zinc-800">
-        <div className="mx-auto max-w-6xl p-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-extrabold">🏟️ {estadio.nome}</h1>
-            <p className="text-zinc-400">
-              Nível <b>{level}</b> de {NIVEL_MAXIMO} • Capacidade <b>{capacity.toLocaleString()}</b> • Saldo {brl(saldo)}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={saveEverything}
-              className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
-            >
-              Salvar parâmetros + preços
-            </button>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <KPI
-                label="Público"
-                value={`${result.totalAudience.toLocaleString()} / ${result.totalCapacity.toLocaleString()}`}
-              />
-              <KPI label="Renda bruta" value={brl(result.totalRevenue)} />
-              <KPI label="Renda líquida" value={brl(result.profit)} />
-            </div>
-          </div>
+    return (
+      <div className="min-h-screen bg-[#05070b] text-white flex items-center justify-center">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] px-8 py-6 font-black">
+          Carregando Estádio LigaFut...
         </div>
       </div>
+    )
+  }
 
-      <div className="mx-auto max-w-6xl p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* coluna principal */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Contexto & Controles */}
-          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">🎮 Contexto da Partida</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Select
-                label="Importância"
-                value={importance}
-                onChange={setImportance}
-                options={[
+  return (
+    <main className="min-h-screen bg-[#05070b] text-white">
+      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.22),transparent_32%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.20),transparent_30%),linear-gradient(180deg,#05070b,#090d14)]" />
+
+      <div className="relative mx-auto max-w-7xl px-4 py-6 md:px-8">
+        <header className="mb-6 rounded-[30px] border border-white/10 bg-white/[0.04] p-6 shadow-2xl backdrop-blur-xl md:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="mb-3 inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-1.5 text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
+                Central do Estádio
+              </div>
+
+              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+                {estadio.nome}
+              </h1>
+
+              <p className="mt-3 text-sm text-slate-300 md:text-base">
+                Nível <b>{level}</b> de {NIVEL_MAXIMO} • Capacidade{' '}
+                <b>{capacity.toLocaleString('pt-BR')}</b> • Saldo <b>{brl(saldo)}</b>
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:min-w-[620px]">
+              <KPI label="Público" value={`${result.totalAudience.toLocaleString('pt-BR')}`} />
+              <KPI label="Ocupação" value={`${Math.round(result.occupancy * 100)}%`} />
+              <KPI label="Renda bruta" value={brl(result.totalRevenue)} />
+              <KPI label="Lucro líquido" value={brl(result.profit)} green={result.profit >= 0} />
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button onClick={saveEverything} disabled={saving} className="btn-primary">
+              {saving ? 'Salvando...' : 'Salvar parâmetros + preços'}
+            </button>
+
+            <button onClick={salvarSnapshotProximoJogo} className="btn-secondary">
+              Salvar snapshot do próximo jogo
+            </button>
+          </div>
+        </header>
+
+        {msg && (
+          <div className="mb-5 rounded-2xl border border-white/10 bg-black/40 px-5 py-4 text-sm font-bold text-slate-100">
+            {msg}
+          </div>
+        )}
+
+        <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
+          <div className="space-y-6">
+            <Card title="Contexto da Partida" tag="Sistema de demanda">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <Select label="Importância" value={importance} onChange={setImportance} options={[
                   { value: 'normal', label: 'Normal' },
                   { value: 'decisao', label: 'Decisão' },
                   { value: 'final', label: 'Final' },
-                ]}
-              />
-              <Toggle label="Clássico" on={derby} setOn={setDerby} />
-              <Select
-                label="Clima"
-                value={weather}
-                onChange={setWeather}
-                options={[
+                ]} />
+
+                <Toggle label="Clássico" on={derby} setOn={setDerby} />
+
+                <Select label="Clima" value={weather} onChange={setWeather} options={[
                   { value: 'bom', label: 'Tempo bom' },
                   { value: 'chuva', label: 'Chuva' },
-                ]}
-              />
+                ]} />
 
-              <Select
-                label="Dia"
-                value={dayType}
-                onChange={setDayType}
-                options={[
+                <Select label="Dia" value={dayType} onChange={setDayType} options={[
                   { value: 'semana', label: 'Semana' },
                   { value: 'fim', label: 'Fim de semana' },
-                ]}
-              />
-              <Select
-                label="Horário"
-                value={dayTime}
-                onChange={setDayTime}
-                options={[
+                ]} />
+
+                <Select label="Horário" value={dayTime} onChange={setDayTime} options={[
                   { value: 'dia', label: 'Dia' },
                   { value: 'noite', label: 'Noite' },
-                ]}
-              />
-              <Slider
-                label={`Força do adversário: ${opponentStrength}`}
-                min={0}
-                max={100}
-                step={1}
-                value={opponentStrength}
-                onChange={setOpponentStrength}
-              />
-            </div>
+                ]} />
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-              <Slider
-                label={`Moral técnico: ${moraleTec.toFixed(1)}/10`}
-                min={0}
-                max={10}
-                step={0.1}
-                value={moraleTec}
-                onChange={setMoraleTec}
-              />
-              <Slider
-                label={`Moral torcida: ${moraleTor}%`}
-                min={0}
-                max={100}
-                step={1}
-                value={moraleTor}
-                onChange={setMoraleTor}
-              />
-              <Slider
-                label={`Infra/Qualidade: ${infraScore}`}
-                min={0}
-                max={100}
-                step={1}
-                value={infraScore}
-                onChange={setInfraScore}
-              />
-            </div>
-          </section>
-
-          {/* Sócios & metas / Autopreços */}
-          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">👥 Sócios & Metas</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Slider
-                label={`% de assentos para sócios: ${sociosPct}%`}
-                min={0}
-                max={50}
-                step={1}
-                value={sociosPct}
-                onChange={setSociosPct}
-              />
-              <NumberInput label="Preço do sócio" value={sociosPreco} setValue={setSociosPreco} min={0} />
-              <div className="flex items-end gap-2">
-                <button
-                  onClick={() => autoPriceOccupancy(0.92)}
-                  className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold"
-                >
-                  Autopreço (Bater 92%)
-                </button>
-                <button
-                  onClick={autoPriceRevenue}
-                  className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-sm font-semibold"
-                >
-                  Autopreço (Max Lucro)
-                </button>
+                <Slider label={`Força adversário: ${opponentStrength}`} min={0} max={100} step={1} value={opponentStrength} onChange={setOpponentStrength} />
+                <Slider label={`Moral técnico: ${moraleTec.toFixed(1)}/10`} min={0} max={10} step={0.1} value={moraleTec} onChange={setMoraleTec} />
+                <Slider label={`Moral torcida: ${moraleTor}%`} min={0} max={100} step={1} value={moraleTor} onChange={setMoraleTor} />
+                <Slider label={`Infraestrutura: ${infraScore}`} min={0} max={100} step={1} value={infraScore} onChange={setInfraScore} />
               </div>
-            </div>
+            </Card>
 
-            {/* equilíbrio preço x público */}
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mt-3">
-              <Slider
-                label={`Equilíbrio público × lucro: ${Math.round(balanceWeight * 100)}% público`}
-                min={0}
-                max={1}
-                step={0.01}
-                value={balanceWeight}
-                onChange={setBalanceWeight}
-              />
-              <div className="flex items-end">
-                <button
-                  onClick={autoPriceBalanced}
-                  className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-sm font-semibold"
-                >
-                  Autopreço (Equilíbrio)
-                </button>
-              </div>
-            </div>
+            <Card title="Autopreço Inteligente" tag="Preço x público x lucro">
+              <div className="grid gap-4 md:grid-cols-3">
+                <Slider
+                  label={`Equilíbrio: ${Math.round(balanceWeight * 100)}% público`}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={balanceWeight}
+                  onChange={setBalanceWeight}
+                />
 
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-zinc-300">
-              <div>
-                🎟️ Ocupação: <b>{Math.round(result.occupancy * 100)}%</b>
-              </div>
-              <div>
-                💰 Renda bruta: <b>{brl(result.totalRevenue)}</b>
-              </div>
-              <div>
-                📉 Custos:{' '}
-                <b>
-                  {brl(result.totalCost)} (Fixos {brl(result.fixedCost)} / Var {brl(result.variableCost)})
-                </b>
-              </div>
-            </div>
-          </section>
+                <Slider
+                  label={`Assentos sócios: ${sociosPct}%`}
+                  min={0}
+                  max={50}
+                  step={1}
+                  value={sociosPct}
+                  onChange={setSociosPct}
+                />
 
-          {/* Finanças / Custos detalhados */}
-          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <h2 className="text-lg font-bold mb-3">💰 Finanças da Partida</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <MoneyCard
-                title="Renda bruta"
-                value={brl(result.totalRevenue)}
-                subtitle={`Ingressos ${brl(result.revenueTickets)} • Sócios ${brl(result.revenueSocios)}`}
-              />
-              <MoneyCard
-                title="Custos totais"
-                value={brl(result.totalCost)}
-                subtitle={`Fixos ${brl(result.fixedCost)} • Variáveis ${brl(result.variableCost)}`}
-              />
-              <MoneyCard title="Renda líquida" value={brl(result.profit)} subtitle="Bruta − Custos" />
-            </div>
-
-            {/* custos detalhados */}
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="font-semibold mb-2">🧱 Custos fixos (descrição)</div>
-                <ul className="space-y-1 text-zinc-300">
-                  <li>
-                    • Base operacional: <b>{brl(result.costs.fixed.base)}</b>
-                  </li>
-                  <li>
-                    • Acréscimo por nível: <b>{brl(result.costs.fixed.level)}</b>
-                  </li>
-                  <li>
-                    • Qualidade/infraestrutura: <b>{brl(result.costs.fixed.infra)}</b>
-                  </li>
-                  <li className="text-zinc-400 mt-1">
-                    Total fixos: <b className="text-zinc-200">{brl(result.costs.fixed.total)}</b>
-                  </li>
-                </ul>
+                <NumberInput label="Preço sócio" value={sociosPreco} setValue={setSociosPreco} />
               </div>
 
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="font-semibold mb-2">👥 Custos variáveis (por setor)</div>
-                <ul className="space-y-1 text-zinc-300">
-                  {(Object.keys(sectorProportion) as Sector[]).map((s) => (
-                    <li key={s}>
-                      • {labelSector(s)}: <b>{brl(result.costs.variable.bySector[s])}</b>
-                    </li>
-                  ))}
-                </ul>
-                <div className="text-xs text-zinc-400 mt-2">
-                  Média por espectador:{' '}
-                  <b className="text-zinc-300">{brl(result.costs.variable.perSpectatorAvg)}</b>
-                </div>
-                <div className="text-xs text-zinc-400">
-                  Total variáveis: <b className="text-zinc-300">{brl(result.costs.variable.total)}</b>
-                </div>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button onClick={() => autoPriceOccupancy(0.92)} className="btn-secondary">Bater 92%</button>
+                <button onClick={autoPriceRevenue} className="btn-secondary">Max lucro</button>
+                <button onClick={autoPriceBalanced} className="btn-primary">Equilibrado</button>
+                <button onClick={() => setPrices(referencePrices(level))} className="btn-muted">Preço referência</button>
               </div>
-            </div>
-          </section>
+            </Card>
 
-          {/* Preços por setor */}
-          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl">
-            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-              <h2 className="text-lg font-bold">💵 Preços por setor</h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPrices(referencePrices(level))}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm"
-                >
-                  Ref. do nível
-                </button>
-                <button
-                  onClick={saveAll}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold"
-                >
-                  Salvar (preços)
-                </button>
-              </div>
-            </div>
+            <Card title="Preços por Setor" tag="Controle fino da renda">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {(Object.keys(sectorProportion) as Sector[]).map((s) => {
+                  const row = result.perSector.find((r) => r.sector === s)!
+                  const seats = Math.floor(capacity * sectorProportion[s])
 
-            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              {(Object.keys(sectorProportion) as Sector[]).map((s) => {
-                const sector = s
-                const lim = limits[sector]
-                const seats = Math.floor(capacity * sectorProportion[sector])
-                const row = result.perSector.find((r) => r.sector === sector)!
-                const refPrice = refPrices[sector]
+                  return (
+                    <div key={s} className="rounded-3xl border border-white/10 bg-black/30 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="font-black">{labelSector(s)}</h3>
+                          <p className="text-xs text-slate-400">
+                            Lugares: {seats.toLocaleString('pt-BR')} • Limite: {brl(limits[s])}
+                          </p>
+                        </div>
 
-                return (
-                  <div key={sector} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold capitalize">{labelSector(sector)}</div>
-                      <div className="text-xs text-zinc-400">
-                        Ref: {brl(refPrice)} • Lim: {brl(lim)}
+                        <input
+                          type="number"
+                          min={1}
+                          max={limits[s]}
+                          value={prices[s]}
+                          onChange={(e) => setPrice(s, Number(e.target.value))}
+                          className="w-24 rounded-2xl border border-white/10 bg-black/40 px-3 py-2 text-sm font-bold outline-none focus:border-emerald-400"
+                        />
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                        <Info label="Pagantes" value={row.paidSeats.toLocaleString('pt-BR')} />
+                        <Info label="Sócios" value={row.sociosSeats.toLocaleString('pt-BR')} />
+                        <Info label="Ocupação" value={`${Math.round(row.occupancy * 100)}%`} />
+                        <Info label="Renda" value={brl(row.revenuePaid + row.revenueSocios)} />
                       </div>
                     </div>
+                  )
+                })}
+              </div>
+            </Card>
 
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        max={lim}
-                        value={prices[sector]}
-                        onChange={(e) => setPrice(sector, Number(e.target.value))}
-                        className="w-28 border border-zinc-800 rounded-lg bg-zinc-900 px-2 py-1.5 text-sm outline-none"
-                      />
-                      <span className="text-xs text-zinc-400">Lugares: {seats.toLocaleString()}</span>
-                    </div>
+            <Card title="Finanças da Partida" tag="Receita detalhada">
+              <div className="grid gap-4 md:grid-cols-3">
+                <MoneyCard title="Ingressos" value={brl(result.revenueTickets)} />
+                <MoneyCard title="Sócios" value={brl(result.revenueSocios)} />
+                <MoneyCard title="Renda bruta" value={brl(result.totalRevenue)} />
+                <MoneyCard title="Custo fixo" value={brl(result.fixedCost)} />
+                <MoneyCard title="Custo variável" value={brl(result.variableCost)} />
+                <MoneyCard title="Lucro líquido" value={brl(result.profit)} good={result.profit >= 0} />
+              </div>
+            </Card>
 
-                    <div className="mt-3 text-xs text-zinc-300 space-y-1">
-                      <div>
-                        🎫 Pagantes: <b>{row.paidSeats.toLocaleString()}</b>
-                      </div>
-                      <div>
-                        🪪 Sócios: <b>{row.sociosSeats.toLocaleString()}</b>
-                      </div>
-                      <div>
-                        🏁 Ocupação: <b>{Math.round(row.occupancy * 100)}%</b>
-                      </div>
-                      <div>
-                        💵 Renda setor: <b>{brl(row.revenuePaid + row.revenueSocios)}</b>
-                      </div>
-                      <div className="text-zinc-400">
-                        💼 Custo var. setor: <b className="text-zinc-300">{brl(row.variableCost)}</b>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-
-          {/* Maquete 3D / mini */}
-          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">🏗️ Maquete 3D do Estádio</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPreviewNight((v) => !v)}
-                  className={`px-3 py-1.5 rounded-lg text-sm border ${
-                    previewNight
-                      ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300'
-                      : 'bg-zinc-800 border-zinc-700 text-zinc-300'
-                  }`}
-                >
-                  {previewNight ? '🌙 Noite' : '☀️ Dia'}
+            <Card title="Maquete 3D" tag="Evolução visual">
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button onClick={() => setPreviewNight((v) => !v)} className="btn-secondary">
+                  {previewNight ? 'Modo noite' : 'Modo dia'}
                 </button>
               </div>
-            </div>
 
-            <p className="text-xs text-zinc-400 mt-1 mb-3">
-              Miniatura 3D (sem orbit). Evolução visual do “CT” → “Mega Arena” conforme o nível.
-            </p>
+              <StadiumMini3D
+                variant="mini"
+                level={previewLevel}
+                night={previewNight}
+                roofProgress={roofProgressForLevel(previewLevel)}
+                tierCount={tiersForLevel(previewLevel)}
+                lightsCount={lightsForLevel(previewLevel)}
+                screens={screensForLevel(previewLevel)}
+              />
 
-            <StadiumMini3D
-              variant="mini"
-              level={previewLevel}
-              night={previewNight}
-              roofProgress={roofProgressForLevel(previewLevel)}
-              tierCount={tiersForLevel(previewLevel)}
-              lightsCount={lightsForLevel(previewLevel)}
-              screens={screensForLevel(previewLevel)}
-            />
-
-            {/* seletor de nível */}
-            <div className="mt-3">
-              <div className="flex flex-wrap gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
                 {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                   <button
                     key={n}
                     onClick={() => setPreviewLevel(n)}
-                    className={`px-2.5 py-1.5 rounded-md text-sm border ${
+                    className={`rounded-xl border px-3 py-2 text-xs font-black ${
                       previewLevel === n
-                        ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
-                        : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                        ? 'border-emerald-400 bg-emerald-400/15 text-emerald-300'
+                        : 'border-white/10 bg-black/30 text-slate-300'
                     }`}
                   >
                     Nível {n}
                   </button>
                 ))}
               </div>
-              <div className="mt-3">
-                <input
-                  type="range"
-                  min={1}
-                  max={10}
-                  step={1}
-                  value={previewLevel}
-                  onChange={(e) => setPreviewLevel(Number(e.target.value))}
-                  className="w-full"
-                />
+
+              <div className="mt-4 grid gap-3 md:grid-cols-4">
+                {(() => {
+                  const item = projections.find((p) => p.lvl === previewLevel)
+                  if (!item) return null
+                  return (
+                    <>
+                      <Info label="Capacidade" value={item.cap.toLocaleString('pt-BR')} />
+                      <Info label="Público proj." value={item.sim.totalAudience.toLocaleString('pt-BR')} />
+                      <Info label="Renda" value={brl(item.sim.totalRevenue)} />
+                      <Info label="Lucro" value={brl(item.sim.profit)} />
+                    </>
+                  )
+                })()}
               </div>
-            </div>
+            </Card>
+          </div>
 
-            {/* dados rápidos do nível escolhido */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
-              {(() => {
-                const item = projections.find((p) => p.lvl === previewLevel)
-                if (!item) return null
-                const { cap, sim } = item
-                return (
-                  <>
-                    <Info label="Capacidade" value={cap.toLocaleString()} />
-                    <Info label="Público proj." value={sim.totalAudience.toLocaleString()} />
-                    <Info label="Renda bruta" value={brl(sim.totalRevenue)} />
-                    <Info label="Líquida" value={brl(sim.profit)} />
-                  </>
-                )
-              })()}
-            </div>
-          </section>
-        </div>
+          <aside className="space-y-6">
+            <Card title="Resumo Executivo" tag="Decisão rápida">
+              <div className="space-y-3">
+                <KV k="Público" v={`${result.totalAudience.toLocaleString('pt-BR')} / ${result.totalCapacity.toLocaleString('pt-BR')}`} />
+                <KV k="Ocupação" v={`${Math.round(result.occupancy * 100)}%`} />
+                <KV k="Renda bruta" v={brl(result.totalRevenue)} />
+                <KV k="Custos" v={brl(result.totalCost)} />
+                <KV k="Lucro líquido" v={brl(result.profit)} />
+              </div>
+            </Card>
 
-        {/* coluna lateral */}
-        <aside className="space-y-6">
-          <section className="sticky top-6 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <h3 className="text-lg font-bold">📊 Resumo</h3>
-            <div className="mt-3 space-y-2 text-sm">
-              <KV
-                k="Público total"
-                v={`${result.totalAudience.toLocaleString()} / ${result.totalCapacity.toLocaleString()} (${Math.round(
-                  result.occupancy * 100
-                )}%)`}
-              />
-              <KV k="Renda bruta" v={brl(result.totalRevenue)} />
-              <KV k="Custos (fixos/var)" v={`${brl(result.fixedCost)} / ${brl(result.variableCost)}`} />
-              <KV k="Renda líquida" v={brl(result.profit)} />
-            </div>
-          </section>
+            <Card title="Alertas Inteligentes" tag="Recomendação">
+              <div className="space-y-3">
+                {alertas.length ? (
+                  alertas.map((a, i) => (
+                    <div
+                      key={i}
+                      className={`rounded-2xl border px-4 py-3 text-sm font-bold ${
+                        a.tipo === 'danger'
+                          ? 'border-red-400/30 bg-red-400/10 text-red-200'
+                          : a.tipo === 'warn'
+                          ? 'border-amber-400/30 bg-amber-400/10 text-amber-200'
+                          : 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
+                      }`}
+                    >
+                      {a.texto}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-400">Tudo equilibrado no momento.</p>
+                )}
+              </div>
+            </Card>
 
-          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
-            <h3 className="text-lg font-bold">🏗️ Evoluir Estádio</h3>
-            {level < NIVEL_MAXIMO ? (
-              <>
-                <p className="text-sm text-zinc-300 mt-1">
-                  Próximo nível: <b>{level + 1}</b> • Capacidade estimada:{' '}
-                  <b>{Math.round(capacity * GROWTH_PER_LEVEL).toLocaleString()}</b>
-                </p>
-                <p className="text-sm text-zinc-300">
-                  Custo: <b>{brl(UPGRADE_COST)}</b>
-                </p>
-                <p className="text-xs text-zinc-500 mt-1">Saldo: {brl(saldo)}</p>
-                <button
-                  onClick={upgradeLevel}
-                  className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold"
-                >
-                  Melhorar Estádio
-                </button>
-              </>
-            ) : (
-              <div className="text-green-400 font-semibold">🏆 Nível máximo alcançado</div>
-            )}
-          </section>
-        </aside>
+            <Card title="Evoluir Estádio" tag="Upgrade progressivo">
+              {level < NIVEL_MAXIMO ? (
+                <>
+                  <div className="space-y-3 text-sm">
+                    <KV k="Nível atual" v={`${level}`} />
+                    <KV k="Próximo nível" v={`${level + 1}`} />
+                    <KV k="Capacidade nova" v={Math.round(capacity * GROWTH_PER_LEVEL).toLocaleString('pt-BR')} />
+                    <KV k="Custo" v={brl(custoUpgrade)} />
+                    <KV k="Saldo" v={brl(saldo)} />
+                  </div>
+
+                  {emprestimoAtivo && (
+                    <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-bold text-red-200">
+                      Upgrade bloqueado: existe empréstimo ativo.
+                    </div>
+                  )}
+
+                  <button
+                    onClick={upgradeLevel}
+                    disabled={upgrading || emprestimoAtivo || saldo < custoUpgrade}
+                    className="mt-5 w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-blue-600 px-5 py-4 text-sm font-black uppercase text-white shadow-xl shadow-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {upgrading ? 'Evoluindo...' : 'Melhorar estádio'}
+                  </button>
+                </>
+              ) : (
+                <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 font-black text-emerald-300">
+                  Nível máximo alcançado.
+                </div>
+              )}
+            </Card>
+          </aside>
+        </section>
       </div>
+
+      <style jsx global>{`
+        .btn-primary {
+          border-radius: 16px;
+          padding: 12px 18px;
+          font-weight: 900;
+          background: linear-gradient(90deg, #10b981, #2563eb);
+          color: white;
+          box-shadow: 0 16px 35px rgba(16, 185, 129, 0.18);
+        }
+
+        .btn-secondary {
+          border-radius: 16px;
+          padding: 12px 18px;
+          font-weight: 900;
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          color: white;
+        }
+
+        .btn-muted {
+          border-radius: 16px;
+          padding: 12px 18px;
+          font-weight: 900;
+          background: rgba(0, 0, 0, 0.35);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: rgb(203, 213, 225);
+        }
+      `}</style>
+    </main>
+  )
+}
+
+function Card({ title, tag, children }: { title: string; tag?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-xl">
+      {tag && <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">{tag}</p>}
+      <h2 className="mb-5 mt-1 text-xl font-black md:text-2xl">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function KPI({ label, value, green }: { label: string; value: string; green?: boolean }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+      <p className="text-xs font-bold uppercase text-slate-400">{label}</p>
+      <p className={`mt-1 truncate text-lg font-black ${green ? 'text-emerald-300' : 'text-white'}`}>{value}</p>
     </div>
   )
 }
 
-/* ====== UI helpers ====== */
-function KPI({ label, value }: { label: string; value: string }) {
+function MoneyCard({ title, value, good }: { title: string; value: string; good?: boolean }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-wider text-zinc-400">{label}</div>
-      <div className="text-lg font-bold">{value}</div>
-    </div>
-  )
-}
-
-function MoneyCard({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
-  return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-wider text-zinc-400">{title}</div>
-      <div className="text-lg font-bold">{value}</div>
-      {subtitle && <div className="text-xs text-zinc-500 mt-1">{subtitle}</div>}
+    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+      <p className="text-xs font-bold uppercase text-slate-400">{title}</p>
+      <p className={`mt-2 text-lg font-black ${good ? 'text-emerald-300' : 'text-white'}`}>{value}</p>
     </div>
   )
 }
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className="text-sm font-semibold">{value}</div>
+    <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+      <p className="text-[11px] font-bold uppercase text-slate-500">{label}</p>
+      <p className="text-sm font-black">{value}</p>
     </div>
   )
 }
 
 function KV({ k, v }: { k: string; v: string }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-zinc-400">{k}</span>
-      <span className="font-semibold">{v}</span>
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+      <span className="text-sm text-slate-400">{k}</span>
+      <span className="text-sm font-black">{v}</span>
     </div>
   )
 }
 
 function Toggle({ label, on, setOn }: { label: string; on: boolean; setOn: (v: boolean) => void }) {
   return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => setOn(!on)}
-        className={`px-3 py-2 rounded-lg text-sm border ${
-          on ? 'bg-emerald-600/20 border-emerald-600 text-emerald-300' : 'bg-zinc-900 border-zinc-700 text-zinc-300'
-        }`}
-      >
-        {label}
-      </button>
-    </div>
+    <button
+      onClick={() => setOn(!on)}
+      className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
+        on ? 'border-emerald-400 bg-emerald-400/15 text-emerald-300' : 'border-white/10 bg-black/30 text-slate-300'
+      }`}
+    >
+      {label}: {on ? 'Sim' : 'Não'}
+    </button>
   )
 }
 
@@ -920,17 +821,15 @@ function Select<T extends string>({
   options: { value: T; label: string }[]
 }) {
   return (
-    <label className="text-sm">
-      <span className="block mb-1 text-zinc-300">{label}</span>
+    <label className="text-sm font-bold text-slate-300">
+      <span className="mb-2 block">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="w-full border border-zinc-800 rounded-lg bg-zinc-900 px-2 py-2 text-sm outline-none"
+        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-emerald-400"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
+          <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
     </label>
@@ -953,8 +852,8 @@ function Slider({
   onChange: (v: number) => void
 }) {
   return (
-    <label className="text-sm">
-      <span className="block mb-1 text-zinc-300">{label}</span>
+    <label className="text-sm font-bold text-slate-300">
+      <span className="mb-2 block">{label}</span>
       <input
         type="range"
         min={min}
@@ -962,7 +861,7 @@ function Slider({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full"
+        className="w-full accent-emerald-400"
       />
     </label>
   )
@@ -980,14 +879,14 @@ function NumberInput({
   min?: number
 }) {
   return (
-    <label className="text-sm">
-      <span className="block mb-1 text-zinc-300">{label}</span>
+    <label className="text-sm font-bold text-slate-300">
+      <span className="mb-2 block">{label}</span>
       <input
         type="number"
         min={min}
         value={value}
         onChange={(e) => setValue(Math.max(min, Math.round(Number(e.target.value) || 0)))}
-        className="w-full border border-zinc-800 rounded-lg bg-zinc-900 px-2 py-2 text-sm outline-none"
+        className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none focus:border-emerald-400"
       />
     </label>
   )
@@ -1009,12 +908,12 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
 }
 
-/* ====== Features visuais por nível ====== */
 function tiersForLevel(lvl: number) {
   if (lvl >= 9) return 3
   if (lvl >= 5) return 2
   return 1
 }
+
 function roofProgressForLevel(lvl: number) {
   if (lvl >= 9) return 1
   if (lvl >= 7) return 0.75
@@ -1022,12 +921,14 @@ function roofProgressForLevel(lvl: number) {
   if (lvl >= 3) return 0.25
   return 0.05
 }
+
 function lightsForLevel(lvl: number) {
   if (lvl >= 9) return 6
   if (lvl >= 6) return 4
   if (lvl >= 3) return 2
   return 0
 }
+
 function screensForLevel(lvl: number) {
   if (lvl >= 8) return 2
   if (lvl >= 5) return 1
