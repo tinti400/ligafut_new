@@ -803,7 +803,7 @@ export default function Sidebar() {
                         <NavLink href="/admin">🗂️ Administração Geral</NavLink>
                         <NavLink href="/admin/times">📝 Times</NavLink>
                         <NavLink href="/admin/painel_times">📋 Painel Times</NavLink>
-                        <NavLink href="/admin/jogadores_base">🗃️ Jogadores Base</NavLink>
+                        <NavLink href="/admin/base-jogadores">🗃️ Jogadores Base</NavLink>
                         <NavLink href="/admin/leilao">🎯 Admin Leilão</NavLink>
                         <NavLink href="/admin/leiloes_finalizados">📜 Leilões Finalizados</NavLink>
                         <NavLink href="/admin/mercado">💼 Admin Mercado</NavLink>
