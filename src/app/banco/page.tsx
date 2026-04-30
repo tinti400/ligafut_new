@@ -8,12 +8,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
-/** ============ Utils ============ */
 function formatBRL(valor: number) {
-  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return valor.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    maximumFractionDigits: 0,
+  })
 }
 
-/** Juros por quantidade de turnos */
 const jurosPorTurno: Record<number, number> = {
   1: 0.08,
   2: 0.16,
@@ -21,11 +23,10 @@ const jurosPorTurno: Record<number, number> = {
   4: 0.35,
 }
 
-/** Limites por divisão – AQUI você pode “turbinar” o crédito */
 const limitesDivisao: Record<string, number> = {
-  '1': 1_200_000_000, // 1.2 bi
-  '2': 900_000_000,   // 900 mi
-  '3': 600_000_000,   // 600 mi
+  '1': 1_200_000_000,
+  '2': 900_000_000,
+  '3': 600_000_000,
 }
 
 export default function BancoPage() {
@@ -34,12 +35,10 @@ export default function BancoPage() {
   const [nomeTime, setNomeTime] = useState('')
   const [divisao, setDivisao] = useState('1')
   const [saldoAtual, setSaldoAtual] = useState(0)
-
   const [emprestimoAtivo, setEmprestimoAtivo] = useState<any | null>(null)
 
-  // UI / simulação
   const [limiteMaximo, setLimiteMaximo] = useState(600_000_000)
-  const [valorEmprestimoMilhoes, setValorEmprestimoMilhoes] = useState(100) // default 100 mi
+  const [valorEmprestimoMilhoes, setValorEmprestimoMilhoes] = useState(100)
   const [parcelas, setParcelas] = useState(2)
   const [juros, setJuros] = useState(jurosPorTurno[2])
   const [jogadoresGarantia, setJogadoresGarantia] = useState<any[]>([])
@@ -49,7 +48,6 @@ export default function BancoPage() {
   const [enviando, setEnviando] = useState(false)
   const [pagando, setPagando] = useState(false)
 
-  /** ============ Carregar dados iniciais ============ */
   useEffect(() => {
     async function carregarDados() {
       try {
@@ -57,14 +55,14 @@ export default function BancoPage() {
         const nome_time_local = localStorage.getItem('nome_time') || ''
 
         if (!id_time_local) {
-          setMensagem('⚠️ Usuário não autenticado. Faça login.')
+          setMensagem('Usuário não autenticado. Faça login novamente.')
           setLoading(false)
           return
         }
+
         setIdTime(id_time_local)
         setNomeTime(nome_time_local)
 
-        // Buscar divisão e saldo
         const { data: timeData, error: errorTime } = await supabase
           .from('times')
           .select('divisao, saldo')
@@ -78,18 +76,18 @@ export default function BancoPage() {
         }
 
         const div = String(timeData.divisao ?? '1').trim()
+        const limite = limitesDivisao[div] ?? 600_000_000
+
         setDivisao(div)
         setSaldoAtual(Number(timeData.saldo || 0))
-
-        const limite = limitesDivisao[div] ?? 600_000_000
         setLimiteMaximo(limite)
 
-        // Verificar empréstimo ativo
         const { data: emprestimos, error: errorEmprestimo } = await supabase
           .from('emprestimos')
           .select('*')
           .eq('id_time', id_time_local)
           .eq('status', 'ativo')
+          .limit(1)
 
         if (errorEmprestimo) {
           setMensagem('Erro ao verificar empréstimos ativos.')
@@ -103,10 +101,9 @@ export default function BancoPage() {
           return
         }
 
-        // Buscar top 7 jogadores para garantia
         const { data: elenco, error: errorElenco } = await supabase
           .from('elenco')
-          .select('id, nome, posicao, valor')
+          .select('id, nome, posicao, valor, overall, imagem_url')
           .eq('id_time', id_time_local)
 
         if (errorElenco || !elenco) {
@@ -116,7 +113,7 @@ export default function BancoPage() {
         }
 
         const jogadoresTop7 = [...elenco]
-          .sort((a, b) => (Number(b.valor) || 0) - (Number(a.valor) || 0))
+          .sort((a, b) => Number(b.valor || 0) - Number(a.valor || 0))
           .slice(0, 7)
 
         setJogadoresGarantia(jogadoresTop7)
@@ -126,54 +123,58 @@ export default function BancoPage() {
         setLoading(false)
       }
     }
+
     carregarDados()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** ============ Atualiza juros quando muda o número de parcelas ============ */
   useEffect(() => {
-    setJuros(jurosPorTurno[parcelas] || 0.20)
+    setJuros(jurosPorTurno[parcelas] || 0.16)
   }, [parcelas])
 
-  /** ============ Cálculos de simulação ============ */
-  const valorEmprestimo = useMemo(
-    () => Math.max(0, valorEmprestimoMilhoes * 1_000_000),
-    [valorEmprestimoMilhoes]
-  )
+  const valorEmprestimo = useMemo(() => {
+    return Math.max(0, valorEmprestimoMilhoes * 1_000_000)
+  }, [valorEmprestimoMilhoes])
 
-  const valorTotal = useMemo(() => Math.round(valorEmprestimo * (1 + juros)), [valorEmprestimo, juros])
-  const valorParcela = useMemo(() => Math.round(valorTotal / parcelas), [valorTotal, parcelas])
+  const valorTotal = useMemo(() => {
+    return Math.round(valorEmprestimo * (1 + juros))
+  }, [valorEmprestimo, juros])
+
+  const valorParcela = useMemo(() => {
+    return Math.round(valorTotal / parcelas)
+  }, [valorTotal, parcelas])
 
   const usoDoLimitePct = useMemo(() => {
     if (limiteMaximo <= 0) return 0
     return Math.min(100, Math.round((valorEmprestimo / limiteMaximo) * 100))
   }, [valorEmprestimo, limiteMaximo])
 
-  /** ============ Ações ============ */
+  const jogadorSelecionado = jogadoresGarantia[jogadorSelecionadoIndex]
+
   async function solicitarEmprestimo() {
     if (!idTime) {
       setMensagem('Usuário não autenticado.')
       return
     }
+
     if (valorEmprestimo <= 0) {
-      setMensagem('Informe um valor de empréstimo válido.')
-      return
-    }
-    if (valorEmprestimo > limiteMaximo) {
-      setMensagem('Valor do empréstimo excede o limite para sua divisão.')
-      return
-    }
-    if (!jogadoresGarantia.length) {
-      setMensagem('Não há jogadores suficientes para garantia.')
+      setMensagem('Informe um valor válido.')
       return
     }
 
-    const jogadorGarantia = jogadoresGarantia[jogadorSelecionadoIndex]
+    if (valorEmprestimo > limiteMaximo) {
+      setMensagem('Valor solicitado excede o limite da divisão.')
+      return
+    }
+
+    if (!jogadoresGarantia.length || !jogadorSelecionado) {
+      setMensagem('Você precisa ter jogadores disponíveis para garantia.')
+      return
+    }
+
     setEnviando(true)
     setMensagem(null)
 
     try {
-      // Cria o empréstimo (status: ativo)
       const { error: insertError } = await supabase.from('emprestimos').insert({
         id_time: idTime,
         nome_time: nomeTime,
@@ -185,21 +186,22 @@ export default function BancoPage() {
         status: 'ativo',
         data_inicio: new Date().toISOString(),
         jogador_garantia: {
-          id: jogadorGarantia.id,
-          nome: jogadorGarantia.nome,
-          posicao: jogadorGarantia.posicao,
-          valor: Number(jogadorGarantia.valor || 0),
+          id: jogadorSelecionado.id,
+          nome: jogadorSelecionado.nome,
+          posicao: jogadorSelecionado.posicao,
+          valor: Number(jogadorSelecionado.valor || 0),
+          overall: jogadorSelecionado.overall || null,
+          imagem_url: jogadorSelecionado.imagem_url || null,
         },
       })
 
       if (insertError) {
         setMensagem(`Erro ao solicitar empréstimo: ${insertError.message}`)
-        setEnviando(false)
         return
       }
 
-      // Credita o valor solicitado no saldo do time
       const novoSaldo = saldoAtual + valorEmprestimo
+
       const { error: saldoError } = await supabase
         .from('times')
         .update({ saldo: novoSaldo })
@@ -207,21 +209,22 @@ export default function BancoPage() {
 
       if (saldoError) {
         setMensagem(`Erro ao atualizar saldo: ${saldoError.message}`)
-        setEnviando(false)
         return
       }
 
       setSaldoAtual(novoSaldo)
+
       setEmprestimoAtivo({
         valor_total: valorTotal,
         parcelas_totais: parcelas,
         parcelas_restantes: parcelas,
         valor_parcela: valorParcela,
         juros,
-        jogador_garantia: jogadorGarantia,
+        jogador_garantia: jogadorSelecionado,
         status: 'ativo',
       })
-      setMensagem('✅ Empréstimo aprovado! O valor já foi creditado no caixa do clube.')
+
+      setMensagem('Empréstimo aprovado! O valor já caiu no caixa do clube.')
     } catch {
       setMensagem('Erro desconhecido ao solicitar empréstimo.')
     } finally {
@@ -232,8 +235,8 @@ export default function BancoPage() {
   async function pagarParcela() {
     if (!idTime || !emprestimoAtivo) return
 
-    if (saldoAtual < emprestimoAtivo.valor_parcela) {
-      setMensagem('🚫 Saldo insuficiente para pagar a parcela.')
+    if (saldoAtual < Number(emprestimoAtivo.valor_parcela || 0)) {
+      setMensagem('Saldo insuficiente para pagar a parcela.')
       return
     }
 
@@ -241,8 +244,8 @@ export default function BancoPage() {
     setMensagem(null)
 
     try {
-      // Debita do caixa
-      const novoSaldo = saldoAtual - emprestimoAtivo.valor_parcela
+      const novoSaldo = saldoAtual - Number(emprestimoAtivo.valor_parcela || 0)
+
       const { error: saldoError } = await supabase
         .from('times')
         .update({ saldo: novoSaldo })
@@ -250,12 +253,10 @@ export default function BancoPage() {
 
       if (saldoError) {
         setMensagem(`Erro ao debitar saldo: ${saldoError.message}`)
-        setPagando(false)
         return
       }
 
-      // Atualiza parcelas do empréstimo
-      const parcelasRestantesNovas = Number(emprestimoAtivo.parcelas_restantes) - 1
+      const parcelasRestantesNovas = Number(emprestimoAtivo.parcelas_restantes || 0) - 1
       const statusNovo = parcelasRestantesNovas <= 0 ? 'quitado' : 'ativo'
 
       const { error: emprestimoError } = await supabase
@@ -268,23 +269,26 @@ export default function BancoPage() {
         .eq('status', 'ativo')
 
       if (emprestimoError) {
-        setMensagem(`Erro ao atualizar parcelas: ${emprestimoError.message}`)
-        setPagando(false)
+        setMensagem(`Erro ao atualizar empréstimo: ${emprestimoError.message}`)
         return
       }
 
       setSaldoAtual(novoSaldo)
 
       if (statusNovo === 'quitado') {
-        setEmprestimoAtivo({ ...emprestimoAtivo, parcelas_restantes: 0, status: 'quitado' })
-        setMensagem('🏁 Empréstimo totalmente quitado! Parabéns.')
+        setEmprestimoAtivo({
+          ...emprestimoAtivo,
+          parcelas_restantes: 0,
+          status: 'quitado',
+        })
+        setMensagem('Empréstimo quitado com sucesso!')
       } else {
         setEmprestimoAtivo({
           ...emprestimoAtivo,
           parcelas_restantes: parcelasRestantesNovas,
           status: 'ativo',
         })
-        setMensagem('✅ Parcela paga com sucesso!')
+        setMensagem('Parcela paga com sucesso!')
       }
     } catch {
       setMensagem('Erro desconhecido ao pagar parcela.')
@@ -293,240 +297,136 @@ export default function BancoPage() {
     }
   }
 
-  /** ============ Render ============ */
   if (loading) {
     return (
-      <p style={{ textAlign: 'center', marginTop: 30, color: '#ddd' }}>Carregando dados...</p>
+      <main className="min-h-screen bg-[#05070b] text-white flex items-center justify-center">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] px-8 py-6 shadow-2xl">
+          <div className="animate-pulse text-lg font-bold">Carregando Banco LigaFut...</div>
+        </div>
+      </main>
     )
   }
 
   return (
-    <main
-      style={{
-        maxWidth: 980,
-        margin: '40px auto',
-        padding: '24px',
-        fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-        background: 'linear-gradient(180deg, #0e0e10, #111113 60%, #0b0b0d)',
-        color: '#eaeef2',
-        borderRadius: 16,
-        boxShadow: '0 0 20px rgba(0,0,0,0.6)',
-      }}
-    >
-      {/* Cabeçalho */}
-      <header
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr auto',
-          gap: 16,
-          alignItems: 'center',
-          marginBottom: 24,
-          padding: '16px 20px',
-          background:
-            'radial-gradient(1200px 400px at 10% -50%, rgba(56,142,60,0.25), transparent 60%), radial-gradient(900px 300px at 90% -50%, rgba(25,118,210,0.25), transparent 60%)',
-          border: '1px solid #1f242b',
-          borderRadius: 14,
-        }}
-      >
-        <div>
-          <h1 style={{ margin: 0, fontSize: 28, letterSpacing: 0.3 }}>🏦 Banco LigaFut</h1>
-          <p style={{ margin: '6px 0 0', opacity: 0.9 }}>
-            Limites maiores e escalonados por divisão. Selecione um jogador como garantia e
-            simule o seu crédito.
-          </p>
-        </div>
+    <main className="min-h-screen bg-[#05070b] text-white">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.22),transparent_35%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.18),transparent_30%),linear-gradient(180deg,#05070b,#090d14)]" />
 
-        <div
-          style={{
-            justifySelf: 'end',
-            padding: '10px 14px',
-            borderRadius: 10,
-            backgroundColor: '#15171a',
-            border: '1px solid #23262b',
-            textAlign: 'right',
-            minWidth: 260,
-          }}
-        >
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Clube</div>
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>{nomeTime || '—'}</div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Saldo atual</div>
-          <div style={{ fontWeight: 700, color: '#81c784' }}>{formatBRL(saldoAtual)}</div>
-        </div>
-      </header>
+      <section className="relative mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
+        <header className="mb-6 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04] shadow-2xl backdrop-blur-xl">
+          <div className="relative p-6 md:p-8">
+            <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-emerald-500/20 blur-3xl" />
+            <div className="absolute bottom-0 left-20 h-32 w-32 rounded-full bg-blue-500/20 blur-3xl" />
 
-      {/* Empréstimo ativo */}
-      {emprestimoAtivo ? (
-        <section
-          style={{
-            border: '1px solid #23262b',
-            borderRadius: 14,
-            padding: 22,
-            backgroundColor: '#141619',
-            boxShadow: '0 6px 20px rgba(0,0,0,0.25) inset',
-            marginBottom: 24,
-          }}
-        >
-          <h2 style={{ marginTop: 0, color: '#90caf9', textAlign: 'center' }}>
-            Empréstimo Ativo
-          </h2>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 16,
-              fontSize: 16,
-            }}
-          >
-            <Info title="Valor Total" value={formatBRL(emprestimoAtivo.valor_total)} />
-            <Info title="Parcelas Totais" value={String(emprestimoAtivo.parcelas_totais)} />
-            <Info title="Restantes" value={String(emprestimoAtivo.parcelas_restantes)} />
-            <Info title="Por Turno" value={formatBRL(emprestimoAtivo.valor_parcela)} />
-            <Info title="Juros" value={`${(emprestimoAtivo.juros * 100).toFixed(0)}%`} />
-            {emprestimoAtivo?.jogador_garantia?.nome && (
-              <Info
-                title="Garantia"
-                value={`${emprestimoAtivo.jogador_garantia.nome} (${emprestimoAtivo.jogador_garantia.posicao})`}
-                colSpan={3}
-              />
-            )}
-          </div>
-
-          {emprestimoAtivo.status === 'ativo' && emprestimoAtivo.parcelas_restantes > 0 && (
-            <div style={{ marginTop: 22, textAlign: 'center' }}>
-              <button
-                onClick={pagarParcela}
-                disabled={pagando}
-                style={{
-                  padding: '12px 28px',
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: '#fff',
-                  background:
-                    pagando
-                      ? '#3f4a55'
-                      : 'linear-gradient(180deg, #1f6fd6 0%, #155ab2 100%)',
-                  border: 'none',
-                  borderRadius: 10,
-                  cursor: pagando ? 'not-allowed' : 'pointer',
-                  boxShadow: pagando ? 'none' : '0 10px 18px rgba(33, 150, 243, 0.25)',
-                  transition: 'transform .04s ease',
-                }}
-              >
-                {pagando ? 'Processando...' : '💸 Pagar Parcela'}
-              </button>
-            </div>
-          )}
-
-          {mensagem && (
-            <p
-              style={{
-                marginTop: 16,
-                fontWeight: 700,
-                textAlign: 'center',
-                color: mensagem.startsWith('✅') ? '#81c784' : '#ef9a9a',
-              }}
-            >
-              {mensagem}
-            </p>
-          )}
-        </section>
-      ) : (
-        <>
-          {/* Painel de Limite */}
-          <section
-            style={{
-              border: '1px solid #23262b',
-              borderRadius: 14,
-              padding: 22,
-              backgroundColor: '#141619',
-              marginBottom: 24,
-            }}
-          >
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: 16,
-                alignItems: 'stretch',
-              }}
-            >
-              <Info title="Divisão" value={`Divisão ${divisao}`} />
-              <Info title="Limite de Crédito" value={formatBRL(limiteMaximo)} />
-              <div
-                style={{
-                  background: '#0f1114',
-                  border: '1px solid #1f242b',
-                  borderRadius: 12,
-                  padding: 12,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                }}
-              >
-                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                  Uso do Limite (simulação)
+            <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-1.5 text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
+                  Banco Oficial LigaFut
                 </div>
-                <div
-                  style={{
-                    height: 10,
-                    background: '#1a1d22',
-                    borderRadius: 999,
-                    overflow: 'hidden',
-                    border: '1px solid #23262b',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${usoDoLimitePct}%`,
-                      height: '100%',
-                      background:
-                        'linear-gradient(90deg, rgba(129,199,132,0.95), rgba(76,175,80,0.95))',
-                    }}
-                  />
-                </div>
-                <div style={{ marginTop: 6, fontSize: 12, textAlign: 'right', opacity: 0.85 }}>
-                  {usoDoLimitePct}%
-                </div>
+
+                <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+                  Crédito para o seu clube
+                </h1>
+
+                <p className="mt-3 max-w-2xl text-sm text-slate-300 md:text-base">
+                  Simule empréstimos, escolha parcelas por turno e use um jogador do elenco como
+                  garantia para reforçar o caixa do clube.
+                </p>
+              </div>
+
+              <div className="grid min-w-full grid-cols-2 gap-3 md:min-w-[360px]">
+                <MiniCard label="Clube" value={nomeTime || '—'} />
+                <MiniCard label="Divisão" value={`Divisão ${divisao}`} />
+                <MiniCard label="Saldo atual" value={formatBRL(saldoAtual)} green />
+                <MiniCard label="Limite" value={formatBRL(limiteMaximo)} blue />
               </div>
             </div>
-          </section>
+          </div>
+        </header>
 
-          {/* Simulador */}
-          <section
-            style={{
-              border: '1px solid #23262b',
-              borderRadius: 14,
-              padding: 22,
-              backgroundColor: '#141619',
-              marginBottom: 24,
-            }}
+        {mensagem && (
+          <div
+            className={`mb-5 rounded-2xl border px-5 py-4 text-sm font-bold shadow-xl ${
+              mensagem.includes('sucesso') ||
+              mensagem.includes('aprovado') ||
+              mensagem.includes('quitado') ||
+              mensagem.includes('caiu')
+                ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
+                : 'border-red-400/30 bg-red-400/10 text-red-200'
+            }`}
           >
-            <h2 style={{ marginTop: 0 }}>🧮 Simulador de Empréstimo</h2>
+            {mensagem}
+          </div>
+        )}
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1.2fr 1fr',
-                gap: 24,
-              }}
-            >
-              {/* Coluna esquerda: controles */}
-              <div>
-                {/* Valor (range + number) */}
-                <div
-                  style={{
-                    background: '#0f1114',
-                    border: '1px solid #1f242b',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 16,
-                  }}
+        {emprestimoAtivo ? (
+          <section className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-xl md:p-7">
+              <div className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-300">
+                    Contrato ativo
+                  </p>
+                  <h2 className="mt-1 text-2xl font-black md:text-3xl">Empréstimo em andamento</h2>
+                </div>
+
+                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-xs font-black uppercase text-emerald-300">
+                  Ativo
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Stat label="Valor total" value={formatBRL(Number(emprestimoAtivo.valor_total || 0))} />
+                <Stat label="Parcelas totais" value={`${emprestimoAtivo.parcelas_totais}`} />
+                <Stat label="Restantes" value={`${emprestimoAtivo.parcelas_restantes}`} />
+                <Stat label="Valor por turno" value={formatBRL(Number(emprestimoAtivo.valor_parcela || 0))} />
+                <Stat label="Juros" value={`${(Number(emprestimoAtivo.juros || 0) * 100).toFixed(0)}%`} />
+                <Stat label="Saldo atual" value={formatBRL(saldoAtual)} green />
+              </div>
+
+              {Number(emprestimoAtivo.parcelas_restantes || 0) > 0 && emprestimoAtivo.status === 'ativo' && (
+                <button
+                  onClick={pagarParcela}
+                  disabled={pagando}
+                  className="mt-6 w-full rounded-2xl bg-gradient-to-r from-blue-600 to-emerald-500 px-5 py-4 text-base font-black uppercase tracking-wide text-white shadow-xl shadow-emerald-500/20 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>
-                    💰 Valor do Empréstimo (em milhões)
-                  </label>
+                  {pagando ? 'Processando pagamento...' : 'Pagar próxima parcela'}
+                </button>
+              )}
+            </div>
 
+            <GuaranteeCard jogador={emprestimoAtivo.jogador_garantia} />
+          </section>
+        ) : (
+          <section className="grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
+            <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-xl md:p-7">
+              <div className="mb-6">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
+                  Simulador
+                </p>
+                <h2 className="mt-1 text-2xl font-black md:text-3xl">Monte seu empréstimo</h2>
+              </div>
+
+              <div className="mb-6 rounded-3xl border border-white/10 bg-black/30 p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-slate-300">Uso do limite</span>
+                  <span className="text-sm font-black text-emerald-300">{usoDoLimitePct}%</span>
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-blue-500"
+                    style={{ width: `${usoDoLimitePct}%` }}
+                  />
+                </div>
+
+                <div className="mt-3 flex justify-between text-xs text-slate-400">
+                  <span>{formatBRL(valorEmprestimo)}</span>
+                  <span>{formatBRL(limiteMaximo)}</span>
+                </div>
+              </div>
+
+              <div className="grid gap-5">
+                <Panel title="Valor do empréstimo">
                   <input
                     type="range"
                     min={10}
@@ -534,10 +434,10 @@ export default function BancoPage() {
                     step={5}
                     value={valorEmprestimoMilhoes}
                     onChange={(e) => setValorEmprestimoMilhoes(Number(e.target.value))}
-                    style={{ width: '100%' }}
+                    className="w-full accent-emerald-400"
                   />
 
-                  <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[160px_1fr]">
                     <input
                       type="number"
                       min={10}
@@ -545,242 +445,202 @@ export default function BancoPage() {
                       step={5}
                       value={valorEmprestimoMilhoes}
                       onChange={(e) => setValorEmprestimoMilhoes(Number(e.target.value))}
-                      style={{
-                        width: 120,
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        border: '1.5px solid #2b2f35',
-                        background: '#0c0e11',
-                        color: '#eaeef2',
-                        fontWeight: 700,
-                      }}
+                      className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none focus:border-emerald-400"
                     />
-                    <span style={{ opacity: 0.7 }}>= {formatBRL(valorEmprestimo)}</span>
-                  </div>
-                </div>
 
-                {/* Parcelas */}
-                <div
-                  style={{
-                    background: '#0f1114',
-                    border: '1px solid #1f242b',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 16,
-                  }}
-                >
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>
-                    📆 Quantidade de Turnos (parcelas)
-                  </label>
-                  <select
-                    value={parcelas}
-                    onChange={(e) => setParcelas(Number(e.target.value))}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      border: '1.5px solid #2b2f35',
-                      background: '#0c0e11',
-                      color: '#eaeef2',
-                      fontWeight: 700,
-                    }}
-                  >
+                    <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3">
+                      <p className="text-xs font-bold uppercase text-emerald-300">Valor liberado</p>
+                      <p className="text-xl font-black">{formatBRL(valorEmprestimo)}</p>
+                    </div>
+                  </div>
+                </Panel>
+
+                <Panel title="Parcelamento por turno">
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                     {[1, 2, 3, 4].map((p) => (
-                      <option key={p} value={p}>
-                        {p} turno{p > 1 ? 's' : ''}
-                      </option>
+                      <button
+                        key={p}
+                        onClick={() => setParcelas(p)}
+                        className={`rounded-2xl border px-4 py-4 text-left transition hover:scale-[1.02] ${
+                          parcelas === p
+                            ? 'border-emerald-400 bg-emerald-400/15'
+                            : 'border-white/10 bg-black/30'
+                        }`}
+                      >
+                        <p className="text-lg font-black">{p}x</p>
+                        <p className="text-xs text-slate-400">{(jurosPorTurno[p] * 100).toFixed(0)}% juros</p>
+                      </button>
                     ))}
-                  </select>
-                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-                    Juros aplicado: <b>{(juros * 100).toFixed(0)}%</b>
                   </div>
-                </div>
+                </Panel>
 
-                {/* Garantia */}
-                <div
-                  style={{
-                    background: '#0f1114',
-                    border: '1px solid #1f242b',
-                    borderRadius: 12,
-                    padding: 16,
-                  }}
-                >
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>
-                    🎯 Jogador como Garantia (Top 7 do elenco)
-                  </label>
-                  <select
-                    value={jogadorSelecionadoIndex}
-                    onChange={(e) => setJogadorSelecionadoIndex(Number(e.target.value))}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      border: '1.5px solid #2b2f35',
-                      background: '#0c0e11',
-                      color: '#eaeef2',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {jogadoresGarantia.map((jogador, i) => (
-                      <option key={jogador.id} value={i}>
-                        {`${jogador.nome} - ${jogador.posicao} (${formatBRL(
-                          Number(jogador.valor || 0)
-                        )})`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Coluna direita: resumo & ação */}
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 16,
-                }}
-              >
-                <div
-                  style={{
-                    background: '#0f1114',
-                    border: '1px solid #1f242b',
-                    borderRadius: 12,
-                    padding: 16,
-                  }}
-                >
-                  <h3 style={{ marginTop: 0, marginBottom: 12 }}>Resumo da Simulação</h3>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: 10,
-                      fontSize: 16,
-                    }}
-                  >
-                    <InfoCompact title="Total com Juros" value={formatBRL(valorTotal)} />
-                    <InfoCompact title="Parcelas" value={`${parcelas}x / por turno`} />
-                    <InfoCompact title="Valor por Turno" value={formatBRL(valorParcela)} />
-                    <InfoCompact title="Juros" value={`${(juros * 100).toFixed(0)}%`} />
-                  </div>
-                </div>
-
-                <button
-                  disabled={enviando || valorEmprestimo > limiteMaximo || emprestimoAtivo}
-                  onClick={solicitarEmprestimo}
-                  style={{
-                    width: '100%',
-                    padding: '16px',
-                    fontSize: 18,
-                    fontWeight: 900,
-                    color: '#fff',
-                    background:
-                      enviando
-                        ? '#3f4a55'
-                        : 'linear-gradient(180deg, #2e7d32 0%, #1b5e20 100%)',
-                    border: 'none',
-                    borderRadius: 12,
-                    cursor: enviando ? 'not-allowed' : 'pointer',
-                    boxShadow: enviando ? 'none' : '0 16px 28px rgba(56,142,60,0.25)',
-                    transition: 'transform .04s ease',
-                  }}
-                  title={
-                    emprestimoAtivo
-                      ? 'Já existe um empréstimo ativo.'
-                      : valorEmprestimo > limiteMaximo
-                      ? 'Valor solicitado excede o limite para a sua divisão.'
-                      : ''
-                  }
-                >
-                  {enviando ? 'Enviando...' : '✅ Solicitar Empréstimo'}
-                </button>
-
-                {mensagem && (
-                  <p
-                    style={{
-                      marginTop: 4,
-                      fontWeight: 700,
-                      textAlign: 'center',
-                      color: mensagem.startsWith('✅') ? '#81c784' : '#ef9a9a',
-                    }}
-                  >
-                    {mensagem}
-                  </p>
-                )}
+                <Panel title="Jogador em garantia">
+                  {jogadoresGarantia.length > 0 ? (
+                    <select
+                      value={jogadorSelecionadoIndex}
+                      onChange={(e) => setJogadorSelecionadoIndex(Number(e.target.value))}
+                      className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-4 font-bold text-white outline-none focus:border-emerald-400"
+                    >
+                      {jogadoresGarantia.map((jogador, i) => (
+                        <option key={jogador.id} value={i}>
+                          {jogador.nome} - {jogador.posicao} - {formatBRL(Number(jogador.valor || 0))}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-red-300">Nenhum jogador disponível para garantia.</p>
+                  )}
+                </Panel>
               </div>
             </div>
-          </section>
 
-          {/* Ajuda */}
-          <details
-            style={{
-              fontSize: 15,
-              color: '#cbd5e1',
-              background: '#101215',
-              border: '1px solid #23262b',
-              borderRadius: 12,
-              padding: '12px 16px',
-            }}
-          >
-            <summary style={{ cursor: 'pointer', fontWeight: 800 }}>
-              ℹ️ Como funciona o parcelamento por turno?
-            </summary>
-            <ul style={{ marginTop: 12, paddingLeft: 20, lineHeight: 1.65 }}>
-              <li>1 turno → 5% de juros</li>
-              <li>2 turnos → 10% de juros</li>
-              <li>3 turnos → 15% de juros</li>
-              <li>4 turnos → 20% de juros</li>
-            </ul>
-            <p style={{ marginTop: 6 }}>
-              Ao final de cada turno, o sistema cobra automaticamente 1 parcela do seu empréstimo.
-            </p>
-            <p style={{ marginTop: 6 }}>
-              <b>Garantia obrigatória:</b> escolha um jogador entre os 7 mais valiosos do seu elenco.
-            </p>
-          </details>
-        </>
-      )}
+            <aside className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-xl md:p-7">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-300">
+                Resumo
+              </p>
+
+              <h2 className="mt-1 text-2xl font-black">Contrato simulado</h2>
+
+              <div className="mt-6 grid gap-3">
+                <ResumeRow label="Valor solicitado" value={formatBRL(valorEmprestimo)} />
+                <ResumeRow label="Juros" value={`${(juros * 100).toFixed(0)}%`} />
+                <ResumeRow label="Total a pagar" value={formatBRL(valorTotal)} highlight />
+                <ResumeRow label="Parcelas" value={`${parcelas}x por turno`} />
+                <ResumeRow label="Valor da parcela" value={formatBRL(valorParcela)} highlight />
+              </div>
+
+              <div className="my-6 h-px bg-white/10" />
+
+              <GuaranteeCard jogador={jogadorSelecionado} small />
+
+              <button
+                disabled={enviando || valorEmprestimo > limiteMaximo || !jogadorSelecionado}
+                onClick={solicitarEmprestimo}
+                className="mt-6 w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-blue-600 px-5 py-4 text-base font-black uppercase tracking-wide text-white shadow-xl shadow-emerald-500/20 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {enviando ? 'Enviando solicitação...' : 'Solicitar empréstimo'}
+              </button>
+
+              <p className="mt-4 text-center text-xs text-slate-400">
+                O valor é creditado imediatamente no caixa do clube após aprovação.
+              </p>
+            </aside>
+          </section>
+        )}
+      </section>
     </main>
   )
 }
 
-/** ============ Componentes de UI pequenos ============ */
-function Info({
-  title,
+function MiniCard({
+  label,
   value,
-  colSpan = 1,
+  green,
+  blue,
 }: {
-  title: string
+  label: string
   value: string
-  colSpan?: number
+  green?: boolean
+  blue?: boolean
 }) {
   return (
-    <div
-      style={{
-        gridColumn: `span ${colSpan}`,
-        background: '#0f1114',
-        border: '1px solid #1f242b',
-        borderRadius: 12,
-        padding: 12,
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>{title}</div>
-      <div style={{ fontWeight: 800 }}>{value}</div>
+    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      <p
+        className={`mt-1 truncate text-sm font-black md:text-base ${
+          green ? 'text-emerald-300' : blue ? 'text-blue-300' : 'text-white'
+        }`}
+      >
+        {value}
+      </p>
     </div>
   )
 }
 
-function InfoCompact({ title, value }: { title: string; value: string }) {
+function Stat({
+  label,
+  value,
+  green,
+}: {
+  label: string
+  value: string
+  green?: boolean
+}) {
   return (
-    <div
-      style={{
-        background: '#0c0e11',
-        border: '1px solid #1f242b',
-        borderRadius: 10,
-        padding: 10,
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{title}</div>
-      <div style={{ fontWeight: 800 }}>{value}</div>
+    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+      <p className="text-xs font-bold uppercase text-slate-400">{label}</p>
+      <p className={`mt-2 text-lg font-black ${green ? 'text-emerald-300' : 'text-white'}`}>
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/30 p-5">
+      <h3 className="mb-4 text-base font-black">{title}</h3>
+      {children}
+    </div>
+  )
+}
+
+function ResumeRow({
+  label,
+  value,
+  highlight,
+}: {
+  label: string
+  value: string
+  highlight?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+      <span className="text-sm text-slate-400">{label}</span>
+      <span className={`font-black ${highlight ? 'text-emerald-300' : 'text-white'}`}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function GuaranteeCard({ jogador, small }: { jogador: any; small?: boolean }) {
+  if (!jogador) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-black/30 p-5 text-sm text-slate-400">
+        Nenhum jogador selecionado.
+      </div>
+    )
+  }
+
+  return (
+    <div className={`rounded-[28px] border border-white/10 bg-black/30 p-5 ${small ? '' : 'shadow-2xl'}`}>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
+        Garantia
+      </p>
+
+      <div className="mt-4 flex items-center gap-4">
+        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/10">
+          {jogador.imagem_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={jogador.imagem_url} alt={jogador.nome} className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-2xl font-black">LF</span>
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <h3 className="truncate text-lg font-black">{jogador.nome}</h3>
+          <p className="text-sm text-slate-400">
+            {jogador.posicao || 'POS'} {jogador.overall ? `• OVR ${jogador.overall}` : ''}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3">
+        <p className="text-xs font-bold uppercase text-emerald-300">Valor de mercado</p>
+        <p className="text-xl font-black">{formatBRL(Number(jogador.valor || 0))}</p>
+      </div>
     </div>
   )
 }
