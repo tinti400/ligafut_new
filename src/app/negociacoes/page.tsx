@@ -1,12 +1,11 @@
 'use client'
 
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import ImagemComFallback from '@/components/ImagemComFallback'
 
-// ✅ IMPORTA O TYPE DO COMPONENTE (evita erros tipo "jogos não existe")
-import CardJogadorNegociacao, { type JogadorNegociacao } from '@/components/CardJogadorNegociacao'
+import CardJogador from '@/components/CardJogador'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,8 +21,29 @@ type Jogador = {
   posicao: string
   overall: number | null
   valor: number | null
+  salario?: number | null
+  nacionalidade?: string | null
   imagem_url?: string | null
+  foto?: string | null
   jogos?: number | null
+  pace?: number | null
+  shooting?: number | null
+  passing?: number | null
+  dribbling?: number | null
+  defending?: number | null
+  physical?: number | null
+  pac?: number | null
+  sho?: number | null
+  pas?: number | null
+  dri?: number | null
+  def?: number | null
+  phy?: number | null
+  ritmo?: number | null
+  finalizacao?: number | null
+  passe?: number | null
+  drible?: number | null
+  defesa?: number | null
+  fisico?: number | null
 }
 
 type TipoProposta = 'dinheiro' | 'troca_simples' | 'troca_composta' | 'comprar_percentual'
@@ -711,47 +731,74 @@ export default function NegociacoesPage() {
                   const temPendentes = existePendenteDoJogador(jogador.id)
                   const qtdPendentes = pendentesDoJogador(jogador.id).length
 
-                  // ✅ monta um JogadorNegociacao COMPLETO (id_time + jogos)
-                  const jogadorCard: JogadorNegociacao = {
-                    id: jogador.id,
-                    id_time: jogador.id_time,
-                    nome: jogador.nome,
-                    posicao: jogador.posicao,
-                    overall: jogador.overall ?? 0,
-                    valor: jogador.valor ?? 0,
-                    imagem_url: jogador.imagem_url ?? null,
-                    jogos: jogador.jogos ?? 0,
+                  const alternarPainelProposta = () => {
+                    setJogadorSelecionadoId((prev) => (prev === jogador.id ? '' : jogador.id))
+                    setTipoProposta((prev) => ({ ...prev, [jogador.id]: prev[jogador.id] ?? 'dinheiro' }))
+                    setValorProposta((prev) => ({ ...prev, [jogador.id]: prev[jogador.id] ?? '' }))
+                    setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: prev[jogador.id] ?? '100' }))
                   }
 
                   return (
                     <div key={jogador.id} className="w-full flex flex-col items-center">
-                      <CardJogadorNegociacao
-                        jogador={jogadorCard}
-                        selecionado={sel}
-                        temPendentes={temPendentes}
-                        qtdPendentes={qtdPendentes}
-                        onExcluirPendentes={temPendentes ? () => excluirTodasDoJogador(jogador.id) : undefined}
-                        loadingExcluir={false}
-                        loadingAbrir={false}
-                        onFazerProposta={() => {
-                          setJogadorSelecionadoId(jogador.id)
-                          setTipoProposta((prev) => ({ ...prev, [jogador.id]: 'dinheiro' }))
-                          setValorProposta((prev) => ({ ...prev, [jogador.id]: '' }))
-                          setPercentualDesejado((prev) => ({ ...prev, [jogador.id]: '100' }))
-                        }}
-                        subtitulo={null}
-                      />
+                      <div
+                        className={`relative rounded-[28px] transition duration-300 ${
+                          sel
+                            ? 'scale-[1.03] ring-2 ring-emerald-400/70 shadow-[0_0_35px_rgba(16,185,129,.32)]'
+                            : 'hover:scale-[1.02] hover:shadow-[0_0_28px_rgba(255,255,255,.10)]'
+                        }`}
+                      >
+                        {temPendentes && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              excluirTodasDoJogador(jogador.id)
+                            }}
+                            className="absolute -right-2 -top-2 z-30 rounded-full border border-yellow-300/30 bg-yellow-400 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-black shadow-2xl shadow-yellow-400/20"
+                            title="Cancelar propostas pendentes deste jogador"
+                          >
+                            {qtdPendentes} pendente(s)
+                          </button>
+                        )}
 
-                      {/* Painel abaixo do card (abre/fecha clicando no card via estado sel) */}
+                        <CardJogador
+                          modo="elenco"
+                          jogador={{
+                            id: jogador.id,
+                            nome: jogador.nome,
+                            overall: jogador.overall ?? 0,
+                            posicao: jogador.posicao,
+                            nacionalidade: jogador.nacionalidade ?? undefined,
+                            imagem_url: jogador.imagem_url ?? jogador.foto ?? undefined,
+                            foto: jogador.foto ?? undefined,
+                            valor: jogador.valor ?? 0,
+                            salario: jogador.salario ?? 0,
+                            pace: jogador.pace ?? jogador.pac ?? jogador.ritmo ?? null,
+                            shooting: jogador.shooting ?? jogador.sho ?? jogador.finalizacao ?? null,
+                            passing: jogador.passing ?? jogador.pas ?? jogador.passe ?? null,
+                            dribbling: jogador.dribbling ?? jogador.dri ?? jogador.drible ?? null,
+                            defending: jogador.defending ?? jogador.def ?? jogador.defesa ?? null,
+                            physical: jogador.physical ?? jogador.phy ?? jogador.fisico ?? null,
+                            pac: jogador.pac ?? jogador.pace ?? jogador.ritmo ?? null,
+                            sho: jogador.sho ?? jogador.shooting ?? jogador.finalizacao ?? null,
+                            pas: jogador.pas ?? jogador.passing ?? jogador.passe ?? null,
+                            dri: jogador.dri ?? jogador.dribbling ?? jogador.drible ?? null,
+                            def: jogador.def ?? jogador.defending ?? jogador.defesa ?? null,
+                            phy: jogador.phy ?? jogador.physical ?? jogador.fisico ?? null,
+                          }}
+                        />
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => {
-                          setJogadorSelecionadoId((prev) => (prev === jogador.id ? '' : jogador.id))
-                          setTipoProposta((prev) => ({ ...prev, [jogador.id]: prev[jogador.id] ?? 'dinheiro' }))
-                        }}
-                        className="mt-2 text-[11px] text-white/50 underline hover:no-underline"
+                        onClick={alternarPainelProposta}
+                        className={`mt-3 rounded-2xl px-4 py-2 text-xs font-black uppercase tracking-[0.12em] transition ${
+                          sel
+                            ? 'bg-emerald-400 text-black shadow-lg shadow-emerald-400/20'
+                            : 'border border-white/10 bg-white/[0.06] text-white hover:bg-white/10'
+                        }`}
                       >
-                        {sel ? 'Fechar painel' : 'Abrir painel'}
+                        {sel ? 'Fechar painel' : 'Fazer proposta'}
                       </button>
 
                       {sel && (
