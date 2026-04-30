@@ -698,8 +698,8 @@ export default function Sidebar() {
                 <CollapsedItem href="/elenco" label="Elenco" emoji="👥" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
-                <CollapsedItem href="/propostas-recebidas" label="Propostas Recebidas" emoji="📥" badge={<Badge n={countRecebidas} />} />
-                <CollapsedItem href="/propostas-enviadas" label="Propostas Enviadas" emoji="📤" badge={<Badge n={countEnviadas} tone="amber" />} />
+                <CollapsedItem href="/propostas_recebidas" label="Propostas Recebidas" emoji="📥" badge={<Badge n={countRecebidas} />} />
+                <CollapsedItem href="/propostas_enviadas" label="Propostas Enviadas" emoji="📤" badge={<Badge n={countEnviadas} tone="amber" />} />
                 <CollapsedItem href="/leilao" label="Leilão" emoji="🎯" />
                 <CollapsedItem href="/BID" label="BID" emoji="📰" />
 
