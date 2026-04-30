@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import * as XLSX from 'xlsx'
 import {
@@ -15,6 +15,11 @@ import {
   Filter,
   Trash2,
 } from 'lucide-react'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 type JogadorBase = {
   id: string
@@ -46,8 +51,6 @@ type JogadorBase = {
   destino: string | null
 }
 
-
-
 function dinheiro(valor?: number | null) {
   return Number(valor || 0).toLocaleString('pt-BR', {
     style: 'currency',
@@ -71,7 +74,6 @@ export default function BaseJogadoresPage() {
   const [loading, setLoading] = useState(true)
   const [enviando, setEnviando] = useState(false)
   const [importando, setImportando] = useState(false)
-
   const [previewImportacao, setPreviewImportacao] = useState<any[]>([])
 
   const [busca, setBusca] = useState('')
@@ -701,7 +703,6 @@ export default function BaseJogadoresPage() {
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-xl overflow-hidden bg-zinc-800 border border-white/10">
                             {j.imagem_url || j.foto ? (
-                              // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={j.imagem_url || j.foto || ''}
                                 alt={j.nome}
