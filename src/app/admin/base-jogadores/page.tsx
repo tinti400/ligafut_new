@@ -49,6 +49,7 @@ type JogadorBase = {
   physical: number | null
   status: string | null
   destino: string | null
+  enviado_em?: string | null
 }
 
 function dinheiro(valor?: number | null) {
@@ -95,7 +96,7 @@ export default function BaseJogadoresPage() {
 
     if (error) {
       console.error(error)
-      toast.error('Erro ao carregar jogadores.')
+      toast.error(error.message || 'Erro ao carregar jogadores.')
       setLoading(false)
       return
     }
@@ -195,9 +196,9 @@ export default function BaseJogadoresPage() {
 
       setPreviewImportacao(tratados)
       toast.success(`${tratados.length} jogadores +75 encontrados na planilha.`)
-    } catch (err) {
-      console.error(err)
-      toast.error('Erro ao ler a planilha.')
+    } catch (err: any) {
+      console.error('Erro ao ler planilha:', err)
+      toast.error(err?.message || 'Erro ao ler a planilha.')
     }
   }
 
@@ -210,41 +211,88 @@ export default function BaseJogadoresPage() {
     setImportando(true)
 
     try {
-      let importados = 0
-      let ignorados = 0
+      const { data: existentes, error: erroBusca } = await supabase
+        .from('jogadores_base_liga')
+        .select('id, nome, link_sofifa')
 
-      for (const jogador of previewImportacao) {
-        const filtrosDuplicidade = jogador.link_sofifa
-          ? `link_sofifa.eq.${jogador.link_sofifa},nome.ilike.${jogador.nome}`
-          : `nome.ilike.${jogador.nome}`
+      if (erroBusca) throw erroBusca
 
-        const { data: existente } = await supabase
-          .from('jogadores_base_liga')
-          .select('id')
-          .or(filtrosDuplicidade)
-          .maybeSingle()
+      const linksExistentes = new Set(
+        (existentes || [])
+          .map((j: any) => String(j.link_sofifa || '').trim())
+          .filter(Boolean)
+      )
 
-        if (existente) {
-          ignorados++
-          continue
-        }
+      const nomesExistentes = new Set(
+        (existentes || [])
+          .map((j: any) => String(j.nome || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
 
-        const { error } = await supabase.from('jogadores_base_liga').insert({
-          ...jogador,
-          status: 'base',
-          destino: null,
-        })
+      const novos = previewImportacao.filter((j) => {
+        const nome = String(j.nome || '').trim().toLowerCase()
+        const link = String(j.link_sofifa || '').trim()
 
-        if (error) throw error
-        importados++
+        if (link && linksExistentes.has(link)) return false
+        if (nome && nomesExistentes.has(nome)) return false
+
+        if (link) linksExistentes.add(link)
+        if (nome) nomesExistentes.add(nome)
+
+        return true
+      })
+
+      if (novos.length === 0) {
+        toast.error('Todos os jogadores da planilha já existem na base.')
+        setImportando(false)
+        return
       }
 
-      toast.success(`${importados} importados. ${ignorados} duplicados ignorados.`)
+      const payload = novos.map((j) => ({
+        nome: j.nome,
+        posicao: j.posicao,
+        overall: j.overall,
+        valor: j.valor,
+        salario: j.salario || 0,
+        time_origem: j.time_origem,
+        nacionalidade: j.nacionalidade,
+        foto: j.foto,
+        imagem_url: j.imagem_url || j.foto,
+        link_sofifa: j.link_sofifa || null,
+        data_listagem: j.data_listagem,
+        raridade: j.raridade,
+
+        pac: j.pac || 0,
+        sho: j.sho || 0,
+        pas: j.pas || 0,
+        dri: j.dri || 0,
+        def: j.def || 0,
+        phy: j.phy || 0,
+
+        pace: j.pace || j.pac || 0,
+        shooting: j.shooting || j.sho || 0,
+        passing: j.passing || j.pas || 0,
+        dribbling: j.dribbling || j.dri || 0,
+        defending: j.defending || j.def || 0,
+        physical: j.physical || j.phy || 0,
+
+        status: 'base',
+        destino: null,
+        enviado_em: null,
+      }))
+
+      const { error } = await supabase
+        .from('jogadores_base_liga')
+        .insert(payload)
+
+      if (error) throw error
+
+      toast.success(`${payload.length} jogadores importados para a base.`)
       setPreviewImportacao([])
       await carregarJogadores()
-    } catch (err) {
-      console.error(err)
-      toast.error('Erro ao importar jogadores.')
+    } catch (err: any) {
+      console.error('Erro ao importar:', err)
+      toast.error(err?.message || 'Erro ao importar jogadores.')
     } finally {
       setImportando(false)
     }
@@ -321,30 +369,50 @@ export default function BaseJogadoresPage() {
     setEnviando(true)
 
     try {
+      const { data: existentes, error: erroBusca } = await supabase
+        .from('mercado_transferencias')
+        .select('id, nome, link_sofifa')
+
+      if (erroBusca) throw erroBusca
+
+      const linksExistentes = new Set(
+        (existentes || [])
+          .map((j: any) => String(j.link_sofifa || '').trim())
+          .filter(Boolean)
+      )
+
+      const nomesExistentes = new Set(
+        (existentes || [])
+          .map((j: any) => String(j.nome || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+
       for (const jogador of lista) {
-        const filtrosDuplicidade = jogador.link_sofifa
-          ? `link_sofifa.eq.${jogador.link_sofifa},nome.ilike.${jogador.nome}`
-          : `nome.ilike.${jogador.nome}`
+        const nome = String(jogador.nome || '').trim().toLowerCase()
+        const link = String(jogador.link_sofifa || '').trim()
 
-        const { data: existente } = await supabase
-          .from('mercado_transferencias')
-          .select('id')
-          .or(filtrosDuplicidade)
-          .maybeSingle()
+        const jaExiste =
+          Boolean(link && linksExistentes.has(link)) ||
+          Boolean(nome && nomesExistentes.has(nome))
 
-        if (!existente) {
+        if (!jaExiste) {
           const { error: insertError } = await supabase
             .from('mercado_transferencias')
             .insert(montarPayloadMercado(jogador))
 
           if (insertError) throw insertError
+
+          if (link) linksExistentes.add(link)
+          if (nome) nomesExistentes.add(nome)
         }
 
         const { error: updateError } = await supabase
           .from('jogadores_base_liga')
           .update({
             status: 'mercado',
-            destino: existente ? 'mercado_duplicado_bloqueado' : 'mercado_transferencias',
+            destino: jaExiste
+              ? 'mercado_duplicado_bloqueado'
+              : 'mercado_transferencias',
             enviado_em: new Date().toISOString(),
           })
           .eq('id', jogador.id)
@@ -354,9 +422,9 @@ export default function BaseJogadoresPage() {
 
       toast.success('Jogadores enviados para o mercado.')
       await carregarJogadores()
-    } catch (err) {
-      console.error(err)
-      toast.error('Erro ao enviar para o mercado.')
+    } catch (err: any) {
+      console.error('Erro ao enviar mercado:', err)
+      toast.error(err?.message || 'Erro ao enviar para o mercado.')
     } finally {
       setEnviando(false)
     }
@@ -373,30 +441,50 @@ export default function BaseJogadoresPage() {
     setEnviando(true)
 
     try {
+      const { data: existentes, error: erroBusca } = await supabase
+        .from('leiloes_sistema')
+        .select('id, nome, link_sofifa')
+
+      if (erroBusca) throw erroBusca
+
+      const linksExistentes = new Set(
+        (existentes || [])
+          .map((j: any) => String(j.link_sofifa || '').trim())
+          .filter(Boolean)
+      )
+
+      const nomesExistentes = new Set(
+        (existentes || [])
+          .map((j: any) => String(j.nome || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+
       for (const jogador of lista) {
-        const filtrosDuplicidade = jogador.link_sofifa
-          ? `link_sofifa.eq.${jogador.link_sofifa},nome.ilike.${jogador.nome}`
-          : `nome.ilike.${jogador.nome}`
+        const nome = String(jogador.nome || '').trim().toLowerCase()
+        const link = String(jogador.link_sofifa || '').trim()
 
-        const { data: existente } = await supabase
-          .from('leiloes_sistema')
-          .select('id')
-          .or(filtrosDuplicidade)
-          .maybeSingle()
+        const jaExiste =
+          Boolean(link && linksExistentes.has(link)) ||
+          Boolean(nome && nomesExistentes.has(nome))
 
-        if (!existente) {
+        if (!jaExiste) {
           const { error: insertError } = await supabase
             .from('leiloes_sistema')
             .insert(montarPayloadLeilao(jogador))
 
           if (insertError) throw insertError
+
+          if (link) linksExistentes.add(link)
+          if (nome) nomesExistentes.add(nome)
         }
 
         const { error: updateError } = await supabase
           .from('jogadores_base_liga')
           .update({
             status: 'leilao',
-            destino: existente ? 'leilao_duplicado_bloqueado' : 'leiloes_sistema',
+            destino: jaExiste
+              ? 'leilao_duplicado_bloqueado'
+              : 'leiloes_sistema',
             enviado_em: new Date().toISOString(),
           })
           .eq('id', jogador.id)
@@ -406,9 +494,9 @@ export default function BaseJogadoresPage() {
 
       toast.success('Jogadores enviados para o leilão.')
       await carregarJogadores()
-    } catch (err) {
-      console.error(err)
-      toast.error('Erro ao enviar para o leilão.')
+    } catch (err: any) {
+      console.error('Erro ao enviar leilão:', err)
+      toast.error(err?.message || 'Erro ao enviar para o leilão.')
     } finally {
       setEnviando(false)
     }
