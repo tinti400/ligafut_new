@@ -33,6 +33,8 @@ type Leilao = {
   anterior?: string | null
 }
 
+type FiltroLeilao = 'todos' | 'meus' | 'terminando' | 'sem_lance' | 'mais_caros'
+
 export default function LeilaoSistemaPage() {
   // identidade do time
   const [idTime, setIdTime] = useState<string | null>(null)
@@ -65,6 +67,7 @@ export default function LeilaoSistemaPage() {
   // admin
   const [isAdmin, setIsAdmin] = useState(false)
   const [finalizando, setFinalizando] = useState<Record<string, boolean>>({})
+  const [filtroLeilao, setFiltroLeilao] = useState<FiltroLeilao>('todos')
 
   // efeitos por leilão (vira ReactNode pro card)
   const [efeito, setEfeito] = useState<
@@ -685,135 +688,320 @@ export default function LeilaoSistemaPage() {
     }
   }
 
+
+  const calcularTempoRestante = (leilao: Leilao) => {
+    const tempoFinal = toMs(leilao.fim)
+    const restante = Math.floor((tempoFinal - nowServerMs()) / 1000)
+    return Number.isFinite(restante) ? Math.max(0, restante) : 0
+  }
+
+  const leiloesFiltrados = useMemo(() => {
+    const base = [...leiloes]
+
+    if (filtroLeilao === 'meus') {
+      return base.filter((l) => l.id_time_vencedor === idTime || l.nome_time_vencedor === nomeTime)
+    }
+
+    if (filtroLeilao === 'terminando') {
+      return base
+        .filter((l) => calcularTempoRestante(l) <= 30)
+        .sort((a, b) => calcularTempoRestante(a) - calcularTempoRestante(b))
+    }
+
+    if (filtroLeilao === 'sem_lance') {
+      return base.filter((l) => !l.id_time_vencedor && !l.nome_time_vencedor)
+    }
+
+    if (filtroLeilao === 'mais_caros') {
+      return base.sort((a, b) => Number(b.valor_atual || 0) - Number(a.valor_atual || 0))
+    }
+
+    return base
+  }, [leiloes, filtroLeilao, idTime, nomeTime, serverOffsetMs])
+
+  const topLeiloes = useMemo(() => {
+    return [...leiloes]
+      .sort((a, b) => Number(b.valor_atual || 0) - Number(a.valor_atual || 0))
+      .slice(0, 5)
+  }, [leiloes])
+
+  const totalValorAtivo = useMemo(() => {
+    return leiloes.reduce((acc, l) => acc + Number(l.valor_atual || 0), 0)
+  }, [leiloes])
+
+  const leiloesTerminando = useMemo(() => {
+    return leiloes.filter((l) => calcularTempoRestante(l) <= 30).length
+  }, [leiloes, serverOffsetMs])
+
+  const meusLeiloes = useMemo(() => {
+    return leiloes.filter((l) => l.id_time_vencedor === idTime || l.nome_time_vencedor === nomeTime).length
+  }, [leiloes, idTime, nomeTime])
+
+  const filtroBtn = (id: FiltroLeilao, label: string, desc: string) => (
+    <button
+      type="button"
+      onClick={() => setFiltroLeilao(id)}
+      className={classNames(
+        'rounded-2xl border px-4 py-3 text-left transition active:scale-[0.99]',
+        filtroLeilao === id
+          ? 'border-emerald-300/50 bg-emerald-400 text-black shadow-[0_0_30px_rgba(16,185,129,.22)]'
+          : 'border-white/10 bg-white/[0.055] text-white hover:bg-white/[0.09]'
+      )}
+    >
+      <div className="text-sm font-black">{label}</div>
+      <div className={classNames('mt-0.5 text-[11px]', filtroLeilao === id ? 'text-black/65' : 'text-white/45')}>
+        {desc}
+      </div>
+    </button>
+  )
+
   // ================== RENDER ==================
   return (
-    <main className="min-h-screen bg-neutral-950 text-zinc-100">
+    <main className="relative min-h-screen overflow-hidden bg-black text-zinc-100">
       <audio ref={audioRef} src="/beep.mp3" preload="auto" />
 
       <Toaster
         position="top-center"
         toastOptions={{
           duration: 4000,
-          style: { background: '#0a0a0a', color: '#e5e7eb', border: '1px solid #27272a' },
+          style: { background: '#070707', color: '#f4f4f5', border: '1px solid rgba(255,255,255,.12)' },
         }}
       />
 
-      <header className="sticky top-0 z-20 border-b border-zinc-900/80 bg-neutral-950/80 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/60">
-        <div className="mx-auto w-full max-w-6xl px-4 py-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-400 shadow ring-1 ring-emerald-400/30" />
-              <h1 className="text-lg font-semibold tracking-tight">
-                Leilão do Sistema{' '}
-                <span className="ml-2 align-middle text-[11px] text-zinc-400">relógio sincronizado</span>
-              </h1>
+      <div className="pointer-events-none fixed inset-0 -z-10">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(16,185,129,.28),transparent_35%),radial-gradient(circle_at_85%_10%,rgba(250,204,21,.18),transparent_32%),radial-gradient(circle_at_50%_100%,rgba(59,130,246,.16),transparent_40%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.55),rgba(0,0,0,.9),#000)]" />
+        <div className="absolute inset-0 opacity-[0.16] bg-[linear-gradient(rgba(255,255,255,.09)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.09)_1px,transparent_1px)] bg-[size:44px_44px]" />
+      </div>
+
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-black/55 backdrop-blur-xl">
+        <div className="mx-auto w-full max-w-7xl px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-2xl border border-emerald-300/30 bg-emerald-400/15 shadow-[0_0_30px_rgba(16,185,129,.25)]">
+                <span className="text-xl">⚡</span>
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-black tracking-tight sm:text-2xl">
+                  LEILÃO AO VIVO <span className="text-emerald-300">LIGAFUT</span>
+                </h1>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                  relógio sincronizado • lances em tempo real • disputa por elenco
+                </p>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div
-                className={classNames(
-                  'rounded-xl border px-3 py-2 text-sm',
-                  saldo !== null
-                    ? 'border-emerald-900/40 bg-emerald-950/40 text-emerald-200'
-                    : 'border-zinc-800 bg-zinc-900/60 text-zinc-300'
-                )}
-              >
-                💳 Saldo: <b className="ml-1 tabular-nums">{brl(saldo ?? undefined)}</b>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
+                💳 Saldo: <b className="ml-1 tabular-nums text-white">{brl(saldo ?? undefined)}</b>
               </div>
 
-              {isAdmin && (
-                <span className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
-                  Modo Admin
-                </span>
+              {nomeTime && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white/75">
+                  🛡️ Time: <b className="text-white">{nomeTime}</b>
+                </div>
               )}
 
-              {travadoPorIdentidade && (
-                <div className="rounded-xl border border-yellow-900/40 bg-yellow-950/40 px-3 py-2 text-xs text-yellow-200">
-                 ⚠️ {travadoPorIdentidade}
-                </div>
+              {isAdmin && (
+                <span className="rounded-2xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-amber-200">
+                  Modo Admin
+                </span>
               )}
             </div>
           </div>
 
+          {travadoPorIdentidade && (
+            <div className="mt-3 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 px-3 py-2 text-xs text-yellow-100">
+              ⚠️ {travadoPorIdentidade}
+            </div>
+          )}
+
           {erroTela && (
-            <div className="mt-3 rounded-2xl border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            <div className="mt-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
               ⚠️ {erroTela}
             </div>
           )}
         </div>
       </header>
 
-      <section className="mx-auto w-full max-w-6xl px-4 pb-10 pt-4">
-        {carregando ? (
-          <div className="grid grid-cols-1 gap-4 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5" />
-            ))}
+      <section className="mx-auto w-full max-w-7xl px-4 pt-5">
+        <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(16,185,129,.20),rgba(255,255,255,.06)_48%,rgba(250,204,21,.13))] p-5 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <div className="inline-flex rounded-full border border-yellow-200/25 bg-yellow-300/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-yellow-100">
+                Central de arremates
+              </div>
+              <h2 className="mt-4 text-4xl font-black tracking-tight sm:text-6xl">
+                Leilão do <span className="bg-gradient-to-r from-emerald-300 via-yellow-200 to-lime-300 bg-clip-text text-transparent">Sistema</span>
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/62">
+                Dispute jogadores em tempo real, acompanhe os maiores lances e acelere nos últimos segundos.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[640px]">
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Ativos</div>
+                <div className="mt-1 text-3xl font-black text-white">{leiloes.length}</div>
+              </div>
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Terminando</div>
+                <div className="mt-1 text-3xl font-black text-red-200">{leiloesTerminando}</div>
+              </div>
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Meus lances</div>
+                <div className="mt-1 text-3xl font-black text-emerald-200">{meusLeiloes}</div>
+              </div>
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Volume</div>
+                <div className="mt-1 truncate text-xl font-black text-yellow-100">{brl(totalValorAtivo)}</div>
+              </div>
+            </div>
           </div>
-        ) : leiloes.length === 0 ? (
-          <div className="mx-auto max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-center">
-            <h3 className="text-base font-semibold">Nenhum leilão ativo</h3>
-            <p className="mt-1 text-sm text-zinc-400">Volte em instantes ou verifique com o administrador.</p>
+        </div>
+      </section>
+
+      <section className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-5 px-4 py-5 xl:grid-cols-[1fr_320px]">
+        <div className="min-w-0 space-y-5">
+          <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-3 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {filtroBtn('todos', 'Todos', `${leiloes.length} leilões`)}
+              {filtroBtn('meus', 'Meus lances', `${meusLeiloes} liderando`)}
+              {filtroBtn('terminando', 'Terminando', 'até 30s')}
+              {filtroBtn('sem_lance', 'Sem lance', 'oportunidade')}
+              {filtroBtn('mais_caros', 'Mais caros', 'ranking')}
+            </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
-            {leiloes.map((leilao, index) => {
-              const serverNow = nowServerMs()
-              const tempoFinal = toMs(leilao.fim)
-              const tempoInicio = toMs(leilao.criado_em)
 
-              let tempoRestante = Math.floor((tempoFinal - serverNow) / 1000)
-              if (!isFinite(tempoRestante) || tempoRestante < 0) tempoRestante = 0
+          {carregando ? (
+            <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="h-[520px] animate-pulse rounded-[2rem] border border-white/10 bg-white/[0.045] shadow-2xl" />
+              ))}
+            </div>
+          ) : leiloes.length === 0 ? (
+            <div className="mx-auto max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8 text-center shadow-2xl backdrop-blur-xl">
+              <div className="text-4xl">🏟️</div>
+              <h3 className="mt-3 text-lg font-black">Nenhum leilão ativo</h3>
+              <p className="mt-1 text-sm text-white/50">Volte em instantes ou verifique com o administrador.</p>
+            </div>
+          ) : leiloesFiltrados.length === 0 ? (
+            <div className="mx-auto max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8 text-center shadow-2xl backdrop-blur-xl">
+              <div className="text-4xl">🔎</div>
+              <h3 className="mt-3 text-lg font-black">Nada encontrado nesse filtro</h3>
+              <p className="mt-1 text-sm text-white/50">Troque o filtro para ver outros leilões ativos.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
+              {leiloesFiltrados.map((leilao, index) => {
+                const serverNow = nowServerMs()
+                const tempoFinal = toMs(leilao.fim)
+                const tempoInicio = toMs(leilao.criado_em)
 
-              const totalMs = Math.max(0, tempoFinal - tempoInicio)
-              const remMs = Math.max(0, tempoFinal - serverNow)
-              const pctRestante =
-                totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
+                let tempoRestante = Math.floor((tempoFinal - serverNow) / 1000)
+                if (!isFinite(tempoRestante) || tempoRestante < 0) tempoRestante = 0
 
-              const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
-              const valorPropostoNum = Math.floor(Number(propostas[leilao.id] ?? minimoPermitido))
+                const totalMs = Math.max(0, tempoFinal - tempoInicio)
+                const remMs = Math.max(0, tempoFinal - serverNow)
+                const pctRestante =
+                  totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
 
-              const vencedor = leilao.nome_time_vencedor || ''
-              const logoVencedor = vencedor ? logos[vencedor] : undefined
+                const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
+                const vencedor = leilao.nome_time_vencedor || ''
+                const logoVencedor = vencedor ? logos[vencedor] : undefined
+                const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
 
-              const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
+                return (
+                  <div
+                    key={leilao.id}
+                    className={classNames(
+                      'relative rounded-[2rem] transition duration-300',
+                      tempoRestante <= 15 && 'shadow-[0_0_35px_rgba(239,68,68,.20)]',
+                      leilao.id_time_vencedor === idTime && 'ring-2 ring-emerald-300/45 shadow-[0_0_35px_rgba(16,185,129,.18)]'
+                    )}
+                  >
+                    {tempoRestante <= 15 && (
+                      <div className="pointer-events-none absolute -inset-1 rounded-[2.15rem] bg-gradient-to-r from-red-500/35 via-yellow-300/30 to-red-500/35 blur-xl" />
+                    )}
+                    <CardJogadorLeilao
+                      leilao={leilao}
+                      index={index}
+                      travadoPorIdentidade={travadoPorIdentidade}
+                      saldo={saldo}
+                      isAdmin={isAdmin}
+                      tempoRestante={tempoRestante}
+                      pctRestante={pctRestante}
+                      disabledPorCooldown={disabledPorCooldown}
+                      tremendo={!!tremores[leilao.id]}
+                      burst={!!burst[leilao.id]}
+                      efeitoOverlay={efeitoOverlay(leilao.id)}
+                      minimoPermitido={minimoPermitido}
+                      valorProposto={propostas[leilao.id] ?? String(minimoPermitido)}
+                      setValorProposto={(v) => {
+                        const onlyDigits = String(v || '').replace(/[^\d]/g, '')
+                        setPropostas((prev) => ({ ...prev, [leilao.id]: onlyDigits }))
+                      }}
+                      logoVencedor={logoVencedor}
+                      onDarLanceManual={(valorPropostoNumCard) =>
+                        darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNumCard)
+                      }
+                      onDarLanceInc={(inc) => darLance(leilao.id, leilao.valor_atual, inc)}
+                      onResetMinimo={() =>
+                        setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido + 20_000_000) }))
+                      }
+                      onExcluir={isAdmin ? () => excluirDoLeilao(leilao.id) : undefined}
+                      onFinalizar={isAdmin ? () => finalizarLeilao(leilao.id) : undefined}
+                      finalizando={!!finalizando[leilao.id]}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
-              return (
-                <CardJogadorLeilao
-                  key={leilao.id}
-                  leilao={leilao}
-                  index={index}
-                  travadoPorIdentidade={travadoPorIdentidade}
-                  saldo={saldo}
-                  isAdmin={isAdmin}
-                  tempoRestante={tempoRestante}
-                  pctRestante={pctRestante}
-                  disabledPorCooldown={disabledPorCooldown}
-                  tremendo={!!tremores[leilao.id]}
-                  burst={!!burst[leilao.id]}
-                  efeitoOverlay={efeitoOverlay(leilao.id)}
-                  minimoPermitido={minimoPermitido}
-                  valorProposto={propostas[leilao.id] ?? String(minimoPermitido)}
-                  setValorProposto={(v) => {
-                    const onlyDigits = String(v || '').replace(/[^\d]/g, '')
-                    setPropostas((prev) => ({ ...prev, [leilao.id]: onlyDigits }))
-                  }}
-                  logoVencedor={logoVencedor}
-                  onDarLanceManual={(valorPropostoNumCard) =>
-                    darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNumCard)
-                  }
-                  onDarLanceInc={(inc) => darLance(leilao.id, leilao.valor_atual, inc)}
-                  onResetMinimo={() =>
-                    setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido + 20_000_000) }))
-                  }
-                  onExcluir={isAdmin ? () => excluirDoLeilao(leilao.id) : undefined}
-                  onFinalizar={isAdmin ? () => finalizarLeilao(leilao.id) : undefined}
-                  finalizando={!!finalizando[leilao.id]}
-                />
-              )
-            })}
+        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black">🏆 Maiores lances</h3>
+                <p className="text-xs text-white/45">Top 5 em andamento</p>
+              </div>
+              <span className="rounded-full border border-yellow-200/20 bg-yellow-300/10 px-3 py-1 text-[11px] font-black text-yellow-100">
+                LIVE
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {topLeiloes.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/45">
+                  Sem lances ativos.
+                </div>
+              ) : (
+                topLeiloes.map((l, i) => (
+                  <div key={l.id} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-black text-white">
+                          #{i + 1} {l.nome}
+                        </div>
+                        <div className="truncate text-xs text-white/45">{l.nome_time_vencedor || 'Sem líder'}</div>
+                      </div>
+                      <div className="shrink-0 text-right text-sm font-black text-emerald-200">{brl(l.valor_atual)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        )}
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <h3 className="text-lg font-black">🔥 Modo urgência</h3>
+            <p className="mt-1 text-sm text-white/50">
+              Quando faltar menos de 15 segundos, o card ganha brilho vermelho para chamar atenção e evitar perder o lance.
+            </p>
+          </div>
+        </aside>
       </section>
 
       {/* keyframes */}
@@ -956,6 +1144,14 @@ export default function LeilaoSistemaPage() {
         }
         .lf-ring {
           animation: lfRing 2.2s ease-out forwards;
+        }
+
+        @keyframes lfPulseUrgent {
+          0%, 100% { box-shadow: 0 0 0 rgba(239,68,68,0); }
+          50% { box-shadow: 0 0 26px rgba(239,68,68,.28); }
+        }
+        .lf-urgent {
+          animation: lfPulseUrgent 1s ease-in-out infinite;
         }
       `}</style>
 
