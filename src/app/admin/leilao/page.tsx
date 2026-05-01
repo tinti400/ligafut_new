@@ -1,9 +1,10 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
+import ImagemComFallback from '@/components/ImagemComFallback'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,15 +14,34 @@ const supabase = createClient(
 const STORAGE_BUCKET = 'imagens'
 const POSICOES = ['GL', 'LD', 'ZAG', 'LE', 'VOL', 'MC', 'MD', 'MEI', 'ME', 'PD', 'PE', 'SA', 'CA']
 
-// ---------------- helpers ----------------
+type Aba =
+  | 'criar'
+  | 'importar'
+  | 'ativos'
+  | 'fila'
+  | 'escuro'
+  | 'ativos_escuro'
+  | 'fila_escuro'
+
 const norm = (s?: any) => (typeof s === 'string' ? s.trim() : s ?? '')
+
 const formatMoeda = (v: number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
+
+function getCardType(overall?: number) {
+  const ovr = Number(overall || 0)
+
+  if (ovr >= 80) return 'ouro-raro'
+  if (ovr >= 75) return 'ouro'
+  if (ovr >= 65) return 'prata'
+  return 'bronze'
+}
 
 function pickStr(row: any, keys: string[]): string {
   for (const k of keys) {
     if (row?.[k] != null && String(row[k]).trim() !== '') return String(row[k]).trim()
   }
+
   for (const k in row) {
     if (
       k &&
@@ -32,21 +52,31 @@ function pickStr(row: any, keys: string[]): string {
       return String(row[k]).trim()
     }
   }
+
   return ''
 }
 
 function normalizeUrl(u: string): string {
   if (!u) return ''
+
   let url = u.replace(/^"(.*)"$/, '$1').trim()
+
   if (url.startsWith('//')) url = 'https:' + url
   if (url.startsWith('http://')) url = 'https://' + url.slice(7)
   if (!/^https?:\/\//i.test(url)) return ''
+
   return url
 }
 
 function parseMoeda(n: any, fallback = 0): number {
   if (n == null || n === '') return fallback
-  const s = String(n).replace(/\s/g, '').replace(/\./g, '').replace(',', '.').replace(/R\$/i, '')
+
+  const s = String(n)
+    .replace(/\s/g, '')
+    .replace(/\./g, '')
+    .replace(',', '.')
+    .replace(/R\$/i, '')
+
   const v = Number(s)
   return Number.isFinite(v) ? v : fallback
 }
@@ -60,12 +90,9 @@ function slugify(str: string) {
     .replace(/(^-|-$)+/g, '')
 }
 
-// -----------------------------------------
-
 export default function AdminLeilaoPage() {
   const router = useRouter()
 
-  // ==================== Leilão do Sistema (seu fluxo atual) ====================
   const [jogador, setJogador] = useState('')
   const [posicao, setPosicao] = useState('CA')
   const [overall, setOverall] = useState(80)
@@ -79,24 +106,14 @@ export default function AdminLeilaoPage() {
 
   const [leiloesAtivos, setLeiloesAtivos] = useState<any[]>([])
   const [fila, setFila] = useState<any[]>([])
-
-  const [importando, setImportando] = useState(false)
-  const [msg, setMsg] = useState('')
-  const [aba, setAba] = useState<
-    'criar' | 'importar' | 'ativos' | 'fila' |
-    'escuro' | 'ativos_escuro' | 'fila_escuro'
-  >('criar')
-
   const [duracoesFila, setDuracoesFila] = useState<Record<string, number>>({})
 
-  // ==================== Leilão no Escuro (novo) ====================
   const [escNacionalidade, setEscNacionalidade] = useState('')
   const [escPosicao, setEscPosicao] = useState('CA')
   const [escOverall, setEscOverall] = useState(80)
   const [escVelocidade, setEscVelocidade] = useState<number | ''>('')
   const [escFinalizacao, setEscFinalizacao] = useState<number | ''>('')
   const [escCabeceio, setEscCabeceio] = useState<number | ''>('')
-
   const [escValorInicial, setEscValorInicial] = useState(35_000_000)
   const [escDuracaoMin, setEscDuracaoMin] = useState(2)
   const [escImagemFile, setEscImagemFile] = useState<File | null>(null)
@@ -107,74 +124,111 @@ export default function AdminLeilaoPage() {
   const [filaEscuro, setFilaEscuro] = useState<any[]>([])
   const [duracoesFilaEscuro, setDuracoesFilaEscuro] = useState<Record<string, number>>({})
 
+  const [importando, setImportando] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [aba, setAba] = useState<Aba>('criar')
+  const [carregando, setCarregando] = useState(false)
+
+  const imagemPreview = useMemo(() => {
+    if (imagemFile) return URL.createObjectURL(imagemFile)
+    return normalizeUrl(imagemUrl)
+  }, [imagemFile, imagemUrl])
+
+  const imagemEscuroPreview = useMemo(() => {
+    if (escImagemFile) return URL.createObjectURL(escImagemFile)
+    return normalizeUrl(escImagemUrl)
+  }, [escImagemFile, escImagemUrl])
+
   useEffect(() => {
-    buscarFila()
-    buscarLeiloesAtivos()
-    buscarFilaEscuro()
-    buscarLeiloesEscurosAtivos()
+    buscarTudo()
+
     const intervalo = setInterval(() => {
       buscarLeiloesAtivos()
       buscarLeiloesEscurosAtivos()
     }, 5000)
+
     return () => clearInterval(intervalo)
   }, [])
 
-  const buscarFila = async () => {
+  async function buscarTudo() {
+    setCarregando(true)
+
+    await Promise.all([
+      buscarFila(),
+      buscarLeiloesAtivos(),
+      buscarFilaEscuro(),
+      buscarLeiloesEscurosAtivos(),
+    ])
+
+    setCarregando(false)
+  }
+
+  async function buscarFila() {
     const { data, error } = await supabase
       .from('leiloes_sistema')
       .select('*')
       .eq('status', 'fila')
       .order('criado_em', { ascending: true })
 
-    if (!error) {
-      setFila(data || [])
-      const init: Record<string, number> = {}
-      ;(data || []).forEach((j) => (init[j.id] = duracaoMin))
-      setDuracoesFila((prev) => ({ ...init, ...prev }))
-    } else {
-      console.error('Erro ao buscar fila (sistema):', error.message)
+    if (error) {
+      console.error('Erro ao buscar fila:', error.message)
+      return
     }
+
+    setFila(data || [])
+
+    const init: Record<string, number> = {}
+    ;(data || []).forEach((j) => (init[j.id] = duracaoMin))
+    setDuracoesFila((prev) => ({ ...init, ...prev }))
   }
 
-  const buscarLeiloesAtivos = async () => {
+  async function buscarLeiloesAtivos() {
     const { data, error } = await supabase
       .from('leiloes_sistema')
       .select('*')
       .eq('status', 'ativo')
       .order('fim', { ascending: true })
-      .limit(3)
 
-    if (!error) setLeiloesAtivos(data || [])
-    else console.error('Erro ao buscar ativos (sistema):', error.message)
+    if (error) {
+      console.error('Erro ao buscar ativos:', error.message)
+      return
+    }
+
+    setLeiloesAtivos(data || [])
   }
 
-  const buscarFilaEscuro = async () => {
+  async function buscarFilaEscuro() {
     const { data, error } = await supabase
       .from('leiloes_escuros')
       .select('*')
       .eq('status', 'fila')
       .order('criado_em', { ascending: true })
 
-    if (!error) {
-      setFilaEscuro(data || [])
-      const init: Record<string, number> = {}
-      ;(data || []).forEach((j) => (init[j.id] = escDuracaoMin))
-      setDuracoesFilaEscuro((prev) => ({ ...init, ...prev }))
-    } else {
-      console.error('Erro ao buscar fila (escuro):', error.message)
+    if (error) {
+      console.error('Erro ao buscar fila escuro:', error.message)
+      return
     }
+
+    setFilaEscuro(data || [])
+
+    const init: Record<string, number> = {}
+    ;(data || []).forEach((j) => (init[j.id] = escDuracaoMin))
+    setDuracoesFilaEscuro((prev) => ({ ...init, ...prev }))
   }
 
-  const buscarLeiloesEscurosAtivos = async () => {
+  async function buscarLeiloesEscurosAtivos() {
     const { data, error } = await supabase
       .from('leiloes_escuros')
       .select('*')
       .eq('status', 'ativo')
       .order('fim', { ascending: true })
-      .limit(3)
 
-    if (!error) setLeiloesEscurosAtivos(data || [])
-    else console.error('Erro ao buscar ativos (escuro):', error.message)
+    if (error) {
+      console.error('Erro ao buscar ativos escuro:', error.message)
+      return
+    }
+
+    setLeiloesEscurosAtivos(data || [])
   }
 
   async function uploadImagemParaStorage(file: File, nomeFallback?: string): Promise<string> {
@@ -185,18 +239,42 @@ export default function AdminLeilaoPage() {
     const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
       cacheControl: '3600',
       upsert: true,
-      contentType: file.type || 'image/jpeg'
+      contentType: file.type || 'image/jpeg',
     })
+
     if (upErr) throw new Error(upErr.message)
 
     const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path)
     return data.publicUrl
   }
 
-  // ==================== Criar Manual (Sistema) ====================
-  const criarLeilaoManual = async () => {
+  function validarLeilaoSistema() {
+    if (!jogador.trim()) return 'Informe o nome do jogador.'
+    if (!POSICOES.includes(posicao)) return 'Informe uma posição válida.'
+    if (overall < 1 || overall > 99) return 'Overall precisa estar entre 1 e 99.'
+    if (valorInicial <= 0) return 'Valor inicial precisa ser maior que zero.'
+    if (duracaoMin < 1) return 'Duração precisa ser no mínimo 1 minuto.'
+    return ''
+  }
+
+  function validarLeilaoEscuro() {
+    if (!POSICOES.includes(escPosicao)) return 'Informe uma posição válida.'
+    if (escOverall < 1 || escOverall > 99) return 'Overall precisa estar entre 1 e 99.'
+    if (escValorInicial <= 0) return 'Valor inicial precisa ser maior que zero.'
+    if (escDuracaoMin < 1) return 'Duração precisa ser no mínimo 1 minuto.'
+    return ''
+  }
+
+  async function criarLeilaoManual() {
     try {
+      const erro = validarLeilaoSistema()
+      if (erro) {
+        setMsg(`❌ ${erro}`)
+        return
+      }
+
       let finalImageUrl = normalizeUrl(imagemUrl)
+
       if (imagemFile) {
         finalImageUrl = await uploadImagemParaStorage(imagemFile, jogador || 'leilao-sistema')
         setImagemUrl(finalImageUrl)
@@ -206,9 +284,9 @@ export default function AdminLeilaoPage() {
       const fim = new Date(agora.getTime() + Math.max(1, duracaoMin) * 60000)
 
       const { error } = await supabase.from('leiloes_sistema').insert({
-        nome: jogador,
+        nome: jogador.trim(),
         posicao,
-        overall,
+        overall: Number(overall),
         valor_atual: Number(valorInicial) || 35_000_000,
         origem: norm(origem),
         nacionalidade: norm(nacionalidade),
@@ -218,12 +296,11 @@ export default function AdminLeilaoPage() {
         nome_time_vencedor: null,
         fim,
         criado_em: agora,
-        status: 'ativo'
+        status: 'ativo',
       })
 
       if (error) throw new Error(error.message)
 
-      // reset
       setJogador('')
       setPosicao('CA')
       setOverall(80)
@@ -234,17 +311,77 @@ export default function AdminLeilaoPage() {
       setDuracaoMin(2)
       setImagemFile(null)
       setImagemUrl('')
+      setMsg('✅ Leilão do sistema criado com sucesso!')
 
-      alert('✅ Leilão (sistema) criado!')
+      await buscarLeiloesAtivos()
+      setAba('ativos')
       router.refresh()
-      buscarLeiloesAtivos()
     } catch (e: any) {
-      console.error('Erro ao criar leilão (sistema):', e?.message)
-      alert('❌ Erro ao criar leilão: ' + (e?.message || 'desconhecido'))
+      setMsg('❌ Erro ao criar leilão: ' + (e?.message || 'desconhecido'))
     }
   }
 
-  const iniciarLeilaoDaFila = async (jog: any) => {
+  async function criarLeilaoEscuroManual() {
+    try {
+      const erro = validarLeilaoEscuro()
+      if (erro) {
+        setMsg(`❌ ${erro}`)
+        return
+      }
+
+      let finalImageUrl = normalizeUrl(escImagemUrl)
+
+      if (escImagemFile) {
+        finalImageUrl = await uploadImagemParaStorage(escImagemFile, 'leilao-escuro')
+        setEscImagemUrl(finalImageUrl)
+      }
+
+      const agora = new Date()
+      const fim = new Date(agora.getTime() + Math.max(1, escDuracaoMin) * 60000)
+      const status = escIniciarAgora ? 'ativo' : 'fila'
+
+      const { error } = await supabase.from('leiloes_escuros').insert({
+        nacionalidade: norm(escNacionalidade) || null,
+        posicao: escPosicao || null,
+        overall: Number(escOverall) || null,
+        velocidade: escVelocidade === '' ? null : Number(escVelocidade),
+        finalizacao: escFinalizacao === '' ? null : Number(escFinalizacao),
+        cabeceio: escCabeceio === '' ? null : Number(escCabeceio),
+        valor_atual: Number(escValorInicial) || 35_000_000,
+        id_time_vencedor: null,
+        nome_time_vencedor: null,
+        imagem_url: finalImageUrl || null,
+        fim: escIniciarAgora ? fim : agora,
+        criado_em: agora,
+        status,
+      })
+
+      if (error) throw new Error(error.message)
+
+      setEscNacionalidade('')
+      setEscPosicao('CA')
+      setEscOverall(80)
+      setEscVelocidade('')
+      setEscFinalizacao('')
+      setEscCabeceio('')
+      setEscValorInicial(35_000_000)
+      setEscDuracaoMin(2)
+      setEscImagemFile(null)
+      setEscImagemUrl('')
+      setEscIniciarAgora(true)
+
+      setMsg('✅ Leilão no escuro criado com sucesso!')
+
+      await buscarLeiloesEscurosAtivos()
+      await buscarFilaEscuro()
+      setAba(status === 'ativo' ? 'ativos_escuro' : 'fila_escuro')
+      router.refresh()
+    } catch (e: any) {
+      setMsg('❌ Erro ao criar leilão no escuro: ' + (e?.message || 'desconhecido'))
+    }
+  }
+
+  async function iniciarLeilaoDaFila(jog: any) {
     try {
       const minutos = Math.max(1, Number(duracoesFila[jog.id] || duracaoMin))
       const agora = new Date()
@@ -258,78 +395,22 @@ export default function AdminLeilaoPage() {
           fim,
           valor_atual: Number(jog?.valor_atual) > 0 ? Number(jog.valor_atual) : 35_000_000,
           id_time_vencedor: null,
-          nome_time_vencedor: null
+          nome_time_vencedor: null,
         })
         .eq('id', jog.id)
 
       if (error) throw new Error(error.message)
 
+      setMsg(`✅ Leilão iniciado: ${jog.nome}`)
       await buscarFila()
       await buscarLeiloesAtivos()
+      setAba('ativos')
     } catch (e: any) {
-      console.error('Erro ao iniciar leilão (sistema):', e?.message)
-      alert('❌ Erro ao iniciar: ' + (e?.message || 'desconhecido'))
+      setMsg('❌ Erro ao iniciar: ' + (e?.message || 'desconhecido'))
     }
   }
 
-  // ==================== Criar Manual (Escuro) ====================
-  const criarLeilaoEscuroManual = async () => {
-    try {
-      let finalImageUrl = normalizeUrl(escImagemUrl)
-      if (escImagemFile) {
-        finalImageUrl = await uploadImagemParaStorage(escImagemFile, 'leilao-escuro')
-        setEscImagemUrl(finalImageUrl)
-      }
-
-      const agora = new Date()
-      const minutos = Math.max(1, escDuracaoMin)
-      const fim = new Date(agora.getTime() + minutos * 60000)
-
-      const status = escIniciarAgora ? 'ativo' : 'fila'
-
-      const payload: any = {
-        nacionalidade: norm(escNacionalidade) || null,
-        posicao: escPosicao || null,
-        overall: Number(escOverall) || null,
-        velocidade: escVelocidade === '' ? null : Number(escVelocidade),
-        finalizacao: escFinalizacao === '' ? null : Number(escFinalizacao),
-        cabeceio: escCabeceio === '' ? null : Number(escCabeceio),
-        valor_atual: Number(escValorInicial) || 35_000_000,
-        id_time_vencedor: null,
-        nome_time_vencedor: null,
-        imagem_url: finalImageUrl || null,
-        fim: escIniciarAgora ? fim : agora, // placeholder até iniciar
-        criado_em: agora,
-        status
-      }
-
-      const { error } = await supabase.from('leiloes_escuros').insert(payload)
-      if (error) throw new Error(error.message)
-
-      // reset
-      setEscNacionalidade('')
-      setEscPosicao('CA')
-      setEscOverall(80)
-      setEscVelocidade('')
-      setEscFinalizacao('')
-      setEscCabeceio('')
-      setEscValorInicial(35_000_000)
-      setEscDuracaoMin(2)
-      setEscImagemFile(null)
-      setEscImagemUrl('')
-      setEscIniciarAgora(true)
-
-      alert('✅ Leilão no Escuro criado!')
-      router.refresh()
-      buscarLeiloesEscurosAtivos()
-      buscarFilaEscuro()
-    } catch (e: any) {
-      console.error('Erro ao criar leilão (escuro):', e?.message)
-      alert('❌ Erro ao criar leilão no escuro: ' + (e?.message || 'desconhecido'))
-    }
-  }
-
-  const iniciarLeilaoEscuroDaFila = async (item: any) => {
+  async function iniciarLeilaoEscuroDaFila(item: any) {
     try {
       const minutos = Math.max(1, Number(duracoesFilaEscuro[item.id] || escDuracaoMin))
       const agora = new Date()
@@ -342,42 +423,104 @@ export default function AdminLeilaoPage() {
           criado_em: agora,
           fim,
           id_time_vencedor: null,
-          nome_time_vencedor: null
+          nome_time_vencedor: null,
         })
         .eq('id', item.id)
 
       if (error) throw new Error(error.message)
 
+      setMsg('✅ Leilão no escuro iniciado.')
       await buscarFilaEscuro()
       await buscarLeiloesEscurosAtivos()
+      setAba('ativos_escuro')
     } catch (e: any) {
-      console.error('Erro ao iniciar leilão (escuro):', e?.message)
-      alert('❌ Erro ao iniciar: ' + (e?.message || 'desconhecido'))
+      setMsg('❌ Erro ao iniciar: ' + (e?.message || 'desconhecido'))
     }
   }
 
-  // ---------- IMPORTAÇÃO DO EXCEL (Sistema – mantém seu fluxo) ----------
-  const handleImportar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  async function cancelarLeilaoSistema(id: string) {
+    if (!confirm('Cancelar este leilão ativo?')) return
+
+    const { error } = await supabase
+      .from('leiloes_sistema')
+      .update({ status: 'cancelado' })
+      .eq('id', id)
+
+    if (error) {
+      setMsg(`❌ Erro ao cancelar: ${error.message}`)
+      return
+    }
+
+    setMsg('✅ Leilão cancelado.')
+    buscarLeiloesAtivos()
+  }
+
+  async function cancelarLeilaoEscuro(id: string) {
+    if (!confirm('Cancelar este leilão no escuro?')) return
+
+    const { error } = await supabase
+      .from('leiloes_escuros')
+      .update({ status: 'cancelado' })
+      .eq('id', id)
+
+    if (error) {
+      setMsg(`❌ Erro ao cancelar: ${error.message}`)
+      return
+    }
+
+    setMsg('✅ Leilão no escuro cancelado.')
+    buscarLeiloesEscurosAtivos()
+  }
+
+  async function apagarFilaSistema(id: string) {
+    if (!confirm('Apagar este jogador da fila?')) return
+
+    const { error } = await supabase.from('leiloes_sistema').delete().eq('id', id)
+
+    if (error) {
+      setMsg(`❌ Erro ao apagar: ${error.message}`)
+      return
+    }
+
+    setMsg('✅ Item removido da fila.')
+    buscarFila()
+  }
+
+  async function apagarFilaEscuro(id: string) {
+    if (!confirm('Apagar este item da fila no escuro?')) return
+
+    const { error } = await supabase.from('leiloes_escuros').delete().eq('id', id)
+
+    if (error) {
+      setMsg(`❌ Erro ao apagar: ${error.message}`)
+      return
+    }
+
+    setMsg('✅ Item removido da fila escura.')
+    buscarFilaEscuro()
+  }
+
+  async function handleImportar(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
 
     setImportando(true)
-    setMsg('Lendo planilha...')
+    setMsg('📥 Lendo planilha...')
 
     const reader = new FileReader()
+
     reader.onload = async (event) => {
       try {
         const data = new Uint8Array(event.target?.result as ArrayBuffer)
         const workbook = XLSX.read(data, { type: 'array' })
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
-
         const json = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as any[]
 
         const rows = json.map((item) => {
           const nome = pickStr(item, ['nome'])
           const posicaoRaw = pickStr(item, ['posicao'])
-          const posicao = POSICOES.includes(posicaoRaw) ? posicaoRaw : 'MEI'
-          const overall = Number(item?.overall || 0) || 80
+          const pos = POSICOES.includes(posicaoRaw) ? posicaoRaw : 'MEI'
+          const ovr = Number(item?.overall || 0) || 80
           const valor = parseMoeda(item?.valor, 35_000_000)
           const origem = pickStr(item, ['time_origem', 'origem', 'time origem'])
           const nacionalidade = pickStr(item, ['nacionalidade'])
@@ -387,674 +530,701 @@ export default function AdminLeilaoPage() {
             'Imagem_url',
             'Imagem URL',
             'imagem URL',
-            'imagemURL'
+            'imagemURL',
           ])
+
           const linkRaw = pickStr(item, [
             'link_sofifa',
             'Link_sofifa',
             'link Sofifa',
             'link',
             'link_soffia',
-            'sofifa'
+            'sofifa',
           ])
 
-          const imagem_url = normalizeUrl(imagemRaw)
-          const link_sofifa = normalizeUrl(linkRaw)
-
           const criado_em = new Date()
-          const fim = new Date(criado_em.getTime() + 1 * 60000)
+          const fim = new Date(criado_em.getTime() + 60_000)
 
           return {
             nome,
-            posicao,
-            overall,
+            posicao: pos,
+            overall: ovr,
             valor_atual: valor,
             origem,
             nacionalidade,
-            imagem_url: imagem_url || null,
-            link_sofifa: link_sofifa || null,
+            imagem_url: normalizeUrl(imagemRaw) || null,
+            link_sofifa: normalizeUrl(linkRaw) || null,
             criado_em,
             fim,
             status: 'fila',
             id_time_vencedor: null,
-            nome_time_vencedor: null
+            nome_time_vencedor: null,
           }
         })
 
         const validos = rows.filter((r) => r.nome && r.posicao)
 
-        setMsg(`Importando ${validos.length} registros...`)
+        if (!validos.length) {
+          setMsg('❌ Nenhum jogador válido encontrado na planilha.')
+          return
+        }
 
         const chunkSize = 500
+
         for (let i = 0; i < validos.length; i += chunkSize) {
           const chunk = validos.slice(i, i + chunkSize)
           const { error } = await supabase.from('leiloes_sistema').insert(chunk)
+
           if (error) {
-            console.error('Erro ao inserir chunk:', error.message)
-            setMsg(`Erro ao inserir (chunk ${i / chunkSize + 1}): ${error.message}`)
-          } else {
-            setMsg(`Importados ${Math.min(i + chunk.length, validos.length)} / ${validos.length}`)
+            setMsg(`❌ Erro no lote ${i / chunkSize + 1}: ${error.message}`)
+            return
           }
+
+          setMsg(`✅ Importados ${Math.min(i + chunk.length, validos.length)} / ${validos.length}`)
         }
 
-        setMsg('✅ Jogadores importados com sucesso!')
+        setMsg(`✅ ${validos.length} jogadores enviados para a fila com sucesso!`)
         await buscarFila()
         setAba('fila')
       } catch (err: any) {
-        console.error(err)
         setMsg('❌ Falha ao importar: ' + (err?.message || 'erro desconhecido'))
       } finally {
         setImportando(false)
+        e.target.value = ''
       }
     }
 
     reader.readAsArrayBuffer(file)
   }
-  // ------------------------------------------------------
 
-  const formatarTempo = (fim: string) => {
-    const tempoFinal = new Date(fim).getTime()
-    const agora = Date.now()
-    const diff = tempoFinal - agora
+  function formatarTempo(fim: string) {
+    const diff = new Date(fim).getTime() - Date.now()
+
     if (diff <= 0) return 'Finalizado'
+
     const minutos = Math.floor(diff / 60000)
     const segundos = Math.floor((diff % 60000) / 1000)
-    return `${minutos}m ${segundos}s`
+
+    return `${minutos}m ${segundos.toString().padStart(2, '0')}s`
   }
 
-  const AbaButton = ({ id, label }: { id: typeof aba; label: string }) => (
-    <button
-      onClick={() => setAba(id)}
-      className={`px-4 py-2 rounded-lg text-sm font-semibold transition
-        ${aba === id ? 'bg-yellow-500 text-black' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
-    >
-      {label}
-    </button>
-  )
+  const stats = [
+    { label: 'Ativos sistema', value: leiloesAtivos.length },
+    { label: 'Fila sistema', value: fila.length },
+    { label: 'Ativos escuro', value: leiloesEscurosAtivos.length },
+    { label: 'Fila escuro', value: filaEscuro.length },
+  ]
 
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100 p-4">
-      <div className="mx-auto max-w-6xl">
-        <header className="sticky top-0 z-10 bg-gray-950/80 backdrop-blur border-b border-gray-800 mb-6">
-          <div className="max-w-6xl mx-auto px-1 py-4 flex flex-wrap items-center gap-2 justify-between">
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-              🎯 Admin – Leilão do Sistema & Leilão no Escuro
-            </h1>
-            <div className="flex flex-wrap gap-2">
-              <AbaButton id="criar" label="Criar Manual (Sistema)" />
-              <AbaButton id="importar" label="Importar Excel" />
-              <AbaButton id="ativos" label="Ativos (Sistema)" />
-              <AbaButton id="fila" label="Fila (Sistema)" />
-              <AbaButton id="escuro" label="Leilão no Escuro" />
-              <AbaButton id="ativos_escuro" label="Ativos (Escuro)" />
-              <AbaButton id="fila_escuro" label="Fila (Escuro)" />
+    <main className="min-h-screen bg-[#05070b] text-white">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(234,179,8,0.20),transparent_30%),radial-gradient(circle_at_top_right,rgba(34,197,94,0.18),transparent_32%),linear-gradient(180deg,#05070b,#090d14)]" />
+
+      <div className="relative mx-auto max-w-7xl px-4 py-6 md:px-8">
+        <header className="mb-6 rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-xl md:p-7">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <div className="mb-3 inline-flex rounded-full border border-yellow-400/30 bg-yellow-400/10 px-4 py-1.5 text-xs font-black uppercase tracking-[0.22em] text-yellow-300">
+                Central Admin
+              </div>
+
+              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
+                Leilões LigaFut
+              </h1>
+
+              <p className="mt-3 max-w-2xl text-sm text-slate-300 md:text-base">
+                Crie, importe, organize fila e controle leilões ativos do sistema e do modo escuro.
+              </p>
             </div>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:min-w-[620px]">
+              {stats.map((s) => (
+                <div key={s.label} className="rounded-2xl border border-white/10 bg-black/35 p-4">
+                  <p className="text-xs font-bold uppercase text-slate-400">{s.label}</p>
+                  <p className="mt-1 text-2xl font-black text-white">{s.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-2">
+            <AbaButton aba={aba} setAba={setAba} id="criar" label="Criar Sistema" />
+            <AbaButton aba={aba} setAba={setAba} id="importar" label="Importar Excel" />
+            <AbaButton aba={aba} setAba={setAba} id="ativos" label="Ativos Sistema" count={leiloesAtivos.length} />
+            <AbaButton aba={aba} setAba={setAba} id="fila" label="Fila Sistema" count={fila.length} />
+            <AbaButton aba={aba} setAba={setAba} id="escuro" label="Criar Escuro" />
+            <AbaButton aba={aba} setAba={setAba} id="ativos_escuro" label="Ativos Escuro" count={leiloesEscurosAtivos.length} />
+            <AbaButton aba={aba} setAba={setAba} id="fila_escuro" label="Fila Escuro" count={filaEscuro.length} />
+
+            <button onClick={buscarTudo} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-black text-white hover:bg-white/10">
+              {carregando ? 'Atualizando...' : 'Atualizar'}
+            </button>
           </div>
         </header>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-xl p-5">
-          {/* ====== Criar Manual (Sistema) ====== */}
-          {aba === 'criar' && (
-            <section>
-              <div className="grid md:grid-cols-[1.1fr,0.9fr] gap-6">
-                {/* Form */}
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Nome</label>
-                      <input
-                        type="text"
-                        placeholder="Ex.: Erling Haaland"
-                        value={jogador}
-                        onChange={(e) => setJogador(e.target.value)}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
+        {msg && (
+          <div className="mb-5 rounded-2xl border border-white/10 bg-black/45 px-5 py-4 text-sm font-bold text-slate-100">
+            {msg}
+          </div>
+        )}
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Posição</label>
-                      <select
-                        value={posicao}
-                        onChange={(e) => setPosicao(e.target.value)}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      >
-                        {POSICOES.map((p) => (
-                          <option key={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
+        {aba === 'criar' && (
+          <Card title="Criar Leilão Manual" tag="Sistema">
+            <div className="grid gap-6 lg:grid-cols-[1.2fr_320px]">
+              <FormSistema
+                jogador={jogador}
+                setJogador={setJogador}
+                posicao={posicao}
+                setPosicao={setPosicao}
+                overall={overall}
+                setOverall={setOverall}
+                valorInicial={valorInicial}
+                setValorInicial={setValorInicial}
+                origem={origem}
+                setOrigem={setOrigem}
+                nacionalidade={nacionalidade}
+                setNacionalidade={setNacionalidade}
+                linkSofifa={linkSofifa}
+                setLinkSofifa={setLinkSofifa}
+                duracaoMin={duracaoMin}
+                setDuracaoMin={setDuracaoMin}
+                imagemUrl={imagemUrl}
+                setImagemUrl={setImagemUrl}
+                setImagemFile={setImagemFile}
+              />
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Overall</label>
-                      <input
-                        type="number"
-                        value={overall}
-                        onChange={(e) => setOverall(Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
+              <PreviewCard
+                title="Prévia do Leilão"
+                nome={jogador || 'Jogador'}
+                posicao={posicao}
+                overall={overall}
+                valor={valorInicial}
+                imagem={imagemPreview}
+                origem={origem}
+                nacionalidade={nacionalidade}
+                duracao={duracaoMin}
+                link={linkSofifa}
+              />
+            </div>
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Valor (inicial)</label>
-                      <input
-                        type="number"
-                        value={valorInicial}
-                        onChange={(e) => setValorInicial(Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                      <p className="mt-1 text-xs text-gray-400">{formatMoeda(valorInicial)}</p>
-                    </div>
+            <button onClick={criarLeilaoManual} className="mt-6 w-full rounded-2xl bg-gradient-to-r from-yellow-400 to-emerald-400 px-5 py-4 text-sm font-black uppercase text-black shadow-xl">
+              Criar Leilão Agora
+            </button>
+          </Card>
+        )}
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">time_origem</label>
-                      <input
-                        type="text"
-                        value={origem}
-                        onChange={(e) => setOrigem(e.target.value)}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
+        {aba === 'importar' && (
+          <Card title="Importar Jogadores por Excel" tag="Planilha para fila">
+            <div className="rounded-3xl border border-dashed border-yellow-400/30 bg-yellow-400/5 p-6">
+              <label className="block text-sm font-black uppercase tracking-wide text-yellow-300">
+                Arquivo .xlsx
+              </label>
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">nacionalidade</label>
-                      <input
-                        type="text"
-                        value={nacionalidade}
-                        onChange={(e) => setNacionalidade(e.target.value)}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
+              <input
+                type="file"
+                accept=".xlsx"
+                onChange={handleImportar}
+                className="mt-4 w-full rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-slate-300"
+              />
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">link_sofifa</label>
-                      <input
-                        type="url"
-                        placeholder="https://sofifa.com/player/..."
-                        value={linkSofifa}
-                        onChange={(e) => setLinkSofifa(e.target.value)}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Duração (min)</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={duracaoMin}
-                        onChange={(e) => setDuracaoMin(Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="text-sm font-medium text-gray-300">imagem_url (upload ou URL)</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => setImagemFile(e.target.files?.[0] || null)}
-                        className="mt-1 w-full p-2 rounded-lg bg-gray-800 border border-gray-700"
-                      />
-                      <input
-                        type="url"
-                        placeholder="https://..."
-                        value={imagemUrl}
-                        onChange={(e) => setImagemUrl(e.target.value)}
-                        className="mt-2 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={criarLeilaoManual}
-                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-bold shadow-lg transition"
-                  >
-                    🚀 Criar Leilão Manual
-                  </button>
+              {importando && (
+                <div className="mt-4 rounded-2xl bg-black/35 p-4 text-sm font-bold text-yellow-300">
+                  Importando jogadores...
                 </div>
+              )}
 
-                {/* Preview */}
-                <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4">
-                  <h3 className="font-semibold mb-3">Pré-visualização</h3>
-                  <div className="rounded-xl overflow-hidden border border-gray-700">
-                    {imagemFile ? (
-                      <img
-                        alt="preview"
-                        src={URL.createObjectURL(imagemFile)}
-                        className="w-full h-56 object-cover"
-                      />
-                    ) : imagemUrl ? (
-                      <img
-                        alt="preview"
-                        src={imagemUrl}
-                        className="w-full h-56 object-cover"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                      />
-                    ) : (
-                      <div className="w-full h-56 grid place-items-center bg-gray-900 text-gray-500">
-                        Sem imagem
-                      </div>
-                    )}
-                  </div>
-
-                  <ul className="mt-4 text-sm text-gray-300 space-y-1">
-                    <li><b>Nome:</b> {jogador || '—'}</li>
-                    <li><b>Posição:</b> {posicao}</li>
-                    <li><b>Overall:</b> {overall}</li>
-                    <li><b>Valor:</b> {formatMoeda(valorInicial)}</li>
-                    <li><b>Origem:</b> {origem || '—'}</li>
-                    <li><b>Nacionalidade:</b> {nacionalidade || '—'}</li>
-                    <li><b>link_sofifa:</b> {linkSofifa || '—'}</li>
-                    <li><b>Duração:</b> {duracaoMin} min</li>
-                  </ul>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* ====== Importar Excel (Sistema) ====== */}
-          {aba === 'importar' && (
-            <section>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  📥 Importar Jogadores (.xlsx)
-                </label>
-                <input
-                  type="file"
-                  accept=".xlsx"
-                  onChange={handleImportar}
-                  className="w-full border rounded-lg p-3 bg-gray-800 border-gray-700"
-                />
-                {importando && <p className="text-yellow-300 mt-2">⏳ Importando...</p>}
-                {msg && <p className="text-green-400 mt-2">{msg}</p>}
-              </div>
-              <p className="text-xs text-gray-400">
+              <p className="mt-4 text-xs leading-6 text-slate-400">
                 Colunas suportadas: <b>nome</b>, <b>posicao</b>, <b>overall</b>, <b>valor</b>,
                 <b> time_origem</b>, <b>nacionalidade</b>, <b>imagem_url</b>, <b>link_sofifa</b>.
               </p>
-            </section>
-          )}
+            </div>
+          </Card>
+        )}
 
-          {/* ====== Ativos (Sistema) ====== */}
-          {aba === 'ativos' && (
-            <section>
-              {leiloesAtivos.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {leiloesAtivos.map((leilao) => (
-                    <div
-                      key={leilao.id}
-                      className="bg-gray-800 border border-gray-700 rounded-xl p-4 flex flex-col gap-2"
-                    >
-                      {leilao.imagem_url && (
-                        <img
-                          src={leilao.imagem_url}
-                          alt={leilao.nome}
-                          className="w-full h-40 object-cover rounded-lg border border-gray-700"
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                          onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                        />
-                      )}
-                      <p className="text-lg font-bold">
-                        {leilao.nome}{' '}
-                        <span className="text-sm font-medium text-gray-400">({leilao.posicao})</span>
-                      </p>
-                      <p className="text-sm"><b>⏱ Tempo:</b> {formatarTempo(leilao.fim)}</p>
-                      <p className="text-sm"><b>💰 Lance atual:</b> {formatMoeda(Number(leilao.valor_atual) || 0)}</p>
-                      {leilao.origem && <p className="text-xs text-gray-300"><b>Origem:</b> {leilao.origem}</p>}
-                      {leilao.nacionalidade && <p className="text-xs text-gray-300"><b>Nacionalidade:</b> {leilao.nacionalidade}</p>}
-                      {leilao.link_sofifa && (
-                        <a href={leilao.link_sofifa} target="_blank" rel="noreferrer" className="text-xs text-yellow-400 underline">
-                          Ver no SoFIFA
-                        </a>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-sm text-gray-400 italic">
-                  Nenhum leilão em andamento.
-                </p>
-              )}
-            </section>
-          )}
+        {aba === 'ativos' && (
+          <Card title="Leilões Ativos do Sistema" tag="Controle ao vivo">
+            <GridEmpty empty={!leiloesAtivos.length} text="Nenhum leilão do sistema em andamento.">
+              {leiloesAtivos.map((leilao) => (
+                <AuctionCard
+                  key={leilao.id}
+                  item={leilao}
+                  misterioso={false}
+                  tempo={formatarTempo(leilao.fim)}
+                  onCancel={() => cancelarLeilaoSistema(leilao.id)}
+                />
+              ))}
+            </GridEmpty>
+          </Card>
+        )}
 
-          {/* ====== Fila (Sistema) ====== */}
-          {aba === 'fila' && (
-            <section>
-              {fila.length === 0 ? (
-                <p className="text-sm text-gray-400 italic">Nenhum jogador na fila.</p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {fila.map((jog) => (
-                    <div key={jog.id} className="border border-gray-700 rounded-xl p-4 shadow bg-gray-800">
-                      {jog.imagem_url && (
-                        <img
-                          src={jog.imagem_url}
-                          alt={jog.nome}
-                          className="w-full h-44 object-cover rounded mb-3 border border-gray-700"
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                          onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                        />
-                      )}
-                      <div className="flex items-center justify-between">
-                        <p className="text-lg font-semibold">{jog.nome}</p>
-                        <span className="text-xs px-2 py-1 rounded bg-gray-700 border border-gray-600">
-                          {jog.posicao}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-300">Overall: <b>{jog.overall}</b></p>
-                      <p className="text-sm text-gray-300">💰 {formatMoeda(Number(jog.valor_atual) || 35_000_000)}</p>
-                      {jog.origem && <p className="text-xs text-gray-300 mt-1"><b>Origem:</b> {jog.origem}</p>}
-                      {jog.nacionalidade && <p className="text-xs text-gray-300"><b>Nacionalidade:</b> {jog.nacionalidade}</p>}
-                      {jog.link_sofifa && (
-                        <a href={jog.link_sofifa} target="_blank" rel="noreferrer" className="text-xs text-yellow-400 underline">
-                          Ver no SoFIFA
-                        </a>
-                      )}
+        {aba === 'fila' && (
+          <Card title="Fila de Leilões do Sistema" tag="Prontos para iniciar">
+            <GridEmpty empty={!fila.length} text="Nenhum jogador na fila.">
+              {fila.map((jog) => (
+                <QueueCard
+                  key={jog.id}
+                  item={jog}
+                  duracao={duracoesFila[jog.id] ?? duracaoMin}
+                  setDuracao={(v) => setDuracoesFila((prev) => ({ ...prev, [jog.id]: v }))}
+                  onStart={() => iniciarLeilaoDaFila(jog)}
+                  onDelete={() => apagarFilaSistema(jog.id)}
+                  misterioso={false}
+                />
+              ))}
+            </GridEmpty>
+          </Card>
+        )}
 
-                      <div className="mt-3 grid grid-cols-[1fr,auto] gap-2">
-                        <input
-                          type="number"
-                          min={1}
-                          value={duracoesFila[jog.id] ?? duracaoMin}
-                          onChange={(e) =>
-                            setDuracoesFila((prev) => ({ ...prev, [jog.id]: Number(e.target.value) }))
-                          }
-                          className="p-2 rounded-lg bg-gray-900 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                          placeholder="Duração (min)"
-                          title="Duração (min)"
-                        />
-                        <button
-                          onClick={() => iniciarLeilaoDaFila(jog)}
-                          className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded-lg font-semibold"
-                        >
-                          🎬 Iniciar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
+        {aba === 'escuro' && (
+          <Card title="Criar Leilão no Escuro" tag="Jogador misterioso">
+            <div className="grid gap-6 lg:grid-cols-[1.2fr_320px]">
+              <FormEscuro
+                escNacionalidade={escNacionalidade}
+                setEscNacionalidade={setEscNacionalidade}
+                escPosicao={escPosicao}
+                setEscPosicao={setEscPosicao}
+                escOverall={escOverall}
+                setEscOverall={setEscOverall}
+                escVelocidade={escVelocidade}
+                setEscVelocidade={setEscVelocidade}
+                escFinalizacao={escFinalizacao}
+                setEscFinalizacao={setEscFinalizacao}
+                escCabeceio={escCabeceio}
+                setEscCabeceio={setEscCabeceio}
+                escValorInicial={escValorInicial}
+                setEscValorInicial={setEscValorInicial}
+                escDuracaoMin={escDuracaoMin}
+                setEscDuracaoMin={setEscDuracaoMin}
+                escImagemUrl={escImagemUrl}
+                setEscImagemUrl={setEscImagemUrl}
+                setEscImagemFile={setEscImagemFile}
+                escIniciarAgora={escIniciarAgora}
+                setEscIniciarAgora={setEscIniciarAgora}
+              />
 
-          {/* ====== Leilão no Escuro – Criar Manual ====== */}
-          {aba === 'escuro' && (
-            <section>
-              <div className="grid md:grid-cols-[1.1fr,0.9fr] gap-6">
-                {/* Form */}
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Nacionalidade</label>
-                      <input
-                        type="text"
-                        value={escNacionalidade}
-                        onChange={(e) => setEscNacionalidade(e.target.value)}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        placeholder="Ex.: Brasil"
-                      />
-                    </div>
+              <PreviewCard
+                title="Prévia Misteriosa"
+                nome="Jogador Misterioso"
+                posicao={escPosicao}
+                overall={escOverall}
+                valor={escValorInicial}
+                imagem={imagemEscuroPreview}
+                origem="Oculto"
+                nacionalidade={escNacionalidade}
+                duracao={escDuracaoMin}
+                escuro
+              />
+            </div>
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Posição</label>
-                      <select
-                        value={escPosicao}
-                        onChange={(e) => setEscPosicao(e.target.value)}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      >
-                        {POSICOES.map((p) => (
-                          <option key={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
+            <button onClick={criarLeilaoEscuroManual} className="mt-6 w-full rounded-2xl bg-gradient-to-r from-emerald-400 to-cyan-400 px-5 py-4 text-sm font-black uppercase text-black shadow-xl">
+              Criar Leilão no Escuro
+            </button>
+          </Card>
+        )}
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Overall</label>
-                      <input
-                        type="number"
-                        value={escOverall}
-                        onChange={(e) => setEscOverall(Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
+        {aba === 'ativos_escuro' && (
+          <Card title="Leilões no Escuro Ativos" tag="Controle ao vivo">
+            <GridEmpty empty={!leiloesEscurosAtivos.length} text="Nenhum leilão no escuro em andamento.">
+              {leiloesEscurosAtivos.map((leilao) => (
+                <AuctionCard
+                  key={leilao.id}
+                  item={leilao}
+                  misterioso
+                  tempo={formatarTempo(leilao.fim)}
+                  onCancel={() => cancelarLeilaoEscuro(leilao.id)}
+                />
+              ))}
+            </GridEmpty>
+          </Card>
+        )}
 
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Velocidade</label>
-                      <input
-                        type="number"
-                        value={escVelocidade as number | undefined}
-                        onChange={(e) => setEscVelocidade(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        placeholder="(opcional)"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Finalização</label>
-                      <input
-                        type="number"
-                        value={escFinalizacao as number | undefined}
-                        onChange={(e) => setEscFinalizacao(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        placeholder="(opcional)"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Cabeceio</label>
-                      <input
-                        type="number"
-                        value={escCabeceio as number | undefined}
-                        onChange={(e) => setEscCabeceio(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        placeholder="(opcional)"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Valor (inicial)</label>
-                      <input
-                        type="number"
-                        value={escValorInicial}
-                        onChange={(e) => setEscValorInicial(Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                      <p className="mt-1 text-xs text-gray-400">{formatMoeda(escValorInicial)}</p>
-                    </div>
-
-                    <div>
-                      <label className="text-sm font-medium text-gray-300">Duração (min)</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={escDuracaoMin}
-                        onChange={(e) => setEscDuracaoMin(Number(e.target.value))}
-                        className="mt-1 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2 flex items-center gap-3 mt-1">
-                      <input
-                        id="iniciar-agora"
-                        type="checkbox"
-                        checked={escIniciarAgora}
-                        onChange={(e) => setEscIniciarAgora(e.target.checked)}
-                      />
-                      <label htmlFor="iniciar-agora" className="text-sm text-gray-300">
-                        Iniciar agora (se desmarcar, vai para a <b>Fila (Escuro)</b>)
-                      </label>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="text-sm font-medium text-gray-300">Imagem (upload ou URL)</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => setEscImagemFile(e.target.files?.[0] || null)}
-                        className="mt-1 w-full p-2 rounded-lg bg-gray-800 border border-gray-700"
-                      />
-                      <input
-                        type="url"
-                        placeholder="https://..."
-                        value={escImagemUrl}
-                        onChange={(e) => setEscImagemUrl(e.target.value)}
-                        className="mt-2 w-full p-3 rounded-lg bg-gray-800 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={criarLeilaoEscuroManual}
-                    className="w-full bg-emerald-500 hover:bg-emerald-400 text-black py-3 rounded-xl font-bold shadow-lg transition"
-                  >
-                    🕵️ Criar Leilão no Escuro
-                  </button>
-                </div>
-
-                {/* Preview */}
-                <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4">
-                  <h3 className="font-semibold mb-3">Pré-visualização (Escuro)</h3>
-                  <div className="rounded-xl overflow-hidden border border-gray-700">
-                    {escImagemFile ? (
-                      <img
-                        alt="preview"
-                        src={URL.createObjectURL(escImagemFile)}
-                        className="w-full h-56 object-cover"
-                      />
-                    ) : escImagemUrl ? (
-                      <img
-                        alt="preview"
-                        src={escImagemUrl}
-                        className="w-full h-56 object-cover"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                      />
-                    ) : (
-                      <div className="w-full h-56 grid place-items-center bg-gray-900 text-gray-500">
-                        Sem imagem
-                      </div>
-                    )}
-                  </div>
-
-                  <ul className="mt-4 text-sm text-gray-300 space-y-1">
-                    <li><b>Nacionalidade:</b> {escNacionalidade || '—'}</li>
-                    <li><b>Posição:</b> {escPosicao}</li>
-                    <li><b>Overall:</b> {escOverall}</li>
-                    <li><b>Velocidade:</b> {escVelocidade || '—'}</li>
-                    <li><b>Finalização:</b> {escFinalizacao || '—'}</li>
-                    <li><b>Cabeceio:</b> {escCabeceio || '—'}</li>
-                    <li><b>Valor:</b> {formatMoeda(escValorInicial)}</li>
-                    <li><b>Duração:</b> {escDuracaoMin} min</li>
-                    <li><b>Status inicial:</b> {escIniciarAgora ? 'ativo' : 'fila'}</li>
-                  </ul>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* ====== Ativos (Escuro) ====== */}
-          {aba === 'ativos_escuro' && (
-            <section>
-              {leiloesEscurosAtivos.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {leiloesEscurosAtivos.map((leilao) => (
-                    <div
-                      key={leilao.id}
-                      className="bg-gray-800 border border-gray-700 rounded-xl p-4 flex flex-col gap-2"
-                    >
-                      {leilao.imagem_url && (
-                        <img
-                          src={leilao.imagem_url}
-                          alt="Jogador Misterioso"
-                          className="w-full h-40 object-cover rounded-lg border border-gray-700"
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                          onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                        />
-                      )}
-                      <p className="text-lg font-bold">Jogador Misterioso</p>
-                      <p className="text-sm"><b>⏱ Tempo:</b> {formatarTempo(leilao.fim)}</p>
-                      <p className="text-sm"><b>💰 Lance atual:</b> {formatMoeda(Number(leilao.valor_atual) || 0)}</p>
-
-                      <div className="text-xs text-gray-300 space-y-1">
-                        {leilao.nacionalidade && <p><b>Nacionalidade:</b> {leilao.nacionalidade}</p>}
-                        {leilao.posicao && <p><b>Posição:</b> {leilao.posicao}</p>}
-                        {leilao.overall != null && <p><b>Overall:</b> {leilao.overall}</p>}
-                        {leilao.velocidade != null && <p><b>Velocidade:</b> {leilao.velocidade}</p>}
-                        {leilao.finalizacao != null && <p><b>Finalização:</b> {leilao.finalizacao}</p>}
-                        {leilao.cabeceio != null && <p><b>Cabeceio:</b> {leilao.cabeceio}</p>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-sm text-gray-400 italic">
-                  Nenhum leilão no escuro em andamento.
-                </p>
-              )}
-            </section>
-          )}
-
-          {/* ====== Fila (Escuro) ====== */}
-          {aba === 'fila_escuro' && (
-            <section>
-              {filaEscuro.length === 0 ? (
-                <p className="text-sm text-gray-400 italic">Nenhum item na fila do leilão no escuro.</p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filaEscuro.map((item) => (
-                    <div key={item.id} className="border border-gray-700 rounded-xl p-4 shadow bg-gray-800">
-                      {item.imagem_url && (
-                        <img
-                          src={item.imagem_url}
-                          alt="Jogador Misterioso"
-                          className="w-full h-44 object-cover rounded mb-3 border border-gray-700"
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                          onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                        />
-                      )}
-                      <div className="flex items-center justify-between">
-                        <p className="text-lg font-semibold">Jogador Misterioso</p>
-                        <span className="text-xs px-2 py-1 rounded bg-gray-700 border border-gray-600">
-                          {item.posicao || '—'}
-                        </span>
-                      </div>
-
-                      <p className="text-sm text-gray-300">Overall: <b>{item.overall ?? '—'}</b></p>
-                      <p className="text-sm text-gray-300">💰 {formatMoeda(Number(item.valor_atual) || 35_000_000)}</p>
-
-                      <div className="mt-3 grid grid-cols-[1fr,auto] gap-2">
-                        <input
-                          type="number"
-                          min={1}
-                          value={duracoesFilaEscuro[item.id] ?? escDuracaoMin}
-                          onChange={(e) =>
-                            setDuracoesFilaEscuro((prev) => ({ ...prev, [item.id]: Number(e.target.value) }))
-                          }
-                          className="p-2 rounded-lg bg-gray-900 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                          placeholder="Duração (min)"
-                          title="Duração (min)"
-                        />
-                        <button
-                          onClick={() => iniciarLeilaoEscuroDaFila(item)}
-                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black rounded-lg font-semibold"
-                        >
-                          🎬 Iniciar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-        </div>
+        {aba === 'fila_escuro' && (
+          <Card title="Fila de Leilões no Escuro" tag="Prontos para iniciar">
+            <GridEmpty empty={!filaEscuro.length} text="Nenhum item na fila do leilão no escuro.">
+              {filaEscuro.map((item) => (
+                <QueueCard
+                  key={item.id}
+                  item={item}
+                  duracao={duracoesFilaEscuro[item.id] ?? escDuracaoMin}
+                  setDuracao={(v) => setDuracoesFilaEscuro((prev) => ({ ...prev, [item.id]: v }))}
+                  onStart={() => iniciarLeilaoEscuroDaFila(item)}
+                  onDelete={() => apagarFilaEscuro(item.id)}
+                  misterioso
+                />
+              ))}
+            </GridEmpty>
+          </Card>
+        )}
       </div>
     </main>
+  )
+}
+
+function Card({ title, tag, children }: { title: string; tag?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-[32px] border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-xl md:p-6">
+      {tag && <p className="text-xs font-black uppercase tracking-[0.22em] text-yellow-300">{tag}</p>}
+      <h2 className="mb-5 mt-1 text-2xl font-black md:text-3xl">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function AbaButton({
+  id,
+  label,
+  count,
+  aba,
+  setAba,
+}: {
+  id: Aba
+  label: string
+  count?: number
+  aba: Aba
+  setAba: (a: Aba) => void
+}) {
+  const active = aba === id
+
+  return (
+    <button
+      onClick={() => setAba(id)}
+      className={`rounded-2xl px-4 py-3 text-sm font-black transition ${
+        active
+          ? 'bg-yellow-400 text-black shadow-lg shadow-yellow-400/20'
+          : 'border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
+      }`}
+    >
+      {label}
+      {typeof count === 'number' && (
+        <span className={`ml-2 rounded-full px-2 py-0.5 text-xs ${active ? 'bg-black/15' : 'bg-black/40'}`}>
+          {count}
+        </span>
+      )}
+    </button>
+  )
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-black uppercase tracking-wide text-slate-400">{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function InputBase(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-yellow-400"
+    />
+  )
+}
+
+function SelectBase(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-yellow-400"
+    />
+  )
+}
+
+function FormSistema(props: any) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Field label="Nome">
+        <InputBase value={props.jogador} onChange={(e) => props.setJogador(e.target.value)} placeholder="Ex.: Erling Haaland" />
+      </Field>
+
+      <Field label="Posição">
+        <SelectBase value={props.posicao} onChange={(e) => props.setPosicao(e.target.value)}>
+          {POSICOES.map((p) => <option key={p}>{p}</option>)}
+        </SelectBase>
+      </Field>
+
+      <Field label="Overall">
+        <InputBase type="number" value={props.overall} onChange={(e) => props.setOverall(Number(e.target.value))} />
+      </Field>
+
+      <Field label="Valor inicial">
+        <InputBase type="number" value={props.valorInicial} onChange={(e) => props.setValorInicial(Number(e.target.value))} />
+        <p className="mt-1 text-xs text-emerald-300">{formatMoeda(props.valorInicial)}</p>
+      </Field>
+
+      <Field label="Time origem">
+        <InputBase value={props.origem} onChange={(e) => props.setOrigem(e.target.value)} />
+      </Field>
+
+      <Field label="Nacionalidade">
+        <InputBase value={props.nacionalidade} onChange={(e) => props.setNacionalidade(e.target.value)} />
+      </Field>
+
+      <Field label="Link SoFIFA">
+        <InputBase type="url" value={props.linkSofifa} onChange={(e) => props.setLinkSofifa(e.target.value)} placeholder="https://sofifa.com/player/..." />
+      </Field>
+
+      <Field label="Duração em minutos">
+        <InputBase type="number" min={1} value={props.duracaoMin} onChange={(e) => props.setDuracaoMin(Number(e.target.value))} />
+      </Field>
+
+      <div className="md:col-span-2 grid gap-3">
+        <Field label="Upload da imagem">
+          <InputBase type="file" accept="image/*" onChange={(e) => props.setImagemFile(e.target.files?.[0] || null)} />
+        </Field>
+
+        <Field label="Ou URL da imagem">
+          <InputBase type="url" value={props.imagemUrl} onChange={(e) => props.setImagemUrl(e.target.value)} placeholder="https://..." />
+        </Field>
+      </div>
+    </div>
+  )
+}
+
+function FormEscuro(props: any) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Field label="Nacionalidade">
+        <InputBase value={props.escNacionalidade} onChange={(e) => props.setEscNacionalidade(e.target.value)} placeholder="Ex.: Brasil" />
+      </Field>
+
+      <Field label="Posição">
+        <SelectBase value={props.escPosicao} onChange={(e) => props.setEscPosicao(e.target.value)}>
+          {POSICOES.map((p) => <option key={p}>{p}</option>)}
+        </SelectBase>
+      </Field>
+
+      <Field label="Overall">
+        <InputBase type="number" value={props.escOverall} onChange={(e) => props.setEscOverall(Number(e.target.value))} />
+      </Field>
+
+      <Field label="Velocidade">
+        <InputBase type="number" value={props.escVelocidade} onChange={(e) => props.setEscVelocidade(e.target.value === '' ? '' : Number(e.target.value))} />
+      </Field>
+
+      <Field label="Finalização">
+        <InputBase type="number" value={props.escFinalizacao} onChange={(e) => props.setEscFinalizacao(e.target.value === '' ? '' : Number(e.target.value))} />
+      </Field>
+
+      <Field label="Cabeceio">
+        <InputBase type="number" value={props.escCabeceio} onChange={(e) => props.setEscCabeceio(e.target.value === '' ? '' : Number(e.target.value))} />
+      </Field>
+
+      <Field label="Valor inicial">
+        <InputBase type="number" value={props.escValorInicial} onChange={(e) => props.setEscValorInicial(Number(e.target.value))} />
+        <p className="mt-1 text-xs text-emerald-300">{formatMoeda(props.escValorInicial)}</p>
+      </Field>
+
+      <Field label="Duração em minutos">
+        <InputBase type="number" min={1} value={props.escDuracaoMin} onChange={(e) => props.setEscDuracaoMin(Number(e.target.value))} />
+      </Field>
+
+      <div className="md:col-span-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+        <input
+          id="iniciar-agora"
+          type="checkbox"
+          checked={props.escIniciarAgora}
+          onChange={(e) => props.setEscIniciarAgora(e.target.checked)}
+        />
+        <label htmlFor="iniciar-agora" className="text-sm font-bold text-slate-300">
+          Iniciar agora. Se desmarcar, vai para a fila.
+        </label>
+      </div>
+
+      <div className="md:col-span-2 grid gap-3">
+        <Field label="Upload da imagem">
+          <InputBase type="file" accept="image/*" onChange={(e) => props.setEscImagemFile(e.target.files?.[0] || null)} />
+        </Field>
+
+        <Field label="Ou URL da imagem">
+          <InputBase type="url" value={props.escImagemUrl} onChange={(e) => props.setEscImagemUrl(e.target.value)} placeholder="https://..." />
+        </Field>
+      </div>
+    </div>
+  )
+}
+
+function PreviewCard({
+  title,
+  nome,
+  posicao,
+  overall,
+  valor,
+  imagem,
+  origem,
+  nacionalidade,
+  duracao,
+  link,
+  escuro,
+}: any) {
+  return (
+    <aside className="rounded-3xl border border-white/10 bg-black/35 p-5">
+      <h3 className="mb-4 text-lg font-black">{title}</h3>
+
+      <div className="flex justify-center">
+        <ImagemComFallback
+          variant="elenco-card"
+          src={imagem}
+          alt={nome}
+          playerName={nome}
+          position={posicao}
+          overall={overall}
+          cardType={escuro ? 'normal' : getCardType(overall)}
+          width={155}
+          height={180}
+        />
+      </div>
+
+      <div className="mt-5 space-y-2 text-sm text-slate-300">
+        <KV k="Valor" v={formatMoeda(valor)} />
+        <KV k="Origem" v={origem || '—'} />
+        <KV k="Nacionalidade" v={nacionalidade || '—'} />
+        <KV k="Duração" v={`${duracao} min`} />
+        {link && (
+          <a href={link} target="_blank" rel="noreferrer" className="block rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-3 text-center text-sm font-black text-yellow-300">
+            Ver no SoFIFA
+          </a>
+        )}
+      </div>
+    </aside>
+  )
+}
+
+function GridEmpty({
+  empty,
+  text,
+  children,
+}: {
+  empty: boolean
+  text: string
+  children: React.ReactNode
+}) {
+  if (empty) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-black/30 p-10 text-center text-sm font-bold text-slate-400">
+        {text}
+      </div>
+    )
+  }
+
+  return <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">{children}</div>
+}
+
+function AuctionCard({
+  item,
+  tempo,
+  onCancel,
+  misterioso,
+}: {
+  item: any
+  tempo: string
+  onCancel: () => void
+  misterioso: boolean
+}) {
+  const nome = misterioso ? 'Jogador Misterioso' : item.nome
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/35 p-5 shadow-2xl">
+      <div className="flex justify-center">
+        <ImagemComFallback
+          variant="elenco-card"
+          src={item.imagem_url}
+          alt={nome}
+          playerName={nome}
+          position={item.posicao}
+          overall={item.overall}
+          cardType={misterioso ? 'normal' : getCardType(item.overall)}
+          width={155}
+          height={180}
+        />
+      </div>
+
+      <div className="mt-5 space-y-2">
+        <KV k="Tempo" v={tempo} />
+        <KV k="Lance atual" v={formatMoeda(Number(item.valor_atual) || 0)} />
+        {item.nome_time_vencedor && <KV k="Líder" v={item.nome_time_vencedor} />}
+        {item.nacionalidade && <KV k="Nacionalidade" v={item.nacionalidade} />}
+        {item.origem && <KV k="Origem" v={item.origem} />}
+      </div>
+
+      <button onClick={onCancel} className="mt-4 w-full rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-black text-red-200 hover:bg-red-400/20">
+        Cancelar leilão
+      </button>
+    </div>
+  )
+}
+
+function QueueCard({
+  item,
+  duracao,
+  setDuracao,
+  onStart,
+  onDelete,
+  misterioso,
+}: {
+  item: any
+  duracao: number
+  setDuracao: (n: number) => void
+  onStart: () => void
+  onDelete: () => void
+  misterioso: boolean
+}) {
+  const nome = misterioso ? 'Jogador Misterioso' : item.nome
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-black/35 p-5 shadow-2xl">
+      <div className="flex justify-center">
+        <ImagemComFallback
+          variant="elenco-card"
+          src={item.imagem_url}
+          alt={nome}
+          playerName={nome}
+          position={item.posicao}
+          overall={item.overall}
+          cardType={misterioso ? 'normal' : getCardType(item.overall)}
+          width={155}
+          height={180}
+        />
+      </div>
+
+      <div className="mt-5 space-y-2">
+        <KV k="Valor" v={formatMoeda(Number(item.valor_atual) || 35_000_000)} />
+        {item.nacionalidade && <KV k="Nacionalidade" v={item.nacionalidade} />}
+        {item.origem && <KV k="Origem" v={item.origem} />}
+      </div>
+
+      <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+        <InputBase
+          type="number"
+          min={1}
+          value={duracao}
+          onChange={(e) => setDuracao(Number(e.target.value))}
+          title="Duração em minutos"
+        />
+
+        <button onClick={onStart} className="rounded-2xl bg-yellow-400 px-5 py-3 text-sm font-black text-black hover:bg-yellow-300">
+          Iniciar
+        </button>
+      </div>
+
+      <button onClick={onDelete} className="mt-3 w-full rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-black text-red-200 hover:bg-red-400/20">
+        Apagar da fila
+      </button>
+    </div>
+  )
+}
+
+function KV({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+      <span className="text-xs font-bold uppercase text-slate-500">{k}</span>
+      <span className="text-sm font-black text-white">{v}</span>
+    </div>
   )
 }
