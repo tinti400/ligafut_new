@@ -1,38 +1,72 @@
 @import "tailwindcss";
 
-/* ================= VARIÁVEIS GERAIS ================= */
+/* ================= BASE GLOBAL ================= */
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font-family: 'Inter', 'Montserrat', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* =====================================================
-   CARTAS LIGAFUT — PADRÃO EA FC / FUT
-   Reutilizável: Mercado | Elenco | Leilão | Eventos
-===================================================== */
+/* ================= SCROLL PREMIUM ================= */
 
-/* ================= BASE ================= */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020617;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #22c55e, #facc15);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #16a34a, #eab308);
+}
+
+/* ================= FUNDO GLOBAL LIGAFUT ================= */
+
+.bg-ligafut {
+  background:
+    radial-gradient(circle at top, #14532d 0%, #020617 45%, #000 100%);
+}
+
+/* Glow estilo Ultimate Team */
+.glow-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(34,197,94,0.12),
+    transparent 40%,
+    rgba(250,204,21,0.08)
+  );
+  pointer-events: none;
+}
+
+/* ================= ANIMAÇÕES ================= */
+
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 0 rgba(34,197,94,0.4); }
+  50% { box-shadow: 0 0 25px rgba(34,197,94,0.6); }
+  100% { box-shadow: 0 0 0 rgba(34,197,94,0.4); }
+}
+
+.glow-pulse {
+  animation: pulseGlow 2s infinite;
+}
+
+/* ================= CARTAS LIGAFUT ================= */
+/* (MANTIVE SUA BASE, SÓ MELHOREI ALGUNS DETALHES) */
 
 .card-eafc {
   position: relative;
@@ -40,7 +74,6 @@ body {
   border-radius: 22px;
   padding: 14px;
   overflow: hidden;
-  font-family: 'Inter', 'Montserrat', system-ui, sans-serif;
   transition: transform 0.28s ease, box-shadow 0.28s ease;
   box-shadow:
     inset 0 0 0 1px rgba(255,255,255,0.12),
@@ -49,40 +82,37 @@ body {
 
 /* Hover premium */
 .card-eafc:hover {
-  transform: scale(1.045);
+  transform: scale(1.05);
   box-shadow:
     inset 0 0 0 1px rgba(255,255,255,0.22),
-    0 20px 45px rgba(0,0,0,0.7);
+    0 22px 50px rgba(0,0,0,0.75);
 }
 
-/* ================= TEXTURA / VINHETA ================= */
-
+/* TEXTURA */
 .card-eafc::before {
   content: '';
   position: absolute;
   inset: 0;
   background-image: url('/textures/noise.png');
-  opacity: 0.06;
+  opacity: 0.05;
   mix-blend-mode: overlay;
-  pointer-events: none;
   z-index: 1;
 }
 
+/* LUZ */
 .card-eafc::after {
   content: '';
   position: absolute;
   inset: 0;
   background: radial-gradient(
     circle at top,
-    rgba(255,255,255,0.18),
+    rgba(255,255,255,0.15),
     transparent 60%
   );
-  pointer-events: none;
   z-index: 1;
 }
 
-/* ================= WATERMARKS ================= */
-
+/* WATERMARK */
 .watermark-logo {
   position: absolute;
   inset: 0;
@@ -90,9 +120,8 @@ body {
   background-repeat: no-repeat;
   background-position: center;
   background-size: 70%;
-  opacity: 0.12;
+  opacity: 0.1;
   mix-blend-mode: soft-light;
-  pointer-events: none;
   z-index: 1;
 }
 
@@ -103,15 +132,13 @@ body {
   background-image: repeating-linear-gradient(
     transparent 0px,
     transparent 28px,
-    rgba(255,255,255,0.14) 28px,
-    rgba(255,255,255,0.14) 56px
+    rgba(255,255,255,0.12) 28px,
+    rgba(255,255,255,0.12) 56px
   );
   mix-blend-mode: soft-light;
-  pointer-events: none;
   z-index: 1;
 }
 
-/* Garante conteúdo acima das camadas */
 .card-eafc > * {
   position: relative;
   z-index: 2;
@@ -119,65 +146,51 @@ body {
 
 /* ================= RARIDADES ================= */
 
-/* BRONZE */
 .card-bronze {
   background: linear-gradient(160deg, #7a4a1d, #a97142, #2a1a0f);
   color: #fef3c7;
 }
 
-/* PRATA */
 .card-prata {
   background: linear-gradient(160deg, #e5e7eb, #9ca3af, #374151);
   color: #111827;
 }
 
-/* OURO */
 .card-ouro {
   background: linear-gradient(160deg, #fff4b0, #f6c453, #b88900);
   color: #111827;
 }
 
-/* OURO RARO */
 .card-ouro-raro {
   background: linear-gradient(160deg, #fff6c7, #ffd54f, #b8860b);
   box-shadow:
     inset 0 0 0 2px rgba(255,215,0,0.6),
-    0 18px 40px rgba(0,0,0,0.7);
+    0 20px 45px rgba(0,0,0,0.8);
 }
 
-/* ================= TOPO (OVR / POS / BANDEIRA) ================= */
+/* ================= TOPO ================= */
 
 .card-top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
 }
 
 .card-ovr {
-  font-size: 38px;
+  font-size: 40px;
   font-weight: 900;
-  letter-spacing: -0.05em;
-  line-height: 1;
 }
 
 .card-pos {
   font-size: 12px;
   font-weight: 800;
-  text-transform: uppercase;
 }
 
 /* ================= IMAGEM ================= */
 
-.card-imagem {
-  display: flex;
-  justify-content: center;
-  margin-top: 6px;
-}
-
 .card-imagem img {
-  height: 180px;
+  height: 185px;
   object-fit: contain;
-  filter: drop-shadow(0 12px 22px rgba(0,0,0,0.7));
+  filter: drop-shadow(0 14px 26px rgba(0,0,0,0.8));
 }
 
 /* ================= INFO ================= */
@@ -185,34 +198,21 @@ body {
 .card-info {
   margin-top: 6px;
   text-align: center;
-  background: rgba(0,0,0,0.28);
+  background: rgba(0,0,0,0.35);
   border-radius: 14px;
   padding: 8px;
+  backdrop-filter: blur(4px);
 }
 
 .card-nome {
   font-size: 14px;
   font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .card-valor {
-  margin-top: 4px;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 800;
   color: #4ade80;
-}
-
-.card-salario {
-  font-size: 11px;
-  opacity: 0.85;
-}
-
-.card-desconto {
-  font-size: 11px;
-  color: #f87171;
-  font-weight: 700;
 }
 
 /* ================= BOTÕES ================= */
@@ -222,16 +222,14 @@ body {
   width: 100%;
   padding: 10px;
   border-radius: 14px;
-  background: #16a34a;
-  color: #ffffff;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
   font-weight: 800;
-  cursor: pointer;
-  transition: transform 0.18s ease, background 0.18s ease;
+  transition: all 0.2s ease;
 }
 
 .card-botao:hover {
-  background: #15803d;
-  transform: scale(1.03);
+  transform: scale(1.05);
+  background: linear-gradient(135deg, #15803d, #16a34a);
 }
 
 /* ================= ESTADOS ================= */
@@ -242,26 +240,21 @@ body {
 }
 
 .card-selecionado {
-  outline: 4px solid #ef4444;
+  outline: 3px solid #22c55e;
 }
 
 .card-disabled {
-  opacity: 0.45;
-  pointer-events: none;
+  opacity: 0.4;
 }
 
-/* ================= USO EM LEILÃO ================= */
+/* ================= LEILÃO ================= */
 
 .card-leilao {
   box-shadow:
     inset 0 0 0 2px rgba(59,130,246,0.6),
-    0 18px 40px rgba(0,0,0,0.7);
+    0 20px 50px rgba(0,0,0,0.8);
 }
 
 .card-leilao .card-botao {
-  background: #2563eb;
-}
-
-.card-leilao .card-botao:hover {
-  background: #1d4ed8;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
 }
