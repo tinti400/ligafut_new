@@ -16,6 +16,7 @@ import {
   type PriceMap,
 } from '@/utils/estadioEngine'
 
+const Estadio3D = dynamic(() => import('@/components/Estadio3D'), { ssr: false })
 const StadiumMini3D = dynamic(() => import('@/components/StadiumMini3D'), { ssr: false })
 
 const BASE_UPGRADE_COST = 150_000_000
@@ -105,10 +106,15 @@ export default function EstadioPage() {
   }
 
   async function loadEstadio() {
-    const { data } = await supabase.from('estadios').select('*').eq('id_time', idTime).maybeSingle()
+    const { data } = await supabase
+      .from('estadios')
+      .select('*')
+      .eq('id_time', idTime)
+      .maybeSingle()
 
     if (!data) {
       const refLvl1 = referencePrices(1)
+
       const novo: EstadioRow = {
         id_time: idTime,
         nome: nomeTime ? `Estádio ${nomeTime}` : 'Estádio LigaFut',
@@ -168,7 +174,12 @@ export default function EstadioPage() {
   }
 
   async function loadSaldo() {
-    const { data } = await supabase.from('times').select('saldo').eq('id', idTime).maybeSingle()
+    const { data } = await supabase
+      .from('times')
+      .select('saldo')
+      .eq('id', idTime)
+      .maybeSingle()
+
     if (data?.saldo != null) setSaldo(Number(data.saldo))
   }
 
@@ -197,7 +208,6 @@ export default function EstadioPage() {
 
   const level = estadio?.nivel ?? 1
   const capacity = estadio?.capacidade ?? 10000
-  const refPrices = referencePrices(level)
   const limits = priceLimits(level)
   const custoUpgrade = Math.round(BASE_UPGRADE_COST * Math.pow(UPGRADE_MULTIPLIER, level - 1))
 
@@ -236,14 +246,30 @@ export default function EstadioPage() {
 
   const alertas = useMemo(() => {
     const arr: { tipo: 'ok' | 'warn' | 'danger'; texto: string }[] = []
-    const occ = result.occupancy
 
-    if (occ < 0.5) arr.push({ tipo: 'danger', texto: 'Ocupação muito baixa. Reduza preços ou melhore moral/infra.' })
-    if (occ > 0.95) arr.push({ tipo: 'ok', texto: 'Estádio quase lotado. Dá para testar aumento de preço.' })
-    if (result.profit < 0) arr.push({ tipo: 'danger', texto: 'Renda líquida negativa. O estádio está dando prejuízo.' })
-    if (infraScore < 40) arr.push({ tipo: 'warn', texto: 'Infraestrutura baixa. Pode reduzir público e aumentar custos.' })
-    if (weather === 'chuva') arr.push({ tipo: 'warn', texto: 'Chuva reduz demanda e aumenta custo operacional.' })
-    if (derby || importance !== 'normal') arr.push({ tipo: 'ok', texto: 'Jogo grande: potencial alto de renda.' })
+    if (result.occupancy < 0.5) {
+      arr.push({ tipo: 'danger', texto: 'Ocupação muito baixa. Reduza preços ou melhore moral/infra.' })
+    }
+
+    if (result.occupancy > 0.95) {
+      arr.push({ tipo: 'ok', texto: 'Estádio quase lotado. Dá para testar aumento de preço.' })
+    }
+
+    if (result.profit < 0) {
+      arr.push({ tipo: 'danger', texto: 'Renda líquida negativa. O estádio está dando prejuízo.' })
+    }
+
+    if (infraScore < 40) {
+      arr.push({ tipo: 'warn', texto: 'Infraestrutura baixa. Pode reduzir público e aumentar custos.' })
+    }
+
+    if (weather === 'chuva') {
+      arr.push({ tipo: 'warn', texto: 'Chuva reduz demanda e aumenta custo operacional.' })
+    }
+
+    if (derby || importance !== 'normal') {
+      arr.push({ tipo: 'ok', texto: 'Jogo grande: potencial alto de renda.' })
+    }
 
     return arr
   }, [result.occupancy, result.profit, infraScore, weather, derby, importance])
@@ -255,11 +281,13 @@ export default function EstadioPage() {
 
   const projections = useMemo(() => {
     const arr: { lvl: number; cap: number; sim: ReturnType<typeof simulate> }[] = []
+
     for (let lvl = 1; lvl <= NIVEL_MAXIMO; lvl++) {
       const cap = Math.round(baseCapL1 * Math.pow(GROWTH_PER_LEVEL, lvl - 1))
       const sim = simulate(cap, referencePrices(lvl), { ...ctx, level: lvl })
       arr.push({ lvl, cap, sim })
     }
+
     return arr
   }, [baseCapL1, ctx])
 
@@ -394,7 +422,10 @@ export default function EstadioPage() {
       .update({ nivel: novoNivel, capacidade: novaCapacidade })
       .eq('id_time', idTime)
 
-    const { error: e2 } = await supabase.from('times').update({ saldo: novoSaldo }).eq('id', idTime)
+    const { error: e2 } = await supabase
+      .from('times')
+      .update({ saldo: novoSaldo })
+      .eq('id', idTime)
 
     if (e1 || e2) {
       setUpgrading(false)
@@ -487,6 +518,16 @@ export default function EstadioPage() {
 
         <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="space-y-6">
+            <Card title="Estádio 3D LigaFut" tag="Visual nível FIFA">
+              <Estadio3D
+                capacidade={capacity}
+                publico={result.totalAudience}
+                nomeEstadio={estadio.nome}
+                corPrimaria="#22c55e"
+                corSecundaria="#facc15"
+              />
+            </Card>
+
             <Card title="Contexto da Partida" tag="Sistema de demanda">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <Select label="Importância" value={importance} onChange={setImportance} options={[
@@ -599,7 +640,7 @@ export default function EstadioPage() {
               </div>
             </Card>
 
-            <Card title="Maquete 3D" tag="Evolução visual">
+            <Card title="Mini Estádio" tag="Preview de evolução">
               <div className="mb-4 flex flex-wrap gap-2">
                 <button onClick={() => setPreviewNight((v) => !v)} className="btn-secondary">
                   {previewNight ? 'Modo noite' : 'Modo dia'}
