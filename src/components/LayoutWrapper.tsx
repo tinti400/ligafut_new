@@ -1,6 +1,7 @@
 'use client'
 
 import Sidebar from '@/components/Sidebar'
+import TopBar from '@/components/TopBar'
 import { usePathname } from 'next/navigation'
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
@@ -21,17 +22,21 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
     <div className="flex h-screen overflow-hidden bg-[#050505] text-white">
       <Sidebar />
 
-      <main className="relative flex-1 overflow-y-auto">
-        {/* Fundo premium */}
-        <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top,#14532d_0%,#020617_45%,#000_100%)]" />
+      <main className="relative flex-1 overflow-y-auto bg-[#050505]">
+        {/* Fundo premium LigaFut */}
+        <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_top,#14532d_0%,#020617_45%,#000_100%)]" />
 
-        {/* Efeito luz */}
-        <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(135deg,rgba(34,197,94,0.12),transparent_35%,rgba(250,204,21,0.08))]" />
+        {/* Efeito luz Ultimate Team */}
+        <div className="pointer-events-none fixed inset-0 z-0 bg-[linear-gradient(135deg,rgba(34,197,94,0.12),transparent_35%,rgba(250,204,21,0.08))]" />
 
-        {/* Conteúdo */}
-        <div className="min-h-screen px-4 py-4 md:px-8 md:py-6">
-          <div className="mx-auto w-full max-w-[1600px]">
-            {children}
+        {/* Conteúdo real acima do fundo */}
+        <div className="relative z-10 min-h-screen">
+          <TopBar />
+
+          <div className="px-4 py-4 md:px-8 md:py-6">
+            <div className="mx-auto w-full max-w-[1600px]">
+              {children}
+            </div>
           </div>
         </div>
       </main>
