@@ -56,6 +56,7 @@ type JogadorBase = {
 }
 
 const ITENS_POR_PAGINA = 30
+const PLACEHOLDER_IMG = '/player-placeholder.png'
 
 function dinheiro(valor?: number | null) {
   return Number(valor || 0).toLocaleString('pt-BR', {
@@ -75,11 +76,88 @@ function numero(v: any) {
   return Number(String(v).replace(/\./g, '').replace(',', '.')) || 0
 }
 
+function limparUrlImagem(url?: any) {
+  if (!url) return ''
+
+  let final = String(url).trim()
+
+  if (!final || final === '-' || final.toLowerCase() === 'null' || final.toLowerCase() === 'undefined') {
+    return ''
+  }
+
+  final = final.replace(/\s/g, '')
+
+  if (final.startsWith('//')) {
+    final = `https:${final}`
+  }
+
+  if (!final.startsWith('http://') && !final.startsWith('https://') && !final.startsWith('/')) {
+    final = `https://${final}`
+  }
+
+  return final
+}
+
+function pegarCampo(row: any, nomes: string[]) {
+  for (const nome of nomes) {
+    if (row?.[nome] !== undefined && row?.[nome] !== null && String(row[nome]).trim() !== '') {
+      return row[nome]
+    }
+  }
+  return ''
+}
+
+function pegarImagemPlanilha(row: any) {
+  return limparUrlImagem(
+    pegarCampo(row, [
+      'imagem_url',
+      'Imagem_url',
+      'IMAGEM_URL',
+      'imagem',
+      'Imagem',
+      'IMAGEM',
+      'foto',
+      'Foto',
+      'FOTO',
+      'photo',
+      'Photo',
+      'PHOTO',
+      'image',
+      'Image',
+      'IMAGE',
+      'url_foto',
+      'URL_FOTO',
+      'player_face_url',
+      'Player Face Url',
+      'player_face',
+      'face_url',
+      'avatar',
+    ])
+  )
+}
+
+function pegarImagemJogador(j: JogadorBase) {
+  const imagemUrl = limparUrlImagem(j.imagem_url)
+  if (imagemUrl) return imagemUrl
+
+  const foto = limparUrlImagem(j.foto)
+  if (foto) return foto
+
+  return PLACEHOLDER_IMG
+}
+
 function corCarta(overall: number) {
   if (overall >= 90) return 'from-yellow-200 via-yellow-400 to-yellow-700'
   if (overall >= 85) return 'from-amber-200 via-yellow-500 to-orange-700'
-  if (overall >= 80) return 'from-zinc-200 via-zinc-400 to-zinc-700'
+  if (overall >= 75) return 'from-yellow-300 via-yellow-500 to-orange-700'
+  if (overall >= 65) return 'from-zinc-200 via-zinc-400 to-zinc-700'
   return 'from-orange-300 via-orange-500 to-orange-800'
+}
+
+function tipoRaridade(overall: number) {
+  if (overall >= 75) return 'ouro'
+  if (overall >= 65) return 'prata'
+  return 'bronze'
 }
 
 export default function BaseJogadoresPage() {
@@ -187,36 +265,40 @@ export default function BaseJogadoresPage() {
       const json = XLSX.utils.sheet_to_json(sheet)
 
       const tratados = json
-        .map((j: any) => ({
-          nome: normalizarTexto(j.nome),
-          posicao: normalizarTexto(j.posicao),
-          overall: numero(j.overall),
-          valor: numero(j.valor),
-          salario: numero(j.salario),
-          time_origem: normalizarTexto(j.time_origem),
-          nacionalidade: normalizarTexto(j.nacionalidade),
-          foto: normalizarTexto(j.foto),
-          imagem_url: normalizarTexto(j.imagem_url || j.foto),
-          link_sofifa: normalizarTexto(j.link_sofifa),
-          data_listagem: j.data_listagem || new Date().toISOString().slice(0, 10),
-          raridade: normalizarTexto(j.raridade),
+        .map((j: any) => {
+          const imagem = pegarImagemPlanilha(j)
 
-          pac: numero(j.pac || j.pace),
-          sho: numero(j.sho || j.shooting),
-          pas: numero(j.pas || j.passing),
-          dri: numero(j.dri || j.dribbling),
-          def: numero(j.def || j.defending),
-          phy: numero(j.phy || j.physical),
+          return {
+            nome: normalizarTexto(pegarCampo(j, ['nome', 'Nome', 'NOME', 'short_name', 'long_name', 'player_name'])),
+            posicao: normalizarTexto(pegarCampo(j, ['posicao', 'posição', 'Posição', 'POSICAO', 'position', 'Position'])),
+            overall: numero(pegarCampo(j, ['overall', 'Overall', 'OVERALL', 'ova', 'rating'])),
+            valor: numero(pegarCampo(j, ['valor', 'Valor', 'VALOR', 'value', 'Value'])),
+            salario: numero(pegarCampo(j, ['salario', 'salário', 'Salário', 'SALARIO', 'wage', 'Wage'])),
+            time_origem: normalizarTexto(pegarCampo(j, ['time_origem', 'Time Origem', 'club', 'Club', 'time', 'Time'])),
+            nacionalidade: normalizarTexto(pegarCampo(j, ['nacionalidade', 'Nacionalidade', 'nationality', 'Nationality', 'nation'])),
+            foto: imagem,
+            imagem_url: imagem,
+            link_sofifa: limparUrlImagem(pegarCampo(j, ['link_sofifa', 'Link Sofifa', 'sofifa_url', 'player_url', 'url'])),
+            data_listagem: pegarCampo(j, ['data_listagem', 'Data Listagem']) || new Date().toISOString().slice(0, 10),
+            raridade: normalizarTexto(pegarCampo(j, ['raridade', 'Raridade'])) || tipoRaridade(numero(pegarCampo(j, ['overall', 'Overall', 'OVERALL', 'ova', 'rating']))),
 
-          pace: numero(j.pace || j.pac),
-          shooting: numero(j.shooting || j.sho),
-          passing: numero(j.passing || j.pas),
-          dribbling: numero(j.dribbling || j.dri),
-          defending: numero(j.defending || j.def),
-          physical: numero(j.physical || j.phy),
+            pac: numero(pegarCampo(j, ['pac', 'PAC', 'pace', 'Pace'])),
+            sho: numero(pegarCampo(j, ['sho', 'SHO', 'shooting', 'Shooting'])),
+            pas: numero(pegarCampo(j, ['pas', 'PAS', 'passing', 'Passing'])),
+            dri: numero(pegarCampo(j, ['dri', 'DRI', 'dribbling', 'Dribbling'])),
+            def: numero(pegarCampo(j, ['def', 'DEF', 'defending', 'Defending'])),
+            phy: numero(pegarCampo(j, ['phy', 'PHY', 'physical', 'Physical'])),
 
-          status: 'base',
-        }))
+            pace: numero(pegarCampo(j, ['pace', 'Pace', 'pac', 'PAC'])),
+            shooting: numero(pegarCampo(j, ['shooting', 'Shooting', 'sho', 'SHO'])),
+            passing: numero(pegarCampo(j, ['passing', 'Passing', 'pas', 'PAS'])),
+            dribbling: numero(pegarCampo(j, ['dribbling', 'Dribbling', 'dri', 'DRI'])),
+            defending: numero(pegarCampo(j, ['defending', 'Defending', 'def', 'DEF'])),
+            physical: numero(pegarCampo(j, ['physical', 'Physical', 'phy', 'PHY'])),
+
+            status: 'base',
+          }
+        })
         .filter((j) => j.nome && j.overall >= 75)
 
       setPreviewImportacao(tratados)
@@ -270,7 +352,9 @@ export default function BaseJogadoresPage() {
 
       const payload = novos.map((j) => ({
         ...j,
-        link_sofifa: j.link_sofifa || null,
+        foto: limparUrlImagem(j.foto || j.imagem_url) || null,
+        imagem_url: limparUrlImagem(j.imagem_url || j.foto) || null,
+        link_sofifa: limparUrlImagem(j.link_sofifa) || null,
         status: 'base',
         destino: null,
         enviado_em: null,
@@ -321,6 +405,8 @@ export default function BaseJogadoresPage() {
   }
 
   function montarPayloadMercado(j: JogadorBase) {
+    const imagem = pegarImagemJogador(j)
+
     return {
       nome: j.nome,
       posicao: j.posicao,
@@ -329,11 +415,11 @@ export default function BaseJogadoresPage() {
       salario: j.salario || 0,
       time_origem: j.time_origem,
       nacionalidade: j.nacionalidade,
-      foto: j.foto,
-      imagem_url: j.imagem_url || j.foto,
-      link_sofifa: j.link_sofifa,
+      foto: imagem,
+      imagem_url: imagem,
+      link_sofifa: limparUrlImagem(j.link_sofifa) || null,
       data_listagem: new Date().toISOString(),
-      raridade: j.raridade,
+      raridade: j.raridade || tipoRaridade(j.overall),
 
       pac: j.pac || j.pace || 0,
       sho: j.sho || j.shooting || 0,
@@ -354,6 +440,8 @@ export default function BaseJogadoresPage() {
   }
 
   function montarPayloadLeilao(j: JogadorBase) {
+    const imagem = pegarImagemJogador(j)
+
     return {
       nome: j.nome,
       posicao: j.posicao,
@@ -362,10 +450,10 @@ export default function BaseJogadoresPage() {
       valor_inicial: j.valor || 0,
       time_origem: j.time_origem,
       nacionalidade: j.nacionalidade,
-      foto: j.foto,
-      imagem_url: j.imagem_url || j.foto,
-      link_sofifa: j.link_sofifa,
-      raridade: j.raridade,
+      foto: imagem,
+      imagem_url: imagem,
+      link_sofifa: limparUrlImagem(j.link_sofifa) || null,
+      raridade: j.raridade || tipoRaridade(j.overall),
 
       pac: j.pac || j.pace || 0,
       sho: j.sho || j.shooting || 0,
@@ -610,6 +698,7 @@ export default function BaseJogadoresPage() {
                         <td className="p-3 text-yellow-400 font-black">{j.overall}</td>
                         <td className="p-3">{j.nacionalidade || '-'}</td>
                         <td className="p-3">{dinheiro(j.valor)}</td>
+                        <td className="p-3 max-w-[260px] truncate text-zinc-400">{j.imagem_url || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -694,7 +783,7 @@ export default function BaseJogadoresPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
                 {jogadoresPaginados.map((j) => {
                   const selecionado = selecionados.includes(j.id)
-                  const imagem = j.imagem_url || j.foto || ''
+                  const imagem = pegarImagemJogador(j)
 
                   return (
                     <div
@@ -705,7 +794,8 @@ export default function BaseJogadoresPage() {
                       }`}
                     >
                       <div className={`absolute inset-0 bg-gradient-to-br ${corCarta(j.overall)}`} />
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,.55),transparent_35%)]" />
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,.58),transparent_37%)]" />
+                      <div className="absolute inset-x-3 top-3 bottom-3 rounded-[22px] border border-black/20 pointer-events-none" />
 
                       <div className="relative p-3 text-black min-h-[285px]">
                         <div className="flex justify-between">
@@ -718,19 +808,25 @@ export default function BaseJogadoresPage() {
                             type="checkbox"
                             checked={selecionado}
                             readOnly
+                            onClick={(e) => e.stopPropagation()}
                             className="w-5 h-5 accent-emerald-500"
                           />
                         </div>
 
                         <div className="flex justify-center mt-1">
-                          <div className="w-28 h-28 overflow-hidden">
-                            {imagem ? (
-                              <img src={imagem} alt={j.nome} className="w-full h-full object-contain" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-black/80 text-white rounded-full font-black">
-                                LF
-                              </div>
-                            )}
+                          <div className="w-28 h-28 overflow-hidden flex items-end justify-center">
+                            <img
+                              src={imagem}
+                              alt={j.nome}
+                              className="w-full h-full object-contain drop-shadow-[0_8px_10px_rgba(0,0,0,.35)]"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                const img = e.currentTarget as HTMLImageElement
+                                if (img.src.includes(PLACEHOLDER_IMG)) return
+                                img.src = PLACEHOLDER_IMG
+                              }}
+                            />
                           </div>
                         </div>
 
