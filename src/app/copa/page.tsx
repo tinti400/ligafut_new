@@ -12,15 +12,6 @@ import {
   FiAward,
 } from "react-icons/fi";
 
-import {
-  simulate,
-  referencePrices,
-  type Sector,
-  type PriceMap,
-  type EstadioContext,
-  sectorProportion,
-} from "@/utils/estadioEngine";
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -647,59 +638,6 @@ export default function CopaPage() {
     await iniciarSorteioAnimado();
   }
 
-  async function calcularPublicoERendaPeloEstadio(idTime: string) {
-    const { data: est } = await supabase
-      .from("estadios")
-      .select("*")
-      .eq("id_time", idTime)
-      .maybeSingle();
-
-    if (!est) {
-      const publico = Math.floor(Math.random() * 30000) + 10000;
-      return { publico, renda: publico * 80 };
-    }
-
-    const nivel = Number(est.nivel || 1);
-    const capacidade = Number(est.capacidade || 18000);
-    const ref = referencePrices(nivel);
-
-    const prices: PriceMap = (Object.keys(sectorProportion) as Sector[]).reduce(
-      (acc, s) => {
-        const col = `preco_${s}`;
-        const v = Number(est[col]);
-        acc[s] = Number.isFinite(v) && v > 0 ? Math.round(v) : ref[s];
-        return acc;
-      },
-      {} as PriceMap,
-    );
-
-    const ctx: EstadioContext = {
-      importance:
-        est.ctx_importancia === "final"
-          ? "final"
-          : est.ctx_importancia === "decisao"
-            ? "decisao"
-            : "normal",
-      derby: !!est.ctx_derby,
-      weather: est.ctx_clima === "chuva" ? "chuva" : "bom",
-      dayType: est.ctx_dia === "fim" ? "fim" : "semana",
-      dayTime: est.ctx_horario === "dia" ? "dia" : "noite",
-      opponentStrength: Number(est.ctx_forca_adv || 70),
-      moraleTec: Number(est.ctx_moral_tec || 7.5),
-      moraleTor: Number(est.ctx_moral_tor || 60),
-      sociosPct: Number(est.socio_percentual || 15),
-      sociosPreco: Number(est.socio_preco || 25),
-      infraScore: Number(est.infra_score || 55),
-      level: nivel,
-    };
-
-    const sim = simulate(capacidade, prices, ctx);
-    return {
-      publico: Math.round(sim.totalAudience),
-      renda: Math.round(sim.totalRevenue),
-    };
-  }
-
   async function somarSalarios(timeId: string) {
     const { data } = await supabase
       .from("elenco")
@@ -768,158 +706,153 @@ export default function CopaPage() {
     setSalvando(jogo.id);
 
     try {
-      let patchFinanceiro: any = {};
-
-      if (!jogo.bonus_pago) {
-        const { publico, renda } = await calcularPublicoERendaPeloEstadio(
-          jogo.id_time1,
-        );
-
-        const receitaTime1 = Math.round(renda * 0.95);
-        const receitaTime2 = Math.round(renda * 0.05);
-        const participacaoTime1 = COPA_PARTICIPACAO_POR_JOGO;
-        const participacaoTime2 = COPA_PARTICIPACAO_POR_JOGO;
-
-        const premiacaoTime1 = await premiarTime(jogo.id_time1, g1, g2);
-        const premiacaoTime2 = await premiarTime(jogo.id_time2, g2, g1);
-
-        const salariosTime1 = await somarSalarios(jogo.id_time1);
-        const salariosTime2 = await somarSalarios(jogo.id_time2);
-
-        await supabase.rpc("atualizar_saldo", {
-          id_time: jogo.id_time1,
-          valor: receitaTime1,
-        });
-        await supabase.rpc("atualizar_saldo", {
-          id_time: jogo.id_time2,
-          valor: receitaTime2,
-        });
-        await supabase.rpc("atualizar_saldo", {
-          id_time: jogo.id_time1,
-          valor: participacaoTime1,
-        });
-        await supabase.rpc("atualizar_saldo", {
-          id_time: jogo.id_time2,
-          valor: participacaoTime2,
-        });
-        await supabase.rpc("atualizar_saldo", {
-          id_time: jogo.id_time1,
-          valor: -salariosTime1,
-        });
-        await supabase.rpc("atualizar_saldo", {
-          id_time: jogo.id_time2,
-          valor: -salariosTime2,
-        });
-
-        await ajustarJogosElenco(jogo.id_time1, 1);
-        await ajustarJogosElenco(jogo.id_time2, 1);
-
-        const agora = new Date().toISOString();
-
-        await supabase.from("movimentacoes").insert([
-          {
-            id_time: jogo.id_time1,
-            tipo: "receita_copa",
-            valor: receitaTime1,
-            descricao: "Receita de bilheteria da Copa",
-            data: agora,
-          },
-          {
-            id_time: jogo.id_time2,
-            tipo: "receita_copa",
-            valor: receitaTime2,
-            descricao: "Receita visitante da Copa",
-            data: agora,
-          },
-          {
-            id_time: jogo.id_time1,
-            tipo: "participacao_copa",
-            valor: participacaoTime1,
-            descricao: "Participação fixa por jogo da Copa",
-            data: agora,
-          },
-          {
-            id_time: jogo.id_time2,
-            tipo: "participacao_copa",
-            valor: participacaoTime2,
-            descricao: "Participação fixa por jogo da Copa",
-            data: agora,
-          },
-          {
-            id_time: jogo.id_time1,
-            tipo: "salario_copa",
-            valor: salariosTime1,
-            descricao: "Desconto de salários após jogo da Copa",
-            data: agora,
-          },
-          {
-            id_time: jogo.id_time2,
-            tipo: "salario_copa",
-            valor: salariosTime2,
-            descricao: "Desconto de salários após jogo da Copa",
-            data: agora,
-          },
-        ]);
-
-        await supabase.from("bid").insert([
-          {
-            tipo_evento: "receita_partida",
-            descricao: `Receita de Copa: público ${publico.toLocaleString("pt-BR")}`,
-            id_time1: jogo.id_time1,
-            valor:
-              receitaTime1 + participacaoTime1 + premiacaoTime1 - salariosTime1,
-            data_evento: agora,
-          },
-          {
-            tipo_evento: "receita_partida",
-            descricao: `Receita de Copa visitante: ${nomeTime(jogo.id_time2)}`,
-            id_time1: jogo.id_time2,
-            valor:
-              receitaTime2 + participacaoTime2 + premiacaoTime2 - salariosTime2,
-            data_evento: agora,
-          },
-        ]);
-
-        patchFinanceiro = {
-          publico,
-          renda,
-          receita_time1: receitaTime1,
-          receita_time2: receitaTime2,
-          participacao_time1: participacaoTime1,
-          participacao_time2: participacaoTime2,
-          premiacao_time1: premiacaoTime1,
-          premiacao_time2: premiacaoTime2,
-          salarios_time1: salariosTime1,
-          salarios_time2: salariosTime2,
-          bonus_pago: true,
-        };
-      }
-
       let vencedor_id: string | null = null;
       if (g1 > g2) vencedor_id = jogo.id_time1;
       if (g2 > g1) vencedor_id = jogo.id_time2;
 
-      const { error } = await supabase
+      // 1. PRIMEIRO salva o placar.
+      // Isso garante que a classificação do grupo seja atualizada pelo useMemo.
+      const { error: erroPlacar } = await supabase
         .from("copa_jogos")
         .update({
           gols_time1: g1,
           gols_time2: g2,
           vencedor_id,
           status: "finalizado",
-          ...patchFinanceiro,
         })
         .eq("id", jogo.id);
 
-      if (error) toast.error("Erro ao salvar placar.");
-      else
-        toast.success(
-          jogo.bonus_pago
-            ? "Placar atualizado."
-            : "Placar salvo e valores pagos!",
-        );
+      if (erroPlacar) {
+        console.error("Erro ao salvar placar:", erroPlacar);
+        toast.error(erroPlacar.message || "Erro ao salvar placar.");
+        return;
+      }
+
+      // 2. Se o jogo já foi pago antes, não paga novamente.
+      // Apenas mantém o novo placar salvo.
+      if (jogo.bonus_pago) {
+        toast.success("Placar atualizado.");
+        await carregarTudo();
+        return;
+      }
+
+      const participacaoTime1 = COPA_PARTICIPACAO_POR_JOGO;
+      const participacaoTime2 = COPA_PARTICIPACAO_POR_JOGO;
+
+      // 3. Premiação por desempenho: vitória/empate/derrota + gols marcados - gols sofridos.
+      const premiacaoTime1 = await premiarTime(jogo.id_time1, g1, g2);
+      const premiacaoTime2 = await premiarTime(jogo.id_time2, g2, g1);
+
+      // 4. Participação fixa por jogo.
+      await supabase.rpc("atualizar_saldo", {
+        id_time: jogo.id_time1,
+        valor: participacaoTime1,
+      });
+
+      await supabase.rpc("atualizar_saldo", {
+        id_time: jogo.id_time2,
+        valor: participacaoTime2,
+      });
+
+      // 5. Desconto de salários.
+      const salariosTime1 = await somarSalarios(jogo.id_time1);
+      const salariosTime2 = await somarSalarios(jogo.id_time2);
+
+      await supabase.rpc("atualizar_saldo", {
+        id_time: jogo.id_time1,
+        valor: -salariosTime1,
+      });
+
+      await supabase.rpc("atualizar_saldo", {
+        id_time: jogo.id_time2,
+        valor: -salariosTime2,
+      });
+
+      // 6. Conta +1 jogo para todos do elenco.
+      await ajustarJogosElenco(jogo.id_time1, 1);
+      await ajustarJogosElenco(jogo.id_time2, 1);
+
+      const agora = new Date().toISOString();
+
+      await supabase.from("movimentacoes").insert([
+        {
+          id_time: jogo.id_time1,
+          tipo: "participacao_copa",
+          valor: participacaoTime1,
+          descricao: "Participação fixa por jogo da Copa",
+          data: agora,
+        },
+        {
+          id_time: jogo.id_time2,
+          tipo: "participacao_copa",
+          valor: participacaoTime2,
+          descricao: "Participação fixa por jogo da Copa",
+          data: agora,
+        },
+        {
+          id_time: jogo.id_time1,
+          tipo: "salario_copa",
+          valor: salariosTime1,
+          descricao: "Desconto de salários após jogo da Copa",
+          data: agora,
+        },
+        {
+          id_time: jogo.id_time2,
+          tipo: "salario_copa",
+          valor: salariosTime2,
+          descricao: "Desconto de salários após jogo da Copa",
+          data: agora,
+        },
+      ]);
+
+      await supabase.from("bid").insert([
+        {
+          tipo_evento: "receita_partida",
+          descricao: `Premiação de Copa: ${nomeTime(jogo.id_time1)}`,
+          id_time1: jogo.id_time1,
+          valor: participacaoTime1 + premiacaoTime1 - salariosTime1,
+          data_evento: agora,
+        },
+        {
+          tipo_evento: "receita_partida",
+          descricao: `Premiação de Copa: ${nomeTime(jogo.id_time2)}`,
+          id_time1: jogo.id_time2,
+          valor: participacaoTime2 + premiacaoTime2 - salariosTime2,
+          data_evento: agora,
+        },
+      ]);
+
+      // 7. Marca como pago somente depois do placar e financeiro terminarem.
+      const { error: erroBonus } = await supabase
+        .from("copa_jogos")
+        .update({
+          participacao_time1: participacaoTime1,
+          participacao_time2: participacaoTime2,
+          premiacao_time1: premiacaoTime1,
+          premiacao_time2: premiacaoTime2,
+          salarios_time1: salariosTime1,
+          salarios_time2: salariosTime2,
+
+          // Zera estádio/renda nesta versão.
+          publico: null,
+          renda: 0,
+          receita_time1: 0,
+          receita_time2: 0,
+
+          bonus_pago: true,
+        })
+        .eq("id", jogo.id);
+
+      if (erroBonus) {
+        console.error("Erro ao marcar valores pagos:", erroBonus);
+        toast.error("Placar salvo, mas houve erro ao marcar valores pagos.");
+        return;
+      }
+
+      toast.success("Placar salvo e premiação paga!");
+      await carregarTudo();
     } finally {
       setSalvando(null);
-      await carregarTudo();
     }
   }
 
@@ -927,7 +860,7 @@ export default function CopaPage() {
     if (!isAdmin || !jogo.id_time1 || !jogo.id_time2) return;
     if (
       !confirm(
-        "Deseja excluir o placar e estornar todos os valores desse jogo?",
+        "Deseja excluir o placar e estornar a premiação, participação e salários desse jogo?",
       )
     )
       return;
@@ -936,8 +869,6 @@ export default function CopaPage() {
 
     try {
       if (jogo.bonus_pago) {
-        const receitaTime1 = Number(jogo.receita_time1 || 0);
-        const receitaTime2 = Number(jogo.receita_time2 || 0);
         const participacaoTime1 = Number(jogo.participacao_time1 || 0);
         const participacaoTime2 = Number(jogo.participacao_time2 || 0);
         const premiacaoTime1 = Number(jogo.premiacao_time1 || 0);
@@ -945,10 +876,13 @@ export default function CopaPage() {
         const salariosTime1 = Number(jogo.salarios_time1 || 0);
         const salariosTime2 = Number(jogo.salarios_time2 || 0);
 
+        // Estorno:
+        // remove o que entrou: premiação + participação
+        // devolve o que saiu: salários
         const estornoTime1 =
-          -(receitaTime1 + participacaoTime1 + premiacaoTime1) + salariosTime1;
+          -(participacaoTime1 + premiacaoTime1) + salariosTime1;
         const estornoTime2 =
-          -(receitaTime2 + participacaoTime2 + premiacaoTime2) + salariosTime2;
+          -(participacaoTime2 + premiacaoTime2) + salariosTime2;
 
         await supabase.rpc("atualizar_saldo", {
           id_time: jogo.id_time1,
@@ -969,14 +903,14 @@ export default function CopaPage() {
             id_time: jogo.id_time1,
             tipo: "estorno_copa",
             valor: estornoTime1,
-            descricao: "Estorno completo de jogo da Copa",
+            descricao: "Estorno de premiação, participação e salários da Copa",
             data: agora,
           },
           {
             id_time: jogo.id_time2,
             tipo: "estorno_copa",
             valor: estornoTime2,
-            descricao: "Estorno completo de jogo da Copa",
+            descricao: "Estorno de premiação, participação e salários da Copa",
             data: agora,
           },
         ]);
