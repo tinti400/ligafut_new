@@ -710,9 +710,9 @@ export default function CopaPage() {
       if (g1 > g2) vencedor_id = jogo.id_time1;
       if (g2 > g1) vencedor_id = jogo.id_time2;
 
-      // 1. PRIMEIRO salva o placar.
-      // Isso garante que a classificação do grupo seja atualizada pelo useMemo.
-      const { error: erroPlacar } = await supabase
+      // 1. Salva o placar PRIMEIRO e exige retorno do Supabase.
+      // Se não retornar o jogo, a tela avisa o erro real e não faz pagamento.
+      const { data: jogoAtualizado, error: erroPlacar } = await supabase
         .from("copa_jogos")
         .update({
           gols_time1: g1,
@@ -720,16 +720,33 @@ export default function CopaPage() {
           vencedor_id,
           status: "finalizado",
         })
-        .eq("id", jogo.id);
+        .eq("id", jogo.id)
+        .select("*")
+        .single();
 
-      if (erroPlacar) {
-        console.error("Erro ao salvar placar:", erroPlacar);
-        toast.error(erroPlacar.message || "Erro ao salvar placar.");
+      if (erroPlacar || !jogoAtualizado) {
+        console.error("Erro real ao salvar placar:", erroPlacar);
+        toast.error(erroPlacar?.message || "Erro ao salvar placar no banco.");
         return;
       }
 
-      // 2. Se o jogo já foi pago antes, não paga novamente.
-      // Apenas mantém o novo placar salvo.
+      // Atualiza a tela na hora, antes mesmo do recarregamento.
+      // Isso faz a classificação do grupo subir imediatamente.
+      setJogos((prev) =>
+        prev.map((j) =>
+          j.id === jogo.id
+            ? {
+                ...j,
+                gols_time1: g1,
+                gols_time2: g2,
+                vencedor_id,
+                status: "finalizado",
+              }
+            : j,
+        ),
+      );
+
+      // 2. Se já pagou antes, só altera placar/classificação. Não paga novamente.
       if (jogo.bonus_pago) {
         toast.success("Placar atualizado.");
         await carregarTudo();
@@ -739,11 +756,10 @@ export default function CopaPage() {
       const participacaoTime1 = COPA_PARTICIPACAO_POR_JOGO;
       const participacaoTime2 = COPA_PARTICIPACAO_POR_JOGO;
 
-      // 3. Premiação por desempenho: vitória/empate/derrota + gols marcados - gols sofridos.
+      // 3. Só premiação + participação. Estádio/renda removidos.
       const premiacaoTime1 = await premiarTime(jogo.id_time1, g1, g2);
       const premiacaoTime2 = await premiarTime(jogo.id_time2, g2, g1);
 
-      // 4. Participação fixa por jogo.
       await supabase.rpc("atualizar_saldo", {
         id_time: jogo.id_time1,
         valor: participacaoTime1,
@@ -754,7 +770,6 @@ export default function CopaPage() {
         valor: participacaoTime2,
       });
 
-      // 5. Desconto de salários.
       const salariosTime1 = await somarSalarios(jogo.id_time1);
       const salariosTime2 = await somarSalarios(jogo.id_time2);
 
@@ -768,7 +783,6 @@ export default function CopaPage() {
         valor: -salariosTime2,
       });
 
-      // 6. Conta +1 jogo para todos do elenco.
       await ajustarJogosElenco(jogo.id_time1, 1);
       await ajustarJogosElenco(jogo.id_time2, 1);
 
@@ -807,50 +821,59 @@ export default function CopaPage() {
 
       await supabase.from("bid").insert([
         {
-          tipo_evento: "receita_partida",
-          descricao: `Premiação de Copa: ${nomeTime(jogo.id_time1)}`,
+          tipo_evento: "bonus",
+          descricao: `Premiação da Copa: ${nomeTime(jogo.id_time1)}`,
           id_time1: jogo.id_time1,
           valor: participacaoTime1 + premiacaoTime1 - salariosTime1,
           data_evento: agora,
         },
         {
-          tipo_evento: "receita_partida",
-          descricao: `Premiação de Copa: ${nomeTime(jogo.id_time2)}`,
+          tipo_evento: "bonus",
+          descricao: `Premiação da Copa: ${nomeTime(jogo.id_time2)}`,
           id_time1: jogo.id_time2,
           valor: participacaoTime2 + premiacaoTime2 - salariosTime2,
           data_evento: agora,
         },
       ]);
 
-      // 7. Marca como pago somente depois do placar e financeiro terminarem.
-      const { error: erroBonus } = await supabase
+      // 4. Marca os valores pagos no mesmo jogo, mantendo o placar salvo.
+      const { data: jogoPago, error: erroBonus } = await supabase
         .from("copa_jogos")
         .update({
+          gols_time1: g1,
+          gols_time2: g2,
+          vencedor_id,
+          status: "finalizado",
+          bonus_pago: true,
           participacao_time1: participacaoTime1,
           participacao_time2: participacaoTime2,
           premiacao_time1: premiacaoTime1,
           premiacao_time2: premiacaoTime2,
           salarios_time1: salariosTime1,
           salarios_time2: salariosTime2,
-
-          // Zera estádio/renda nesta versão.
           publico: null,
           renda: 0,
           receita_time1: 0,
           receita_time2: 0,
-
-          bonus_pago: true,
         })
-        .eq("id", jogo.id);
+        .eq("id", jogo.id)
+        .select("*")
+        .single();
 
-      if (erroBonus) {
-        console.error("Erro ao marcar valores pagos:", erroBonus);
-        toast.error("Placar salvo, mas houve erro ao marcar valores pagos.");
+      if (erroBonus || !jogoPago) {
+        console.error("Erro ao marcar bônus pago:", erroBonus);
+        toast.error("Placar salvo, mas houve erro ao marcar premiação paga.");
+        await carregarTudo();
         return;
       }
 
+      setJogos((prev) => prev.map((j) => (j.id === jogo.id ? (jogoPago as Jogo) : j)));
+
       toast.success("Placar salvo e premiação paga!");
       await carregarTudo();
+    } catch (err) {
+      console.error("Erro inesperado ao salvar placar:", err);
+      toast.error("Erro inesperado ao salvar placar.");
     } finally {
       setSalvando(null);
     }
@@ -858,9 +881,16 @@ export default function CopaPage() {
 
   async function excluirPlacar(jogo: Jogo) {
     if (!isAdmin || !jogo.id_time1 || !jogo.id_time2) return;
+
+    const temPlacar = jogo.gols_time1 !== null || jogo.gols_time2 !== null;
+    if (!temPlacar) {
+      toast("Esse jogo ainda não tem placar salvo.");
+      return;
+    }
+
     if (
       !confirm(
-        "Deseja excluir o placar e estornar a premiação, participação e salários desse jogo?",
+        "Deseja apagar o placar e estornar a premiação, participação e salários desse jogo?",
       )
     )
       return;
@@ -876,9 +906,6 @@ export default function CopaPage() {
         const salariosTime1 = Number(jogo.salarios_time1 || 0);
         const salariosTime2 = Number(jogo.salarios_time2 || 0);
 
-        // Estorno:
-        // remove o que entrou: premiação + participação
-        // devolve o que saiu: salários
         const estornoTime1 =
           -(participacaoTime1 + premiacaoTime1) + salariosTime1;
         const estornoTime2 =
@@ -933,7 +960,7 @@ export default function CopaPage() {
         ]);
       }
 
-      const { error } = await supabase
+      const { data: jogoLimpo, error } = await supabase
         .from("copa_jogos")
         .update({
           gols_time1: null,
@@ -952,13 +979,25 @@ export default function CopaPage() {
           salarios_time1: 0,
           salarios_time2: 0,
         })
-        .eq("id", jogo.id);
+        .eq("id", jogo.id)
+        .select("*")
+        .single();
 
-      if (error) toast.error("Erro ao excluir placar.");
-      else toast.success("Placar excluído e valores estornados!");
+      if (error || !jogoLimpo) {
+        console.error("Erro real ao apagar placar:", error);
+        toast.error(error?.message || "Erro ao apagar placar no banco.");
+        return;
+      }
+
+      setJogos((prev) => prev.map((j) => (j.id === jogo.id ? (jogoLimpo as Jogo) : j)));
+
+      toast.success("Placar apagado e valores estornados!");
+      await carregarTudo();
+    } catch (err) {
+      console.error("Erro inesperado ao apagar placar:", err);
+      toast.error("Erro inesperado ao apagar placar.");
     } finally {
       setSalvando(null);
-      await carregarTudo();
     }
   }
 
