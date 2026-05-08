@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import toast from "react-hot-toast";
-import { FiAward, FiRefreshCw, FiTrendingUp, FiTarget } from "react-icons/fi";
+import {
+  FiAward,
+  FiRefreshCw,
+  FiTrendingUp,
+  FiTarget,
+  FiSearch,
+  FiStar,
+} from "react-icons/fi";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -74,6 +81,13 @@ function fotoJogador(j?: RankingArtilheiro) {
   return j?.imagem_url || "/default-player.png";
 }
 
+function medalha(posicao: number) {
+  if (posicao === 1) return "🥇";
+  if (posicao === 2) return "🥈";
+  if (posicao === 3) return "🥉";
+  return `#${posicao}`;
+}
+
 export default function ArtilhariaCopaPage() {
   const [loading, setLoading] = useState(true);
   const [gols, setGols] = useState<GolArtilharia[]>([]);
@@ -131,25 +145,10 @@ export default function ArtilhariaCopaPage() {
           .select("id, nome, id_time, posicao, overall, valor, imagem_url, foto"),
       ]);
 
-      if (golsError) {
-        console.error(golsError);
-        toast.error("Erro ao carregar artilharia.");
-      }
-
-      if (jogosError) {
-        console.error(jogosError);
-        toast.error("Erro ao carregar histórico dos jogos.");
-      }
-
-      if (timesError) {
-        console.error(timesError);
-        toast.error("Erro ao carregar times.");
-      }
-
-      if (elencoError) {
-        console.error(elencoError);
-        toast.error("Erro ao carregar elenco.");
-      }
+      if (golsError) toast.error("Erro ao carregar artilharia.");
+      if (jogosError) toast.error("Erro ao carregar histórico dos jogos.");
+      if (timesError) toast.error("Erro ao carregar times.");
+      if (elencoError) toast.error("Erro ao carregar elenco.");
 
       const golsTabela = (golsData || []) as GolArtilharia[];
       const golsDoHistorico: GolArtilharia[] = [];
@@ -163,10 +162,7 @@ export default function ArtilhariaCopaPage() {
           .filter((evento) => evento?.tipo === "gol")
           .forEach((evento, index) => {
             const idTime =
-              evento.id_time ||
-              evento.time_id ||
-              evento.timeId ||
-              null;
+              evento.id_time || evento.time_id || evento.timeId || null;
 
             const idJogador =
               evento.id_jogador ||
@@ -181,9 +177,7 @@ export default function ArtilhariaCopaPage() {
               "Jogador";
 
             const nomeTimeEvento =
-              evento.nome_time ||
-              evento.time ||
-              null;
+              evento.nome_time || evento.time || null;
 
             golsDoHistorico.push({
               id: `historico_${jogo.id}_${index}`,
@@ -202,8 +196,7 @@ export default function ArtilhariaCopaPage() {
 
       const chavesTabela = new Set(
         golsTabela.map(
-          (g) =>
-            `${g.jogo_id}_${g.id_jogador || g.nome_jogador}_${g.minuto}`,
+          (g) => `${g.jogo_id}_${g.id_jogador || g.nome_jogador}_${g.minuto}`,
         ),
       );
 
@@ -229,21 +222,17 @@ export default function ArtilhariaCopaPage() {
 
   const timesMap = useMemo(() => {
     const map: Record<string, Time> = {};
-
     times.forEach((t) => {
       map[t.id] = t;
     });
-
     return map;
   }, [times]);
 
   const elencoMap = useMemo(() => {
     const map: Record<string, JogadorElenco> = {};
-
     elenco.forEach((j) => {
       map[j.id] = j;
     });
-
     return map;
   }, [elenco]);
 
@@ -299,7 +288,6 @@ export default function ArtilhariaCopaPage() {
 
   const rankingFiltrado = useMemo(() => {
     const q = busca.trim().toLowerCase();
-
     if (!q) return ranking;
 
     return ranking.filter(
@@ -312,11 +300,12 @@ export default function ArtilhariaCopaPage() {
 
   const totalGols = ranking.reduce((acc, r) => acc + r.gols, 0);
   const lider = ranking[0];
+  const top3 = ranking.slice(0, 3);
 
   if (loading) {
     return (
       <div className="min-h-screen p-6 text-white">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center">
           Carregando artilharia...
         </div>
       </div>
@@ -325,64 +314,144 @@ export default function ArtilhariaCopaPage() {
 
   return (
     <div className="min-h-screen p-4 md:p-6 text-zinc-100 space-y-6">
-      <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-yellow-500/10 via-white/[0.04] to-emerald-500/10 p-5 shadow-2xl">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="relative overflow-hidden rounded-[2rem] border border-yellow-400/20 bg-gradient-to-br from-yellow-500/15 via-black to-emerald-500/10 p-5 md:p-6 shadow-2xl">
+        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-yellow-400/10 blur-3xl" />
+        <div className="absolute -left-20 -bottom-20 h-64 w-64 rounded-full bg-emerald-400/10 blur-3xl" />
+
+        <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
-              <FiAward className="text-yellow-300" />
-              Artilharia da Copa LigaFut
+            <div className="inline-flex items-center gap-2 rounded-full border border-yellow-400/30 bg-yellow-400/10 px-3 py-1 text-xs font-black text-yellow-200">
+              <FiAward />
+              COPA LIGAFUT
+            </div>
+
+            <h1 className="mt-3 text-3xl md:text-5xl font-black tracking-tight">
+              Artilharia da Copa
             </h1>
 
-            <p className="text-sm text-zinc-400 mt-1">
-              Ranking de goleadores da Copa • temporada {TEMPORADA}
+            <p className="mt-2 text-sm text-zinc-400">
+              Gols da tabela <strong>artilharia_copa</strong> + histórico de{" "}
+              <strong>copa_jogos.eventos_simulacao</strong> • temporada{" "}
+              {TEMPORADA}
             </p>
           </div>
 
           <button
             onClick={carregarDados}
-            className="rounded-xl bg-white/10 px-4 py-2 font-bold hover:bg-white/20 flex items-center gap-2"
+            className="rounded-2xl bg-white/10 px-5 py-3 font-black hover:bg-white/20 flex items-center justify-center gap-2"
           >
             <FiRefreshCw />
             Atualizar
           </button>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+        <div className="relative mt-6 grid gap-3 md:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
             <div className="text-xs text-zinc-400">Total de gols</div>
-            <div className="text-2xl font-black text-emerald-300">
+            <div className="text-3xl font-black text-emerald-300">
               {totalGols}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+          <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
             <div className="text-xs text-zinc-400">Jogadores que marcaram</div>
-            <div className="text-2xl font-black">{ranking.length}</div>
+            <div className="text-3xl font-black">{ranking.length}</div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+          <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
             <div className="text-xs text-zinc-400">Artilheiro atual</div>
-            <div className="truncate text-lg font-black text-yellow-300">
+            <div className="truncate text-xl font-black text-yellow-300">
               {lider?.nome_jogador || "-"}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-            <div className="text-xs text-zinc-400">Clube do artilheiro</div>
-            <div className="truncate text-lg font-black">
+          <div className="rounded-2xl border border-white/10 bg-black/35 p-4">
+            <div className="text-xs text-zinc-400">Clube do líder</div>
+            <div className="truncate text-xl font-black">
               {lider?.nome_time || "-"}
             </div>
           </div>
         </div>
       </div>
 
+      {top3.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-3">
+          {top3.map((jogador, index) => {
+            const posicao = index + 1;
+
+            return (
+              <div
+                key={jogador.id_jogador}
+                className={`relative overflow-hidden rounded-[2rem] border p-4 shadow-2xl ${
+                  posicao === 1
+                    ? "border-yellow-400/40 bg-yellow-500/10"
+                    : "border-white/10 bg-white/[0.04]"
+                }`}
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-40" />
+
+                {jogador.logo_time && (
+                  <img
+                    src={jogador.logo_time}
+                    alt=""
+                    className="absolute -right-8 -bottom-8 h-36 w-36 object-contain opacity-10"
+                  />
+                )}
+
+                <div className="relative flex items-center gap-4">
+                  <div className="relative h-28 w-28 overflow-hidden rounded-3xl border border-white/10 bg-black/50">
+                    <img
+                      src={fotoJogador(jogador)}
+                      alt={jogador.nome_jogador}
+                      className="h-full w-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = "/default-player.png";
+                      }}
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="text-3xl">{medalha(posicao)}</div>
+                    <h2 className="truncate text-xl font-black">
+                      {jogador.nome_jogador}
+                    </h2>
+
+                    <div className="mt-1 flex items-center gap-2 text-sm text-zinc-300">
+                      {jogador.logo_time && (
+                        <img
+                          src={jogador.logo_time}
+                          className="h-5 w-5 object-contain"
+                          alt=""
+                        />
+                      )}
+                      <span className="truncate">{jogador.nome_time}</span>
+                    </div>
+
+                    <div className="mt-3 inline-flex items-center gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2">
+                      <FiTarget className="text-emerald-300" />
+                      <span className="text-2xl font-black">
+                        {jogador.gols}
+                      </span>
+                      <span className="text-xs text-emerald-200">gols</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <input
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar jogador, time ou posição..."
-          className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none focus:border-emerald-400/60"
-        />
+        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-3">
+          <FiSearch className="text-zinc-500" />
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar jogador, time ou posição..."
+            className="w-full bg-transparent outline-none"
+          />
+        </div>
       </div>
 
       {rankingFiltrado.length === 0 ? (
@@ -396,7 +465,7 @@ export default function ArtilhariaCopaPage() {
 
             const destaque =
               posicao === 1
-                ? "border-yellow-400/40 bg-yellow-500/10"
+                ? "border-yellow-400/40 bg-gradient-to-r from-yellow-500/15 to-white/[0.03]"
                 : posicao <= 3
                   ? "border-emerald-400/30 bg-emerald-500/10"
                   : "border-white/10 bg-white/[0.03]";
@@ -404,10 +473,18 @@ export default function ArtilhariaCopaPage() {
             return (
               <div
                 key={jogador.id_jogador}
-                className={`rounded-3xl border ${destaque} p-4 shadow-xl`}
+                className={`relative overflow-hidden rounded-[2rem] border ${destaque} p-4 shadow-xl transition hover:scale-[1.01] hover:bg-white/[0.06]`}
               >
-                <div className="grid gap-4 md:grid-cols-[80px_1fr_auto] md:items-center">
-                  <div className="relative h-20 w-20 overflow-hidden rounded-2xl border border-white/10 bg-black/40">
+                {jogador.logo_time && (
+                  <img
+                    src={jogador.logo_time}
+                    alt=""
+                    className="absolute right-4 top-1/2 h-28 w-28 -translate-y-1/2 object-contain opacity-[0.06]"
+                  />
+                )}
+
+                <div className="relative grid gap-4 md:grid-cols-[120px_1fr_auto] md:items-center">
+                  <div className="relative h-32 w-full md:w-28 overflow-hidden rounded-3xl border border-white/10 bg-black/50 shadow-xl">
                     <img
                       src={fotoJogador(jogador)}
                       alt={jogador.nome_jogador}
@@ -417,16 +494,23 @@ export default function ArtilhariaCopaPage() {
                       }}
                     />
 
-                    <div className="absolute left-1 top-1 rounded-lg bg-black/70 px-2 py-1 text-xs font-black text-yellow-300">
-                      #{posicao}
+                    <div className="absolute left-2 top-2 rounded-xl bg-black/75 px-2 py-1 text-sm font-black text-yellow-300">
+                      {medalha(posicao)}
                     </div>
                   </div>
 
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="truncate text-xl font-black">
+                      <h2 className="truncate text-2xl font-black">
                         {jogador.nome_jogador}
                       </h2>
+
+                      {posicao === 1 && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-1 text-xs font-black text-yellow-300">
+                          <FiStar />
+                          Líder
+                        </span>
+                      )}
 
                       {jogador.posicao && (
                         <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1 text-xs font-bold text-zinc-300">
@@ -445,7 +529,7 @@ export default function ArtilhariaCopaPage() {
                       {jogador.logo_time && (
                         <img
                           src={jogador.logo_time}
-                          className="h-6 w-6 rounded-full object-contain bg-black/40"
+                          className="h-7 w-7 rounded-full object-contain bg-black/40"
                           alt=""
                         />
                       )}
@@ -462,11 +546,11 @@ export default function ArtilhariaCopaPage() {
                       ) : null}
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs">
                       {jogador.minutos
                         .slice()
                         .sort((a, b) => a - b)
-                        .slice(0, 12)
+                        .slice(0, 14)
                         .map((m, idx) => (
                           <span
                             key={`${jogador.id_jogador}_${m}_${idx}`}
@@ -476,22 +560,26 @@ export default function ArtilhariaCopaPage() {
                           </span>
                         ))}
 
-                      {jogador.minutos.length > 12 && (
+                      {jogador.minutos.length > 14 && (
                         <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1 text-zinc-500">
-                          +{jogador.minutos.length - 12} gols
+                          +{jogador.minutos.length - 14} gols
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center">
+                  <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-center shadow-xl">
                     <div className="flex items-center justify-center gap-2 text-emerald-300">
                       <FiTarget />
                       <span className="text-xs font-bold uppercase">Gols</span>
                     </div>
 
-                    <div className="text-4xl font-black text-white">
+                    <div className="text-5xl font-black text-white">
                       {jogador.gols}
+                    </div>
+
+                    <div className="mt-1 text-xs text-zinc-400">
+                      {jogador.gols === 1 ? "gol marcado" : "gols marcados"}
                     </div>
                   </div>
                 </div>
@@ -504,8 +592,8 @@ export default function ArtilhariaCopaPage() {
       <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-zinc-400">
         Esta página lê os gols salvos na tabela{" "}
         <strong>artilharia_copa</strong> e também os gols existentes no histórico
-        dos jogos em <strong>copa_jogos.eventos_simulacao</strong>. Assim, jogos
-        já preenchidos também entram no ranking.
+        dos jogos em <strong>copa_jogos.eventos_simulacao</strong>. Jogos já
+        preenchidos entram automaticamente no ranking.
       </div>
     </div>
   );
