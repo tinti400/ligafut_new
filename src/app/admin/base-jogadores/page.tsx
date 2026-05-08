@@ -175,6 +175,7 @@ export default function BaseJogadoresPage() {
   const [overallMax, setOverallMax] = useState('')
   const [pagina, setPagina] = useState(1)
   const [selecionados, setSelecionados] = useState<string[]>([])
+  const [duracaoLeilaoMinutos, setDuracaoLeilaoMinutos] = useState('2')
 
   async function carregarJogadores() {
     setLoading(true)
@@ -441,6 +442,7 @@ export default function BaseJogadoresPage() {
 
   function montarPayloadLeilao(j: JogadorBase) {
     const imagem = pegarImagemJogador(j)
+    const minutos = Math.max(1, Number(duracaoLeilaoMinutos) || 2)
 
     return {
       nome: j.nome,
@@ -470,7 +472,7 @@ export default function BaseJogadoresPage() {
       physical: j.physical || j.phy || 0,
 
       status: 'ativo',
-      fim: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+      fim: new Date(Date.now() + minutos * 60 * 1000).toISOString(),
     }
   }
 
@@ -535,6 +537,14 @@ export default function BaseJogadoresPage() {
       return
     }
 
+    const minutos = Math.max(1, Number(duracaoLeilaoMinutos) || 2)
+
+    const confirmar = window.confirm(
+      `Enviar ${lista.length} jogador(es) para o leilão com duração de ${minutos} minuto(s)?`
+    )
+
+    if (!confirmar) return
+
     setEnviando(true)
 
     try {
@@ -570,7 +580,7 @@ export default function BaseJogadoresPage() {
         if (updateError) throw updateError
       }
 
-      toast.success('Jogadores enviados para o leilão.')
+      toast.success(`Jogadores enviados para o leilão por ${minutos} minuto(s).`)
       await carregarJogadores()
     } catch (err: any) {
       console.error(err)
@@ -765,6 +775,18 @@ export default function BaseJogadoresPage() {
               <ShoppingCart size={18} />
               Mandar para Mercado
             </button>
+
+            <div className="flex items-center gap-2 h-11 px-3 rounded-xl bg-black border border-yellow-400/30">
+              <span className="text-xs text-zinc-400 whitespace-nowrap">Duração</span>
+              <input
+                type="number"
+                min="1"
+                value={duracaoLeilaoMinutos}
+                onChange={(e) => setDuracaoLeilaoMinutos(e.target.value)}
+                className="w-20 bg-transparent outline-none text-yellow-300 font-black"
+              />
+              <span className="text-xs text-zinc-400">min</span>
+            </div>
 
             <button disabled={enviando} onClick={enviarParaLeilao} className="h-11 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-black font-black flex items-center justify-center gap-2">
               <Gavel size={18} />
