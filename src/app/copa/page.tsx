@@ -62,6 +62,7 @@ type JogadorElenco = {
   nome: string;
   posicao?: string | null;
   overall?: number | null;
+  valor?: number | null;
 };
 
 type EventoSimulacao = {
@@ -77,6 +78,8 @@ type EventoSimulacao = {
     | "info";
   time_id?: string | null;
   time_nome?: string | null;
+  jogador_id?: string | null;
+  id_jogador?: string | null;
   jogador?: string | null;
   logo?: string | null;
   texto: string;
@@ -449,7 +452,7 @@ export default function CopaPage() {
   ): Promise<JogadorElenco[]> {
     const { data, error } = await supabase
       .from("elenco")
-      .select("id,nome,posicao,overall")
+      .select("id,nome,posicao,overall,valor")
       .eq("id_time", timeId);
 
     if (error) {
@@ -462,6 +465,7 @@ export default function CopaPage() {
       nome: j.nome || "Jogador",
       posicao: j.posicao || null,
       overall: Number(j.overall || 60),
+      valor: Number(j.valor || 0),
     }));
   }
 
@@ -565,6 +569,8 @@ export default function CopaPage() {
         tipo: "gol",
         time_id: gol.timeId,
         time_nome: gol.timeNome,
+        jogador_id: jogador?.id || null,
+        id_jogador: jogador?.id || null,
         jogador: nomeJogador,
         logo: logoTime(gol.timeId),
         texto: frases[Math.floor(Math.random() * frases.length)],
@@ -1173,6 +1179,78 @@ export default function CopaPage() {
     );
   }
 
+  async function ajustarValorizacaoGols(
+    eventos: EventoSimulacao[] | null | undefined,
+    direcao: "valorizar" | "estornar" = "valorizar",
+  ) {
+    const golsEventos = (Array.isArray(eventos) ? eventos : []).filter(
+      (evento) => evento?.tipo === "gol",
+    );
+
+    if (!golsEventos.length) return;
+
+    const golsPorJogador: Record<string, number> = {};
+
+    for (const evento of golsEventos) {
+      let jogadorId =
+        evento.jogador_id ||
+        evento.id_jogador ||
+        (evento as any).jogadorId ||
+        null;
+
+      // Compatibilidade com gols antigos que tinham apenas nome do jogador.
+      if (!jogadorId && evento.jogador && evento.time_id) {
+        const { data: encontrado } = await supabase
+          .from("elenco")
+          .select("id")
+          .eq("id_time", evento.time_id)
+          .ilike("nome", evento.jogador)
+          .maybeSingle();
+
+        jogadorId = encontrado?.id || null;
+      }
+
+      if (!jogadorId) continue;
+      golsPorJogador[jogadorId] = (golsPorJogador[jogadorId] || 0) + 1;
+    }
+
+    const entradas = Object.entries(golsPorJogador);
+    if (!entradas.length) return;
+
+    await Promise.all(
+      entradas.map(async ([jogadorId, quantidadeGols]) => {
+        const { data: jogador, error } = await supabase
+          .from("elenco")
+          .select("id,nome,valor")
+          .eq("id", jogadorId)
+          .maybeSingle();
+
+        if (error || !jogador) {
+          console.error("Erro ao buscar jogador para valorização:", error);
+          return;
+        }
+
+        const valorAtual = Number(jogador.valor || 0);
+        if (!valorAtual || valorAtual <= 0) return;
+
+        const fator = Math.pow(1.0005, quantidadeGols);
+        const novoValor =
+          direcao === "valorizar"
+            ? Math.round(valorAtual * fator)
+            : Math.round(valorAtual / fator);
+
+        const { error: updateError } = await supabase
+          .from("elenco")
+          .update({ valor: Math.max(0, novoValor) })
+          .eq("id", jogadorId);
+
+        if (updateError) {
+          console.error("Erro ao atualizar valorização do jogador:", updateError);
+        }
+      }),
+    );
+  }
+
   async function premiarTime(
     timeId: string,
     golsPro: number,
@@ -1377,6 +1455,11 @@ export default function CopaPage() {
         },
       ]);
 
+      // Valoriza 0,05% por gol marcado.
+      // Fica aqui para acontecer apenas na primeira confirmação do placar,
+      // evitando valorizar de novo quando o placar já estiver com bonus_pago.
+      await ajustarValorizacaoGols(eventosHistoria, "valorizar");
+
       // 4. Marca os valores pagos no mesmo jogo, mantendo o placar salvo.
       const { data: jogoPago, error: erroBonus } = await supabase
         .from("copa_jogos")
@@ -1485,6 +1568,9 @@ export default function CopaPage() {
 
         await ajustarJogosElenco(jogo.id_time1, -1);
         await ajustarJogosElenco(jogo.id_time2, -1);
+
+        // Estorna a valorização dos jogadores que marcaram nesse jogo.
+        await ajustarValorizacaoGols(jogo.eventos_simulacao, "estornar");
 
         const agora = new Date().toISOString();
 
