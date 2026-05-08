@@ -695,6 +695,7 @@ export default function Sidebar() {
 
                 <CollapsedItem href="/" label="Home" emoji="🏠" />
                 <CollapsedItem href="/copa" label="Copa Champions" emoji="🏆" />
+                <CollapsedItem href="/artilharia" label="Artilharia" emoji="⚽" />
                 <CollapsedItem href="/elenco" label="Elenco" emoji="👥" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
@@ -758,6 +759,10 @@ export default function Sidebar() {
                             NOVA
                           </span>
                         </span>
+                      </NavLink>
+
+                      <NavLink href="/artilharia">
+                        ⚽ Artilharia
                       </NavLink>
                     </div>
                   )}
