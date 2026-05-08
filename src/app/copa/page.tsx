@@ -10,6 +10,7 @@ import {
   FiShuffle,
   FiTrash2,
   FiAward,
+  FiPlay,
 } from "react-icons/fi";
 
 const supabase = createClient(
@@ -84,6 +85,35 @@ type Jogo = {
   participacao_time2?: number | null;
   salarios_time1?: number | null;
   salarios_time2?: number | null;
+
+  simulado?: boolean | null;
+  simulando?: boolean | null;
+  eventos_simulacao?: EventoSimulacao[] | null;
+  metodo_resultado?: "manual" | "simulado" | null;
+};
+
+type EventoSimulacao = {
+  minuto: number;
+  tipo:
+    | "inicio"
+    | "chance"
+    | "gol"
+    | "cartao"
+    | "penalti"
+    | "defesa"
+    | "intervalo"
+    | "pressao"
+    | "fim";
+  time?: string;
+  texto: string;
+};
+
+type ResultadoSimulacao = {
+  golsTime1: number;
+  golsTime2: number;
+  eventos: EventoSimulacao[];
+  forcaTime1: number;
+  forcaTime2: number;
 };
 
 type Classificacao = {
@@ -157,6 +187,129 @@ function gerarJogosIdaVolta(ids: string[]) {
   return jogos;
 }
 
+function limitarNumero(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function escolherTextoChance(time: string, minuto: number) {
+  const textos = [
+    `🔥 ${minuto}' ${time} troca passes perto da área e quase abre o placar.`,
+    `💥 ${minuto}' ${time} arrisca de fora da área. Bola perigosa!`,
+    `⚡ ${minuto}' Contra-ataque rápido do ${time}. A torcida levanta!`,
+    `🥅 ${minuto}' ${time} finaliza forte, mas a defesa salva.`,
+  ];
+
+  return textos[Math.floor(Math.random() * textos.length)];
+}
+
+function escolherTextoDefesa(time: string, minuto: number) {
+  const textos = [
+    `🧤 ${minuto}' Defesaça do goleiro contra o ${time}!`,
+    `🧱 ${minuto}' O goleiro fecha o ângulo e evita o gol do ${time}.`,
+    `😱 ${minuto}' Que milagre! ${time} parou no goleiro.`,
+  ];
+
+  return textos[Math.floor(Math.random() * textos.length)];
+}
+
+function gerarSimulacaoCopa(params: {
+  nomeTime1: string;
+  nomeTime2: string;
+  forcaTime1: number;
+  forcaTime2: number;
+  mataMata: boolean;
+}): ResultadoSimulacao {
+  const { nomeTime1, nomeTime2, forcaTime1, forcaTime2, mataMata } = params;
+  const eventos: EventoSimulacao[] = [
+    { minuto: 0, tipo: "inicio", texto: `🏟️ Começa o jogo entre ${nomeTime1} e ${nomeTime2}!` },
+  ];
+
+  let golsTime1 = 0;
+  let golsTime2 = 0;
+
+  const somaForcas = Math.max(1, forcaTime1 + forcaTime2);
+  const vantagemTime1 = (forcaTime1 - forcaTime2) / 100;
+
+  const baseGolTime1 = limitarNumero(0.012 + vantagemTime1 * 0.006, 0.004, 0.032);
+  const baseGolTime2 = limitarNumero(0.012 - vantagemTime1 * 0.006, 0.004, 0.032);
+
+  const intensidade = mataMata ? 1.08 : 1;
+
+  for (let minuto = 1; minuto <= 90; minuto++) {
+    if (minuto === 45) {
+      eventos.push({
+        minuto,
+        tipo: "intervalo",
+        texto: `⏱️ Intervalo: ${nomeTime1} ${golsTime1} x ${golsTime2} ${nomeTime2}.`,
+      });
+    }
+
+    const sorteioAtaque = Math.random() * somaForcas;
+    const timeAtacante = sorteioAtaque <= forcaTime1 ? "time1" : "time2";
+    const nomeAtacante = timeAtacante === "time1" ? nomeTime1 : nomeTime2;
+
+    if (Math.random() < 0.038 * intensidade) {
+      eventos.push({ minuto, tipo: "chance", time: nomeAtacante, texto: escolherTextoChance(nomeAtacante, minuto) });
+    }
+
+    if (Math.random() < 0.014 * intensidade) {
+      eventos.push({ minuto, tipo: "defesa", time: nomeAtacante, texto: escolherTextoDefesa(nomeAtacante, minuto) });
+    }
+
+    if (Math.random() < 0.010) {
+      eventos.push({ minuto, tipo: "cartao", texto: `🟨 ${minuto}' Cartão amarelo após falta dura no meio-campo.` });
+    }
+
+    if (Math.random() < 0.0025 * intensidade) {
+      eventos.push({ minuto, tipo: "penalti", time: nomeAtacante, texto: `🚨 ${minuto}' Pênalti para ${nomeAtacante}!` });
+      if (Math.random() < 0.72) {
+        if (timeAtacante === "time1") golsTime1 += 1;
+        else golsTime2 += 1;
+
+        eventos.push({ minuto, tipo: "gol", time: nomeAtacante, texto: `⚽ ${minuto}' GOOOL! ${nomeAtacante} converte o pênalti!` });
+      } else {
+        eventos.push({ minuto, tipo: "defesa", time: nomeAtacante, texto: `🧤 ${minuto}' Goleiro defende o pênalti do ${nomeAtacante}!` });
+      }
+    }
+
+    if (Math.random() < baseGolTime1 * intensidade) {
+      golsTime1 += 1;
+      eventos.push({ minuto, tipo: "gol", time: nomeTime1, texto: `⚽ ${minuto}' GOOOL DO ${nomeTime1.toUpperCase()}!` });
+    }
+
+    if (Math.random() < baseGolTime2 * intensidade) {
+      golsTime2 += 1;
+      eventos.push({ minuto, tipo: "gol", time: nomeTime2, texto: `⚽ ${minuto}' GOOOL DO ${nomeTime2.toUpperCase()}!` });
+    }
+
+    if (minuto >= 78 && Math.random() < 0.018) {
+      const perdendo = golsTime1 === golsTime2 ? nomeAtacante : golsTime1 < golsTime2 ? nomeTime1 : nomeTime2;
+      eventos.push({ minuto, tipo: "pressao", time: perdendo, texto: `🔥 ${minuto}' Pressão final do ${perdendo}!` });
+    }
+  }
+
+  golsTime1 = Math.min(golsTime1, 6);
+  golsTime2 = Math.min(golsTime2, 6);
+
+  eventos.push({
+    minuto: 90,
+    tipo: "fim",
+    texto: `🏁 Fim de jogo: ${nomeTime1} ${golsTime1} x ${golsTime2} ${nomeTime2}.`,
+  });
+
+  const eventosOrdenados = eventos
+    .sort((a, b) => a.minuto - b.minuto)
+    .slice(0, 28);
+
+  return {
+    golsTime1,
+    golsTime2,
+    eventos: eventosOrdenados,
+    forcaTime1,
+    forcaTime2,
+  };
+}
+
 export default function CopaPage() {
   const { isAdmin } = useAdmin();
 
@@ -167,6 +320,8 @@ export default function CopaPage() {
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState<string | null>(null);
+  const [simulando, setSimulando] = useState<string | null>(null);
+  const [eventosAoVivo, setEventosAoVivo] = useState<Record<string, EventoSimulacao[]>>({});
   const [aba, setAba] = useState<"selecao" | "grupos" | "jogos" | "mata">(
     "selecao",
   );
@@ -663,6 +818,134 @@ export default function CopaPage() {
           .eq("id", j.id),
       ),
     );
+  }
+
+  async function calcularForcaTimeCopa(timeId: string, mandante = false) {
+    const { data: elenco } = await supabase
+      .from("elenco")
+      .select("overall,jogos")
+      .eq("id_time", timeId);
+
+    const jogadores = elenco || [];
+    const timeBase = timesMap[timeId];
+
+    const mediaOverallElenco = jogadores.length
+      ? jogadores.reduce((acc: number, j: any) => acc + Number(j.overall || 0), 0) / jogadores.length
+      : Number(timeBase?.overall || 65);
+
+    const bonusMando = mandante ? 3.5 : 0;
+    const penalidadeElencoCurto = jogadores.length > 0 && jogadores.length < 16 ? -5 : 0;
+    const bonusElencoCheio = jogadores.length >= 23 ? 2 : 0;
+    const fatorAleatorio = Math.random() * 7 - 3.5;
+
+    return mediaOverallElenco + bonusMando + penalidadeElencoCurto + bonusElencoCheio + fatorAleatorio;
+  }
+
+  async function marcarJogoComoSimulado(jogoId: string, resultado: ResultadoSimulacao) {
+    const payload = {
+      simulado: true,
+      simulando: false,
+      metodo_resultado: "simulado",
+      eventos_simulacao: resultado.eventos,
+    };
+
+    const { data, error } = await supabase
+      .from("copa_jogos")
+      .update(payload)
+      .eq("id", jogoId)
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Campos de simulação ausentes em copa_jogos ou RLS bloqueou:", error);
+      return null;
+    }
+
+    return data as Jogo | null;
+  }
+
+  async function simularJogoCopa(jogo: Jogo) {
+    if (!isAdmin || !jogo.id_time1 || !jogo.id_time2) return;
+
+    const temPlacar = jogo.gols_time1 !== null || jogo.gols_time2 !== null;
+    if (temPlacar) {
+      toast.error("Apague o placar antes de simular novamente.");
+      return;
+    }
+
+    if (simulando || salvando) return;
+
+    setSimulando(jogo.id);
+    setEventosAoVivo((prev) => ({ ...prev, [jogo.id]: [] }));
+
+    try {
+      toast.loading("🎮 Simulando partida da Copa...", { id: `simular-${jogo.id}` });
+
+      await supabase
+        .from("copa_jogos")
+        .update({ simulando: true, metodo_resultado: "simulado" })
+        .eq("id", jogo.id)
+        .then(({ error }) => {
+          if (error) console.warn("Campos de simulação ainda não existem em copa_jogos:", error.message);
+        });
+
+      const nome1 = nomeTime(jogo.id_time1);
+      const nome2 = nomeTime(jogo.id_time2);
+
+      const [forcaTime1, forcaTime2] = await Promise.all([
+        calcularForcaTimeCopa(jogo.id_time1, true),
+        calcularForcaTimeCopa(jogo.id_time2, false),
+      ]);
+
+      const resultado = gerarSimulacaoCopa({
+        nomeTime1: nome1,
+        nomeTime2: nome2,
+        forcaTime1,
+        forcaTime2,
+        mataMata: jogo.fase !== "grupos",
+      });
+
+      const eventosParaExibir = resultado.eventos.slice(0, 12);
+      for (const evento of eventosParaExibir) {
+        setEventosAoVivo((prev) => ({
+          ...prev,
+          [jogo.id]: [...(prev[jogo.id] || []), evento],
+        }));
+        await sleep(900);
+      }
+
+      const tempoRestante = Math.max(0, 12000 - eventosParaExibir.length * 900);
+      if (tempoRestante) await sleep(tempoRestante);
+
+      await salvarPlacar(jogo, resultado.golsTime1, resultado.golsTime2);
+
+      const jogoSimulado = await marcarJogoComoSimulado(jogo.id, resultado);
+      if (jogoSimulado) {
+        setJogos((prev) => prev.map((j) => (j.id === jogo.id ? jogoSimulado : j)));
+      }
+
+      setEventosAoVivo((prev) => ({ ...prev, [jogo.id]: resultado.eventos }));
+
+      toast.success(
+        `🎮 Simulação concluída: ${nome1} ${resultado.golsTime1} x ${resultado.golsTime2} ${nome2}`,
+        { id: `simular-${jogo.id}`, duration: 6000 },
+      );
+
+      await carregarTudo();
+    } catch (err: any) {
+      console.error("Erro na simulação:", err);
+      toast.error(err?.message || "Erro ao simular partida.", { id: `simular-${jogo.id}` });
+
+      await supabase
+        .from("copa_jogos")
+        .update({ simulando: false })
+        .eq("id", jogo.id)
+        .then(({ error }) => {
+          if (error) console.warn("Não foi possível limpar simulando:", error.message);
+        });
+    } finally {
+      setSimulando(null);
+    }
   }
 
   async function premiarTime(
@@ -1375,11 +1658,25 @@ export default function CopaPage() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => salvarPlacar(jogo, clampGol(g1), clampGol(g2))}
-                disabled={salvando === jogo.id}
+                disabled={salvando === jogo.id || simulando === jogo.id}
                 className="rounded-lg bg-emerald-500/20 px-3 py-2 text-emerald-300 font-bold hover:bg-emerald-500/30 disabled:opacity-50"
                 title="Salvar placar"
               >
                 <FiSave />
+              </button>
+
+              <button
+                onClick={() => simularJogoCopa(jogo)}
+                disabled={
+                  salvando === jogo.id ||
+                  simulando === jogo.id ||
+                  jogo.gols_time1 !== null ||
+                  jogo.gols_time2 !== null
+                }
+                className="rounded-lg bg-sky-500/20 px-3 py-2 text-sky-300 font-bold hover:bg-sky-500/30 disabled:opacity-50"
+                title="Simular partida estilo Brasfoot"
+              >
+                <FiPlay />
               </button>
 
               <button
@@ -1405,6 +1702,12 @@ export default function CopaPage() {
           {jogo.bonus_pago && (
             <span className="text-emerald-300">valores pagos</span>
           )}
+          {jogo.simulado && (
+            <span className="text-sky-300">simulado</span>
+          )}
+          {simulando === jogo.id && (
+            <span className="text-yellow-300 animate-pulse">simulando...</span>
+          )}
           {jogo.publico ? (
             <span>Público: {Number(jogo.publico).toLocaleString("pt-BR")}</span>
           ) : null}
@@ -1412,6 +1715,29 @@ export default function CopaPage() {
             <span>Renda: {dinheiro(Number(jogo.renda))}</span>
           ) : null}
         </div>
+
+        {(simulando === jogo.id || eventosAoVivo[jogo.id]?.length || jogo.eventos_simulacao?.length) ? (
+          <div className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/10 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-black uppercase tracking-[0.18em] text-sky-300">
+                Narração da simulação
+              </span>
+              {simulando === jogo.id && (
+                <span className="text-xs text-yellow-300 animate-pulse">Brasfoot engine rodando...</span>
+              )}
+            </div>
+
+            <div className="max-h-40 space-y-1 overflow-y-auto pr-1 text-xs text-zinc-200">
+              {(eventosAoVivo[jogo.id]?.length ? eventosAoVivo[jogo.id] : jogo.eventos_simulacao || [])
+                .slice(-14)
+                .map((evento, idx) => (
+                  <div key={`${jogo.id}_${evento.minuto}_${idx}`} className="rounded-lg bg-black/25 px-2 py-1">
+                    {evento.texto}
+                  </div>
+                ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
