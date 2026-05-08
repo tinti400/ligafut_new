@@ -25,6 +25,14 @@ type GolArtilharia = {
   created_at: string | null;
 };
 
+type CopaJogoHistorico = {
+  id: string;
+  copa_id: string;
+  id_time1: string | null;
+  id_time2: string | null;
+  eventos_simulacao: any[] | null;
+};
+
 type Time = {
   id: string;
   nome: string;
@@ -90,32 +98,121 @@ export default function ArtilhariaCopaPage() {
 
       const copaId = copaAtual?.id;
 
-      const [{ data: golsData, error: golsError }, { data: timesData }, { data: elencoData }] =
-        await Promise.all([
-          copaId
-            ? supabase
-                .from("artilharia_copa")
-                .select("*")
-                .eq("copa_id", copaId)
-                .order("created_at", { ascending: false })
-            : supabase
-                .from("artilharia_copa")
-                .select("*")
-                .order("created_at", { ascending: false }),
+      const [
+        { data: golsData, error: golsError },
+        { data: jogosHistorico, error: jogosError },
+        { data: timesData, error: timesError },
+        { data: elencoData, error: elencoError },
+      ] = await Promise.all([
+        copaId
+          ? supabase
+              .from("artilharia_copa")
+              .select("*")
+              .eq("copa_id", copaId)
+              .order("created_at", { ascending: false })
+          : supabase
+              .from("artilharia_copa")
+              .select("*")
+              .order("created_at", { ascending: false }),
 
-          supabase.from("times").select("id, nome, logo, logo_url"),
+        copaId
+          ? supabase
+              .from("copa_jogos")
+              .select("id, copa_id, id_time1, id_time2, eventos_simulacao")
+              .eq("copa_id", copaId)
+          : supabase
+              .from("copa_jogos")
+              .select("id, copa_id, id_time1, id_time2, eventos_simulacao"),
 
-          supabase
-            .from("elenco")
-            .select("id, nome, id_time, posicao, overall, valor, imagem_url, foto"),
-        ]);
+        supabase.from("times").select("id, nome, logo, logo_url"),
+
+        supabase
+          .from("elenco")
+          .select("id, nome, id_time, posicao, overall, valor, imagem_url, foto"),
+      ]);
 
       if (golsError) {
         console.error(golsError);
         toast.error("Erro ao carregar artilharia.");
       }
 
-      setGols((golsData || []) as GolArtilharia[]);
+      if (jogosError) {
+        console.error(jogosError);
+        toast.error("Erro ao carregar histórico dos jogos.");
+      }
+
+      if (timesError) {
+        console.error(timesError);
+        toast.error("Erro ao carregar times.");
+      }
+
+      if (elencoError) {
+        console.error(elencoError);
+        toast.error("Erro ao carregar elenco.");
+      }
+
+      const golsTabela = (golsData || []) as GolArtilharia[];
+      const golsDoHistorico: GolArtilharia[] = [];
+
+      ((jogosHistorico || []) as CopaJogoHistorico[]).forEach((jogo) => {
+        const eventos = Array.isArray(jogo.eventos_simulacao)
+          ? jogo.eventos_simulacao
+          : [];
+
+        eventos
+          .filter((evento) => evento?.tipo === "gol")
+          .forEach((evento, index) => {
+            const idTime =
+              evento.id_time ||
+              evento.time_id ||
+              evento.timeId ||
+              null;
+
+            const idJogador =
+              evento.id_jogador ||
+              evento.jogador_id ||
+              evento.jogadorId ||
+              null;
+
+            const nomeJogador =
+              evento.jogador ||
+              evento.nome_jogador ||
+              evento.nomeJogador ||
+              "Jogador";
+
+            const nomeTimeEvento =
+              evento.nome_time ||
+              evento.time ||
+              null;
+
+            golsDoHistorico.push({
+              id: `historico_${jogo.id}_${index}`,
+              copa_id: jogo.copa_id,
+              jogo_id: jogo.id,
+              id_time: idTime,
+              id_jogador: idJogador,
+              nome_jogador: nomeJogador,
+              nome_time: nomeTimeEvento,
+              gols: 1,
+              minuto: Number(evento.minuto || 0),
+              created_at: null,
+            });
+          });
+      });
+
+      const chavesTabela = new Set(
+        golsTabela.map(
+          (g) =>
+            `${g.jogo_id}_${g.id_jogador || g.nome_jogador}_${g.minuto}`,
+        ),
+      );
+
+      const historicoSemDuplicar = golsDoHistorico.filter((g) => {
+        const chave = `${g.jogo_id}_${g.id_jogador || g.nome_jogador}_${g.minuto}`;
+        return !chavesTabela.has(chave);
+      });
+
+      setGols([...golsTabela, ...historicoSemDuplicar]);
       setTimes((timesData || []) as Time[]);
       setElenco((elencoData || []) as JogadorElenco[]);
     } catch (err) {
@@ -132,17 +229,21 @@ export default function ArtilhariaCopaPage() {
 
   const timesMap = useMemo(() => {
     const map: Record<string, Time> = {};
+
     times.forEach((t) => {
       map[t.id] = t;
     });
+
     return map;
   }, [times]);
 
   const elencoMap = useMemo(() => {
     const map: Record<string, JogadorElenco> = {};
+
     elenco.forEach((j) => {
       map[j.id] = j;
     });
+
     return map;
   }, [elenco]);
 
@@ -178,7 +279,11 @@ export default function ArtilhariaCopaPage() {
         map[jogadorId].minutos.push(Number(g.minuto));
       }
 
-      if (g.created_at && (!map[jogadorId].ultimo_gol || g.created_at > map[jogadorId].ultimo_gol!)) {
+      if (
+        g.created_at &&
+        (!map[jogadorId].ultimo_gol ||
+          g.created_at > map[jogadorId].ultimo_gol!)
+      ) {
         map[jogadorId].ultimo_gol = g.created_at;
       }
     });
@@ -227,6 +332,7 @@ export default function ArtilhariaCopaPage() {
               <FiAward className="text-yellow-300" />
               Artilharia da Copa LigaFut
             </h1>
+
             <p className="text-sm text-zinc-400 mt-1">
               Ranking de goleadores da Copa • temporada {TEMPORADA}
             </p>
@@ -244,7 +350,9 @@ export default function ArtilhariaCopaPage() {
         <div className="mt-5 grid gap-3 md:grid-cols-4">
           <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
             <div className="text-xs text-zinc-400">Total de gols</div>
-            <div className="text-2xl font-black text-emerald-300">{totalGols}</div>
+            <div className="text-2xl font-black text-emerald-300">
+              {totalGols}
+            </div>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
@@ -285,6 +393,7 @@ export default function ArtilhariaCopaPage() {
         <div className="grid gap-4">
           {rankingFiltrado.map((jogador, index) => {
             const posicao = index + 1;
+
             const destaque =
               posicao === 1
                 ? "border-yellow-400/40 bg-yellow-500/10"
@@ -378,10 +487,9 @@ export default function ArtilhariaCopaPage() {
                   <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center">
                     <div className="flex items-center justify-center gap-2 text-emerald-300">
                       <FiTarget />
-                      <span className="text-xs font-bold uppercase">
-                        Gols
-                      </span>
+                      <span className="text-xs font-bold uppercase">Gols</span>
                     </div>
+
                     <div className="text-4xl font-black text-white">
                       {jogador.gols}
                     </div>
@@ -394,7 +502,10 @@ export default function ArtilhariaCopaPage() {
       )}
 
       <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-zinc-400">
-        Cada gol registrado na simulação ou na história manual entra aqui. Depois podemos evoluir para assistências, cartões, média por jogo e valorização acumulada.
+        Esta página lê os gols salvos na tabela{" "}
+        <strong>artilharia_copa</strong> e também os gols existentes no histórico
+        dos jogos em <strong>copa_jogos.eventos_simulacao</strong>. Assim, jogos
+        já preenchidos também entram no ranking.
       </div>
     </div>
   );
