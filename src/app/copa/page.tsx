@@ -78,6 +78,7 @@ type EventoSimulacao = {
   time_id?: string | null;
   time_nome?: string | null;
   jogador?: string | null;
+  logo?: string | null;
   texto: string;
 };
 
@@ -553,10 +554,10 @@ export default function CopaPage() {
       const nomeJogador = jogador?.nome || "Jogador";
 
       const frases = [
-        `⚽ ${minuto}' GOL! ${nomeJogador} aparece na área e marca para ${gol.timeNome}.`,
-        `⚽ ${minuto}' GOL DO ${gol.timeNome.toUpperCase()}! ${nomeJogador} finaliza com categoria.`,
-        `⚽ ${minuto}' Rede balançando! ${nomeJogador} deixa o dele para ${gol.timeNome}.`,
-        `⚽ ${minuto}' É gol! ${nomeJogador} aproveita a chance e muda o placar.`,
+        `${minuto}' GOL! ${nomeJogador} aparece na área e marca para ${gol.timeNome}.`,
+        `${minuto}' GOL DO ${gol.timeNome.toUpperCase()}! ${nomeJogador} finaliza com categoria.`,
+        `${minuto}' Rede balançando! ${nomeJogador} deixa o dele para ${gol.timeNome}.`,
+        `${minuto}' É gol! ${nomeJogador} aproveita a chance e muda o placar.`,
       ];
 
       eventos.push({
@@ -565,6 +566,7 @@ export default function CopaPage() {
         time_id: gol.timeId,
         time_nome: gol.timeNome,
         jogador: nomeJogador,
+        logo: logoTime(gol.timeId),
         texto: frases[Math.floor(Math.random() * frases.length)],
       });
     });
@@ -2092,7 +2094,17 @@ export default function CopaPage() {
                         : "border-white/10 bg-white/[0.04] text-zinc-200"
                   }`}
                 >
-                  {ev.texto}
+                  <div className="flex items-center gap-2">
+                    {ev.tipo === "gol" && (ev.logo || ev.time_id) ? (
+                      <img
+                        src={ev.logo || logoTime(ev.time_id)}
+                        className="h-7 w-7 rounded-full object-contain bg-black/40 ring-1 ring-white/15"
+                        alt={ev.time_nome || "Time"}
+                      />
+                    ) : null}
+
+                    <span>{ev.texto}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2111,7 +2123,17 @@ export default function CopaPage() {
                   key={`${ev.minuto}-${idx}`}
                   className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-200"
                 >
-                  {ev.texto}
+                  <div className="flex items-center gap-2">
+                    {ev.tipo === "gol" && (ev.logo || ev.time_id) ? (
+                      <img
+                        src={ev.logo || logoTime(ev.time_id)}
+                        className="h-7 w-7 rounded-full object-contain bg-black/40 ring-1 ring-white/15"
+                        alt={ev.time_nome || "Time"}
+                      />
+                    ) : null}
+
+                    <span>{ev.texto}</span>
+                  </div>
                 </div>
               ))}
             </div>
