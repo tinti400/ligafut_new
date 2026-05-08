@@ -77,6 +77,14 @@ function dinheiro(valor?: number | null) {
   return `R$ ${Number(valor || 0).toLocaleString("pt-BR")}`;
 }
 
+function normalizarTexto(texto?: string | null) {
+  return String(texto || "")
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function fotoJogador(j?: RankingArtilheiro) {
   return j?.imagem_url || "/default-player.png";
 }
@@ -176,8 +184,7 @@ export default function ArtilhariaCopaPage() {
               evento.nomeJogador ||
               "Jogador";
 
-            const nomeTimeEvento =
-              evento.nome_time || evento.time || null;
+            const nomeTimeEvento = evento.nome_time || evento.time || null;
 
             golsDoHistorico.push({
               id: `historico_${jogo.id}_${index}`,
@@ -242,7 +249,18 @@ export default function ArtilhariaCopaPage() {
     gols.forEach((g) => {
       const jogadorId = g.id_jogador || `${g.nome_jogador}_${g.id_time}`;
       const timeId = g.id_time || "";
-      const jogadorElenco = g.id_jogador ? elencoMap[g.id_jogador] : undefined;
+
+      const jogadorElenco =
+        (g.id_jogador ? elencoMap[g.id_jogador] : undefined) ||
+        elenco.find((j) => {
+          const mesmoNome =
+            normalizarTexto(j.nome) === normalizarTexto(g.nome_jogador);
+
+          const mesmoTime = !g.id_time || j.id_time === g.id_time;
+
+          return mesmoNome && mesmoTime;
+        });
+
       const time = timeId ? timesMap[timeId] : undefined;
 
       if (!map[jogadorId]) {
@@ -257,7 +275,10 @@ export default function ArtilhariaCopaPage() {
           posicao: jogadorElenco?.posicao || null,
           overall: jogadorElenco?.overall || null,
           valor: jogadorElenco?.valor || null,
-          imagem_url: jogadorElenco?.imagem_url || jogadorElenco?.foto || null,
+          imagem_url:
+            jogadorElenco?.imagem_url ||
+            jogadorElenco?.foto ||
+            null,
           logo_time: time?.logo_url || time?.logo || null,
         };
       }
@@ -284,17 +305,17 @@ export default function ArtilhariaCopaPage() {
         String(a.nome_jogador).localeCompare(String(b.nome_jogador), "pt-BR")
       );
     });
-  }, [gols, elencoMap, timesMap]);
+  }, [gols, elencoMap, timesMap, elenco]);
 
   const rankingFiltrado = useMemo(() => {
-    const q = busca.trim().toLowerCase();
+    const q = normalizarTexto(busca);
     if (!q) return ranking;
 
     return ranking.filter(
       (r) =>
-        r.nome_jogador.toLowerCase().includes(q) ||
-        r.nome_time.toLowerCase().includes(q) ||
-        String(r.posicao || "").toLowerCase().includes(q),
+        normalizarTexto(r.nome_jogador).includes(q) ||
+        normalizarTexto(r.nome_time).includes(q) ||
+        normalizarTexto(r.posicao).includes(q),
     );
   }, [ranking, busca]);
 
