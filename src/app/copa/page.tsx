@@ -66,7 +66,15 @@ type JogadorElenco = {
 
 type EventoSimulacao = {
   minuto: number;
-  tipo: "gol" | "chance" | "cartao" | "vermelho" | "penalti" | "defesa" | "fim" | "info";
+  tipo:
+    | "gol"
+    | "chance"
+    | "cartao"
+    | "vermelho"
+    | "penalti"
+    | "defesa"
+    | "fim"
+    | "info";
   time_id?: string | null;
   time_nome?: string | null;
   jogador?: string | null;
@@ -105,6 +113,9 @@ type Jogo = {
   simulando?: boolean | null;
   eventos_simulacao?: EventoSimulacao[] | null;
   metodo_resultado?: "manual" | "manual_com_historia" | "simulado" | null;
+  play_time1?: boolean | null;
+  play_time2?: boolean | null;
+  play_solicitado_por?: string | null;
 };
 
 type Classificacao = {
@@ -179,7 +190,9 @@ function gerarJogosIdaVolta(ids: string[]) {
 }
 
 function normalizarPosicao(pos?: string | null) {
-  return String(pos || "").toUpperCase().trim();
+  return String(pos || "")
+    .toUpperCase()
+    .trim();
 }
 
 function pesoArtilheiro(j: JogadorElenco) {
@@ -187,8 +200,14 @@ function pesoArtilheiro(j: JogadorElenco) {
   const overall = Number(j.overall || 60);
 
   let pesoPosicao = 1;
-  if (["CA", "SA", "PD", "PE", "ATA", "ATACANTE", "PONTA"].some((p) => pos.includes(p))) pesoPosicao = 5;
-  else if (["MEI", "MC", "MD", "ME", "VOL"].some((p) => pos.includes(p))) pesoPosicao = 3;
+  if (
+    ["CA", "SA", "PD", "PE", "ATA", "ATACANTE", "PONTA"].some((p) =>
+      pos.includes(p),
+    )
+  )
+    pesoPosicao = 5;
+  else if (["MEI", "MC", "MD", "ME", "VOL"].some((p) => pos.includes(p)))
+    pesoPosicao = 3;
   else if (["LD", "LE", "ZAG"].some((p) => pos.includes(p))) pesoPosicao = 1.3;
   else if (["GL", "GOL"].some((p) => pos.includes(p))) pesoPosicao = 0.25;
 
@@ -238,11 +257,23 @@ export default function CopaPage() {
   );
   const [sorteandoAoVivo, setSorteandoAoVivo] = useState(false);
   const [sorteioConfirmavel, setSorteioConfirmavel] = useState(false);
-  const [previewGrupos, setPreviewGrupos] = useState<Record<string, string[]>>(vazioGrupos());
+  const [previewGrupos, setPreviewGrupos] =
+    useState<Record<string, string[]>>(vazioGrupos());
   const [poteAtual, setPoteAtual] = useState<number | null>(null);
   const [grupoAtual, setGrupoAtual] = useState<string | null>(null);
   const [timeAtual, setTimeAtual] = useState<string | null>(null);
   const [passoSorteio, setPassoSorteio] = useState(0);
+
+  // Narração em tempo real estilo Brasfoot
+  const [jogoAoVivo, setJogoAoVivo] = useState<string | null>(null);
+  const [eventosAoVivo, setEventosAoVivo] = useState<
+    Record<string, EventoSimulacao[]>
+  >({});
+  const [placarAoVivo, setPlacarAoVivo] = useState<
+    Record<string, { g1: number; g2: number }>
+  >({});
+  const [minutoAoVivo, setMinutoAoVivo] = useState<Record<string, number>>({});
+  const [idTimeLogado, setIdTimeLogado] = useState<string | null>(null);
 
   const timesMap = useMemo(() => {
     const map: Record<string, Time> = {};
@@ -266,6 +297,42 @@ export default function CopaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
+  useEffect(() => {
+    try {
+      const direto =
+        localStorage.getItem("id_time") ||
+        localStorage.getItem("time_id") ||
+        localStorage.getItem("idTime") ||
+        localStorage.getItem("timeLogadoId");
+
+      if (direto) {
+        setIdTimeLogado(direto);
+        return;
+      }
+
+      const possiveisUsuarios = [
+        localStorage.getItem("usuario"),
+        localStorage.getItem("user"),
+        localStorage.getItem("ligafut_user"),
+      ].filter(Boolean) as string[];
+
+      for (const raw of possiveisUsuarios) {
+        try {
+          const obj = JSON.parse(raw);
+          const id = obj?.id_time || obj?.time_id || obj?.idTime || obj?.time?.id;
+          if (id) {
+            setIdTimeLogado(String(id));
+            return;
+          }
+        } catch {
+          // ignora localStorage que não esteja em JSON
+        }
+      }
+    } catch {
+      setIdTimeLogado(null);
+    }
+  }, []);
+
   async function carregarTudo() {
     setLoading(true);
 
@@ -276,7 +343,12 @@ export default function CopaPage() {
     if (timesErr) toast.error("Erro ao carregar times da tabela times.");
 
     const timesNormalizados = ((timesData || []) as any[])
-      .filter((t) => t.divisao !== null && t.divisao !== undefined && String(t.divisao).trim() !== "")
+      .filter(
+        (t) =>
+          t.divisao !== null &&
+          t.divisao !== undefined &&
+          String(t.divisao).trim() !== "",
+      )
       .map((t) => ({
         id: String(t.id),
         nome: t.nome || t.name || t.time || "Sem nome",
@@ -287,9 +359,11 @@ export default function CopaPage() {
         saldo: Number(t.saldo || 0),
         divisao: t.divisao,
       }))
-      .sort((a, b) =>
-        String(a.divisao).localeCompare(String(b.divisao), "pt-BR", { numeric: true }) ||
-        String(a.nome).localeCompare(String(b.nome), "pt-BR"),
+      .sort(
+        (a, b) =>
+          String(a.divisao).localeCompare(String(b.divisao), "pt-BR", {
+            numeric: true,
+          }) || String(a.nome).localeCompare(String(b.nome), "pt-BR"),
       );
 
     setTimes(timesNormalizados as Time[]);
@@ -369,7 +443,9 @@ export default function CopaPage() {
     return timesMap[id]?.logo_url || timesMap[id]?.logo || "/default.png";
   }
 
-  async function buscarJogadoresDoTime(timeId: string): Promise<JogadorElenco[]> {
+  async function buscarJogadoresDoTime(
+    timeId: string,
+  ): Promise<JogadorElenco[]> {
     const { data, error } = await supabase
       .from("elenco")
       .select("id,nome,posicao,overall")
@@ -396,7 +472,8 @@ export default function CopaPage() {
     }
 
     const mediaOverall =
-      jogadores.reduce((acc, j) => acc + Number(j.overall || 0), 0) / jogadores.length;
+      jogadores.reduce((acc, j) => acc + Number(j.overall || 0), 0) /
+      jogadores.length;
 
     const bonusCasa = mandante ? 4 : 0;
     const penalidadeElencoCurto = jogadores.length < 16 ? -6 : 0;
@@ -448,7 +525,11 @@ export default function CopaPage() {
     const totalGols = Math.max(0, g1 + g2);
     const minutos = gerarMinutosGols(totalGols);
 
-    const filaGols: Array<{ timeId: string; timeNome: string; jogadores: JogadorElenco[] }> = [];
+    const filaGols: Array<{
+      timeId: string;
+      timeNome: string;
+      jogadores: JogadorElenco[];
+    }> = [];
 
     for (let i = 0; i < g1; i++) {
       filaGols.push({
@@ -528,22 +609,79 @@ export default function CopaPage() {
     return eventos;
   }
 
-  async function simularPartida(jogo: Jogo) {
-    if (!isAdmin || !jogo.id_time1 || !jogo.id_time2) return;
+  async function exibirNarracaoAoVivo(
+    jogo: Jogo,
+    eventos: EventoSimulacao[],
+    delayPorEvento = 900,
+  ) {
+    if (!jogo.id_time1 || !jogo.id_time2 || !eventos.length) return;
+
+    const ordenados = [...eventos].sort((a, b) => a.minuto - b.minuto);
+    let placar1 = 0;
+    let placar2 = 0;
+
+    setJogoAoVivo(jogo.id);
+    setEventosAoVivo((prev) => ({ ...prev, [jogo.id]: [] }));
+    setPlacarAoVivo((prev) => ({ ...prev, [jogo.id]: { g1: 0, g2: 0 } }));
+    setMinutoAoVivo((prev) => ({ ...prev, [jogo.id]: 0 }));
+
+    for (const evento of ordenados) {
+      if (evento.tipo === "gol") {
+        if (evento.time_id === jogo.id_time1) placar1++;
+        if (evento.time_id === jogo.id_time2) placar2++;
+      }
+
+      setMinutoAoVivo((prev) => ({ ...prev, [jogo.id]: evento.minuto }));
+      setPlacarAoVivo((prev) => ({
+        ...prev,
+        [jogo.id]: { g1: placar1, g2: placar2 },
+      }));
+      setEventosAoVivo((prev) => ({
+        ...prev,
+        [jogo.id]: [...(prev[jogo.id] || []), evento],
+      }));
+
+      await sleep(delayPorEvento);
+    }
+
+    setPlacarAoVivo((prev) => ({
+      ...prev,
+      [jogo.id]: {
+        g1: Number(jogo.gols_time1 ?? placar1),
+        g2: Number(jogo.gols_time2 ?? placar2),
+      },
+    }));
+
+    await sleep(900);
+    setJogoAoVivo(null);
+  }
+
+  async function simularPartida(jogo: Jogo, origem: "admin" | "consenso" = "admin") {
+    if (!jogo.id_time1 || !jogo.id_time2) return;
+    if (origem === "admin" && !isAdmin) return;
+
+    if (origem === "consenso" && !(jogo.play_time1 && jogo.play_time2)) {
+      toast.error("A simulação só começa quando os dois times apertarem play.");
+      return;
+    }
 
     const temPlacar = jogo.gols_time1 !== null || jogo.gols_time2 !== null;
     if (temPlacar) {
-      toast.error("Esse jogo já tem placar. Apague o resultado antes de simular novamente.");
+      toast.error(
+        "Esse jogo já tem placar. Apague o resultado antes de simular novamente.",
+      );
       return;
     }
 
     setSalvando(jogo.id);
-    toast.loading("🎮 Simulando partida estilo Brasfoot...", { id: `sim-${jogo.id}` });
+    toast.loading("🎮 Simulando partida estilo Brasfoot...", {
+      id: `sim-${jogo.id}`,
+    });
 
     try {
       await supabase
         .from("copa_jogos")
-        .update({ simulando: true, metodo_resultado: "simulado" })
+        .update({ simulando: true, metodo_resultado: "simulado", play_time1: true, play_time2: true })
         .eq("id", jogo.id);
 
       const [forca1, forca2] = await Promise.all([
@@ -552,10 +690,23 @@ export default function CopaPage() {
       ]);
 
       const { g1, g2 } = gerarPlacarSimulado(forca1, forca2);
+      const eventosHistoria = await gerarHistoriaDoPlacar(
+        jogo,
+        g1,
+        g2,
+        "simulado",
+      );
+      const delay = Math.max(
+        650,
+        Math.min(1100, Math.floor(16000 / Math.max(1, eventosHistoria.length))),
+      );
 
-      await sleep(12000);
+      toast.loading("🎙️ Narração ao vivo em andamento...", {
+        id: `sim-${jogo.id}`,
+      });
+      await exibirNarracaoAoVivo(jogo, eventosHistoria, delay);
 
-      await salvarPlacar(jogo, g1, g2, "simulado");
+      await salvarPlacar(jogo, g1, g2, "simulado", eventosHistoria, origem === "consenso");
 
       toast.success(
         `🎮 Simulação concluída! ${nomeTime(jogo.id_time1)} ${g1} x ${g2} ${nomeTime(jogo.id_time2)}`,
@@ -563,8 +714,81 @@ export default function CopaPage() {
       );
     } catch (error: any) {
       console.error("Erro ao simular partida:", error);
-      await supabase.from("copa_jogos").update({ simulando: false }).eq("id", jogo.id);
-      toast.error(error?.message || "Erro ao simular partida.", { id: `sim-${jogo.id}` });
+      await supabase
+        .from("copa_jogos")
+        .update({ simulando: false })
+        .eq("id", jogo.id);
+      toast.error(error?.message || "Erro ao simular partida.", {
+        id: `sim-${jogo.id}`,
+      });
+    } finally {
+      setSalvando(null);
+    }
+  }
+
+  async function solicitarPlaySimulacao(jogo: Jogo) {
+    if (!jogo.id_time1 || !jogo.id_time2) return;
+
+    const temPlacar = jogo.gols_time1 !== null || jogo.gols_time2 !== null;
+    if (temPlacar) {
+      toast.error("Esse jogo já tem placar salvo.");
+      return;
+    }
+
+    if (jogo.simulando || salvando === jogo.id || jogoAoVivo === jogo.id) {
+      toast.error("Esse jogo já está em processo de simulação.");
+      return;
+    }
+
+    if (!idTimeLogado) {
+      toast.error("Não encontrei o time logado. Verifique se o login salva id_time no localStorage.");
+      return;
+    }
+
+    const ehTime1 = idTimeLogado === jogo.id_time1;
+    const ehTime2 = idTimeLogado === jogo.id_time2;
+
+    if (!ehTime1 && !ehTime2) {
+      toast.error("Você só pode apertar play nos jogos do seu próprio time.");
+      return;
+    }
+
+    const updatePayload: Partial<Jogo> = {
+      play_time1: ehTime1 ? true : !!jogo.play_time1,
+      play_time2: ehTime2 ? true : !!jogo.play_time2,
+      play_solicitado_por: idTimeLogado,
+      metodo_resultado: "simulado",
+    };
+
+    setSalvando(jogo.id);
+
+    try {
+      const { data: jogoAtualizado, error } = await supabase
+        .from("copa_jogos")
+        .update(updatePayload)
+        .eq("id", jogo.id)
+        .select("*")
+        .single();
+
+      if (error || !jogoAtualizado) {
+        console.error("Erro ao registrar play:", error);
+        toast.error(error?.message || "Erro ao registrar play.");
+        return;
+      }
+
+      const atualizado = jogoAtualizado as Jogo;
+      setJogos((prev) => prev.map((j) => (j.id === jogo.id ? atualizado : j)));
+
+      if (atualizado.play_time1 && atualizado.play_time2) {
+        toast.success("▶️ Os dois times deram play. Iniciando simulação!");
+        await simularPartida(atualizado, "consenso");
+      } else {
+        const outroTime = ehTime1 ? nomeTime(jogo.id_time2) : nomeTime(jogo.id_time1);
+        toast.success(`▶️ Play confirmado. Aguardando ${outroTime} também confirmar.`);
+      }
+    } catch (error: any) {
+      console.error("Erro inesperado no play:", error);
+      toast.error(error?.message || "Erro inesperado ao confirmar play.");
     } finally {
       setSalvando(null);
     }
@@ -652,7 +876,10 @@ export default function CopaPage() {
     )
       return;
 
-    await supabase.from("copa_participantes").delete().eq("copa_id", copaBase.id);
+    await supabase
+      .from("copa_participantes")
+      .delete()
+      .eq("copa_id", copaBase.id);
     await supabase.from("copa_jogos").delete().eq("copa_id", copaBase.id);
 
     const ordenados = selecionados
@@ -685,13 +912,15 @@ export default function CopaPage() {
       .eq("id", copaBase.id);
 
     setCopa({ ...copaBase, status: "potes", campeao_id: null });
-    setParticipantes(rows.map((r, idx) => ({
-      id: `local_${idx}`,
-      copa_id: copaBase.id,
-      id_time: r.id_time,
-      pote: r.pote,
-      grupo: null,
-    })));
+    setParticipantes(
+      rows.map((r, idx) => ({
+        id: `local_${idx}`,
+        copa_id: copaBase.id,
+        id_time: r.id_time,
+        pote: r.pote,
+        grupo: null,
+      })),
+    );
     setPreviewGrupos(vazioGrupos());
     setSorteioConfirmavel(false);
     setPassoSorteio(0);
@@ -773,7 +1002,9 @@ export default function CopaPage() {
     setTimeAtual(null);
     setSorteandoAoVivo(false);
     setSorteioConfirmavel(true);
-    toast.success("Sorteio teste concluído. Agora confirme para salvar no banco.");
+    toast.success(
+      "Sorteio teste concluído. Agora confirme para salvar no banco.",
+    );
   }
 
   function reiniciarSorteioTeste() {
@@ -805,7 +1036,9 @@ export default function CopaPage() {
       return;
     }
 
-    const gruposCom4 = GRUPOS.every((g) => (previewGrupos[g] || []).length === 4);
+    const gruposCom4 = GRUPOS.every(
+      (g) => (previewGrupos[g] || []).length === 4,
+    );
     if (!gruposCom4) {
       toast.error("Todos os grupos precisam ter 4 times.");
       return;
@@ -828,7 +1061,10 @@ export default function CopaPage() {
 
     // Garante que os participantes existem no banco mesmo se o admin clicou direto em
     // "Sorteio ao vivo" usando apenas os selecionados na tela.
-    await supabase.from("copa_participantes").delete().eq("copa_id", copaBase.id);
+    await supabase
+      .from("copa_participantes")
+      .delete()
+      .eq("copa_id", copaBase.id);
 
     const participantesInsert: any[] = [];
     GRUPOS.forEach((g) => {
@@ -848,7 +1084,9 @@ export default function CopaPage() {
 
     if (partError) {
       console.error("Erro ao salvar participantes do sorteio:", partError);
-      toast.error(partError.message || "Erro ao salvar participantes do sorteio.");
+      toast.error(
+        partError.message || "Erro ao salvar participantes do sorteio.",
+      );
       return;
     }
 
@@ -890,7 +1128,8 @@ export default function CopaPage() {
 
     await supabase.from("bid").insert({
       tipo_evento: "Sistema",
-      descricao: "Copa Champions confirmada: sorteio ao vivo, 4 grupos de 4 times, ida e volta.",
+      descricao:
+        "Copa Champions confirmada: sorteio ao vivo, 4 grupos de 4 times, ida e volta.",
       valor: null,
       data_evento: new Date().toISOString(),
     });
@@ -972,8 +1211,11 @@ export default function CopaPage() {
     g1: number,
     g2: number,
     metodoResultado: "manual_com_historia" | "simulado" = "manual_com_historia",
+    eventosProntos?: EventoSimulacao[],
+    autorizadoPorConsenso = false,
   ) {
-    if (!isAdmin || !jogo.id_time1 || !jogo.id_time2) return;
+    if (!jogo.id_time1 || !jogo.id_time2) return;
+    if (!isAdmin && !autorizadoPorConsenso) return;
 
     setSalvando(jogo.id);
 
@@ -982,7 +1224,9 @@ export default function CopaPage() {
       if (g1 > g2) vencedor_id = jogo.id_time1;
       if (g2 > g1) vencedor_id = jogo.id_time2;
 
-      const eventosHistoria = await gerarHistoriaDoPlacar(jogo, g1, g2, metodoResultado);
+      const eventosHistoria =
+        eventosProntos ||
+        (await gerarHistoriaDoPlacar(jogo, g1, g2, metodoResultado));
 
       // 1. Salva o placar PRIMEIRO e exige retorno do Supabase.
       // Se não retornar o jogo, a tela avisa o erro real e não faz pagamento.
@@ -1030,7 +1274,20 @@ export default function CopaPage() {
 
       // 2. Se já pagou antes, só altera placar/classificação. Não paga novamente.
       if (jogo.bonus_pago) {
-        toast.success("Placar atualizado.");
+        toast.success("Placar atualizado. Gerando história ao vivo...");
+        if (metodoResultado === "manual_com_historia") {
+          void exibirNarracaoAoVivo(
+            { ...jogo, gols_time1: g1, gols_time2: g2 },
+            eventosHistoria,
+            Math.max(
+              650,
+              Math.min(
+                1100,
+                Math.floor(14000 / Math.max(1, eventosHistoria.length)),
+              ),
+            ),
+          );
+        }
         await carregarTudo();
         return;
       }
@@ -1153,9 +1410,27 @@ export default function CopaPage() {
         return;
       }
 
-      setJogos((prev) => prev.map((j) => (j.id === jogo.id ? (jogoPago as Jogo) : j)));
+      setJogos((prev) =>
+        prev.map((j) => (j.id === jogo.id ? (jogoPago as Jogo) : j)),
+      );
 
-      toast.success("Placar salvo e premiação paga!");
+      if (metodoResultado === "manual_com_historia") {
+        toast.success("Placar salvo! Narração ao vivo iniciada.");
+        void exibirNarracaoAoVivo(
+          { ...jogo, gols_time1: g1, gols_time2: g2 },
+          eventosHistoria,
+          Math.max(
+            650,
+            Math.min(
+              1100,
+              Math.floor(14000 / Math.max(1, eventosHistoria.length)),
+            ),
+          ),
+        );
+      } else {
+        toast.success("Placar simulado salvo e premiação paga!");
+      }
+
       await carregarTudo();
     } catch (err) {
       console.error("Erro inesperado ao salvar placar:", err);
@@ -1268,6 +1543,9 @@ export default function CopaPage() {
           simulando: false,
           eventos_simulacao: [],
           metodo_resultado: null,
+          play_time1: false,
+          play_time2: false,
+          play_solicitado_por: null,
         })
         .eq("id", jogo.id)
         .select("*")
@@ -1279,7 +1557,9 @@ export default function CopaPage() {
         return;
       }
 
-      setJogos((prev) => prev.map((j) => (j.id === jogo.id ? (jogoLimpo as Jogo) : j)));
+      setJogos((prev) =>
+        prev.map((j) => (j.id === jogo.id ? (jogoLimpo as Jogo) : j)),
+      );
 
       toast.success("Placar apagado e valores estornados!");
       await carregarTudo();
@@ -1614,8 +1894,19 @@ export default function CopaPage() {
       jogo.gols_time2 === null ? "" : String(jogo.gols_time2),
     );
 
-    const eventos = Array.isArray(jogo.eventos_simulacao) ? jogo.eventos_simulacao : [];
+    const eventos = Array.isArray(jogo.eventos_simulacao)
+      ? jogo.eventos_simulacao
+      : [];
+    const eventosLive = eventosAoVivo[jogo.id] || [];
+    const placarLive = placarAoVivo[jogo.id];
+    const minutoLive = minutoAoVivo[jogo.id];
+    const estaAoVivo = jogoAoVivo === jogo.id || eventosLive.length > 0;
     const temPlacar = jogo.gols_time1 !== null && jogo.gols_time2 !== null;
+    const meuTime1 = !!idTimeLogado && idTimeLogado === jogo.id_time1;
+    const meuTime2 = !!idTimeLogado && idTimeLogado === jogo.id_time2;
+    const possoDarPlay = !isAdmin && !temPlacar && (meuTime1 || meuTime2);
+    const meuPlayConfirmado = (meuTime1 && jogo.play_time1) || (meuTime2 && jogo.play_time2);
+    const aguardandoPlayAdversario = (jogo.play_time1 || jogo.play_time2) && !(jogo.play_time1 && jogo.play_time2);
 
     return (
       <div className="rounded-xl border border-white/10 bg-black/25 p-3">
@@ -1684,6 +1975,29 @@ export default function CopaPage() {
                 🎮
               </button>
 
+              {eventos.length > 0 && (
+                <button
+                  onClick={() =>
+                    exibirNarracaoAoVivo(
+                      jogo,
+                      eventos,
+                      Math.max(
+                        500,
+                        Math.min(
+                          950,
+                          Math.floor(12000 / Math.max(1, eventos.length)),
+                        ),
+                      ),
+                    )
+                  }
+                  disabled={salvando === jogo.id || jogoAoVivo === jogo.id}
+                  className="rounded-lg bg-sky-500/20 px-3 py-2 text-sky-300 font-bold hover:bg-sky-500/30 disabled:opacity-50"
+                  title="Rever história em tempo real"
+                >
+                  🎙️
+                </button>
+              )}
+
               <button
                 onClick={() => excluirPlacar(jogo)}
                 disabled={
@@ -1697,6 +2011,23 @@ export default function CopaPage() {
               </button>
             </div>
           )}
+
+          {possoDarPlay && (
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => solicitarPlaySimulacao(jogo)}
+                disabled={salvando === jogo.id || !!meuPlayConfirmado || jogoAoVivo === jogo.id}
+                className={`rounded-lg px-3 py-2 font-black disabled:opacity-50 ${
+                  meuPlayConfirmado
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "bg-violet-500/20 text-violet-300 hover:bg-violet-500/30"
+                }`}
+                title="Confirmar simulação por acordo entre os dois times"
+              >
+                {meuPlayConfirmado ? "✅ Play" : "▶️ Play"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-400">
@@ -1704,6 +2035,15 @@ export default function CopaPage() {
           {jogo.grupo && <span>Grupo {jogo.grupo}</span>}
           {jogo.rodada && <span>Rodada {jogo.rodada}</span>}
           {jogo.jogo_tipo && <span>{jogo.jogo_tipo}</span>}
+          {jogo.play_time1 && (
+            <span className="text-emerald-300">▶️ {nomeTime(jogo.id_time1)} confirmou play</span>
+          )}
+          {jogo.play_time2 && (
+            <span className="text-emerald-300">▶️ {nomeTime(jogo.id_time2)} confirmou play</span>
+          )}
+          {aguardandoPlayAdversario && (
+            <span className="text-yellow-300">aguardando adversário</span>
+          )}
           {jogo.bonus_pago && (
             <span className="text-emerald-300">valores pagos</span>
           )}
@@ -1720,6 +2060,44 @@ export default function CopaPage() {
             <span className="text-sky-300">história gerada</span>
           )}
         </div>
+
+        {estaAoVivo && eventosLive.length > 0 && (
+          <div className="mt-3 overflow-hidden rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/15 via-black/30 to-emerald-500/10 p-3 shadow-[0_0_35px_rgba(139,92,246,0.18)]">
+            <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-xs font-black uppercase tracking-[0.25em] text-violet-300">
+                  🎙️ Tempo real
+                </div>
+                <div className="text-sm text-zinc-300">
+                  {minutoLive ? `${minutoLive}' de jogo` : "Pré-jogo"}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-2 text-center text-lg font-black text-white">
+                {nomeTime(jogo.id_time1)} {placarLive?.g1 ?? 0}
+                <span className="mx-2 text-zinc-500">x</span>
+                {placarLive?.g2 ?? 0} {nomeTime(jogo.id_time2)}
+              </div>
+            </div>
+
+            <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+              {eventosLive.slice(-8).map((ev, idx) => (
+                <div
+                  key={`live-${ev.minuto}-${idx}`}
+                  className={`rounded-xl border px-3 py-2 text-sm font-semibold ${
+                    ev.tipo === "gol"
+                      ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
+                      : ev.tipo === "cartao"
+                        ? "border-yellow-400/30 bg-yellow-500/10 text-yellow-100"
+                        : "border-white/10 bg-white/[0.04] text-zinc-200"
+                  }`}
+                >
+                  {ev.texto}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {eventos.length > 0 && (
           <details className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
@@ -1991,7 +2369,8 @@ export default function CopaPage() {
                   disabled={sorteandoAoVivo}
                   className="rounded-xl bg-sky-500/20 px-4 py-2 text-sky-300 font-black hover:bg-sky-500/30 disabled:opacity-50 flex items-center gap-2"
                 >
-                  <FiShuffle /> {sorteandoAoVivo ? "Sorteando..." : "Sorteio ao vivo"}
+                  <FiShuffle />{" "}
+                  {sorteandoAoVivo ? "Sorteando..." : "Sorteio ao vivo"}
                 </button>
 
                 <button
@@ -2014,35 +2393,53 @@ export default function CopaPage() {
               <div className="mt-5 rounded-3xl border border-white/10 bg-gradient-to-br from-sky-500/10 via-violet-500/10 to-emerald-500/10 p-4 overflow-hidden">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <div className="text-lg font-black">🎥 Sorteio ao vivo dos grupos</div>
+                    <div className="text-lg font-black">
+                      🎥 Sorteio ao vivo dos grupos
+                    </div>
                     <div className="text-xs text-zinc-400">
-                      Delay de 2 segundos por time. O sistema embaralha os 16 selecionados e preenche A, B, C e D, um time por grupo, até completar 4 em cada.
+                      Delay de 2 segundos por time. O sistema embaralha os 16
+                      selecionados e preenche A, B, C e D, um time por grupo,
+                      até completar 4 em cada.
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-black">
                     {sorteandoAoVivo ? (
-                      <span className="text-sky-300">Sorteando {passoSorteio}/16</span>
+                      <span className="text-sky-300">
+                        Sorteando {passoSorteio}/16
+                      </span>
                     ) : sorteioConfirmavel ? (
-                      <span className="text-emerald-300">Pronto para confirmar</span>
+                      <span className="text-emerald-300">
+                        Pronto para confirmar
+                      </span>
                     ) : (
                       <span className="text-zinc-300">Aguardando sorteio</span>
                     )}
                   </div>
                 </div>
 
-                {(sorteandoAoVivo || sorteioConfirmavel || passoSorteio > 0) && (
+                {(sorteandoAoVivo ||
+                  sorteioConfirmavel ||
+                  passoSorteio > 0) && (
                   <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                    <div className="text-xs uppercase tracking-[0.25em] text-zinc-500 font-black">Agora</div>
+                    <div className="text-xs uppercase tracking-[0.25em] text-zinc-500 font-black">
+                      Agora
+                    </div>
                     <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="h-14 w-14 rounded-2xl bg-white/10 grid place-items-center text-2xl animate-pulse">🏆</div>
+                        <div className="h-14 w-14 rounded-2xl bg-white/10 grid place-items-center text-2xl animate-pulse">
+                          🏆
+                        </div>
                         <div>
                           <div className="text-sm text-zinc-400">
-                            {grupoAtual ? `Sorteando para o Grupo ${grupoAtual}` : "Sorteio finalizado"}
+                            {grupoAtual
+                              ? `Sorteando para o Grupo ${grupoAtual}`
+                              : "Sorteio finalizado"}
                           </div>
                           <div className="text-xl font-black text-white">
-                            {timeAtual ? nomeTime(timeAtual) : "Aguardando confirmação"}
+                            {timeAtual
+                              ? nomeTime(timeAtual)
+                              : "Aguardando confirmação"}
                           </div>
                         </div>
                       </div>
@@ -2060,10 +2457,15 @@ export default function CopaPage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-4">
                   {GRUPOS.map((g) => (
-                    <div key={g} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                    <div
+                      key={g}
+                      className="rounded-2xl border border-white/10 bg-black/25 p-3"
+                    >
                       <div className="mb-3 flex items-center justify-between">
                         <div className="font-black">Grupo {g}</div>
-                        <div className="text-xs text-zinc-400">{previewGrupos[g]?.length || 0}/4</div>
+                        <div className="text-xs text-zinc-400">
+                          {previewGrupos[g]?.length || 0}/4
+                        </div>
                       </div>
 
                       <div className="space-y-2 min-h-[176px]">
@@ -2072,13 +2474,27 @@ export default function CopaPage() {
                             key={id}
                             className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-2 animate-[pulse_0.7s_ease-in-out_1]"
                           >
-                            <img src={logoTime(id)} className="h-7 w-7 object-contain" alt="" />
-                            <span className="truncate text-sm font-bold">{nomeTime(id)}</span>
+                            <img
+                              src={logoTime(id)}
+                              className="h-7 w-7 object-contain"
+                              alt=""
+                            />
+                            <span className="truncate text-sm font-bold">
+                              {nomeTime(id)}
+                            </span>
                           </div>
                         ))}
 
-                        {Array.from({ length: Math.max(0, 4 - (previewGrupos[g]?.length || 0)) }).map((_, idx) => (
-                          <div key={idx} className="rounded-xl border border-dashed border-white/10 bg-white/[0.03] p-2 text-sm text-zinc-500">
+                        {Array.from({
+                          length: Math.max(
+                            0,
+                            4 - (previewGrupos[g]?.length || 0),
+                          ),
+                        }).map((_, idx) => (
+                          <div
+                            key={idx}
+                            className="rounded-xl border border-dashed border-white/10 bg-white/[0.03] p-2 text-sm text-zinc-500"
+                          >
                             Aguardando time...
                           </div>
                         ))}
