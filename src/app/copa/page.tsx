@@ -1313,6 +1313,86 @@ export default function CopaPage() {
     );
   }
 
+
+  function ehDefensorOuGoleiro(posicao?: string | null) {
+    const pos = normalizarPosicao(posicao);
+
+    return (
+      pos.includes("GL") ||
+      pos.includes("GOL") ||
+      pos.includes("GOLEIRO") ||
+      pos.includes("ZAG") ||
+      pos.includes("ZAGUEIRO") ||
+      pos.includes("LD") ||
+      pos.includes("LE") ||
+      pos.includes("LATERAL")
+    );
+  }
+
+  function fatorDefensivoPorGolsSofridos(golsSofridos: number) {
+    const gols = Number(golsSofridos || 0);
+
+    // Tabelamento defensivo LigaFut:
+    // 0 gols sofridos = +0,5%
+    // 1 ou 2 gols sofridos = +0,10%
+    // 3, 4 ou 5 gols sofridos = sem alteração
+    // mais de 5 gols sofridos = -0,5%
+    if (gols === 0) return 1.005;
+    if (gols <= 2) return 1.001;
+    if (gols > 5) return 0.995;
+    return 1;
+  }
+
+  async function ajustarValorizacaoDefensiva(
+    timeId: string,
+    golsSofridos: number,
+    direcao: "valorizar" | "estornar" = "valorizar",
+  ) {
+    const fator = fatorDefensivoPorGolsSofridos(golsSofridos);
+
+    if (fator === 1) return;
+
+    const { data: jogadores, error } = await supabase
+      .from("elenco")
+      .select("id,nome,posicao,valor")
+      .eq("id_time", timeId);
+
+    if (error || !jogadores) {
+      console.error("Erro ao buscar defesa para valorização:", error);
+      return;
+    }
+
+    const defensores = ((jogadores || []) as any[]).filter((jogador) =>
+      ehDefensorOuGoleiro(jogador.posicao),
+    );
+
+    if (!defensores.length) return;
+
+    await Promise.all(
+      defensores.map(async (jogador) => {
+        const valorAtual = Number(jogador.valor || 0);
+        if (!valorAtual || valorAtual <= 0) return;
+
+        const novoValor =
+          direcao === "valorizar"
+            ? Math.round(valorAtual * fator)
+            : Math.round(valorAtual / fator);
+
+        const { error: updateError } = await supabase
+          .from("elenco")
+          .update({ valor: Math.max(0, novoValor) })
+          .eq("id", jogador.id);
+
+        if (updateError) {
+          console.error(
+            "Erro ao atualizar valorização defensiva:",
+            updateError,
+          );
+        }
+      }),
+    );
+  }
+
   async function premiarTime(
     timeId: string,
     golsPro: number,
@@ -1518,9 +1598,12 @@ export default function CopaPage() {
       ]);
 
       // Valoriza 0,05% por gol marcado e 0,025% por assistência.
+      // Também valoriza/desvaloriza goleiros, zagueiros e laterais pelo desempenho defensivo.
       // Fica aqui para acontecer apenas na primeira confirmação do placar,
       // evitando valorizar de novo quando o placar já estiver com bonus_pago.
       await ajustarValorizacaoGolsEAssistencias(eventosHistoria, "valorizar");
+      await ajustarValorizacaoDefensiva(jogo.id_time1, g2, "valorizar");
+      await ajustarValorizacaoDefensiva(jogo.id_time2, g1, "valorizar");
 
       // 4. Marca os valores pagos no mesmo jogo, mantendo o placar salvo.
       const { data: jogoPago, error: erroBonus } = await supabase
@@ -1631,8 +1714,18 @@ export default function CopaPage() {
         await ajustarJogosElenco(jogo.id_time1, -1);
         await ajustarJogosElenco(jogo.id_time2, -1);
 
-        // Estorna a valorização dos gols e assistências desse jogo.
+        // Estorna a valorização dos gols, assistências e desempenho defensivo desse jogo.
         await ajustarValorizacaoGolsEAssistencias(jogo.eventos_simulacao, "estornar");
+        await ajustarValorizacaoDefensiva(
+          jogo.id_time1,
+          Number(jogo.gols_time2 || 0),
+          "estornar",
+        );
+        await ajustarValorizacaoDefensiva(
+          jogo.id_time2,
+          Number(jogo.gols_time1 || 0),
+          "estornar",
+        );
 
         const agora = new Date().toISOString();
 
