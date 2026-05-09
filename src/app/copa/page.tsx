@@ -81,6 +81,9 @@ type EventoSimulacao = {
   jogador_id?: string | null;
   id_jogador?: string | null;
   jogador?: string | null;
+  assistencia_id?: string | null;
+  id_assistencia?: string | null;
+  assistencia?: string | null;
   logo?: string | null;
   texto: string;
 };
@@ -230,6 +233,16 @@ function escolherJogadorPonderado(jogadores: JogadorElenco[]) {
   }
 
   return jogadores[jogadores.length - 1];
+}
+
+function escolherAssistenteDoGol(jogadores: JogadorElenco[], artilheiro?: JogadorElenco | null) {
+  const candidatos = jogadores.filter((j) => j.id && j.id !== artilheiro?.id);
+  if (!candidatos.length) return null;
+
+  // Em alguns gols pode não haver assistência, como rebote, pênalti ou jogada individual.
+  if (Math.random() < 0.15) return null;
+
+  return escolherJogadorPonderado(candidatos);
 }
 
 function gerarMinutosGols(total: number) {
@@ -554,14 +567,19 @@ export default function CopaPage() {
 
     shuffle(filaGols).forEach((gol, idx) => {
       const jogador = escolherJogadorPonderado(gol.jogadores);
+      const assistente = escolherAssistenteDoGol(gol.jogadores, jogador);
       const minuto = minutos[idx] || Math.floor(Math.random() * 88) + 2;
       const nomeJogador = jogador?.nome || "Jogador";
+      const nomeAssistente = assistente?.nome || null;
+      const textoAssistencia = nomeAssistente
+        ? ` Assistência de ${nomeAssistente}.`
+        : "";
 
       const frases = [
-        `${minuto}' GOL! ${nomeJogador} aparece na área e marca para ${gol.timeNome}.`,
-        `${minuto}' GOL DO ${gol.timeNome.toUpperCase()}! ${nomeJogador} finaliza com categoria.`,
-        `${minuto}' Rede balançando! ${nomeJogador} deixa o dele para ${gol.timeNome}.`,
-        `${minuto}' É gol! ${nomeJogador} aproveita a chance e muda o placar.`,
+        `${minuto}' GOL! ${nomeJogador} aparece na área e marca para ${gol.timeNome}.${textoAssistencia}`,
+        `${minuto}' GOL DO ${gol.timeNome.toUpperCase()}! ${nomeJogador} finaliza com categoria.${textoAssistencia}`,
+        `${minuto}' Rede balançando! ${nomeJogador} deixa o dele para ${gol.timeNome}.${textoAssistencia}`,
+        `${minuto}' É gol! ${nomeJogador} aproveita a chance e muda o placar.${textoAssistencia}`,
       ];
 
       eventos.push({
@@ -572,6 +590,9 @@ export default function CopaPage() {
         jogador_id: jogador?.id || null,
         id_jogador: jogador?.id || null,
         jogador: nomeJogador,
+        assistencia_id: assistente?.id || null,
+        id_assistencia: assistente?.id || null,
+        assistencia: nomeAssistente,
         logo: logoTime(gol.timeId),
         texto: frases[Math.floor(Math.random() * frases.length)],
       });
@@ -1179,7 +1200,7 @@ export default function CopaPage() {
     );
   }
 
-  async function ajustarValorizacaoGols(
+  async function ajustarValorizacaoGolsEAssistencias(
     eventos: EventoSimulacao[] | null | undefined,
     direcao: "valorizar" | "estornar" = "valorizar",
   ) {
@@ -1190,6 +1211,20 @@ export default function CopaPage() {
     if (!golsEventos.length) return;
 
     const golsPorJogador: Record<string, number> = {};
+    const assistenciasPorJogador: Record<string, number> = {};
+
+    async function resolverJogadorPorNome(timeId?: string | null, nome?: string | null) {
+      if (!timeId || !nome) return null;
+
+      const { data: encontrado } = await supabase
+        .from("elenco")
+        .select("id")
+        .eq("id_time", timeId)
+        .ilike("nome", nome)
+        .maybeSingle();
+
+      return encontrado?.id || null;
+    }
 
     for (const evento of golsEventos) {
       let jogadorId =
@@ -1198,27 +1233,48 @@ export default function CopaPage() {
         (evento as any).jogadorId ||
         null;
 
+      let assistenciaId =
+        evento.assistencia_id ||
+        evento.id_assistencia ||
+        (evento as any).assistenciaId ||
+        (evento as any).id_assistente ||
+        (evento as any).assistente_id ||
+        null;
+
       // Compatibilidade com gols antigos que tinham apenas nome do jogador.
       if (!jogadorId && evento.jogador && evento.time_id) {
-        const { data: encontrado } = await supabase
-          .from("elenco")
-          .select("id")
-          .eq("id_time", evento.time_id)
-          .ilike("nome", evento.jogador)
-          .maybeSingle();
-
-        jogadorId = encontrado?.id || null;
+        jogadorId = await resolverJogadorPorNome(evento.time_id, evento.jogador);
       }
 
-      if (!jogadorId) continue;
-      golsPorJogador[jogadorId] = (golsPorJogador[jogadorId] || 0) + 1;
+      // Compatibilidade com assistências salvas apenas com nome.
+      if (!assistenciaId && evento.assistencia && evento.time_id) {
+        assistenciaId = await resolverJogadorPorNome(evento.time_id, evento.assistencia);
+      }
+
+      if (jogadorId) {
+        golsPorJogador[jogadorId] = (golsPorJogador[jogadorId] || 0) + 1;
+      }
+
+      if (assistenciaId && assistenciaId !== jogadorId) {
+        assistenciasPorJogador[assistenciaId] =
+          (assistenciasPorJogador[assistenciaId] || 0) + 1;
+      }
     }
 
-    const entradas = Object.entries(golsPorJogador);
-    if (!entradas.length) return;
+    const idsJogadores = Array.from(
+      new Set([
+        ...Object.keys(golsPorJogador),
+        ...Object.keys(assistenciasPorJogador),
+      ]),
+    );
+
+    if (!idsJogadores.length) return;
 
     await Promise.all(
-      entradas.map(async ([jogadorId, quantidadeGols]) => {
+      idsJogadores.map(async (jogadorId) => {
+        const quantidadeGols = golsPorJogador[jogadorId] || 0;
+        const quantidadeAssistencias = assistenciasPorJogador[jogadorId] || 0;
+
         const { data: jogador, error } = await supabase
           .from("elenco")
           .select("id,nome,valor")
@@ -1233,11 +1289,14 @@ export default function CopaPage() {
         const valorAtual = Number(jogador.valor || 0);
         if (!valorAtual || valorAtual <= 0) return;
 
-        const fator = Math.pow(1.0005, quantidadeGols);
+        const fatorGol = Math.pow(1.0005, quantidadeGols); // +0,05% por gol
+        const fatorAssistencia = Math.pow(1.00025, quantidadeAssistencias); // +0,025% por assistência
+        const fatorTotal = fatorGol * fatorAssistencia;
+
         const novoValor =
           direcao === "valorizar"
-            ? Math.round(valorAtual * fator)
-            : Math.round(valorAtual / fator);
+            ? Math.round(valorAtual * fatorTotal)
+            : Math.round(valorAtual / fatorTotal);
 
         const { error: updateError } = await supabase
           .from("elenco")
@@ -1245,7 +1304,10 @@ export default function CopaPage() {
           .eq("id", jogadorId);
 
         if (updateError) {
-          console.error("Erro ao atualizar valorização do jogador:", updateError);
+          console.error(
+            "Erro ao atualizar valorização do jogador:",
+            updateError,
+          );
         }
       }),
     );
@@ -1455,10 +1517,10 @@ export default function CopaPage() {
         },
       ]);
 
-      // Valoriza 0,05% por gol marcado.
+      // Valoriza 0,05% por gol marcado e 0,025% por assistência.
       // Fica aqui para acontecer apenas na primeira confirmação do placar,
       // evitando valorizar de novo quando o placar já estiver com bonus_pago.
-      await ajustarValorizacaoGols(eventosHistoria, "valorizar");
+      await ajustarValorizacaoGolsEAssistencias(eventosHistoria, "valorizar");
 
       // 4. Marca os valores pagos no mesmo jogo, mantendo o placar salvo.
       const { data: jogoPago, error: erroBonus } = await supabase
@@ -1569,8 +1631,8 @@ export default function CopaPage() {
         await ajustarJogosElenco(jogo.id_time1, -1);
         await ajustarJogosElenco(jogo.id_time2, -1);
 
-        // Estorna a valorização dos jogadores que marcaram nesse jogo.
-        await ajustarValorizacaoGols(jogo.eventos_simulacao, "estornar");
+        // Estorna a valorização dos gols e assistências desse jogo.
+        await ajustarValorizacaoGolsEAssistencias(jogo.eventos_simulacao, "estornar");
 
         const agora = new Date().toISOString();
 
