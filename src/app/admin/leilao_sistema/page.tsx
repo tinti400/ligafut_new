@@ -1037,8 +1037,8 @@ export default function LeilaoSistemaPage() {
                         setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido + 20_000_000) }))
                       }
                       onExcluir={isAdmin ? () => excluirDoLeilao(leilao.id) : undefined}
-                      onFinalizar={isAdmin ? () => finalizarLeilao(leilao.id) : undefined}
-                      finalizando={!!finalizando[leilao.id]}
+                      onFinalizar={isAdmin && !semLance ? () => finalizarLeilao(leilao.id) : undefined}
+                      finalizando={isAdmin && !semLance && !!finalizando[leilao.id]}
                     />
 
                     {isAdmin && semLance && (
