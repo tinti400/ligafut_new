@@ -696,7 +696,7 @@ export default function Sidebar() {
                 <CollapsedItem href="/" label="Home" emoji="🏠" />
                 <CollapsedItem href="/copa" label="Copa Champions" emoji="🏆" />
                 <CollapsedItem href="/copa/artilharia" label="Artilharia" emoji="⚽" />
-                <CollapsedItem href="/copa/assistencia" label="Assistências" emoji="🎯" />
+                <CollapsedItem href="/copa/assistencias" label="Assistências" emoji="🎯" />
                 <CollapsedItem href="/elenco" label="Elenco" emoji="👥" />
                 <CollapsedItem href="/mercado" label="Mercado" emoji="💸" />
                 <CollapsedItem href="/negociacoes" label="Negociações" emoji="🤝" />
@@ -763,7 +763,7 @@ export default function Sidebar() {
                       </NavLink>
 
                       <NavLink href="/copa/artilharia">
-                      <NavLink href="/copa/assistencia">
+                      <NavLink href="/copa/assistencias">
   🎯 Assistências
 </NavLink>
                         ⚽ Artilharia
