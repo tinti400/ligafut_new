@@ -1,7 +1,20 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import classNames from 'classnames'
+import toast, { Toaster } from 'react-hot-toast'
+
+import CardJogadorLeilao from '@/components/CardJogadorLeilao'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+const MAX_ATIVOS = 200
+const INCREMENTO_MINIMO = 2_000_000
+const LANCE_TOAST_ID = 'lance-unico'
 
 type Leilao = {
   id: string
@@ -13,683 +26,1141 @@ type Leilao = {
   link_sofifa?: string | null
   valor_atual: number
   nome_time_vencedor?: string | null
+  id_time_vencedor?: string | null
   fim: string
   criado_em: string
+  status: 'ativo' | 'leiloado' | 'cancelado'
+  anterior?: string | null
 }
 
-type Props = {
-  leilao: Leilao
-  index: number
-  travadoPorIdentidade?: string | null
-  saldo: number | null
-  isAdmin: boolean
-  tempoRestante: number
-  pctRestante: number
-  disabledPorCooldown: boolean
-  tremendo?: boolean
-  burst?: boolean
-  efeitoOverlay?: React.ReactNode
-  minimoPermitido: number
-  valorProposto: string
-  setValorProposto: (v: string) => void
-  logoVencedor?: string
-  onDarLanceManual: (valorPropostoNum: number) => void
-  onDarLanceInc: (inc: number) => void
-  onResetMinimo: () => void
-  onExcluir?: () => void
-  onFinalizar?: () => void
-  finalizando?: boolean
+type FiltroLeilao = 'todos' | 'meus' | 'terminando' | 'sem_lance' | 'mais_caros'
 
-  // NOVO: mandar jogador sem lance para o mercado
-  valorMercado?: string
-  setValorMercado?: (v: string) => void
-  onMandarMercado?: () => void
-  mandandoMercado?: boolean
-}
+export default function LeilaoSistemaPage() {
+  const [idTime, setIdTime] = useState<string | null>(null)
+  const [nomeTime, setNomeTime] = useState<string | null>(null)
 
-const INCS = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000] as const
+  const [leiloes, setLeiloes] = useState<Leilao[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [saldo, setSaldo] = useState<number | null>(null)
 
-const brl = (v?: number | null) =>
-  typeof v === 'number'
-    ? v.toLocaleString('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-        maximumFractionDigits: 0,
+  const [cooldownGlobal, setCooldownGlobal] = useState(false)
+  const [cooldownPorLeilao, setCooldownPorLeilao] = useState<Record<string, boolean>>({})
+  const [tremores, setTremores] = useState<Record<string, boolean>>({})
+  const [burst, setBurst] = useState<Record<string, boolean>>({})
+  const [erroTela, setErroTela] = useState<string | null>(null)
+
+  const [serverOffsetMs, setServerOffsetMs] = useState<number>(0)
+
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const intervaloRef = useRef<NodeJS.Timeout | null>(null)
+
+  const [propostas, setPropostas] = useState<Record<string, string>>({})
+  const [logos, setLogos] = useState<Record<string, string>>({})
+
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [finalizando, setFinalizando] = useState<Record<string, boolean>>({})
+  const [filtroLeilao, setFiltroLeilao] = useState<FiltroLeilao>('todos')
+
+  const [precosMercado, setPrecosMercado] = useState<Record<string, string>>({})
+  const [mandandoMercado, setMandandoMercado] = useState<Record<string, boolean>>({})
+
+  const [efeito, setEfeito] = useState<
+    Record<string, { tipo: 'sad' | 'morno' | 'empolgado' | 'fogo' | 'explosao'; key: number }>
+  >({})
+
+  const DUR = { sad: 1000, morno: 1100, empolgado: 1400, fogo: 1800, explosao: 2200 } as const
+
+  function acionarEfeito(leilaoId: string, tipo: keyof typeof DUR) {
+    setEfeito((prev) => ({
+      ...prev,
+      [leilaoId]: { tipo, key: (prev[leilaoId]?.key ?? 0) + 1 },
+    }))
+
+    setTimeout(() => {
+      setEfeito((prev) => {
+        const c = { ...prev }
+        delete c[leilaoId]
+        return c
       })
-    : '—'
+    }, DUR[tipo])
+  }
 
-const formatarTempo = (segundos: number) => {
-  const h = Math.floor(segundos / 3600)
-  const min = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0')
-  const sec = Math.max(0, Math.floor(segundos % 60)).toString().padStart(2, '0')
-  return h > 0 ? `${h}:${min}:${sec}` : `${min}:${sec}`
-}
+  const isUuid = (s: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
-function cartaTierByOverall(overall: number) {
-  if (overall >= 90) return 'lendario'
-  if (overall >= 85) return 'especial'
-  if (overall <= 64) return 'bronze'
-  if (overall <= 74) return 'prata'
-  return 'ouro'
-}
+  const isTrue = (v: any) =>
+    v === true ||
+    v === 1 ||
+    v === '1' ||
+    (typeof v === 'string' && ['true', 't', 'yes', 'on'].includes(v.toLowerCase()))
 
-function cartaClasses(overall: number) {
-  const tier = cartaTierByOverall(Number(overall || 0))
+  const sane = (str: any) => {
+    if (typeof str !== 'string') return null
+    const s = str.trim()
+    if (!s || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return null
+    return s
+  }
 
-  if (tier === 'lendario') {
-    return {
-      bg: 'from-cyan-400/35 via-violet-500/25 to-yellow-300/25',
-      border: 'border-cyan-300/55',
-      ring: 'ring-cyan-300/30',
-      accent: 'text-cyan-100',
-      badge: 'bg-cyan-400/20 text-cyan-100 ring-cyan-300/35',
-      glow: 'bg-cyan-300/25',
+  const brl = (v?: number | null) =>
+    typeof v === 'number'
+      ? v.toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+          maximumFractionDigits: 0,
+        })
+      : '—'
+
+  const normalizeUrl = (u?: string | null) => {
+    if (!u) return ''
+    let url = String(u).trim().replace(/^"(.*)"$/, '$1')
+    if (url.startsWith('//')) url = 'https:' + url
+    if (url.startsWith('http://')) url = 'https://' + url.slice(7)
+    if (!/^https?:\/\/\S+/i.test(url)) return ''
+    return url
+  }
+
+  const pickImagemUrl = (row: any) => {
+    const keys = [
+      'imagem_url',
+      'Imagem_url',
+      'Imagem URL',
+      'imagem URL',
+      'imagemURL',
+      'url_imagem',
+      'URL_Imagem',
+    ]
+
+    for (const k of keys) {
+      if (row?.[k]) {
+        const fixed = normalizeUrl(row[k])
+        if (fixed) return fixed
+      }
+    }
+
+    for (const k in row || {}) {
+      if (k && k.replace(/\s+/g, '').toLowerCase() === 'imagem_url') {
+        const fixed = normalizeUrl(row[k])
+        if (fixed) return fixed
+      }
+    }
+
+    return row?.imagem_url ? normalizeUrl(row.imagem_url) : ''
+  }
+
+  const toMs = (v: any) => {
+    if (!v) return NaN
+
+    if (typeof v === 'string') {
+      let s = v.trim()
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) s = s.replace(' ', 'T')
+      if (!/[zZ]|[+\-]\d{2}:\d{2}$/.test(s)) s = s + 'Z'
+      return Date.parse(s)
+    }
+
+    return new Date(v).getTime()
+  }
+
+  async function syncServerClock() {
+    try {
+      const { data, error } = await supabase.rpc('servertime_ms')
+
+      if (!error && typeof data === 'number') {
+        const clientNow = Date.now()
+        setServerOffsetMs(data - clientNow)
+      }
+    } catch {}
+  }
+
+  const nowServerMs = () => Date.now() + serverOffsetMs
+
+  const normalizaEmail = (s?: string | null) => (s || '').trim().toLowerCase()
+
+  function carregarIdentidadeLocal() {
+    try {
+      const id_raw = typeof window !== 'undefined' ? localStorage.getItem('id_time') : null
+      const nome_raw = typeof window !== 'undefined' ? localStorage.getItem('nome_time') : null
+
+      let id = sane(id_raw)
+      let nome = sane(nome_raw)
+
+      if (!id || !nome) {
+        const userStr =
+          typeof window !== 'undefined'
+            ? localStorage.getItem('user') || localStorage.getItem('usuario')
+            : null
+
+        if (userStr) {
+          try {
+            const obj = JSON.parse(userStr)
+            if (!id) id = sane(obj?.id_time || obj?.time_id || obj?.idTime)
+            if (!nome) nome = sane(obj?.nome_time || obj?.nomeTime || obj?.time_nome || obj?.nome)
+          } catch {}
+        }
+      }
+
+      setIdTime(id || null)
+      setNomeTime(nome || null)
+    } catch {
+      setIdTime(null)
+      setNomeTime(null)
     }
   }
 
-  if (tier === 'especial') {
-    return {
-      bg: 'from-purple-500/35 via-blue-500/25 to-emerald-400/25',
-      border: 'border-purple-300/50',
-      ring: 'ring-purple-300/30',
-      accent: 'text-purple-100',
-      badge: 'bg-purple-400/20 text-purple-100 ring-purple-300/35',
-      glow: 'bg-purple-300/25',
+  async function garantirIdTimeValido() {
+    try {
+      if (idTime && isUuid(idTime)) return
+      if (!nomeTime) return
+
+      const { data, error } = await supabase.from('times').select('id').eq('nome', nomeTime).single()
+
+      if (!error && data?.id && isUuid(data.id)) {
+        localStorage.setItem('id_time', data.id)
+        setIdTime(data.id)
+      }
+    } catch {}
+  }
+
+  const buscarSaldo = async () => {
+    if (!idTime || !isUuid(idTime)) return
+
+    const { data, error } = await supabase.from('times').select('saldo').eq('id', idTime).single()
+
+    if (!error && data) setSaldo(data.saldo)
+    else setSaldo(null)
+  }
+
+  const carregarLogosTimes = async () => {
+    const { data, error } = await supabase.from('times').select('nome, logo_url')
+
+    if (!error && data) {
+      const map: Record<string, string> = {}
+
+      for (const t of data) {
+        const url = normalizeUrl((t as any).logo_url)
+        if ((t as any).nome && url) map[(t as any).nome] = url
+      }
+
+      setLogos(map)
     }
   }
 
-  if (tier === 'bronze') {
-    return {
-      bg: 'from-[#9b5a28]/35 via-[#3b2112]/35 to-black',
-      border: 'border-[#b87333]/45',
-      ring: 'ring-[#b87333]/25',
-      accent: 'text-[#ffe3c9]',
-      badge: 'bg-[#b87333]/20 text-[#ffe3c9] ring-[#b87333]/30',
-      glow: 'bg-orange-400/20',
+  const prevLeiloesRef = useRef<Record<string, { valor: number; vencedor?: string | null; nome: string }>>({})
+  const inicializadoRef = useRef(false)
+  const lastToastValorRef = useRef<Record<string, number>>({})
+  const orderRef = useRef<string[]>([])
+
+  const showLanceToast = (quem: string | null | undefined, jogador: string | null | undefined, valor: number) => {
+    toast(`${quem || 'Um time'} ofertou ${brl(valor)} em ${jogador || 'jogador'}`, {
+      id: LANCE_TOAST_ID,
+      position: 'top-center',
+      duration: 4000,
+    })
+  }
+
+  function efeitoPorDelta(leilaoId: string, delta: number) {
+    if (delta > 20_000_000) acionarEfeito(leilaoId, 'explosao')
+    else if (delta === 20_000_000) acionarEfeito(leilaoId, 'fogo')
+    else if (delta >= 15_000_000) acionarEfeito(leilaoId, 'empolgado')
+    else if (delta >= 6_000_000) acionarEfeito(leilaoId, 'morno')
+    else acionarEfeito(leilaoId, 'sad')
+  }
+
+  const buscarLeiloesAtivos = async () => {
+    const { data, error } = await supabase
+      .from('leiloes_sistema')
+      .select('*')
+      .eq('status', 'ativo')
+      .order('fim', { ascending: true })
+      .limit(MAX_ATIVOS)
+
+    if (!error && data) {
+      let arr = (data as any[]).map((l: any) => ({
+        ...l,
+        imagem_url: pickImagemUrl(l) || null,
+      })) as Leilao[]
+
+      if (!inicializadoRef.current || orderRef.current.length === 0) {
+        orderRef.current = arr.map((l) => l.id)
+      } else {
+        for (const l of arr) {
+          if (!orderRef.current.includes(l.id)) orderRef.current.push(l.id)
+        }
+
+        const idxMap = new Map(orderRef.current.map((id, i) => [id, i]))
+
+        arr = arr.slice().sort(
+          (a, b) =>
+            (idxMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+            (idxMap.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+        )
+      }
+
+      if (inicializadoRef.current) {
+        for (const l of arr) {
+          const prev = prevLeiloesRef.current[l.id]
+          const novoValor = Number(l.valor_atual ?? 0)
+
+          if (prev && novoValor > prev.valor) {
+            if ((lastToastValorRef.current[l.id] || 0) < novoValor) {
+              lastToastValorRef.current[l.id] = novoValor
+              showLanceToast(l.nome_time_vencedor, l.nome, novoValor)
+              efeitoPorDelta(l.id, novoValor - prev.valor)
+            }
+          }
+        }
+      }
+
+      arr.forEach((leilao: any) => {
+        if (leilao.nome_time_vencedor !== nomeTime && leilao.anterior === nomeTime) {
+          audioRef.current?.play().catch(() => {})
+        }
+      })
+
+      const snapshot: Record<string, { valor: number; vencedor?: string | null; nome: string }> = {}
+
+      for (const l of arr) {
+        snapshot[l.id] = {
+          valor: Number(l.valor_atual ?? 0),
+          vencedor: l.nome_time_vencedor,
+          nome: l.nome,
+        }
+      }
+
+      prevLeiloesRef.current = snapshot
+      inicializadoRef.current = true
+
+      setLeiloes(arr)
+
+      setPropostas((prev) => {
+        const next = { ...prev }
+
+        for (const l of arr) {
+          if (!next[l.id]) next[l.id] = String((l.valor_atual ?? 0) + INCREMENTO_MINIMO)
+        }
+
+        return next
+      })
+
+      setPrecosMercado((prev) => {
+        const next = { ...prev }
+
+        for (const l of arr) {
+          if (!next[l.id]) next[l.id] = String(l.valor_atual ?? 0)
+        }
+
+        return next
+      })
     }
   }
 
-  if (tier === 'prata') {
-    return {
-      bg: 'from-zinc-200/30 via-slate-500/25 to-black',
-      border: 'border-zinc-200/40',
-      ring: 'ring-zinc-200/25',
-      accent: 'text-zinc-100',
-      badge: 'bg-zinc-200/20 text-zinc-100 ring-zinc-200/30',
-      glow: 'bg-zinc-200/20',
+  useEffect(() => {
+    carregarIdentidadeLocal()
+    carregarLogosTimes()
+    syncServerClock()
+  }, [])
+
+  useEffect(() => {
+    garantirIdTimeValido()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nomeTime, idTime])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function resolveIsAdmin() {
+      if (process.env.NEXT_PUBLIC_FORCE_ADMIN === '1') {
+        if (!cancelled) setIsAdmin(true)
+        return
+      }
+
+      try {
+        const url = new URL(window.location.href)
+
+        if (url.searchParams.get('force_admin') === '1') {
+          if (!cancelled) setIsAdmin(true)
+          return
+        }
+      } catch {}
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+
+        const u = session?.user
+
+        if (u && !cancelled) {
+          const roles = ([] as string[])
+            .concat((u.app_metadata?.roles as any) || [], (u.user_metadata?.roles as any) || [])
+            .map(String)
+            .map((s) => s.toLowerCase())
+
+          const roleStr = String(u.app_metadata?.role || u.user_metadata?.role || '').toLowerCase()
+          const metaFlag = isTrue(u.user_metadata?.is_admin) || isTrue(u.app_metadata?.is_admin)
+
+          if (roleStr === 'admin' || roles.includes('admin') || metaFlag) {
+            setIsAdmin(true)
+            return
+          }
+        }
+      } catch {}
+
+      try {
+        if (idTime && isUuid(idTime) && !cancelled) {
+          const { data } = await supabase
+            .from('times')
+            .select('is_admin, admin, role')
+            .eq('id', idTime)
+            .maybeSingle()
+
+          const roleStr = String((data as any)?.role || '').toLowerCase()
+
+          if (isTrue((data as any)?.is_admin) || isTrue((data as any)?.admin) || roleStr === 'admin') {
+            setIsAdmin(true)
+            return
+          }
+        }
+      } catch {}
+
+      try {
+        const { data: userData } = await supabase.auth.getUser()
+
+        const emailAuth = normalizaEmail(userData?.user?.email)
+        const emailLS1 = normalizaEmail(localStorage.getItem('email'))
+        const emailLS2 = normalizaEmail(localStorage.getItem('Email'))
+
+        let emailObj = ''
+
+        try {
+          const raw = localStorage.getItem('user') || localStorage.getItem('usuario')
+
+          if (raw) {
+            const obj = JSON.parse(raw)
+            emailObj = normalizaEmail(obj?.email || obj?.Email || obj?.e_mail)
+          }
+        } catch {}
+
+        let emailURL = ''
+
+        try {
+          emailURL = normalizaEmail(new URL(window.location.href).searchParams.get('email'))
+        } catch {}
+
+        const email = emailAuth || emailLS1 || emailLS2 || emailObj || emailURL
+
+        if (email) {
+          localStorage.setItem('email', email)
+
+          const { data, error } = await supabase.from('admins').select('email').ilike('email', email).maybeSingle()
+
+          if (!cancelled && !error && data) {
+            setIsAdmin(true)
+            return
+          }
+        }
+      } catch {}
+
+      if (!cancelled) setIsAdmin(false)
+    }
+
+    resolveIsAdmin()
+
+    return () => {
+      cancelled = true
+    }
+  }, [idTime])
+
+  useEffect(() => {
+    ;(async () => {
+      await Promise.all([buscarLeiloesAtivos(), buscarSaldo(), syncServerClock()])
+      setCarregando(false)
+    })()
+
+    if (intervaloRef.current) clearInterval(intervaloRef.current)
+
+    intervaloRef.current = setInterval(() => {
+      buscarLeiloesAtivos()
+      buscarSaldo()
+      syncServerClock()
+    }, 1000)
+
+    return () => {
+      if (intervaloRef.current) clearInterval(intervaloRef.current)
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idTime, nomeTime])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('leiloes_realtime')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'leiloes_sistema' }, (payload) => {
+        const novo = payload.new as any
+        const antigo = payload.old as any
+        const aumentou = Number(novo?.valor_atual ?? 0) > Number(antigo?.valor_atual ?? 0)
+
+        if (novo?.status !== 'ativo' || !aumentou) return
+
+        const novoValor = Number(novo?.valor_atual ?? 0)
+
+        if ((lastToastValorRef.current[novo.id] || 0) >= novoValor) return
+
+        lastToastValorRef.current[novo.id] = novoValor
+
+        showLanceToast(novo?.nome_time_vencedor, novo?.nome, novoValor)
+        efeitoPorDelta(novo.id, novoValor - Number(antigo?.valor_atual ?? 0))
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  const travadoPorIdentidade = useMemo(() => {
+    if (!idTime || !isUuid(idTime) || !nomeTime) return 'Identificação do time inválida. Faça login novamente.'
+    return null
+  }, [idTime, nomeTime])
+
+  const acionarAnimacao = (leilaoId: string) => {
+    setTremores((prev) => ({ ...prev, [leilaoId]: true }))
+    setBurst((prev) => ({ ...prev, [leilaoId]: true }))
+    setTimeout(() => setBurst((prev) => ({ ...prev, [leilaoId]: false })), 700)
+    setTimeout(() => setTremores((prev) => ({ ...prev, [leilaoId]: false })), 150)
+  }
+
+  const efeitoOverlay = (leilaoId: string) => {
+    const e = efeito[leilaoId]
+    if (!e) return null
+
+    const common = 'pointer-events-none absolute inset-0 flex items-center justify-center select-none'
+    const key = `${leilaoId}-${e.key}`
+
+    if (e.tipo === 'sad') {
+      return (
+        <div key={key} className={common}>
+          <div className="lf-float-slow text-3xl">😐</div>
+        </div>
+      )
+    }
+
+    if (e.tipo === 'morno') {
+      return (
+        <div key={key} className={common}>
+          <div className="lf-pop text-3xl">✨</div>
+        </div>
+      )
+    }
+
+    if (e.tipo === 'empolgado') {
+      return (
+        <div key={key} className={common}>
+          <div className="lf-confetti text-3xl">🎉</div>
+        </div>
+      )
+    }
+
+    if (e.tipo === 'fogo') {
+      return (
+        <div key={key} className={common}>
+          <div className="lf-fire text-3xl">🔥</div>
+        </div>
+      )
+    }
+
+    return (
+      <div key={key} className={common}>
+        <div className="lf-ring text-3xl">💥</div>
+      </div>
+    )
+  }
+
+  const excluirDoLeilao = async (leilaoId: string) => {
+    if (!isAdmin) {
+      alert('Ação restrita a administradores.')
+      return
+    }
+
+    if (!confirm('Tem certeza que deseja excluir este item do leilão?')) return
+
+    const { error } = await supabase.from('leiloes_sistema').update({ status: 'cancelado' }).eq('id', leilaoId)
+
+    if (error) {
+      toast.error('Erro ao excluir: ' + (error.message || ''))
+    } else {
+      toast.success('Leilão excluído.')
+      await buscarLeiloesAtivos()
     }
   }
 
-  return {
-    bg: 'from-yellow-300/35 via-amber-500/25 to-black',
-    border: 'border-yellow-300/50',
-    ring: 'ring-yellow-300/30',
-    accent: 'text-yellow-100',
-    badge: 'bg-yellow-300/20 text-yellow-100 ring-yellow-300/35',
-    glow: 'bg-yellow-300/25',
+  async function finalizarLeilao(leilaoId: string) {
+    if (!isAdmin) return
+
+    setFinalizando((p) => ({ ...p, [leilaoId]: true }))
+
+    try {
+      const { data, error } = await supabase.from('leiloes_sistema').select('fim').eq('id', leilaoId).single()
+
+      if (error) throw new Error('Erro ao validar fim do leilão.')
+
+      const fimMs = toMs((data as any)?.fim)
+      const agoraSrv = nowServerMs()
+
+      if (fimMs - agoraSrv > 0) {
+        toast.error('Ainda não chegou a 0s no servidor.')
+        return
+      }
+
+      const { error: e2 } = await supabase.from('leiloes_sistema').update({ status: 'leiloado' }).eq('id', leilaoId)
+
+      if (e2) throw new Error(e2.message)
+
+      toast.success('Leilão finalizado!')
+      await buscarLeiloesAtivos()
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao finalizar.')
+    } finally {
+      setFinalizando((p) => ({ ...p, [leilaoId]: false }))
+    }
   }
-}
 
-function badgeTierValor(valor: number) {
-  if (valor >= 1_500_000_000) return 'bg-fuchsia-500/20 text-fuchsia-100 ring-fuchsia-400/35'
-  if (valor >= 1_000_000_000) return 'bg-blue-500/20 text-blue-100 ring-blue-400/35'
-  if (valor >= 500_000_000) return 'bg-emerald-500/20 text-emerald-100 ring-emerald-400/35'
-  if (valor >= 250_000_000) return 'bg-amber-500/20 text-amber-100 ring-amber-400/35'
-  return 'bg-emerald-500/15 text-emerald-100 ring-emerald-400/25'
-}
+  async function mandarParaMercado(leilao: Leilao) {
+    if (!isAdmin) {
+      toast.error('Ação restrita a administradores.')
+      return
+    }
 
-function posBadge(pos: string) {
-  const p = (pos || '').toUpperCase()
-  if (p === 'ZAGUEIRO') return 'ZAG'
-  if (p === 'GOLEIRO') return 'GL'
-  if (p === 'MEIO CAMPO') return 'MC'
-  if (p === 'LATERAL DIREITO') return 'LD'
-  if (p === 'LATERAL ESQUERDO') return 'LE'
-  if (p === 'VOLANTE') return 'VOL'
-  if (p === 'CENTRO AVANTE') return 'CA'
-  return p
-}
+    if (leilao.id_time_vencedor || leilao.nome_time_vencedor) {
+      toast.error('Esse jogador recebeu lance. Finalize o leilão normalmente.')
+      return
+    }
 
-function normalizeCountryName(value?: string | null) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-}
+    const valorDigitado = Number(String(precosMercado[leilao.id] || '').replace(/[^\d]/g, ''))
+    const valorMercado = valorDigitado > 0 ? valorDigitado : Number(leilao.valor_atual || 0)
 
+    if (!valorMercado || valorMercado <= 0) {
+      toast.error('Informe um preço válido para mandar ao mercado.')
+      return
+    }
 
-const COUNTRY_TO_ISO2: Record<string, string> = {
-  // América do Sul
-  brasil: 'BR',
-  brazil: 'BR',
-  argentina: 'AR',
-  uruguai: 'UY',
-  uruguay: 'UY',
-  chile: 'CL',
-  paraguai: 'PY',
-  paraguay: 'PY',
-  bolivia: 'BO',
-  peru: 'PE',
-  equador: 'EC',
-  ecuador: 'EC',
-  colombia: 'CO',
-  venezuela: 'VE',
+    if (!confirm(`Enviar ${leilao.nome} para o mercado por ${brl(valorMercado)}?`)) return
 
-  // Europa
-  inglaterra: 'GB',
-  england: 'GB',
-  'reino unido': 'GB',
-  'great britain': 'GB',
-  escocia: 'GB',
-  scotland: 'GB',
-  'pais de gales': 'GB',
-  wales: 'GB',
-  'irlanda do norte': 'GB',
-  'northern ireland': 'GB',
+    setMandandoMercado((p) => ({ ...p, [leilao.id]: true }))
 
-  portugal: 'PT',
-  espanha: 'ES',
-  spain: 'ES',
-  franca: 'FR',
-  france: 'FR',
-  alemanha: 'DE',
-  germany: 'DE',
-  italia: 'IT',
-  italy: 'IT',
-  holanda: 'NL',
-  netherlands: 'NL',
-  'paises baixos': 'NL',
-  belgica: 'BE',
-  belgium: 'BE',
-  suica: 'CH',
-  switzerland: 'CH',
-  suecia: 'SE',
-  sweden: 'SE',
-  noruega: 'NO',
-  norway: 'NO',
-  dinamarca: 'DK',
-  denmark: 'DK',
-  finlandia: 'FI',
-  finland: 'FI',
-  islandia: 'IS',
-  iceland: 'IS',
-  irlanda: 'IE',
-  ireland: 'IE',
-  austria: 'AT',
-  croacia: 'HR',
-  croatia: 'HR',
-  servia: 'RS',
-  serbia: 'RS',
-  bosnia: 'BA',
-  'bosnia e herzegovina': 'BA',
-  eslovenia: 'SI',
-  slovenia: 'SI',
-  eslovaquia: 'SK',
-  slovakia: 'SK',
-  'republica tcheca': 'CZ',
-  'czech republic': 'CZ',
-  tchequia: 'CZ',
-  polonia: 'PL',
-  poland: 'PL',
-  hungria: 'HU',
-  hungary: 'HU',
-  romenia: 'RO',
-  romania: 'RO',
-  bulgaria: 'BG',
-  grecia: 'GR',
-  greece: 'GR',
-  turquia: 'TR',
-  turkey: 'TR',
-  ucrania: 'UA',
-  ukraine: 'UA',
-  russia: 'RU',
-  albania: 'AL',
-  kosovo: 'XK',
-  macedonia: 'MK',
-  'macedonia do norte': 'MK',
-  georgia: 'GE',
-  armenia: 'AM',
-  azerbaijao: 'AZ',
-  azerbaijan: 'AZ',
+    try {
+      const { error: insertError } = await supabase.from('mercado_transferencias').insert({
+        nome: leilao.nome,
+        posicao: leilao.posicao,
+        overall: leilao.overall,
+        valor: valorMercado,
+        nacionalidade: leilao.nacionalidade || null,
+        imagem_url: leilao.imagem_url || null,
+        link_sofifa: leilao.link_sofifa || null,
+        status: 'ativo',
+        origem: 'leilao_sistema',
+        data_listagem: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      })
 
-  // África
-  argelia: 'DZ',
-  algeria: 'DZ',
-  marrocos: 'MA',
-  morocco: 'MA',
-  tunisia: 'TN',
-  egito: 'EG',
-  egypt: 'EG',
-  senegal: 'SN',
-  nigeria: 'NG',
-  gana: 'GH',
-  ghana: 'GH',
-  'costa do marfim': 'CI',
-  'ivory coast': 'CI',
-  camaroes: 'CM',
-  cameroon: 'CM',
-  mali: 'ML',
-  guine: 'GN',
-  guinea: 'GN',
-  'burkina faso': 'BF',
-  'africa do sul': 'ZA',
-  'south africa': 'ZA',
-  mocambique: 'MZ',
-  mozambique: 'MZ',
-  angola: 'AO',
-  'cabo verde': 'CV',
-  'cape verde': 'CV',
-  congo: 'CG',
-  'rd congo': 'CD',
-  'republica democratica do congo': 'CD',
-  gabao: 'GA',
-  gabon: 'GA',
+      if (insertError) throw new Error(insertError.message)
 
-  // América do Norte/Central
-  'estados unidos': 'US',
-  usa: 'US',
-  'united states': 'US',
-  mexico: 'MX',
-  canada: 'CA',
-  'costa rica': 'CR',
-  panama: 'PA',
-  honduras: 'HN',
-  jamaica: 'JM',
-  haiti: 'HT',
-  'republica dominicana': 'DO',
+      const { error: updateError } = await supabase
+        .from('leiloes_sistema')
+        .update({ status: 'cancelado' })
+        .eq('id', leilao.id)
 
-  // Ásia/Oceania
-  japao: 'JP',
-  japan: 'JP',
-  'coreia do sul': 'KR',
-  'south korea': 'KR',
-  china: 'CN',
-  'arabia saudita': 'SA',
-  'saudi arabia': 'SA',
-  catar: 'QA',
-  qatar: 'QA',
-  'emirados arabes': 'AE',
-  'united arab emirates': 'AE',
-  ira: 'IR',
-  iran: 'IR',
-  iraque: 'IQ',
-  iraq: 'IQ',
-  australia: 'AU',
-  'nova zelandia': 'NZ',
-  'new zealand': 'NZ',
-}
+      if (updateError) throw new Error(updateError.message)
 
-function iso2ToFlagEmoji(code?: string | null) {
-  if (!code || code.length !== 2) return ''
-  const upper = code.toUpperCase()
-  return upper
-    .split('')
-    .map((char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
-    .join('')
-}
+      toast.success(`${leilao.nome} enviado ao mercado por ${brl(valorMercado)}.`)
 
-function flagFromNationality(nacionalidade?: string | null) {
-  const key = normalizeCountryName(nacionalidade)
-  const iso = COUNTRY_TO_ISO2[key]
-  return iso2ToFlagEmoji(iso)
-}
+      await buscarLeiloesAtivos()
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao mandar para o mercado.')
+    } finally {
+      setMandandoMercado((p) => ({ ...p, [leilao.id]: false }))
+    }
+  }
 
-export default function CardJogadorLeilao({
-  leilao,
-  index,
-  travadoPorIdentidade,
-  saldo,
-  isAdmin,
-  tempoRestante,
-  pctRestante,
-  disabledPorCooldown,
-  tremendo,
-  burst,
-  efeitoOverlay,
-  minimoPermitido,
-  valorProposto,
-  setValorProposto,
-  logoVencedor,
-  onDarLanceManual,
-  onDarLanceInc,
-  onResetMinimo,
-  onExcluir,
-  onFinalizar,
-  finalizando,
-  valorMercado,
-  setValorMercado,
-  onMandarMercado,
-  mandandoMercado,
-}: Props) {
-  const [imgSrc, setImgSrc] = useState(leilao.imagem_url || '/player-placeholder.png')
+  async function darLanceManual(leilaoId: string, valorAtual: number, valorProposto: number) {
+    setErroTela(null)
+    await garantirIdTimeValido()
 
-  const encerrado = tempoRestante === 0
-  const valorPropostoNum = useMemo(() => Math.floor(Number(valorProposto || 0)), [valorProposto])
-  const valorMercadoNum = useMemo(() => Math.floor(Number(valorMercado || leilao.valor_atual || 0)), [valorMercado, leilao.valor_atual])
+    if (travadoPorIdentidade) {
+      setErroTela(travadoPorIdentidade)
+      return
+    }
 
-  const invalido =
-    !isFinite(valorPropostoNum) ||
-    valorPropostoNum < minimoPermitido ||
-    (saldo !== null && valorPropostoNum > Number(saldo))
+    if (cooldownGlobal || cooldownPorLeilao[leilaoId]) return
 
-  const disabledLance =
-    !!travadoPorIdentidade ||
-    disabledPorCooldown ||
-    encerrado ||
-    invalido ||
-    (saldo !== null && valorPropostoNum > Number(saldo))
+    const minimo = Number(valorAtual) + INCREMENTO_MINIMO
+    const novoValor = Math.floor(Number(valorProposto) || 0)
 
-  const c = cartaClasses(Number(leilao.overall || 0))
-  const tier = cartaTierByOverall(Number(leilao.overall || 0))
-  const vencedor = leilao.nome_time_vencedor || ''
-  const hasVencedor = Boolean(vencedor)
-  const podeMandarMercado = isAdmin && encerrado && !hasVencedor && !!onMandarMercado
-  const bandeira = flagFromNationality(leilao.nacionalidade)
+    if (!isFinite(novoValor) || novoValor < minimo) {
+      setErroTela(`O lance mínimo é ${brl(minimo)}.`)
+      return
+    }
 
-  const barraCor = encerrado
-    ? 'bg-red-500'
-    : tempoRestante <= 15
-      ? 'bg-amber-400'
-      : 'bg-emerald-500'
+    if (saldo !== null && novoValor > saldo) {
+      setErroTela('Saldo insuficiente.')
+      return
+    }
+
+    setCooldownGlobal(true)
+    setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: true }))
+    acionarAnimacao(leilaoId)
+
+    try {
+      const { data: atual, error: e1 } = await supabase
+        .from('leiloes_sistema')
+        .select('status, valor_atual, fim')
+        .eq('id', leilaoId)
+        .single()
+
+      if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
+      if ((atual as any).status !== 'ativo') throw new Error('Leilão não está mais ativo.')
+
+      const fimMs = toMs((atual as any).fim)
+      const agoraSrv = nowServerMs()
+
+      if (isNaN(fimMs) || fimMs - agoraSrv <= 0) throw new Error('Leilão encerrado.')
+
+      const incremento = novoValor - Number((atual as any).valor_atual ?? valorAtual)
+
+      if (incremento < INCREMENTO_MINIMO) {
+        throw new Error(`O lance deve ser pelo menos ${brl(INCREMENTO_MINIMO)} acima.`)
+      }
+
+      const { error } = await supabase.rpc('dar_lance_no_leilao', {
+        p_leilao_id: leilaoId,
+        p_valor_novo: novoValor,
+        p_id_time_vencedor: idTime,
+        p_nome_time_vencedor: nomeTime,
+        p_estender: (fimMs - agoraSrv) / 1000 < 15,
+      })
+
+      if (error) throw new Error(error.message || 'Falha ao registrar lance.')
+
+      toast.success(`Lance registrado: ${brl(novoValor)}`, { id: LANCE_TOAST_ID })
+      efeitoPorDelta(leilaoId, incremento)
+
+      await buscarLeiloesAtivos()
+      await buscarSaldo()
+
+      setPropostas((prev) => ({
+        ...prev,
+        [leilaoId]: String(novoValor + INCREMENTO_MINIMO),
+      }))
+    } catch (err: any) {
+      setErroTela(err?.message || 'Erro ao dar lance.')
+      toast.error(err?.message || 'Erro ao dar lance.', { id: LANCE_TOAST_ID })
+    } finally {
+      setTimeout(() => setCooldownGlobal(false), 300)
+      setTimeout(() => setCooldownPorLeilao((p) => ({ ...p, [leilaoId]: false })), 150)
+    }
+  }
+
+  async function darLance(leilaoId: string, valorAtual: number, incremento: number) {
+    setErroTela(null)
+    await garantirIdTimeValido()
+
+    if (travadoPorIdentidade) {
+      setErroTela(travadoPorIdentidade)
+      return
+    }
+
+    if (cooldownGlobal || cooldownPorLeilao[leilaoId]) return
+
+    const novoValor = Number(valorAtual) + Number(incremento)
+
+    if (saldo !== null && novoValor > saldo) {
+      setErroTela('Saldo insuficiente.')
+      return
+    }
+
+    setCooldownGlobal(true)
+    setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: true }))
+    acionarAnimacao(leilaoId)
+
+    try {
+      const { data: atual, error: e1 } = await supabase
+        .from('leiloes_sistema')
+        .select('status, valor_atual, fim')
+        .eq('id', leilaoId)
+        .single()
+
+      if (e1 || !atual) throw new Error('Não foi possível validar o leilão.')
+      if ((atual as any).status !== 'ativo') throw new Error('Leilão não está mais ativo.')
+
+      const fimMs = toMs((atual as any).fim)
+      const agoraSrv = nowServerMs()
+
+      if (isNaN(fimMs) || fimMs - agoraSrv <= 0) throw new Error('Leilão encerrado.')
+
+      const { error } = await supabase.rpc('dar_lance_no_leilao', {
+        p_leilao_id: leilaoId,
+        p_valor_novo: novoValor,
+        p_id_time_vencedor: idTime,
+        p_nome_time_vencedor: nomeTime,
+        p_estender: (fimMs - agoraSrv) / 1000 < 15,
+      })
+
+      if (error) throw new Error(error.message || 'Falha ao registrar lance.')
+
+      toast.success(`Lance registrado: ${brl(novoValor)}`, { id: LANCE_TOAST_ID })
+      efeitoPorDelta(leilaoId, incremento)
+
+      await buscarLeiloesAtivos()
+      await buscarSaldo()
+    } catch (err: any) {
+      setErroTela(err?.message || 'Erro ao dar lance.')
+      toast.error(err?.message || 'Erro ao dar lance.', { id: LANCE_TOAST_ID })
+    } finally {
+      setTimeout(() => setCooldownGlobal(false), 300)
+      setTimeout(() => setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false })), 150)
+    }
+  }
+
+  const calcularTempoRestante = (leilao: Leilao) => {
+    const tempoFinal = toMs(leilao.fim)
+    const restante = Math.floor((tempoFinal - nowServerMs()) / 1000)
+    return Number.isFinite(restante) ? Math.max(0, restante) : 0
+  }
+
+  const leiloesFiltrados = useMemo(() => {
+    const base = [...leiloes]
+
+    if (filtroLeilao === 'meus') {
+      return base.filter((l) => l.id_time_vencedor === idTime || l.nome_time_vencedor === nomeTime)
+    }
+
+    if (filtroLeilao === 'terminando') {
+      return base
+        .filter((l) => calcularTempoRestante(l) <= 30)
+        .sort((a, b) => calcularTempoRestante(a) - calcularTempoRestante(b))
+    }
+
+    if (filtroLeilao === 'sem_lance') {
+      return base.filter((l) => !l.id_time_vencedor && !l.nome_time_vencedor)
+    }
+
+    if (filtroLeilao === 'mais_caros') {
+      return base.sort((a, b) => Number(b.valor_atual || 0) - Number(a.valor_atual || 0))
+    }
+
+    return base
+  }, [leiloes, filtroLeilao, idTime, nomeTime, serverOffsetMs])
+
+  const topLeiloes = useMemo(() => {
+    return [...leiloes].sort((a, b) => Number(b.valor_atual || 0) - Number(a.valor_atual || 0)).slice(0, 5)
+  }, [leiloes])
+
+  const totalValorAtivo = useMemo(() => {
+    return leiloes.reduce((acc, l) => acc + Number(l.valor_atual || 0), 0)
+  }, [leiloes])
+
+  const leiloesTerminando = useMemo(() => {
+    return leiloes.filter((l) => calcularTempoRestante(l) <= 30).length
+  }, [leiloes, serverOffsetMs])
+
+  const meusLeiloes = useMemo(() => {
+    return leiloes.filter((l) => l.id_time_vencedor === idTime || l.nome_time_vencedor === nomeTime).length
+  }, [leiloes, idTime, nomeTime])
+
+  const filtroBtn = (id: FiltroLeilao, label: string, desc: string) => (
+    <button
+      type="button"
+      onClick={() => setFiltroLeilao(id)}
+      className={classNames(
+        'rounded-2xl border px-4 py-3 text-left transition active:scale-[0.99]',
+        filtroLeilao === id
+          ? 'border-emerald-300/50 bg-emerald-400 text-black shadow-[0_0_30px_rgba(16,185,129,.22)]'
+          : 'border-white/10 bg-white/[0.055] text-white hover:bg-white/[0.09]'
+      )}
+    >
+      <div className="text-sm font-black">{label}</div>
+      <div className={classNames('mt-0.5 text-[11px]', filtroLeilao === id ? 'text-black/65' : 'text-white/45')}>
+        {desc}
+      </div>
+    </button>
+  )
 
   return (
-    <div className="relative">
-      <div
-        className={classNames(
-          'group relative overflow-hidden rounded-[30px] border bg-gradient-to-br shadow-[0_28px_80px_rgba(0,0,0,0.65)] backdrop-blur-xl transition-all duration-300',
-          c.bg,
-          c.border,
-          tremendo ? 'animate-pulse ring-4 ring-emerald-400/45' : classNames('ring-1', c.ring),
-          !encerrado && 'hover:-translate-y-1 hover:scale-[1.015]',
-        )}
-      >
-        {/* FOTO COMO FUNDO PREMIUM */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src={imgSrc}
-            alt={leilao.nome}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            className="h-full w-full object-cover scale-110 brightness-[0.72] contrast-110 saturate-110 transition-transform duration-700 group-hover:scale-125"
-            onError={(e) => {
-              const img = e.currentTarget
-              if (img.src.includes('26_120.png')) {
-                setImgSrc(img.src.replace('26_120.png', '25_120.png'))
-              } else if (img.src.includes('25_120.png')) {
-                setImgSrc(img.src.replace('25_120.png', '24_120.png'))
-              } else {
-                setImgSrc('/player-placeholder.png')
-              }
-            }}
-          />
+    <main className="relative min-h-screen overflow-hidden bg-black text-zinc-100">
+      <audio ref={audioRef} src="/beep.mp3" preload="auto" />
 
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/65 to-black/20" />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-transparent to-black/35" />
-        </div>
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#070707',
+            color: '#f4f4f5',
+            border: '1px solid rgba(255,255,255,.12)',
+          },
+        }}
+      />
 
-        {/* GLOWS */}
-        <div className={classNames('pointer-events-none absolute -top-24 left-1/2 z-10 h-80 w-80 -translate-x-1/2 rounded-full blur-3xl', c.glow)} />
-        <div className="pointer-events-none absolute inset-0 z-10 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.28),transparent_55%)]" />
-        <div className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.09),transparent)] opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-
-        <div className="relative z-20 flex flex-col p-4 sm:p-5">
-          {/* TEMPO */}
-          <div className="mb-4">
-            <div className="mb-2 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide text-white/70">
-              <span>Tempo restante</span>
-              <span className={encerrado ? 'text-red-200' : tempoRestante <= 15 ? 'text-amber-200' : 'text-emerald-200'}>
-                {encerrado ? 'Encerrado' : formatarTempo(tempoRestante)}
-              </span>
-            </div>
-
-            <div className="h-2 overflow-hidden rounded-full bg-black/45 ring-1 ring-white/10">
-              <div
-                className={classNames('h-full rounded-full transition-[width] duration-1000', barraCor)}
-                style={{ width: `${pctRestante}%` }}
-              />
-            </div>
-          </div>
-
-          {/* TOPO */}
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className={classNames('text-5xl font-black leading-none tracking-tight drop-shadow-[0_3px_0_rgba(0,0,0,0.45)]', c.accent)}>
-                {Number(leilao.overall ?? 0)}
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="rounded-xl bg-sky-500/20 px-2.5 py-1 text-[11px] font-black text-sky-100 ring-1 ring-sky-400/30">
-                  {posBadge(leilao.posicao)}
-                </span>
-
-                <span className={classNames('rounded-xl px-2.5 py-1 text-[11px] font-black ring-1', c.badge)}>
-                  {tier.toUpperCase()}
-                </span>
-
-                {leilao.nacionalidade && (
-                  <span className="rounded-xl bg-black/35 px-2.5 py-1 text-[11px] font-semibold text-white/85 ring-1 ring-white/10">
-                    {bandeira ? `${bandeira} ` : ''}
-                    {leilao.nacionalidade}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-col items-end gap-2">
-              <span className="rounded-2xl border border-white/15 bg-black/45 px-3 py-1 text-[11px] font-black text-white/80 backdrop-blur">
-                #{index + 1}
-              </span>
-
-              {isAdmin && onExcluir && (
-                <button
-                  onClick={onExcluir}
-                  className="rounded-xl border border-red-400/25 bg-red-600/20 px-3 py-1 text-[11px] font-bold text-red-100 hover:bg-red-600/35"
-                >
-                  🗑️ Excluir
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* ÁREA CENTRAL */}
-          <div className="mt-48 sm:mt-56">
-            <div className="rounded-3xl border border-white/15 bg-black/55 p-4 shadow-2xl backdrop-blur-md">
-              <div className="truncate text-center text-lg font-black uppercase tracking-wide text-white">
-                {leilao.nome}
-              </div>
-
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <a
-                  href={leilao.link_sofifa || '#'}
-                  target={leilao.link_sofifa ? '_blank' : undefined}
-                  rel="noopener noreferrer"
-                  className={classNames(
-                    'inline-flex items-center gap-2 rounded-xl px-3 py-1 text-[11px] font-bold ring-1',
-                    leilao.link_sofifa
-                      ? 'bg-sky-500/15 text-sky-100 ring-sky-400/25 hover:bg-sky-500/25'
-                      : 'pointer-events-none bg-zinc-800/50 text-zinc-500 ring-white/10',
-                  )}
-                >
-                  🔗 SoFIFA
-                </a>
-
-                <span className={classNames('rounded-xl px-3 py-1 text-[12px] font-black ring-1', badgeTierValor(leilao.valor_atual))}>
-                  {brl(leilao.valor_atual)}
-                </span>
-              </div>
-
-              {hasVencedor && (
-                <div className="mt-3 flex items-center justify-center gap-2 rounded-2xl bg-black/45 px-3 py-2 text-xs font-bold text-white/90 ring-1 ring-white/10">
-                  👑 Liderando:
-                  {logoVencedor ? (
-                    <img
-                      src={logoVencedor}
-                      alt={vencedor}
-                      className="h-5 w-5 rounded-full object-cover"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                    />
-                  ) : null}
-                  <span className="truncate">{vencedor}</span>
-                </div>
-              )}
-
-              {encerrado && (
-                <div className="mt-3 rounded-2xl border border-red-400/25 bg-red-600/20 px-3 py-2 text-center text-xs font-black text-red-100">
-                  LEILÃO ENCERRADO
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* AÇÕES */}
-          <div className="mt-4 rounded-3xl border border-white/15 bg-black/55 p-3 shadow-xl backdrop-blur-md">
-            {!encerrado ? (
-              <>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <input
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    className={classNames(
-                      'w-full rounded-2xl border bg-black/45 px-4 py-3 text-sm font-bold text-white tabular-nums outline-none placeholder:text-white/30',
-                      invalido
-                        ? 'border-red-400/45 focus:ring-2 focus:ring-red-400/30'
-                        : 'border-emerald-400/30 focus:ring-2 focus:ring-emerald-400/30',
-                    )}
-                    value={valorProposto}
-                    onChange={(e) => setValorProposto(e.target.value.replace(/[^\d]/g, ''))}
-                    placeholder={String(minimoPermitido)}
-                    disabled={!!travadoPorIdentidade}
-                  />
-
-                  <button
-                    onClick={() => onDarLanceManual(valorPropostoNum)}
-                    disabled={disabledLance}
-                    className={classNames(
-                      'w-full rounded-2xl px-5 py-3 text-sm font-black transition sm:w-auto',
-                      disabledLance
-                        ? 'cursor-not-allowed border border-white/10 bg-zinc-900/70 text-zinc-500'
-                        : 'border border-emerald-300/30 bg-emerald-600 text-white shadow-lg shadow-emerald-900/30 hover:bg-emerald-500 hover:scale-[1.03]',
-                    )}
-                  >
-                    Dar lance
-                  </button>
-                </div>
-
-                <div className="mt-3 flex flex-col gap-2 text-[11px] text-white/75 sm:flex-row sm:items-center sm:justify-between">
-                  <span>
-                    Mínimo:{' '}
-                    <b className="tabular-nums text-white">
-                      {brl(minimoPermitido)}
-                    </b>
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={onResetMinimo}
-                    className="rounded-2xl border border-emerald-300/25 bg-emerald-500/15 px-3 py-2 font-black text-emerald-100 hover:bg-emerald-500/25"
-                  >
-                    +20mi mínimo
-                  </button>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {INCS.map((inc) => {
-                    const disabled =
-                      !!travadoPorIdentidade ||
-                      disabledPorCooldown ||
-                      encerrado ||
-                      (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
-
-                    return (
-                      <button
-                        key={inc}
-                        onClick={() => onDarLanceInc(inc)}
-                        disabled={disabled}
-                        className={classNames(
-                          'rounded-2xl border px-2 py-2 text-[12px] font-black tabular-nums transition',
-                          disabled
-                            ? 'cursor-not-allowed border-white/10 bg-zinc-900/55 text-zinc-500'
-                            : 'border-emerald-300/25 bg-black/35 text-emerald-100 hover:bg-emerald-500/20 hover:scale-[1.03]',
-                        )}
-                      >
-                        + {(inc / 1_000_000).toLocaleString('pt-BR')} mi
-                      </button>
-                    )
-                  })}
-                </div>
-              </>
-            ) : (
-              <>
-                {hasVencedor && isAdmin && onFinalizar ? (
-                  <button
-                    onClick={onFinalizar}
-                    disabled={!!finalizando}
-                    className={classNames(
-                      'w-full rounded-2xl border px-3 py-3 text-sm font-black transition',
-                      finalizando
-                        ? 'cursor-not-allowed border-white/10 bg-zinc-900/70 text-zinc-500'
-                        : 'border-red-300/25 bg-red-600 text-white hover:bg-red-500',
-                    )}
-                  >
-                    {finalizando ? 'Finalizando…' : 'Finalizar Leilão'}
-                  </button>
-                ) : podeMandarMercado ? (
-                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3">
-                    <div className="text-xs font-black uppercase tracking-[0.16em] text-emerald-200">
-                      Admin • Mandar para o mercado
-                    </div>
-
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <input
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={valorMercado ?? String(leilao.valor_atual || '')}
-                        onChange={(e) => setValorMercado?.(e.target.value.replace(/[^\d]/g, ''))}
-                        placeholder="Novo preço"
-                        className="min-w-0 flex-1 rounded-2xl border border-emerald-400/30 bg-black/45 px-4 py-3 text-sm font-black text-white outline-none focus:ring-2 focus:ring-emerald-400/30"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={onMandarMercado}
-                        disabled={!!mandandoMercado || !valorMercadoNum || valorMercadoNum <= 0}
-                        className={classNames(
-                          'rounded-2xl border px-4 py-3 text-sm font-black transition',
-                          mandandoMercado || !valorMercadoNum || valorMercadoNum <= 0
-                            ? 'cursor-not-allowed border-white/10 bg-zinc-900/70 text-zinc-500'
-                            : 'border-emerald-300/25 bg-emerald-500 text-black hover:bg-emerald-300',
-                        )}
-                      >
-                        {mandandoMercado ? 'Enviando…' : 'Mandar pro mercado'}
-                      </button>
-                    </div>
-
-                    <div className="mt-2 text-[11px] font-semibold text-white/55">
-                      Preço escolhido: <b className="text-emerald-100">{brl(valorMercadoNum)}</b>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-white/10 bg-zinc-900/50 px-3 py-3 text-center text-sm font-black text-zinc-400">
-                    Leilão encerrado
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {burst && (
-          <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
-            <div className="animate-[fadeout_0.75s_ease_forwards] select-none text-5xl">
-              💥✨🔥
-            </div>
-          </div>
-        )}
-
-        {efeitoOverlay}
+      <div className="pointer-events-none fixed inset-0 -z-10">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(16,185,129,.28),transparent_35%),radial-gradient(circle_at_85%_10%,rgba(250,204,21,.18),transparent_32%),radial-gradient(circle_at_50%_100%,rgba(59,130,246,.16),transparent_40%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,.55),rgba(0,0,0,.9),#000)]" />
+        <div className="absolute inset-0 opacity-[0.16] bg-[linear-gradient(rgba(255,255,255,.09)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.09)_1px,transparent_1px)] bg-[size:44px_44px]" />
       </div>
+
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-black/55 backdrop-blur-xl">
+        <div className="mx-auto w-full max-w-7xl px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-2xl border border-emerald-300/30 bg-emerald-400/15 shadow-[0_0_30px_rgba(16,185,129,.25)]">
+                <span className="text-xl">⚡</span>
+              </div>
+
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-black tracking-tight sm:text-2xl">
+                  LEILÃO AO VIVO <span className="text-emerald-300">LIGAFUT</span>
+                </h1>
+
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                  relógio sincronizado • lances em tempo real • disputa por elenco
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
+                💳 Saldo: <b className="ml-1 tabular-nums text-white">{brl(saldo ?? undefined)}</b>
+              </div>
+
+              {nomeTime && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white/75">
+                  🛡️ Time: <b className="text-white">{nomeTime}</b>
+                </div>
+              )}
+
+              {isAdmin && (
+                <span className="rounded-2xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-amber-200">
+                  Modo Admin
+                </span>
+              )}
+            </div>
+          </div>
+
+          {travadoPorIdentidade && (
+            <div className="mt-3 rounded-2xl border border-yellow-400/20 bg-yellow-400/10 px-3 py-2 text-xs text-yellow-100">
+              ⚠️ {travadoPorIdentidade}
+            </div>
+          )}
+
+          {erroTela && (
+            <div className="mt-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+              ⚠️ {erroTela}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <section className="mx-auto w-full max-w-7xl px-4 pt-5">
+        <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(16,185,129,.20),rgba(255,255,255,.06)_48%,rgba(250,204,21,.13))] p-5 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <div className="inline-flex rounded-full border border-yellow-200/25 bg-yellow-300/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-yellow-100">
+                Central de arremates
+              </div>
+
+              <h2 className="mt-4 text-4xl font-black tracking-tight sm:text-6xl">
+                Leilão do{' '}
+                <span className="bg-gradient-to-r from-emerald-300 via-yellow-200 to-lime-300 bg-clip-text text-transparent">
+                  Sistema
+                </span>
+              </h2>
+
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/62">
+                Dispute jogadores em tempo real, acompanhe os maiores lances e acelere nos últimos segundos.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[640px]">
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Ativos</div>
+                <div className="mt-1 text-3xl font-black text-white">{leiloes.length}</div>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Terminando</div>
+                <div className="mt-1 text-3xl font-black text-red-200">{leiloesTerminando}</div>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Meus lances</div>
+                <div className="mt-1 text-3xl font-black text-emerald-200">{meusLeiloes}</div>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
+                <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Volume</div>
+                <div className="mt-1 truncate text-xl font-black text-yellow-100">{brl(totalValorAtivo)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-5 px-4 py-5 xl:grid-cols-[1fr_320px]">
+        <div className="min-w-0 space-y-5">
+          <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.045] p-3 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {filtroBtn('todos', 'Todos', `${leiloes.length} leilões`)}
+              {filtroBtn('meus', 'Meus lances', `${meusLeiloes} liderando`)}
+              {filtroBtn('terminando', 'Terminando', 'até 30s')}
+              {filtroBtn('sem_lance', 'Sem lance', 'oportunidade')}
+              {filtroBtn('mais_caros', 'Mais caros', 'ranking')}
+            </div>
+          </div>
+
+          {carregando ? (
+            <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="h-[520px] animate-pulse rounded-[2rem] border border-white/10 bg-white/[0.045] shadow-2xl" />
+              ))}
+            </div>
+          ) : leiloes.length === 0 ? (
+            <div className="mx-auto max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8 text-center shadow-2xl backdrop-blur-xl">
+              <div className="text-4xl">🏟️</div>
+              <h3 className="mt-3 text-lg font-black">Nenhum leilão ativo</h3>
+              <p className="mt-1 text-sm text-white/50">Volte em instantes ou verifique com o administrador.</p>
+            </div>
+          ) : leiloesFiltrados.length === 0 ? (
+            <div className="mx-auto max-w-md rounded-[2rem] border border-white/10 bg-white/[0.045] p-8 text-center shadow-2xl backdrop-blur-xl">
+              <div className="text-4xl">🔎</div>
+              <h3 className="mt-3 text-lg font-black">Nada encontrado nesse filtro</h3>
+              <p className="mt-1 text-sm text-white/50">Troque o filtro para ver outros leilões ativos.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 [@media(min-width:520px)]:grid-cols-2 lg:grid-cols-3">
+              {leiloesFiltrados.map((leilao, index) => {
+                const serverNow = nowServerMs()
+                const tempoFinal = toMs(leilao.fim)
+                const tempoInicio = toMs(leilao.criado_em)
+
+                let tempoRestante = Math.floor((tempoFinal - serverNow) / 1000)
+                if (!isFinite(tempoRestante) || tempoRestante < 0) tempoRestante = 0
+
+                const totalMs = Math.max(0, tempoFinal - tempoInicio)
+                const remMs = Math.max(0, tempoFinal - serverNow)
+                const pctRestante = totalMs > 0 ? Math.min(100, Math.max(0, (remMs / totalMs) * 100)) : 0
+
+                const minimoPermitido = (leilao.valor_atual ?? 0) + INCREMENTO_MINIMO
+                const vencedor = leilao.nome_time_vencedor || ''
+                const hasVencedor = !!(leilao.id_time_vencedor || leilao.nome_time_vencedor)
+                const logoVencedor = vencedor ? logos[vencedor] : undefined
+                const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
+
+                return (
+                  <div
+                    key={leilao.id}
+                    className={classNames(
+                      'relative rounded-[2rem] transition duration-300',
+                      tempoRestante <= 15 && 'shadow-[0_0_35px_rgba(239,68,68,.20)]',
+                      leilao.id_time_vencedor === idTime && 'ring-2 ring-emerald-300/45 shadow-[0_0_35px_rgba(16,185,129,.18)]'
+                    )}
+                  >
+                    {tempoRestante <= 15 && (
+                      <div className="pointer-events-none absolute -inset-1 rounded-[2.15rem] bg-gradient-to-r from-red-500/35 via-yellow-300/30 to-red-500/35 blur-xl" />
+                    )}
+
+                    <CardJogadorLeilao
+                      leilao={leilao}
+                      index={index}
+                      travadoPorIdentidade={travadoPorIdentidade}
+                      saldo={saldo}
+                      isAdmin={isAdmin}
+                      tempoRestante={tempoRestante}
+                      pctRestante={pctRestante}
+                      disabledPorCooldown={disabledPorCooldown}
+                      tremendo={!!tremores[leilao.id]}
+                      burst={!!burst[leilao.id]}
+                      efeitoOverlay={efeitoOverlay(leilao.id)}
+                      minimoPermitido={minimoPermitido}
+                      valorProposto={propostas[leilao.id] ?? String(minimoPermitido)}
+                      setValorProposto={(v) => {
+                        const onlyDigits = String(v || '').replace(/[^\d]/g, '')
+                        setPropostas((prev) => ({ ...prev, [leilao.id]: onlyDigits }))
+                      }}
+                      logoVencedor={logoVencedor}
+                      onDarLanceManual={(valorPropostoNumCard) =>
+                        darLanceManual(leilao.id, leilao.valor_atual, valorPropostoNumCard)
+                      }
+                      onDarLanceInc={(inc) => darLance(leilao.id, leilao.valor_atual, inc)}
+                      onResetMinimo={() =>
+                        setPropostas((prev) => ({
+                          ...prev,
+                          [leilao.id]: String(minimoPermitido + 20_000_000),
+                        }))
+                      }
+                      onExcluir={isAdmin ? () => excluirDoLeilao(leilao.id) : undefined}
+                      onFinalizar={isAdmin && hasVencedor ? () => finalizarLeilao(leilao.id) : undefined}
+                      finalizando={!!finalizando[leilao.id]}
+                      valorMercado={precosMercado[leilao.id] ?? String(leilao.valor_atual || '')}
+                      setValorMercado={(v) =>
+                        setPrecosMercado((p) => ({
+                          ...p,
+                          [leilao.id]: String(v || '').replace(/[^\d]/g, ''),
+                        }))
+                      }
+                      onMandarMercado={isAdmin && tempoRestante === 0 && !hasVencedor ? () => mandarParaMercado(leilao) : undefined}
+                      mandandoMercado={!!mandandoMercado[leilao.id]}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black">🏆 Maiores lances</h3>
+                <p className="text-xs text-white/45">Top 5 em andamento</p>
+              </div>
+
+              <span className="rounded-full border border-yellow-200/20 bg-yellow-300/10 px-3 py-1 text-[11px] font-black text-yellow-100">
+                LIVE
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {topLeiloes.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/45">
+                  Sem lances ativos.
+                </div>
+              ) : (
+                topLeiloes.map((l, i) => (
+                  <div key={l.id} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-black text-white">
+                          #{i + 1} {l.nome}
+                        </div>
+
+                        <div className="truncate text-xs text-white/45">{l.nome_time_vencedor || 'Sem líder'}</div>
+                      </div>
+
+                      <div className="shrink-0 text-right text-sm font-black text-emerald-200">{brl(l.valor_atual)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <h3 className="text-lg font-black">🔥 Modo urgência</h3>
+            <p className="mt-1 text-sm text-white/50">
+              Quando faltar menos de 15 segundos, o card ganha brilho vermelho para chamar atenção e evitar perder o lance.
+            </p>
+          </div>
+        </aside>
+      </section>
 
       <style jsx>{`
         @keyframes fadeout {
@@ -699,10 +1170,113 @@ export default function CardJogadorLeilao({
           }
           100% {
             opacity: 0;
-            transform: scale(1.45) translateY(-18px);
+            transform: scale(1.3) translateY(-10px);
           }
         }
+
+        @keyframes lfFloat {
+          0% {
+            transform: translateY(8px) scale(0.98);
+            opacity: 0;
+          }
+          30% {
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(-36px) scale(1);
+            opacity: 0;
+          }
+        }
+
+        .lf-float-slow {
+          animation: lfFloat 1s ease-out forwards;
+        }
+
+        @keyframes lfPop {
+          0% {
+            transform: scale(0.6);
+            opacity: 0;
+          }
+          50% {
+            transform: scale(1.1);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 0;
+          }
+        }
+
+        .lf-pop {
+          animation: lfPop 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes lfConfetti {
+          0% {
+            transform: translateY(-6px) rotate(-8deg);
+            opacity: 0;
+          }
+          20% {
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(26px) rotate(12deg);
+            opacity: 0;
+          }
+        }
+
+        .lf-confetti {
+          animation: lfConfetti 1.4s ease-out forwards;
+        }
+
+        @keyframes lfRise {
+          0% {
+            transform: translateY(8px) scale(0.9);
+            opacity: 0.2;
+          }
+          25% {
+            opacity: 0.8;
+          }
+          100% {
+            transform: translateY(-28px) scale(1.05);
+            opacity: 0;
+          }
+        }
+
+        @keyframes lfFlicker {
+          0%,
+          100% {
+            filter: drop-shadow(0 0 0px #ef4444);
+          }
+          50% {
+            filter: drop-shadow(0 0 8px #f59e0b);
+          }
+        }
+
+        .lf-fire {
+          animation: lfRise 1.8s ease-out forwards, lfFlicker 0.6s ease-in-out infinite;
+        }
+
+        @keyframes lfRing {
+          0% {
+            transform: translate(-50%, -50%) scale(0.6);
+            opacity: 0.4;
+          }
+          80% {
+            opacity: 0.2;
+          }
+          100% {
+            transform: translate(-50%, -50%) scale(1.3);
+            opacity: 0;
+          }
+        }
+
+        .lf-ring {
+          animation: lfRing 2.2s ease-out forwards;
+        }
       `}</style>
-    </div>
+
+      <div className="h-6 md:h-8" />
+    </main>
   )
 }
