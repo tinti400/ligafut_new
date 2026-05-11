@@ -85,6 +85,10 @@ function normalizarTexto(texto?: string | null) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function mesmoId(a?: string | null, b?: string | null) {
+  return String(a || "").trim() === String(b || "").trim();
+}
+
 function fotoJogador(j?: RankingArtilheiro) {
   return j?.imagem_url || "/default-player.png";
 }
@@ -94,6 +98,15 @@ function medalha(posicao: number) {
   if (posicao === 2) return "🥈";
   if (posicao === 3) return "🥉";
   return `#${posicao}`;
+}
+
+function chaveGol(g: GolArtilharia) {
+  return [
+    g.jogo_id || "",
+    normalizarTexto(g.nome_jogador),
+    String(g.id_time || normalizarTexto(g.nome_time)),
+    String(g.minuto ?? ""),
+  ].join("_");
 }
 
 export default function ArtilhariaCopaPage() {
@@ -170,7 +183,10 @@ export default function ArtilhariaCopaPage() {
           .filter((evento) => evento?.tipo === "gol")
           .forEach((evento, index) => {
             const idTime =
-              evento.id_time || evento.time_id || evento.timeId || null;
+              evento.id_time ||
+              evento.time_id ||
+              evento.timeId ||
+              null;
 
             const idJogador =
               evento.id_jogador ||
@@ -184,7 +200,11 @@ export default function ArtilhariaCopaPage() {
               evento.nomeJogador ||
               "Jogador";
 
-            const nomeTimeEvento = evento.nome_time || evento.time || null;
+            const nomeTimeEvento =
+              evento.nome_time ||
+              evento.time_nome ||
+              evento.time ||
+              null;
 
             golsDoHistorico.push({
               id: `historico_${jogo.id}_${index}`,
@@ -201,18 +221,34 @@ export default function ArtilhariaCopaPage() {
           });
       });
 
-      const chavesTabela = new Set(
-        golsTabela.map(
-          (g) => `${g.jogo_id}_${g.id_jogador || g.nome_jogador}_${g.minuto}`,
-        ),
-      );
+      const golsUnificados = new Map<string, GolArtilharia>();
 
-      const historicoSemDuplicar = golsDoHistorico.filter((g) => {
-        const chave = `${g.jogo_id}_${g.id_jogador || g.nome_jogador}_${g.minuto}`;
-        return !chavesTabela.has(chave);
+      [...golsTabela, ...golsDoHistorico].forEach((g) => {
+        const chave = chaveGol(g);
+        const existente = golsUnificados.get(chave);
+
+        if (!existente) {
+          golsUnificados.set(chave, g);
+          return;
+        }
+
+        const existenteTemId = !!existente.id_jogador;
+        const atualTemId = !!g.id_jogador;
+
+        if (!existenteTemId && atualTemId) {
+          golsUnificados.set(chave, g);
+          return;
+        }
+
+        const existenteTemData = !!existente.created_at;
+        const atualTemData = !!g.created_at;
+
+        if (!existenteTemData && atualTemData) {
+          golsUnificados.set(chave, g);
+        }
       });
 
-      setGols([...golsTabela, ...historicoSemDuplicar]);
+      setGols(Array.from(golsUnificados.values()));
       setTimes((timesData || []) as Time[]);
       setElenco((elencoData || []) as JogadorElenco[]);
     } catch (err) {
@@ -230,7 +266,7 @@ export default function ArtilhariaCopaPage() {
   const timesMap = useMemo(() => {
     const map: Record<string, Time> = {};
     times.forEach((t) => {
-      map[t.id] = t;
+      map[String(t.id)] = t;
     });
     return map;
   }, [times]);
@@ -238,37 +274,71 @@ export default function ArtilhariaCopaPage() {
   const elencoMap = useMemo(() => {
     const map: Record<string, JogadorElenco> = {};
     elenco.forEach((j) => {
-      map[j.id] = j;
+      map[String(j.id)] = j;
     });
     return map;
   }, [elenco]);
+
+  function resolverTimePorNome(nomeTime?: string | null) {
+    if (!nomeTime) return undefined;
+
+    return times.find(
+      (t) => normalizarTexto(t.nome) === normalizarTexto(nomeTime),
+    );
+  }
+
+  function resolverJogadorElenco(g: GolArtilharia) {
+    const timeResolvido =
+      g.id_time || resolverTimePorNome(g.nome_time)?.id || "";
+
+    const porId = g.id_jogador ? elencoMap[String(g.id_jogador)] : undefined;
+
+    if (porId) return porId;
+
+    const porNomeETime = elenco.find((j) => {
+      const mesmoNome =
+        normalizarTexto(j.nome) === normalizarTexto(g.nome_jogador);
+
+      const mesmoTime =
+        !timeResolvido || mesmoId(j.id_time, timeResolvido);
+
+      return mesmoNome && mesmoTime;
+    });
+
+    if (porNomeETime) return porNomeETime;
+
+    const porNomeApenas = elenco.find(
+      (j) => normalizarTexto(j.nome) === normalizarTexto(g.nome_jogador),
+    );
+
+    return porNomeApenas;
+  }
 
   const ranking = useMemo(() => {
     const map: Record<string, RankingArtilheiro> = {};
 
     gols.forEach((g) => {
-      const jogadorId = g.id_jogador || `${g.nome_jogador}_${g.id_time}`;
-      const timeId = g.id_time || "";
+      const jogadorElenco = resolverJogadorElenco(g);
 
-      const jogadorElenco =
-        (g.id_jogador ? elencoMap[g.id_jogador] : undefined) ||
-        elenco.find((j) => {
-          const mesmoNome =
-            normalizarTexto(j.nome) === normalizarTexto(g.nome_jogador);
+      const timeId =
+        g.id_time ||
+        jogadorElenco?.id_time ||
+        resolverTimePorNome(g.nome_time)?.id ||
+        "";
 
-          const mesmoTime = !g.id_time || j.id_time === g.id_time;
+      const time = timeId ? timesMap[String(timeId)] : resolverTimePorNome(g.nome_time);
 
-          return mesmoNome && mesmoTime;
-        });
-
-      const time = timeId ? timesMap[timeId] : undefined;
+      const jogadorId =
+        jogadorElenco?.id ||
+        g.id_jogador ||
+        `${normalizarTexto(g.nome_jogador)}_${timeId || normalizarTexto(g.nome_time)}`;
 
       if (!map[jogadorId]) {
         map[jogadorId] = {
           id_jogador: jogadorId,
-          nome_jogador: g.nome_jogador || jogadorElenco?.nome || "Jogador",
+          nome_jogador: jogadorElenco?.nome || g.nome_jogador || "Jogador",
           id_time: timeId,
-          nome_time: g.nome_time || time?.nome || "Time",
+          nome_time: time?.nome || g.nome_time || "Time",
           gols: 0,
           minutos: [],
           ultimo_gol: g.created_at,
@@ -286,7 +356,11 @@ export default function ArtilhariaCopaPage() {
       map[jogadorId].gols += Number(g.gols || 1);
 
       if (g.minuto !== null && g.minuto !== undefined) {
-        map[jogadorId].minutos.push(Number(g.minuto));
+        const minuto = Number(g.minuto);
+
+        if (!map[jogadorId].minutos.includes(minuto)) {
+          map[jogadorId].minutos.push(minuto);
+        }
       }
 
       if (
@@ -305,7 +379,7 @@ export default function ArtilhariaCopaPage() {
         String(a.nome_jogador).localeCompare(String(b.nome_jogador), "pt-BR")
       );
     });
-  }, [gols, elencoMap, timesMap, elenco]);
+  }, [gols, elencoMap, timesMap, elenco, times]);
 
   const rankingFiltrado = useMemo(() => {
     const q = normalizarTexto(busca);
@@ -351,9 +425,9 @@ export default function ArtilhariaCopaPage() {
             </h1>
 
             <p className="mt-2 text-sm text-zinc-400">
-              Gols da tabela <strong>artilharia_copa</strong> + histórico de{" "}
-              <strong>copa_jogos.eventos_simulacao</strong> • temporada{" "}
-              {TEMPORADA}
+              Gols unificados da tabela <strong>artilharia_copa</strong> e do
+              histórico <strong>copa_jogos.eventos_simulacao</strong> •
+              temporada {TEMPORADA}
             </p>
           </div>
 
@@ -611,10 +685,9 @@ export default function ArtilhariaCopaPage() {
       )}
 
       <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-zinc-400">
-        Esta página lê os gols salvos na tabela{" "}
-        <strong>artilharia_copa</strong> e também os gols existentes no histórico
-        dos jogos em <strong>copa_jogos.eventos_simulacao</strong>. Jogos já
-        preenchidos entram automaticamente no ranking.
+        Esta página une os gols da tabela <strong>artilharia_copa</strong> com
+        os gols do histórico <strong>copa_jogos.eventos_simulacao</strong>,
+        removendo duplicidades por jogador, time, jogo e minuto.
       </div>
     </div>
   );
