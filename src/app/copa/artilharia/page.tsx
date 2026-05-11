@@ -56,6 +56,13 @@ type JogadorElenco = {
   valor?: number | null;
   imagem_url?: string | null;
   foto?: string | null;
+  image_url?: string | null;
+  foto_url?: string | null;
+  url_foto?: string | null;
+  imagem?: string | null;
+  avatar_url?: string | null;
+  link_foto?: string | null;
+  player_image?: string | null;
 };
 
 type RankingArtilheiro = {
@@ -87,6 +94,21 @@ function normalizarTexto(texto?: string | null) {
 
 function mesmoId(a?: string | null, b?: string | null) {
   return String(a || "").trim() === String(b || "").trim();
+}
+
+function pegarFotoElenco(j?: JogadorElenco | null) {
+  return (
+    j?.imagem_url ||
+    j?.foto ||
+    j?.image_url ||
+    j?.foto_url ||
+    j?.url_foto ||
+    j?.imagem ||
+    j?.avatar_url ||
+    j?.link_foto ||
+    j?.player_image ||
+    null
+  );
 }
 
 function fotoJogador(j?: RankingArtilheiro) {
@@ -161,9 +183,7 @@ export default function ArtilhariaCopaPage() {
 
         supabase.from("times").select("id, nome, logo, logo_url"),
 
-        supabase
-          .from("elenco")
-          .select("id, nome, id_time, posicao, overall, valor, imagem_url, foto"),
+        supabase.from("elenco").select("*"),
       ]);
 
       if (golsError) toast.error("Erro ao carregar artilharia.");
@@ -232,18 +252,12 @@ export default function ArtilhariaCopaPage() {
           return;
         }
 
-        const existenteTemId = !!existente.id_jogador;
-        const atualTemId = !!g.id_jogador;
-
-        if (!existenteTemId && atualTemId) {
+        if (!existente.id_jogador && g.id_jogador) {
           golsUnificados.set(chave, g);
           return;
         }
 
-        const existenteTemData = !!existente.created_at;
-        const atualTemData = !!g.created_at;
-
-        if (!existenteTemData && atualTemData) {
+        if (!existente.created_at && g.created_at) {
           golsUnificados.set(chave, g);
         }
       });
@@ -307,11 +321,9 @@ export default function ArtilhariaCopaPage() {
 
     if (porNomeETime) return porNomeETime;
 
-    const porNomeApenas = elenco.find(
+    return elenco.find(
       (j) => normalizarTexto(j.nome) === normalizarTexto(g.nome_jogador),
     );
-
-    return porNomeApenas;
   }
 
   const ranking = useMemo(() => {
@@ -326,12 +338,15 @@ export default function ArtilhariaCopaPage() {
         resolverTimePorNome(g.nome_time)?.id ||
         "";
 
-      const time = timeId ? timesMap[String(timeId)] : resolverTimePorNome(g.nome_time);
+      const time =
+        timeId ? timesMap[String(timeId)] : resolverTimePorNome(g.nome_time);
 
       const jogadorId =
         jogadorElenco?.id ||
         g.id_jogador ||
         `${normalizarTexto(g.nome_jogador)}_${timeId || normalizarTexto(g.nome_time)}`;
+
+      const foto = pegarFotoElenco(jogadorElenco);
 
       if (!map[jogadorId]) {
         map[jogadorId] = {
@@ -345,10 +360,7 @@ export default function ArtilhariaCopaPage() {
           posicao: jogadorElenco?.posicao || null,
           overall: jogadorElenco?.overall || null,
           valor: jogadorElenco?.valor || null,
-          imagem_url:
-            jogadorElenco?.imagem_url ||
-            jogadorElenco?.foto ||
-            null,
+          imagem_url: foto,
           logo_time: time?.logo_url || time?.logo || null,
         };
       }
@@ -369,6 +381,10 @@ export default function ArtilhariaCopaPage() {
           g.created_at > map[jogadorId].ultimo_gol!)
       ) {
         map[jogadorId].ultimo_gol = g.created_at;
+      }
+
+      if (!map[jogadorId].imagem_url && foto) {
+        map[jogadorId].imagem_url = foto;
       }
     });
 
