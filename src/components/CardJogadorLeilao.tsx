@@ -39,6 +39,12 @@ type Props = {
   onExcluir?: () => void
   onFinalizar?: () => void
   finalizando?: boolean
+
+  // NOVO: mandar jogador sem lance para o mercado
+  valorMercado?: string
+  setValorMercado?: (v: string) => void
+  onMandarMercado?: () => void
+  mandandoMercado?: boolean
 }
 
 const INCS = [4_000_000, 6_000_000, 8_000_000, 10_000_000, 15_000_000, 20_000_000] as const
@@ -144,6 +150,190 @@ function posBadge(pos: string) {
   return p
 }
 
+function normalizeCountryName(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+const COUNTRY_TO_ISO2: Record<string, string> = {
+  // América do Sul
+  brasil: 'BR',
+  brazil: 'BR',
+  argentina: 'AR',
+  uruguai: 'UY',
+  uruguay: 'UY',
+  chile: 'CL',
+  paraguai: 'PY',
+  paraguay: 'PY',
+  bolivia: 'BO',
+  peru: 'PE',
+  equador: 'EC',
+  ecuador: 'EC',
+  colombia: 'CO',
+  venezuela: 'VE',
+
+  // Europa
+  inglaterra: 'GB',
+  england: 'GB',
+  reino unido: 'GB',
+  great britain: 'GB',
+  escocia: 'GB',
+  scotland: 'GB',
+  pais de gales: 'GB',
+  wales: 'GB',
+  irlanda do norte: 'GB',
+  northern ireland: 'GB',
+  portugal: 'PT',
+  espanha: 'ES',
+  spain: 'ES',
+  franca: 'FR',
+  france: 'FR',
+  alemanha: 'DE',
+  germany: 'DE',
+  italia: 'IT',
+  italy: 'IT',
+  holanda: 'NL',
+  netherlands: 'NL',
+  paises baixos: 'NL',
+  belgica: 'BE',
+  belgium: 'BE',
+  suica: 'CH',
+  switzerland: 'CH',
+  suecia: 'SE',
+  sweden: 'SE',
+  noruega: 'NO',
+  norway: 'NO',
+  dinamarca: 'DK',
+  denmark: 'DK',
+  finlandia: 'FI',
+  finland: 'FI',
+  islandia: 'IS',
+  iceland: 'IS',
+  irlanda: 'IE',
+  ireland: 'IE',
+  austria: 'AT',
+  croacia: 'HR',
+  croatia: 'HR',
+  servia: 'RS',
+  serbia: 'RS',
+  bosnia: 'BA',
+  bosnia e herzegovina: 'BA',
+  eslovenia: 'SI',
+  slovenia: 'SI',
+  eslovaquia: 'SK',
+  slovakia: 'SK',
+  republica tcheca: 'CZ',
+  czech republic: 'CZ',
+  tchequia: 'CZ',
+  polonia: 'PL',
+  poland: 'PL',
+  hungria: 'HU',
+  hungary: 'HU',
+  romenia: 'RO',
+  romania: 'RO',
+  bulgaria: 'BG',
+  grecia: 'GR',
+  greece: 'GR',
+  turquia: 'TR',
+  turkey: 'TR',
+  ucrania: 'UA',
+  ukraine: 'UA',
+  russia: 'RU',
+  albania: 'AL',
+  kosovo: 'XK',
+  macedonia: 'MK',
+  macedonia do norte: 'MK',
+  georgia: 'GE',
+  armenia: 'AM',
+  azerbaijao: 'AZ',
+  azerbaijan: 'AZ',
+
+  // África
+  argelia: 'DZ',
+  algeria: 'DZ',
+  marrocos: 'MA',
+  morocco: 'MA',
+  tunisia: 'TN',
+  egito: 'EG',
+  egypt: 'EG',
+  senegal: 'SN',
+  nigeria: 'NG',
+  gana: 'GH',
+  ghana: 'GH',
+  costa do marfim: 'CI',
+  ivory coast: 'CI',
+  camaroes: 'CM',
+  cameroon: 'CM',
+  mali: 'ML',
+  guine: 'GN',
+  guinea: 'GN',
+  burkina faso: 'BF',
+  africa do sul: 'ZA',
+  south africa: 'ZA',
+  mocambique: 'MZ',
+  mozambique: 'MZ',
+  angola: 'AO',
+  cabo verde: 'CV',
+  cape verde: 'CV',
+  congo: 'CG',
+  rd congo: 'CD',
+  republica democratica do congo: 'CD',
+  gabao: 'GA',
+  gabon: 'GA',
+
+  // América do Norte/Central
+  estados unidos: 'US',
+  usa: 'US',
+  united states: 'US',
+  mexico: 'MX',
+  canada: 'CA',
+  costa rica: 'CR',
+  panama: 'PA',
+  honduras: 'HN',
+  jamaica: 'JM',
+  haití: 'HT',
+  haiti: 'HT',
+  republica dominicana: 'DO',
+
+  // Ásia/Oceania
+  japao: 'JP',
+  japan: 'JP',
+  coreia do sul: 'KR',
+  south korea: 'KR',
+  china: 'CN',
+  arabia saudita: 'SA',
+  saudi arabia: 'SA',
+  catar: 'QA',
+  qatar: 'QA',
+  emirados arabes: 'AE',
+  united arab emirates: 'AE',
+  ira: 'IR',
+  iran: 'IR',
+  iraque: 'IQ',
+  iraq: 'IQ',
+  australia: 'AU',
+  nova zelandia: 'NZ',
+  new zealand: 'NZ',
+}
+
+function iso2ToFlagEmoji(code?: string | null) {
+  if (!code || code.length !== 2) return ''
+  const upper = code.toUpperCase()
+  return upper
+    .split('')
+    .map((char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
+    .join('')
+}
+
+function flagFromNationality(nacionalidade?: string | null) {
+  const key = normalizeCountryName(nacionalidade)
+  const iso = COUNTRY_TO_ISO2[key]
+  return iso2ToFlagEmoji(iso)
+}
+
 export default function CardJogadorLeilao({
   leilao,
   index,
@@ -166,11 +356,16 @@ export default function CardJogadorLeilao({
   onExcluir,
   onFinalizar,
   finalizando,
+  valorMercado,
+  setValorMercado,
+  onMandarMercado,
+  mandandoMercado,
 }: Props) {
   const [imgSrc, setImgSrc] = useState(leilao.imagem_url || '/player-placeholder.png')
 
   const encerrado = tempoRestante === 0
   const valorPropostoNum = useMemo(() => Math.floor(Number(valorProposto || 0)), [valorProposto])
+  const valorMercadoNum = useMemo(() => Math.floor(Number(valorMercado || leilao.valor_atual || 0)), [valorMercado, leilao.valor_atual])
 
   const invalido =
     !isFinite(valorPropostoNum) ||
@@ -188,6 +383,8 @@ export default function CardJogadorLeilao({
   const tier = cartaTierByOverall(Number(leilao.overall || 0))
   const vencedor = leilao.nome_time_vencedor || ''
   const hasVencedor = Boolean(vencedor)
+  const podeMandarMercado = isAdmin && encerrado && !hasVencedor && !!onMandarMercado
+  const bandeira = flagFromNationality(leilao.nacionalidade)
 
   const barraCor = encerrado
     ? 'bg-red-500'
@@ -271,6 +468,7 @@ export default function CardJogadorLeilao({
 
                 {leilao.nacionalidade && (
                   <span className="rounded-xl bg-black/35 px-2.5 py-1 text-[11px] font-semibold text-white/85 ring-1 ring-white/10">
+                    {bandeira ? `${bandeira} ` : ''}
                     {leilao.nacionalidade}
                   </span>
                 )}
@@ -344,94 +542,139 @@ export default function CardJogadorLeilao({
             </div>
           </div>
 
-          {/* LANCES */}
+          {/* AÇÕES */}
           <div className="mt-4 rounded-3xl border border-white/15 bg-black/55 p-3 shadow-xl backdrop-blur-md">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <input
-                inputMode="numeric"
-                pattern="[0-9]*"
-                className={classNames(
-                  'w-full rounded-2xl border bg-black/45 px-4 py-3 text-sm font-bold text-white tabular-nums outline-none placeholder:text-white/30',
-                  invalido
-                    ? 'border-red-400/45 focus:ring-2 focus:ring-red-400/30'
-                    : 'border-emerald-400/30 focus:ring-2 focus:ring-emerald-400/30',
-                )}
-                value={valorProposto}
-                onChange={(e) => setValorProposto(e.target.value.replace(/[^\d]/g, ''))}
-                placeholder={String(minimoPermitido)}
-                disabled={!!travadoPorIdentidade}
-              />
-
-              <button
-                onClick={() => onDarLanceManual(valorPropostoNum)}
-                disabled={disabledLance}
-                className={classNames(
-                  'w-full rounded-2xl px-5 py-3 text-sm font-black transition sm:w-auto',
-                  disabledLance
-                    ? 'cursor-not-allowed border border-white/10 bg-zinc-900/70 text-zinc-500'
-                    : 'border border-emerald-300/30 bg-emerald-600 text-white shadow-lg shadow-emerald-900/30 hover:bg-emerald-500 hover:scale-[1.03]',
-                )}
-              >
-                Dar lance
-              </button>
-            </div>
-
-            <div className="mt-3 flex flex-col gap-2 text-[11px] text-white/75 sm:flex-row sm:items-center sm:justify-between">
-              <span>
-                Mínimo:{' '}
-                <b className="tabular-nums text-white">
-                  {brl(minimoPermitido)}
-                </b>
-              </span>
-
-              <button
-                type="button"
-                onClick={onResetMinimo}
-                className="rounded-2xl border border-emerald-300/25 bg-emerald-500/15 px-3 py-2 font-black text-emerald-100 hover:bg-emerald-500/25"
-              >
-                +20mi mínimo
-              </button>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {INCS.map((inc) => {
-                const disabled =
-                  !!travadoPorIdentidade ||
-                  disabledPorCooldown ||
-                  encerrado ||
-                  (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
-
-                return (
-                  <button
-                    key={inc}
-                    onClick={() => onDarLanceInc(inc)}
-                    disabled={disabled}
+            {!encerrado ? (
+              <>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     className={classNames(
-                      'rounded-2xl border px-2 py-2 text-[12px] font-black tabular-nums transition',
-                      disabled
-                        ? 'cursor-not-allowed border-white/10 bg-zinc-900/55 text-zinc-500'
-                        : 'border-emerald-300/25 bg-black/35 text-emerald-100 hover:bg-emerald-500/20 hover:scale-[1.03]',
+                      'w-full rounded-2xl border bg-black/45 px-4 py-3 text-sm font-bold text-white tabular-nums outline-none placeholder:text-white/30',
+                      invalido
+                        ? 'border-red-400/45 focus:ring-2 focus:ring-red-400/30'
+                        : 'border-emerald-400/30 focus:ring-2 focus:ring-emerald-400/30',
+                    )}
+                    value={valorProposto}
+                    onChange={(e) => setValorProposto(e.target.value.replace(/[^\d]/g, ''))}
+                    placeholder={String(minimoPermitido)}
+                    disabled={!!travadoPorIdentidade}
+                  />
+
+                  <button
+                    onClick={() => onDarLanceManual(valorPropostoNum)}
+                    disabled={disabledLance}
+                    className={classNames(
+                      'w-full rounded-2xl px-5 py-3 text-sm font-black transition sm:w-auto',
+                      disabledLance
+                        ? 'cursor-not-allowed border border-white/10 bg-zinc-900/70 text-zinc-500'
+                        : 'border border-emerald-300/30 bg-emerald-600 text-white shadow-lg shadow-emerald-900/30 hover:bg-emerald-500 hover:scale-[1.03]',
                     )}
                   >
-                    + {(inc / 1_000_000).toLocaleString('pt-BR')} mi
+                    Dar lance
                   </button>
-                )
-              })}
-            </div>
+                </div>
 
-            {isAdmin && onFinalizar && encerrado && (
-              <button
-                onClick={onFinalizar}
-                disabled={!!finalizando}
-                className={classNames(
-                  'mt-3 w-full rounded-2xl border px-3 py-3 text-sm font-black transition',
-                  finalizando
-                    ? 'cursor-not-allowed border-white/10 bg-zinc-900/70 text-zinc-500'
-                    : 'border-red-300/25 bg-red-600 text-white hover:bg-red-500',
+                <div className="mt-3 flex flex-col gap-2 text-[11px] text-white/75 sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    Mínimo:{' '}
+                    <b className="tabular-nums text-white">
+                      {brl(minimoPermitido)}
+                    </b>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={onResetMinimo}
+                    className="rounded-2xl border border-emerald-300/25 bg-emerald-500/15 px-3 py-2 font-black text-emerald-100 hover:bg-emerald-500/25"
+                  >
+                    +20mi mínimo
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {INCS.map((inc) => {
+                    const disabled =
+                      !!travadoPorIdentidade ||
+                      disabledPorCooldown ||
+                      encerrado ||
+                      (saldo !== null && Number(leilao.valor_atual) + inc > saldo)
+
+                    return (
+                      <button
+                        key={inc}
+                        onClick={() => onDarLanceInc(inc)}
+                        disabled={disabled}
+                        className={classNames(
+                          'rounded-2xl border px-2 py-2 text-[12px] font-black tabular-nums transition',
+                          disabled
+                            ? 'cursor-not-allowed border-white/10 bg-zinc-900/55 text-zinc-500'
+                            : 'border-emerald-300/25 bg-black/35 text-emerald-100 hover:bg-emerald-500/20 hover:scale-[1.03]',
+                        )}
+                      >
+                        + {(inc / 1_000_000).toLocaleString('pt-BR')} mi
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                {hasVencedor && isAdmin && onFinalizar ? (
+                  <button
+                    onClick={onFinalizar}
+                    disabled={!!finalizando}
+                    className={classNames(
+                      'w-full rounded-2xl border px-3 py-3 text-sm font-black transition',
+                      finalizando
+                        ? 'cursor-not-allowed border-white/10 bg-zinc-900/70 text-zinc-500'
+                        : 'border-red-300/25 bg-red-600 text-white hover:bg-red-500',
+                    )}
+                  >
+                    {finalizando ? 'Finalizando…' : 'Finalizar Leilão'}
+                  </button>
+                ) : podeMandarMercado ? (
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3">
+                    <div className="text-xs font-black uppercase tracking-[0.16em] text-emerald-200">
+                      Admin • Mandar para o mercado
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <input
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={valorMercado ?? String(leilao.valor_atual || '')}
+                        onChange={(e) => setValorMercado?.(e.target.value.replace(/[^\d]/g, ''))}
+                        placeholder="Novo preço"
+                        className="min-w-0 flex-1 rounded-2xl border border-emerald-400/30 bg-black/45 px-4 py-3 text-sm font-black text-white outline-none focus:ring-2 focus:ring-emerald-400/30"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={onMandarMercado}
+                        disabled={!!mandandoMercado || !valorMercadoNum || valorMercadoNum <= 0}
+                        className={classNames(
+                          'rounded-2xl border px-4 py-3 text-sm font-black transition',
+                          mandandoMercado || !valorMercadoNum || valorMercadoNum <= 0
+                            ? 'cursor-not-allowed border-white/10 bg-zinc-900/70 text-zinc-500'
+                            : 'border-emerald-300/25 bg-emerald-500 text-black hover:bg-emerald-300',
+                        )}
+                      >
+                        {mandandoMercado ? 'Enviando…' : 'Mandar pro mercado'}
+                      </button>
+                    </div>
+
+                    <div className="mt-2 text-[11px] font-semibold text-white/55">
+                      Preço escolhido: <b className="text-emerald-100">{brl(valorMercadoNum)}</b>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-zinc-900/50 px-3 py-3 text-center text-sm font-black text-zinc-400">
+                    Leilão encerrado
+                  </div>
                 )}
-              >
-                {finalizando ? 'Finalizando…' : 'Finalizar Leilão'}
-              </button>
+              </>
             )}
           </div>
         </div>
