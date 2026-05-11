@@ -284,7 +284,7 @@ function Paginacao({
   })
 
   return (
-    <div className="mt-10 flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-4 shadow-xl backdrop-blur-md">
+    <div className="mt-8 flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-3 shadow-xl backdrop-blur-md sm:mt-10 sm:p-4">
       <div className="text-center text-sm text-white/60">
         Página <strong className="text-white">{paginaSegura}</strong> de{' '}
         <strong className="text-white">{totalPaginas}</strong> — exibindo{' '}
@@ -292,21 +292,21 @@ function Paginacao({
         <strong className="text-white">{totalResultados}</strong> jogador(es)
       </div>
 
-      <div className="flex flex-wrap items-center justify-center gap-2">
+      <div className="flex w-full flex-wrap items-center justify-center gap-2">
         <button
           onClick={() => onChange(1)}
           disabled={paginaSegura === 1}
-          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="min-w-[44px] rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          « Primeira
+          «
         </button>
 
         <button
           onClick={() => onChange(Math.max(1, paginaSegura - 1))}
           disabled={paginaSegura === 1}
-          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="min-w-[44px] rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          ‹ Anterior
+          ‹
         </button>
 
         {paginasVisiveis.map((page, index, array) => {
@@ -335,17 +335,17 @@ function Paginacao({
         <button
           onClick={() => onChange(Math.min(totalPaginas, paginaSegura + 1))}
           disabled={paginaSegura === totalPaginas}
-          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="min-w-[44px] rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Próxima ›
+          ›
         </button>
 
         <button
           onClick={() => onChange(totalPaginas)}
           disabled={paginaSegura === totalPaginas}
-          className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="min-w-[44px] rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Última »
+          »
         </button>
       </div>
     </div>
@@ -1174,11 +1174,11 @@ export default function MercadoPage() {
 
   return (
     <>
-      <Toaster position="top-right" />
+      <Toaster position="top-center" />
 
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,#1f2937_0%,#050505_45%,#000_100%)] text-white">
+      <main className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,#1f2937_0%,#050505_45%,#000_100%)] text-white">
         <div className="border-b border-white/10 bg-black/40 backdrop-blur-xl">
-          <div className="mx-auto max-w-7xl px-4 py-5">
+          <div className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-4 sm:py-5">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div
@@ -1192,7 +1192,7 @@ export default function MercadoPage() {
                   {mercadoFechado ? 'Mercado fechado' : 'Mercado aberto'}
                 </div>
 
-                <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">
+                <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">
                   <span className="bg-gradient-to-r from-yellow-300 via-emerald-300 to-lime-300 bg-clip-text text-transparent">
                     MERCADO DE TRANSFERÊNCIAS
                   </span>
@@ -1203,7 +1203,7 @@ export default function MercadoPage() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                 <span
                   className={[
                     'inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-bold ring-1 ring-inset',
@@ -1221,7 +1221,7 @@ export default function MercadoPage() {
                       onClick={toggleMarketStatus}
                       disabled={loading}
                       className={[
-                        'rounded-2xl px-4 py-2.5 text-sm font-bold transition',
+                        'w-full rounded-2xl px-4 py-2.5 text-sm font-bold transition sm:w-auto',
                         !mercadoAbertoManual
                           ? 'bg-green-600 text-white hover:bg-green-700'
                           : 'bg-yellow-500 text-black hover:bg-yellow-400',
@@ -1235,7 +1235,7 @@ export default function MercadoPage() {
                       onClick={() => document.getElementById('input-xlsx-upload')?.click()}
                       disabled={uploadLoading || mercadoFechado}
                       className={[
-                        'rounded-2xl px-4 py-2.5 text-sm font-bold transition',
+                        'w-full rounded-2xl px-4 py-2.5 text-sm font-bold transition sm:w-auto',
                         uploadLoading ? 'bg-gray-700 text-gray-300' : 'bg-blue-600 text-white hover:bg-blue-700',
                         mercadoFechado ? 'cursor-not-allowed opacity-60' : '',
                       ].join(' ')}
@@ -1258,8 +1258,8 @@ export default function MercadoPage() {
           </div>
         </div>
 
-        <div className="mx-auto max-w-7xl px-4 py-6">
-          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mx-auto w-full max-w-7xl px-3 py-5 sm:px-4 sm:py-6">
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <ResumoCard titulo="Saldo disponível" valor={formatarValor(saldo)} subtitulo="Caixa atual do seu clube" />
             <ResumoCard titulo="Jogadores no mercado" valor={String(jogadores.length)} subtitulo="Total de atletas listados" />
             <ResumoCard titulo="Overall médio" valor={String(mediaOverall)} subtitulo="Nível médio dos jogadores" />
@@ -1333,14 +1333,14 @@ export default function MercadoPage() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl backdrop-blur-md">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-3 shadow-xl backdrop-blur-md sm:p-4">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
                 <h2 className="text-lg font-extrabold text-white">Filtros do mercado</h2>
                 <p className="text-sm text-white/60">Refine sua busca para encontrar exatamente o perfil que deseja.</p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                 <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-gray-300 ring-1 ring-white/10">
                   {totalResultados} resultado(s)
                 </span>
@@ -1353,7 +1353,7 @@ export default function MercadoPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <input
                 type="text"
                 placeholder="🔎 Buscar por nome"
@@ -1414,7 +1414,7 @@ export default function MercadoPage() {
                 <option value="overall_desc">Overall ↓</option>
               </select>
 
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   type="number"
                   placeholder="OVR mín"
@@ -1453,7 +1453,7 @@ export default function MercadoPage() {
                 min={0}
               />
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-gray-800 px-3 py-2 sm:justify-start">
                 <label className="text-sm text-gray-300">Por página</label>
                 <select
                   value={itensPorPagina}
@@ -1461,7 +1461,7 @@ export default function MercadoPage() {
                     setItensPorPagina(Number(e.target.value))
                     setPaginaAtual(1)
                   }}
-                  className="rounded-xl border border-white/10 bg-gray-800 px-3 py-2 text-sm outline-none transition focus:border-green-500"
+                  className="rounded-xl border border-white/10 bg-gray-900 px-3 py-2 text-sm outline-none transition focus:border-green-500"
                 >
                   <option value={20}>20</option>
                   <option value={40}>40</option>
@@ -1472,19 +1472,19 @@ export default function MercadoPage() {
             </div>
 
             {isAdmin && (
-              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <button
                   onClick={solicitarExcluirSelecionados}
                   disabled={loadingExcluir}
                   className={[
-                    'rounded-xl px-4 py-2 text-sm font-semibold transition',
+                    'w-full rounded-xl px-4 py-2 text-sm font-semibold transition sm:w-auto',
                     loadingExcluir ? 'bg-gray-700 text-gray-300' : 'bg-red-600 text-white hover:bg-red-700',
                   ].join(' ')}
                 >
                   {loadingExcluir ? 'Excluindo...' : `🗑️ Excluir Selecionados (${selecionados.length})`}
                 </button>
 
-                <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-gray-800 px-3 py-2">
+                <div className="grid w-full grid-cols-[auto_1fr_auto_1fr] items-center gap-2 rounded-xl border border-white/10 bg-gray-800 px-3 py-2 sm:w-auto">
                   <span className="text-sm text-gray-300">Excluir OVR</span>
                   <input
                     type="number"
@@ -1492,7 +1492,7 @@ export default function MercadoPage() {
                     max={99}
                     value={excluirOverallMin}
                     onChange={(e) => setExcluirOverallMin(Number(e.target.value))}
-                    className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
+                    className="w-full min-w-0 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
                   />
                   <span className="text-sm text-gray-400">até</span>
                   <input
@@ -1501,13 +1501,13 @@ export default function MercadoPage() {
                     max={99}
                     value={excluirOverallMax}
                     onChange={(e) => setExcluirOverallMax(Number(e.target.value))}
-                    className="w-16 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
+                    className="w-full min-w-0 rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-sm outline-none"
                   />
                   <button
                     onClick={solicitarExcluirPorFaixa}
                     disabled={loadingExcluirFaixa}
                     className={[
-                      'rounded-lg px-3 py-1.5 text-sm font-semibold transition',
+                      'col-span-4 rounded-lg px-3 py-1.5 text-sm font-semibold transition sm:col-span-1',
                       loadingExcluirFaixa ? 'bg-gray-700 text-gray-300' : 'bg-red-600 text-white hover:bg-red-700',
                     ].join(' ')}
                   >
@@ -1528,10 +1528,13 @@ export default function MercadoPage() {
             onChange={irParaPagina}
           />
 
-          <div className="mt-6 grid grid-cols-1 justify-items-center gap-6 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+          <div className="mt-6 grid grid-cols-1 justify-items-center gap-7 px-1 sm:px-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {jogadoresPaginados.length > 0 ? (
               jogadoresPaginados.map((jogador) => (
-                <div key={String(jogador.id)} className="relative flex justify-center">
+                <div
+                  key={String(jogador.id)}
+                  className="relative flex w-full max-w-[360px] justify-center overflow-visible"
+                >
                   {isAdmin && (
                     <button
                       type="button"
