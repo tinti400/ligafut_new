@@ -96,10 +96,22 @@ function mesmoId(a?: string | null, b?: string | null) {
   return String(a || "").trim() === String(b || "").trim();
 }
 
+function corrigirFoto(url?: string | null) {
+  if (!url) return "/default-player.png";
+
+  let foto = String(url).trim();
+
+  if (foto.includes("cdn.sofifa.net/players") && !foto.endsWith(".png")) {
+    foto = `${foto}_120.png`;
+  }
+
+  return foto;
+}
+
 function pegarFotoElenco(j?: JogadorElenco | null) {
-  return (
-    j?.imagem_url ||
+  const foto =
     j?.foto ||
+    j?.imagem_url ||
     j?.image_url ||
     j?.foto_url ||
     j?.url_foto ||
@@ -107,12 +119,13 @@ function pegarFotoElenco(j?: JogadorElenco | null) {
     j?.avatar_url ||
     j?.link_foto ||
     j?.player_image ||
-    null
-  );
+    null;
+
+  return corrigirFoto(foto);
 }
 
 function fotoJogador(j?: RankingArtilheiro) {
-  return j?.imagem_url || "/default-player.png";
+  return corrigirFoto(j?.imagem_url);
 }
 
 function medalha(posicao: number) {
@@ -203,10 +216,7 @@ export default function ArtilhariaCopaPage() {
           .filter((evento) => evento?.tipo === "gol")
           .forEach((evento, index) => {
             const idTime =
-              evento.id_time ||
-              evento.time_id ||
-              evento.timeId ||
-              null;
+              evento.id_time || evento.time_id || evento.timeId || null;
 
             const idJogador =
               evento.id_jogador ||
@@ -221,10 +231,7 @@ export default function ArtilhariaCopaPage() {
               "Jogador";
 
             const nomeTimeEvento =
-              evento.nome_time ||
-              evento.time_nome ||
-              evento.time ||
-              null;
+              evento.nome_time || evento.time_nome || evento.time || null;
 
             golsDoHistorico.push({
               id: `historico_${jogo.id}_${index}`,
@@ -313,8 +320,7 @@ export default function ArtilhariaCopaPage() {
       const mesmoNome =
         normalizarTexto(j.nome) === normalizarTexto(g.nome_jogador);
 
-      const mesmoTime =
-        !timeResolvido || mesmoId(j.id_time, timeResolvido);
+      const mesmoTime = !timeResolvido || mesmoId(j.id_time, timeResolvido);
 
       return mesmoNome && mesmoTime;
     });
