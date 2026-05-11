@@ -29,7 +29,9 @@ const fmtBRL0 = (n: number) =>
 
 const fmtInt = (n: number) => n.toLocaleString('pt-BR')
 const clamp99 = (n: number) => (n > 99 ? '99+' : String(n))
-const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim())
+
+const isEmail = (s: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim())
 
 async function checarAdmin(pIdent: string) {
   const ident = String(pIdent || '').trim().toLowerCase()
@@ -149,6 +151,7 @@ export default function Sidebar() {
       if (direct) return direct
 
       const userStr = localStorage.getItem('user') || localStorage.getItem('usuario')
+
       if (userStr) {
         try {
           const u = JSON.parse(userStr)
@@ -162,6 +165,7 @@ export default function Sidebar() {
     const id = getIdTime()
     setIdTime(id)
     setLogado(!!id || !!localStorage.getItem('usuario_id'))
+
     setCountRecebidas(safe(localStorage.getItem('propostas_recebidas_count')))
     setCountEnviadas(safe(localStorage.getItem('propostas_enviadas_count')))
 
@@ -279,6 +283,7 @@ export default function Sidebar() {
           const total = getFirstNumber(emp, ['valor_total', 'valor', 'montante', 'principal', 'total'])
           const totParcelas =
             getFirstNumber(emp, ['parcelas_totais', 'total_parcelas', 'qtd_parcelas', 'numero_parcelas']) || 1
+
           const pagas = getFirstNumber(emp, ['parcelas_pagas'])
           const atual = getFirstNumber(emp, ['parcela_atual'])
 
@@ -301,7 +306,8 @@ export default function Sidebar() {
               'valor_a_pagar',
               'restante',
               'total_devido',
-            ]) || vParcela * restantes
+            ]) ||
+            vParcela * restantes
 
           setDividaEmprestimos(devedor)
           setValorParcela(vParcela)
@@ -375,13 +381,13 @@ export default function Sidebar() {
       <Link
         href={href}
         className={[
-          'group flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm transition ring-1 ring-inset',
+          'group flex items-center justify-between gap-2 rounded-xl px-3 py-2 transition ring-1 ring-inset',
           active
             ? 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30 shadow-[inset_0_0_18px_rgba(16,185,129,0.08)]'
             : 'text-white/85 ring-white/10 hover:bg-white/7 hover:text-white',
         ].join(' ')}
       >
-        <span className="flex min-w-0 items-center gap-2 truncate">{children}</span>
+        <span className="flex items-center gap-2 truncate">{children}</span>
         {badge}
       </Link>
     )
@@ -408,11 +414,11 @@ export default function Sidebar() {
         persistGroup(storageKey, v)
       }}
       className={[
-        'flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm transition ring-1 ring-inset',
+        'flex w-full items-center justify-between rounded-xl px-3 py-2 transition ring-1 ring-inset',
         open ? 'bg-white/7 ring-white/12' : 'ring-white/10 hover:bg-white/7',
       ].join(' ')}
     >
-      <span className="flex items-center gap-2 font-bold">
+      <span className="flex items-center gap-2 text-sm font-bold">
         {icon}
         {label}
       </span>
@@ -420,7 +426,17 @@ export default function Sidebar() {
     </button>
   )
 
-  const CollapsedItem = ({ href, label, emoji, badge }: { href: string; label: string; emoji: string; badge?: ReactNode }) => {
+  const CollapsedItem = ({
+    href,
+    label,
+    emoji,
+    badge,
+  }: {
+    href: string
+    label: string
+    emoji: string
+    badge?: ReactNode
+  }) => {
     const active = isActive(href)
 
     return (
@@ -441,27 +457,25 @@ export default function Sidebar() {
 
   const HeaderBar = () => (
     <div
-      className="fixed left-0 right-0 z-50 border-b border-white/10 bg-[#07111f]/85 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl transition-transform duration-300"
+      className="fixed left-0 right-0 z-50 border-b border-white/10 bg-[#07111f]/80 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl transition-transform duration-300"
       style={{
         height: HEADER_H,
         top: 0,
         transform: headerVisible ? 'translateY(0)' : `translateY(-${HEADER_H}px)`,
       }}
     >
-      <div className="mx-auto flex h-full max-w-[1500px] items-center justify-between gap-2 px-3">
+      <div className="mx-auto flex h-full max-w-[1500px] items-center justify-between gap-3 px-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-400/25 to-sky-400/20 font-black ring-1 ring-white/15">
             LF
           </div>
 
-          <div className="min-w-0 leading-tight">
-            <div className="truncate text-sm font-black tracking-wide text-white">LigaFut</div>
-            <div className="truncate text-[11px] text-white/50">Central do Clube</div>
+          <div className="hidden leading-tight sm:block">
+            <div className="text-sm font-black tracking-wide text-white">LigaFut</div>
+            <div className="text-[11px] text-white/50">Central do Clube</div>
           </div>
 
-          {logoUrl ? (
-            <img src={logoUrl} alt="Escudo" className="hidden h-8 w-8 rounded-xl object-cover ring-1 ring-white/15 sm:block" />
-          ) : null}
+          {logoUrl ? <img src={logoUrl} alt="Escudo" className="h-8 w-8 rounded-xl object-cover ring-1 ring-white/15" /> : null}
         </div>
 
         <div className="hidden xl:grid max-w-[920px] flex-1 grid-cols-5 gap-2">
@@ -469,22 +483,18 @@ export default function Sidebar() {
             <div className="text-white/50">Moedas</div>
             <div className="font-black tabular-nums text-sky-300">🪙 {moedasFmt}</div>
           </div>
-
           <div className="rounded-xl bg-white/5 px-3 py-2 text-xs ring-1 ring-white/10">
             <div className="text-white/50">Caixa</div>
             <div className="font-black tabular-nums text-emerald-300">{saldoFmt}</div>
           </div>
-
           <div className="rounded-xl bg-white/5 px-3 py-2 text-xs ring-1 ring-white/10">
             <div className="text-white/50">Salários</div>
             <div className="font-black tabular-nums text-amber-300">{salariosFmt}</div>
           </div>
-
           <div className="rounded-xl bg-white/5 px-3 py-2 text-xs ring-1 ring-white/10">
             <div className="text-white/50">Dívida</div>
             <div className="font-black tabular-nums text-rose-300">{dividaFmt}</div>
           </div>
-
           <div className="rounded-xl bg-white/5 px-3 py-2 text-xs ring-1 ring-white/10">
             <div className="text-white/50">Parcela</div>
             <div className="font-black tabular-nums text-white">
@@ -493,7 +503,7 @@ export default function Sidebar() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex items-center gap-2">
           <div
             className={[
               'hidden rounded-xl px-3 py-2 text-xs font-bold ring-1 sm:block',
@@ -537,8 +547,6 @@ export default function Sidebar() {
       </button>
     )
 
-  const openOnDesktop = isOpen
-
   return (
     <>
       <HeaderBar />
@@ -546,16 +554,18 @@ export default function Sidebar() {
 
       <aside
         className={[
-          'relative flex h-screen shrink-0 flex-col justify-between overflow-hidden border-r border-white/10 text-white transition-all duration-300',
+          'relative flex h-screen flex-col justify-between border-r border-white/10 text-white transition-all duration-300',
           'bg-[#07111f]/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-xl',
-          openOnDesktop ? 'w-20 lg:w-72' : 'w-20',
+          isOpen ? 'w-20 lg:w-72' : 'w-20',
         ].join(' ')}
-        style={{ paddingTop: (headerVisible ? HEADER_H : 0) + 12 }}
+        style={{
+          paddingTop: (headerVisible ? HEADER_H : 0) + 12,
+        }}
       >
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.13),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_32%)]" />
 
-        <div className="relative flex min-h-0 flex-1 flex-col px-3 pt-3">
-          <div className="mb-3 flex items-center justify-center lg:justify-between">
+        <div className="relative overflow-hidden px-3 pt-3">
+          <div className="mb-3 flex items-center justify-between">
             <button
               type="button"
               onClick={() => setIsOpen(!isOpen)}
@@ -566,14 +576,14 @@ export default function Sidebar() {
               <span className="lg:hidden">☰</span>
             </button>
 
-            {openOnDesktop && (
+            {isOpen && (
               <div className="hidden rounded-xl bg-white/5 px-3 py-2 text-xs font-black ring-1 ring-white/10 lg:block">
                 Menu Principal
               </div>
             )}
           </div>
 
-          {openOnDesktop ? (
+          {isOpen ? (
             <div
               className={[
                 'mb-3 hidden rounded-2xl p-3 ring-1 lg:block',
@@ -595,7 +605,7 @@ export default function Sidebar() {
             {logado ? '✅' : '❌'}
           </div>
 
-          <nav className="min-h-0 flex-1 overflow-y-auto pr-1 pb-4">
+          <nav className={`${isOpen ? 'space-y-2 lg:space-y-2' : 'grid justify-center gap-2'} max-h-[calc(100vh-190px)] overflow-y-auto pr-1`}>
             <div className="grid justify-center gap-2 lg:hidden">
               {!logado && <CollapsedItem href="/login" label="Login" emoji="🔑" />}
               <CollapsedItem href="/" label="Home" emoji="🏠" />
@@ -612,28 +622,38 @@ export default function Sidebar() {
               {isAdmin && <CollapsedItem href="/admin" label="Admin" emoji="🛠️" />}
             </div>
 
-            <div className={openOnDesktop ? 'hidden space-y-2 lg:block' : 'hidden'}>
+            <div className="hidden space-y-2 lg:block">
               {!logado && <NavLink href="/login">🔑 Login</NavLink>}
               <NavLink href="/">🏠 Home</NavLink>
 
-              <ToggleGroup open={abrirClube} setOpen={setAbrirClube} storageKey="clube" label="Clube" icon="🏟️" />
-              {abrirClube && (
+              <ToggleGroup
+                open={abrirCompeticoes}
+                setOpen={setAbrirCompeticoes}
+                storageKey="competicoes"
+                label="Competições"
+                icon="🏆"
+              />
+              {abrirCompeticoes && (
                 <div className="space-y-2 pl-2">
-                  <NavLink href="/elenco">👥 Elenco</NavLink>
-                  <NavLink href="/estadios">🏟️ Estádio</NavLink>
-                  <NavLink href="/financeiro">💰 Financeiro</NavLink>
-                  <NavLink href="/patrocinios">🤝 Patrocínios</NavLink>
+                  <NavLink href="/copa">
+                    <span className="flex items-center gap-2">
+                      🏆 Copa Champions
+                      <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] font-black text-yellow-300 ring-1 ring-yellow-400/25">
+                        NOVA
+                      </span>
+                    </span>
+                  </NavLink>
+                  <NavLink href="/copa/artilharia">⚽ Artilharia</NavLink>
+                  <NavLink href="/copa/assistencias">🎯 Assistências</NavLink>
                 </div>
               )}
 
-              <ToggleGroup open={abrirCompeticoes} setOpen={setAbrirCompeticoes} storageKey="competicoes" label="Competições" icon="🏆" />
-              {abrirCompeticoes && (
+              <ToggleGroup open={abrirClube} setOpen={setAbrirClube} storageKey="clube" label="Meu Clube" icon="👥" />
+              {abrirClube && (
                 <div className="space-y-2 pl-2">
-                  <NavLink href="/copa">🏆 Copa Champions</NavLink>
-                  <NavLink href="/copa/artilharia">⚽ Artilharia</NavLink>
-                  <NavLink href="/copa/assistencias">🎯 Assistências</NavLink>
-                  <NavLink href="/classificacao">📊 Classificação</NavLink>
-                  <NavLink href="/jogos">🗓️ Jogos</NavLink>
+                  <NavLink href="/elenco">👥 Elenco</NavLink>
+                  <NavLink href="/estadio">🏟️ Estádio</NavLink>
+                  <NavLink href="/financas">💰 Finanças</NavLink>
                 </div>
               )}
 
@@ -642,12 +662,17 @@ export default function Sidebar() {
                 <div className="space-y-2 pl-2">
                   <NavLink href="/mercado">💸 Mercado</NavLink>
                   <NavLink href="/negociacoes">🤝 Negociações</NavLink>
-                  <NavLink href="/propostas_recebidas" badge={<Badge n={countRecebidas} />}>📥 Propostas Recebidas</NavLink>
-                  <NavLink href="/propostas_enviadas" badge={<Badge n={countEnviadas} tone="amber" />}>📤 Propostas Enviadas</NavLink>
+                  <NavLink href="/propostas_recebidas" badge={<Badge n={countRecebidas} />}>
+                    📥 Propostas Recebidas
+                  </NavLink>
+                  <NavLink href="/propostas_enviadas" badge={<Badge n={countEnviadas} tone="amber" />}>
+                    📤 Propostas Enviadas
+                  </NavLink>
                   <NavLink href="/leilao">🎯 Leilão</NavLink>
-                  <NavLink href="/BID">📰 BID</NavLink>
                 </div>
               )}
+
+              <NavLink href="/BID">📰 BID</NavLink>
 
               {isAdmin && (
                 <>
@@ -656,36 +681,57 @@ export default function Sidebar() {
                     <div className="space-y-2 pl-2">
                       <NavLink href="/admin">🛠️ Painel Admin</NavLink>
                       <NavLink href="/admin/times">🏟️ Admin Times</NavLink>
-                      <NavLink href="/admin/jogadores">🧾 Base Jogadores</NavLink>
-                      <NavLink href="/admin/leilao">🎯 Admin Leilão</NavLink>
                       <NavLink href="/admin/mercado">💸 Admin Mercado</NavLink>
+                      <NavLink href="/admin/leilao">🎯 Admin Leilão</NavLink>
                     </div>
                   )}
                 </>
               )}
 
-              {checkingAdmin && <div className="rounded-xl bg-white/5 px-3 py-2 text-xs text-white/45">Verificando admin...</div>}
+              {checkingAdmin && <div className="px-3 py-2 text-xs text-white/40">Verificando admin...</div>}
             </div>
           </nav>
         </div>
 
-        <div className="relative hidden border-t border-white/10 p-3 lg:block">
-          {openOnDesktop ? (
-            <div className="space-y-2 rounded-2xl bg-white/[0.04] p-3 text-xs ring-1 ring-white/10">
-              <div className="flex justify-between gap-2">
-                <span className="text-white/50">Saldo</span>
-                <strong className="text-emerald-300">{saldoFmt}</strong>
+        <div className="relative border-t border-white/10 p-3">
+          {isOpen ? (
+            <div className="hidden space-y-2 lg:block">
+              <div className="rounded-2xl bg-white/5 p-3 text-xs ring-1 ring-white/10">
+                <div className="text-white/50">Caixa do clube</div>
+                <div className="mt-1 font-black text-emerald-300">{saldoFmt}</div>
               </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-white/50">Salários</span>
-                <strong className="text-amber-300">{salariosFmt}</strong>
-              </div>
-              <div className="flex justify-between gap-2">
-                <span className="text-white/50">Moedas</span>
-                <strong className="text-sky-300">🪙 {moedasFmt}</strong>
-              </div>
+              {logado && (
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="w-full rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold ring-1 ring-white/10 transition hover:bg-rose-700"
+                >
+                  🚪 Sair
+                </button>
+              )}
             </div>
           ) : null}
+
+          <div className="grid place-items-center lg:hidden">
+            {logado ? (
+              <button
+                type="button"
+                onClick={logout}
+                title="Sair"
+                className="grid h-11 w-11 place-items-center rounded-xl bg-rose-600 text-sm ring-1 ring-white/10 transition hover:bg-rose-700"
+              >
+                🚪
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                title="Login"
+                className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-600 text-sm ring-1 ring-white/10 transition hover:bg-emerald-700"
+              >
+                🔑
+              </Link>
+            )}
+          </div>
         </div>
       </aside>
     </>
