@@ -61,6 +61,10 @@ export default function LeilaoSistemaPage() {
   // input manual por leilão
   const [propostas, setPropostas] = useState<Record<string, string>>({})
 
+  // input admin para mandar jogador sem lance ao mercado
+  const [precosMercado, setPrecosMercado] = useState<Record<string, string>>({})
+  const [mandandoMercado, setMandandoMercado] = useState<Record<string, boolean>>({})
+
   // logos de times
   const [logos, setLogos] = useState<Record<string, string>>({})
 
@@ -319,6 +323,14 @@ export default function LeilaoSistemaPage() {
         }
         return next
       })
+
+      setPrecosMercado((prev) => {
+        const next = { ...prev }
+        for (const l of arr) {
+          if (!next[l.id]) next[l.id] = String(l.valor_atual ?? 0)
+        }
+        return next
+      })
     }
   }
 
@@ -567,6 +579,79 @@ export default function LeilaoSistemaPage() {
     }
   }
 
+  async function mandarParaMercado(leilao: Leilao) {
+    if (!isAdmin) {
+      toast.error('Ação restrita a administradores.')
+      return
+    }
+
+    if (leilao.id_time_vencedor || leilao.nome_time_vencedor) {
+      toast.error('Esse jogador já recebeu lance e não pode ir direto para o mercado.')
+      return
+    }
+
+    const valorDigitado = Number(String(precosMercado[leilao.id] || '').replace(/[^\d]/g, ''))
+    const valorMercado = valorDigitado > 0 ? valorDigitado : Number(leilao.valor_atual || 0)
+
+    if (!valorMercado || valorMercado <= 0) {
+      toast.error('Informe um valor válido para enviar ao mercado.')
+      return
+    }
+
+    if (!confirm(`Enviar ${leilao.nome} para o mercado por ${brl(valorMercado)}?`)) return
+
+    setMandandoMercado((p) => ({ ...p, [leilao.id]: true }))
+
+    try {
+      const { data: atual, error: validarError } = await supabase
+        .from('leiloes_sistema')
+        .select('id, nome, posicao, overall, nacionalidade, imagem_url, link_sofifa, valor_atual, id_time_vencedor, nome_time_vencedor, status')
+        .eq('id', leilao.id)
+        .single()
+
+      if (validarError || !atual) throw new Error('Não foi possível validar o leilão.')
+      if ((atual as any).status !== 'ativo') throw new Error('Esse leilão não está mais ativo.')
+      if ((atual as any).id_time_vencedor || (atual as any).nome_time_vencedor) {
+        throw new Error('Esse jogador recebeu lance agora há pouco e não pode ir direto para o mercado.')
+      }
+
+      const imagemFinal = pickImagemUrl(atual) || leilao.imagem_url || null
+
+      const { error: insertError } = await supabase.from('mercado_transferencias').insert({
+        nome: (atual as any).nome || leilao.nome,
+        posicao: (atual as any).posicao || leilao.posicao,
+        overall: Number((atual as any).overall ?? leilao.overall ?? 0),
+        valor: valorMercado,
+        nacionalidade: (atual as any).nacionalidade || leilao.nacionalidade || null,
+        imagem_url: imagemFinal,
+        foto: imagemFinal,
+        link_sofifa: (atual as any).link_sofifa || leilao.link_sofifa || null,
+        status: 'ativo',
+        data_listagem: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        origem: 'leilao_sistema',
+      })
+
+      if (insertError) throw new Error(insertError.message)
+
+      const { error: updateError } = await supabase
+        .from('leiloes_sistema')
+        .update({ status: 'cancelado' })
+        .eq('id', leilao.id)
+        .is('id_time_vencedor', null)
+        .is('nome_time_vencedor', null)
+
+      if (updateError) throw new Error(updateError.message)
+
+      toast.success(`${leilao.nome} enviado ao mercado por ${brl(valorMercado)}.`)
+      await buscarLeiloesAtivos()
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao enviar para o mercado.')
+    } finally {
+      setMandandoMercado((p) => ({ ...p, [leilao.id]: false }))
+    }
+  }
+
   // ===== LANCES =====
   async function darLanceManual(leilaoId: string, valorAtual: number, valorProposto: number) {
     setErroTela(null)
@@ -687,7 +772,6 @@ export default function LeilaoSistemaPage() {
       setTimeout(() => setCooldownPorLeilao((prev) => ({ ...prev, [leilaoId]: false })), 150)
     }
   }
-
 
   const calcularTempoRestante = (leilao: Leilao) => {
     const tempoFinal = toMs(leilao.fim)
@@ -910,6 +994,9 @@ export default function LeilaoSistemaPage() {
                 const vencedor = leilao.nome_time_vencedor || ''
                 const logoVencedor = vencedor ? logos[vencedor] : undefined
                 const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
+                const semLance = !leilao.id_time_vencedor && !leilao.nome_time_vencedor
+                const precoMercadoRaw = precosMercado[leilao.id] ?? String(leilao.valor_atual || '')
+                const precoMercadoPreview = Number(String(precoMercadoRaw || '').replace(/[^\d]/g, ''))
 
                 return (
                   <div
@@ -953,6 +1040,57 @@ export default function LeilaoSistemaPage() {
                       onFinalizar={isAdmin ? () => finalizarLeilao(leilao.id) : undefined}
                       finalizando={!!finalizando[leilao.id]}
                     />
+
+                    {isAdmin && semLance && (
+                      <div className="relative mt-3 overflow-hidden rounded-[1.75rem] border border-emerald-300/20 bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(255,255,255,.045))] p-3 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,.22),transparent_40%)]" />
+
+                        <div className="relative">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200/90">
+                                Admin • carta sem lance
+                              </div>
+                              <div className="mt-1 text-sm font-black text-white">Enviar para o mercado</div>
+                            </div>
+                            <span className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-black text-emerald-100">
+                              SEM LANCE
+                            </span>
+                          </div>
+
+                          <div className="mt-3 flex gap-2">
+                            <div className="min-w-0 flex-1">
+                              <label className="mb-1 block text-[10px] font-black uppercase tracking-[0.16em] text-white/38">
+                                Preço para mercado
+                              </label>
+                              <input
+                                value={precoMercadoRaw}
+                                onChange={(e) => {
+                                  const onlyDigits = e.target.value.replace(/[^\d]/g, '')
+                                  setPrecosMercado((p) => ({ ...p, [leilao.id]: onlyDigits }))
+                                }}
+                                placeholder="Ex: 50000000"
+                                inputMode="numeric"
+                                className="w-full rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-sm font-black text-white outline-none transition placeholder:text-white/25 focus:border-emerald-300/45"
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={!!mandandoMercado[leilao.id]}
+                              onClick={() => mandarParaMercado(leilao)}
+                              className="mt-5 rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-black text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {mandandoMercado[leilao.id] ? 'Enviando...' : 'Mandar'}
+                            </button>
+                          </div>
+
+                          <p className="mt-2 text-[11px] text-white/48">
+                            Será listado por <b className="text-emerald-100">{brl(precoMercadoPreview || leilao.valor_atual)}</b>. Após enviar, ele sai dos leilões ativos.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -1001,6 +1139,15 @@ export default function LeilaoSistemaPage() {
               Quando faltar menos de 15 segundos, o card ganha brilho vermelho para chamar atenção e evitar perder o lance.
             </p>
           </div>
+
+          {isAdmin && (
+            <div className="rounded-[2rem] border border-emerald-300/15 bg-emerald-400/[0.06] p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
+              <h3 className="text-lg font-black">🛒 Mercado pós-leilão</h3>
+              <p className="mt-1 text-sm text-white/50">
+                Cartas sem lance agora podem ser enviadas ao mercado com preço definido pelo administrador.
+              </p>
+            </div>
+          )}
         </aside>
       </section>
 
@@ -1159,4 +1306,3 @@ export default function LeilaoSistemaPage() {
     </main>
   )
 }
-
