@@ -128,6 +128,8 @@ export default function AdminLeilaoPage() {
   const [msg, setMsg] = useState('')
   const [aba, setAba] = useState<Aba>('criar')
   const [carregando, setCarregando] = useState(false)
+  const [precosMercado, setPrecosMercado] = useState<Record<string, string>>({})
+  const [enviandoMercado, setEnviandoMercado] = useState<Record<string, boolean>>({})
 
   const imagemPreview = useMemo(() => {
     if (imagemFile) return URL.createObjectURL(imagemFile)
@@ -455,6 +457,84 @@ export default function AdminLeilaoPage() {
     buscarLeiloesAtivos()
   }
 
+  function leilaoSistemaFinalizadoSemLance(item: any) {
+    const acabou = new Date(item?.fim).getTime() <= Date.now()
+    const semLance = !item?.id_time_vencedor && !item?.nome_time_vencedor
+    return acabou && semLance
+  }
+
+  async function mandarLeilaoSistemaParaMercado(item: any) {
+    try {
+      if (!leilaoSistemaFinalizadoSemLance(item)) {
+        setMsg('❌ Só é possível mandar para o mercado leilão encerrado e sem lance.')
+        return
+      }
+
+      const valorDigitado = parseMoeda(precosMercado[item.id], 0)
+      const valorMercado = valorDigitado > 0 ? valorDigitado : Number(item?.valor_atual || 0)
+
+      if (!valorMercado || valorMercado <= 0) {
+        setMsg('❌ Informe um preço válido para o mercado.')
+        return
+      }
+
+      if (!confirm(`Enviar ${item.nome} para o mercado por ${formatMoeda(valorMercado)}?`)) return
+
+      setEnviandoMercado((prev) => ({ ...prev, [item.id]: true }))
+      setMsg('🛒 Enviando jogador para o mercado...')
+
+      const { data: atual, error: validarError } = await supabase
+        .from('leiloes_sistema')
+        .select('*')
+        .eq('id', item.id)
+        .single()
+
+      if (validarError || !atual) throw new Error(validarError?.message || 'Leilão não encontrado.')
+
+      if (new Date((atual as any).fim).getTime() > Date.now()) {
+        throw new Error('Esse leilão ainda não terminou.')
+      }
+
+      if ((atual as any).id_time_vencedor || (atual as any).nome_time_vencedor) {
+        throw new Error('Esse jogador já recebeu lance e não pode ir direto para o mercado.')
+      }
+
+      const { error: insertError } = await supabase.from('mercado_transferencias').insert({
+        nome: (atual as any).nome,
+        posicao: (atual as any).posicao,
+        overall: Number((atual as any).overall || 0),
+        valor: valorMercado,
+        nacionalidade: norm((atual as any).nacionalidade) || null,
+        imagem_url: normalizeUrl((atual as any).imagem_url || '') || null,
+        foto: normalizeUrl((atual as any).imagem_url || '') || null,
+        link_sofifa: normalizeUrl((atual as any).link_sofifa || '') || null,
+        status: 'ativo',
+        data_listagem: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        origem: 'leilao_sistema',
+      })
+
+      if (insertError) throw new Error(insertError.message)
+
+      const { error: updateError } = await supabase
+        .from('leiloes_sistema')
+        .update({ status: 'cancelado' })
+        .eq('id', item.id)
+        .is('id_time_vencedor', null)
+        .is('nome_time_vencedor', null)
+
+      if (updateError) throw new Error(updateError.message)
+
+      setMsg(`✅ ${item.nome} enviado para o mercado por ${formatMoeda(valorMercado)}.`)
+      await buscarLeiloesAtivos()
+      router.refresh()
+    } catch (e: any) {
+      setMsg('❌ Erro ao mandar para o mercado: ' + (e?.message || 'desconhecido'))
+    } finally {
+      setEnviandoMercado((prev) => ({ ...prev, [item.id]: false }))
+    }
+  }
+
   async function cancelarLeilaoEscuro(id: string) {
     if (!confirm('Cancelar este leilão no escuro?')) return
 
@@ -750,6 +830,11 @@ export default function AdminLeilaoPage() {
                   misterioso={false}
                   tempo={formatarTempo(leilao.fim)}
                   onCancel={() => cancelarLeilaoSistema(leilao.id)}
+                  canSendMarket={leilaoSistemaFinalizadoSemLance(leilao)}
+                  valorMercado={precosMercado[leilao.id] ?? String(leilao.valor_atual || '')}
+                  setValorMercado={(v) => setPrecosMercado((prev) => ({ ...prev, [leilao.id]: v }))}
+                  onSendMarket={() => mandarLeilaoSistemaParaMercado(leilao)}
+                  sendingMarket={!!enviandoMercado[leilao.id]}
                 />
               ))}
             </GridEmpty>
@@ -1121,11 +1206,21 @@ function AuctionCard({
   tempo,
   onCancel,
   misterioso,
+  canSendMarket,
+  valorMercado,
+  setValorMercado,
+  onSendMarket,
+  sendingMarket,
 }: {
   item: any
   tempo: string
   onCancel: () => void
   misterioso: boolean
+  canSendMarket?: boolean
+  valorMercado?: string
+  setValorMercado?: (v: string) => void
+  onSendMarket?: () => void
+  sendingMarket?: boolean
 }) {
   const nome = misterioso ? 'Jogador Misterioso' : item.nome
 
@@ -1152,6 +1247,40 @@ function AuctionCard({
         {item.nacionalidade && <KV k="Nacionalidade" v={item.nacionalidade} />}
         {item.origem && <KV k="Origem" v={item.origem} />}
       </div>
+
+      {!misterioso && canSendMarket && (
+        <div className="mt-4 rounded-3xl border border-emerald-400/25 bg-emerald-400/10 p-4">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">
+            Leilão encerrado sem lance
+          </p>
+
+          <p className="mt-1 text-sm font-bold text-slate-300">
+            Defina o preço e mande este jogador direto para o mercado.
+          </p>
+
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+            <InputBase
+              type="number"
+              min={1}
+              value={valorMercado ?? String(item.valor_atual || '')}
+              onChange={(e) => setValorMercado?.(e.target.value.replace(/[^\d]/g, ''))}
+              title="Preço para o mercado"
+            />
+
+            <button
+              onClick={onSendMarket}
+              disabled={!!sendingMarket}
+              className="rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-black text-black hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sendingMarket ? 'Enviando...' : 'Mandar ao mercado'}
+            </button>
+          </div>
+
+          <p className="mt-2 text-xs font-semibold text-emerald-100">
+            Preço: {formatMoeda(parseMoeda(valorMercado, Number(item.valor_atual) || 0))}
+          </p>
+        </div>
+      )}
 
       <button onClick={onCancel} className="mt-4 w-full rounded-2xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm font-black text-red-200 hover:bg-red-400/20">
         Cancelar leilão
