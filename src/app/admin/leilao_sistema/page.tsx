@@ -1041,7 +1041,7 @@ export default function LeilaoSistemaPage() {
                       finalizando={isAdmin && !semLance && !!finalizando[leilao.id]}
                     />
 
-                    {isAdmin && semLance && (
+                    {isAdmin && semLance && tempoRestante <= 0 && (
                       <div className="relative mt-3 overflow-hidden rounded-[1.75rem] border border-emerald-300/20 bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(255,255,255,.045))] p-3 shadow-2xl shadow-black/30 backdrop-blur-xl">
                         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,.22),transparent_40%)]" />
 
