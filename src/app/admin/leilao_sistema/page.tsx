@@ -995,11 +995,6 @@ export default function LeilaoSistemaPage() {
                 const logoVencedor = vencedor ? logos[vencedor] : undefined
                 const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
                 const semLance = !leilao.id_time_vencedor && !leilao.nome_time_vencedor
-                const leilaoEncerrado = tempoRestante <= 0
-                const podeMandarMercado = isAdmin && semLance && leilaoEncerrado
-                const precoMercadoRaw = precosMercado[leilao.id] ?? String(leilao.valor_atual || '')
-                const precoMercadoPreview = Number(String(precoMercadoRaw || '').replace(/[^\d]/g, ''))
-
                 return (
                   <div
                     key={leilao.id}
@@ -1039,60 +1034,16 @@ export default function LeilaoSistemaPage() {
                         setPropostas((prev) => ({ ...prev, [leilao.id]: String(minimoPermitido + 20_000_000) }))
                       }
                       onExcluir={isAdmin ? () => excluirDoLeilao(leilao.id) : undefined}
-                      onFinalizar={isAdmin && !semLance ? () => finalizarLeilao(leilao.id) : undefined}
-                      finalizando={isAdmin && !semLance && !!finalizando[leilao.id]}
+                      onFinalizar={isAdmin && tempoRestante <= 0 && !semLance ? () => finalizarLeilao(leilao.id) : undefined}
+                      finalizando={!!finalizando[leilao.id] || !!mandandoMercado[leilao.id]}
+                      valorMercado={precosMercado[leilao.id] ?? String(leilao.valor_atual || '')}
+                      setValorMercado={(v) => {
+                        const onlyDigits = String(v || '').replace(/[^\d]/g, '')
+                        setPrecosMercado((prev) => ({ ...prev, [leilao.id]: onlyDigits }))
+                      }}
+                      onMandarMercado={isAdmin && tempoRestante <= 0 && semLance ? () => mandarParaMercado(leilao) : undefined}
+                      mandandoMercado={!!mandandoMercado[leilao.id]}
                     />
-
-                    {podeMandarMercado && (
-                      <div className="relative mt-3 overflow-hidden rounded-[1.75rem] border border-emerald-300/20 bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(255,255,255,.045))] p-3 shadow-2xl shadow-black/30 backdrop-blur-xl">
-                        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,.22),transparent_40%)]" />
-
-                        <div className="relative">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200/90">
-                                Admin • carta sem lance
-                              </div>
-                              <div className="mt-1 text-sm font-black text-white">Enviar para o mercado</div>
-                            </div>
-                            <span className="rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-black text-emerald-100">
-                              SEM LANCE
-                            </span>
-                          </div>
-
-                          <div className="mt-3 flex gap-2">
-                            <div className="min-w-0 flex-1">
-                              <label className="mb-1 block text-[10px] font-black uppercase tracking-[0.16em] text-white/38">
-                                Preço para mercado
-                              </label>
-                              <input
-                                value={precoMercadoRaw}
-                                onChange={(e) => {
-                                  const onlyDigits = e.target.value.replace(/[^\d]/g, '')
-                                  setPrecosMercado((p) => ({ ...p, [leilao.id]: onlyDigits }))
-                                }}
-                                placeholder="Ex: 50000000"
-                                inputMode="numeric"
-                                className="w-full rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-sm font-black text-white outline-none transition placeholder:text-white/25 focus:border-emerald-300/45"
-                              />
-                            </div>
-
-                            <button
-                              type="button"
-                              disabled={!!mandandoMercado[leilao.id]}
-                              onClick={() => mandarParaMercado(leilao)}
-                              className="mt-5 rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-black text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {mandandoMercado[leilao.id] ? 'Enviando...' : 'Mandar para o Mercado'}
-                            </button>
-                          </div>
-
-                          <p className="mt-2 text-[11px] text-white/48">
-                            Será listado por <b className="text-emerald-100">{brl(precoMercadoPreview || leilao.valor_atual)}</b>. Após enviar, ele sai dos leilões ativos.
-                          </p>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )
               })}
