@@ -149,7 +149,7 @@ export default function Sidebar() {
         className={[
           'relative flex h-screen flex-col justify-between border-r border-white/10 text-white transition-all duration-300',
           'bg-[#07111f]/95 backdrop-blur-xl',
-          isOpen ? 'w-20 lg:w-72' : 'w-20',
+          isOpen ? 'w-24 lg:w-72' : 'w-24',
         ].join(' ')}
         style={{
           paddingTop: (headerVisible ? HEADER_H : 0) + 12,
