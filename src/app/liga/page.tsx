@@ -91,6 +91,38 @@ type EventoSimulacao = {
   texto: string;
 };
 
+type FichaTecnica = {
+  posse_time1: number;
+  posse_time2: number;
+  finalizacoes_time1: number;
+  finalizacoes_time2: number;
+  finalizacoes_certas_time1: number;
+  finalizacoes_certas_time2: number;
+  escanteios_time1: number;
+  escanteios_time2: number;
+  faltas_time1: number;
+  faltas_time2: number;
+  amarelos_time1: number;
+  amarelos_time2: number;
+  vermelhos_time1: number;
+  vermelhos_time2: number;
+  defesas_time1: number;
+  defesas_time2: number;
+};
+
+type NotaJogador = {
+  jogador_id?: string | null;
+  id_time: string;
+  time_nome: string;
+  nome: string;
+  posicao?: string | null;
+  overall?: number | null;
+  nota: number;
+  gols: number;
+  assistencias: number;
+  destaque?: string | null;
+};
+
 type JogoLiga = {
   id: string;
   liga_id: string;
@@ -121,6 +153,8 @@ type JogoLiga = {
   simulado?: boolean | null;
   simulando?: boolean | null;
   eventos_simulacao?: EventoSimulacao[] | null;
+  ficha_tecnica?: FichaTecnica | null;
+  notas_jogadores?: NotaJogador[] | null;
   metodo_resultado?: "manual" | "manual_com_historia" | "simulado" | null;
   play_time1?: boolean | null;
   play_time2?: boolean | null;
@@ -770,6 +804,8 @@ export default function LigaPage() {
       simulado: false,
       simulando: false,
       eventos_simulacao: [],
+      ficha_tecnica: null,
+      notas_jogadores: [],
       metodo_resultado: null,
       play_time1: false,
       play_time2: false,
@@ -868,6 +904,152 @@ export default function LigaPage() {
       g1: limitarPlacar(g1),
       g2: limitarPlacar(g2),
     };
+  }
+
+  function numeroAleatorio(min: number, max: number) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function clampNota(nota: number) {
+    return Math.max(4, Math.min(10, Number(nota.toFixed(1))));
+  }
+
+  function gerarFichaTecnicaIlustrativa(
+    jogo: JogoLiga,
+    g1: number,
+    g2: number,
+    eventos: EventoSimulacao[],
+  ): FichaTecnica {
+    const golsTime1 = eventos.filter((e) => e.tipo === "gol" && e.time_id === jogo.id_time1).length || g1;
+    const golsTime2 = eventos.filter((e) => e.tipo === "gol" && e.time_id === jogo.id_time2).length || g2;
+    const amarelos = eventos.filter((e) => e.tipo === "cartao").length;
+    const vermelhos = eventos.filter((e) => e.tipo === "vermelho").length;
+    const defesas = eventos.filter((e) => e.tipo === "defesa").length;
+
+    const diff = g1 - g2;
+    const posseTime1 = Math.max(38, Math.min(62, 50 + diff * 3 + numeroAleatorio(-6, 6)));
+    const posseTime2 = 100 - posseTime1;
+
+    const finalizacoesTime1 = Math.max(g1 + 3, g1 * 3 + numeroAleatorio(6, 14));
+    const finalizacoesTime2 = Math.max(g2 + 3, g2 * 3 + numeroAleatorio(6, 14));
+    const certasTime1 = Math.min(finalizacoesTime1, Math.max(g1, g1 + numeroAleatorio(2, 6)));
+    const certasTime2 = Math.min(finalizacoesTime2, Math.max(g2, g2 + numeroAleatorio(2, 6)));
+
+    return {
+      posse_time1: posseTime1,
+      posse_time2: posseTime2,
+      finalizacoes_time1: finalizacoesTime1,
+      finalizacoes_time2: finalizacoesTime2,
+      finalizacoes_certas_time1: certasTime1,
+      finalizacoes_certas_time2: certasTime2,
+      escanteios_time1: numeroAleatorio(2, 9),
+      escanteios_time2: numeroAleatorio(2, 9),
+      faltas_time1: numeroAleatorio(6, 18),
+      faltas_time2: numeroAleatorio(6, 18),
+      amarelos_time1: Math.floor(amarelos / 2) + numeroAleatorio(0, 2),
+      amarelos_time2: Math.ceil(amarelos / 2) + numeroAleatorio(0, 2),
+      vermelhos_time1: vermelhos > 0 && Math.random() < 0.5 ? 1 : 0,
+      vermelhos_time2: vermelhos > 0 && Math.random() >= 0.5 ? 1 : 0,
+      defesas_time1: Math.max(0, defesas + certasTime2 - g2 - numeroAleatorio(0, 2)),
+      defesas_time2: Math.max(0, defesas + certasTime1 - g1 - numeroAleatorio(0, 2)),
+    };
+  }
+
+  async function gerarNotasJogadoresIlustrativas(
+    jogo: JogoLiga,
+    g1: number,
+    g2: number,
+    eventos: EventoSimulacao[],
+  ): Promise<NotaJogador[]> {
+    if (!jogo.id_time1 || !jogo.id_time2) return [];
+
+    const [jogadores1, jogadores2] = await Promise.all([
+      buscarJogadoresDoTime(jogo.id_time1),
+      buscarJogadoresDoTime(jogo.id_time2),
+    ]);
+
+    const golsPorJogador: Record<string, number> = {};
+    const assistenciasPorJogador: Record<string, number> = {};
+
+    eventos
+      .filter((e) => e.tipo === "gol")
+      .forEach((evento) => {
+        const jogadorId =
+          evento.jogador_id || evento.id_jogador || (evento as any).jogadorId || null;
+        const assistenciaId =
+          evento.assistencia_id ||
+          evento.id_assistencia ||
+          (evento as any).assistenciaId ||
+          (evento as any).id_assistente ||
+          (evento as any).assistente_id ||
+          null;
+
+        if (jogadorId) golsPorJogador[jogadorId] = (golsPorJogador[jogadorId] || 0) + 1;
+        if (assistenciaId && assistenciaId !== jogadorId) {
+          assistenciasPorJogador[assistenciaId] = (assistenciasPorJogador[assistenciaId] || 0) + 1;
+        }
+      });
+
+    const montarNotas = (
+      jogadores: JogadorElenco[],
+      timeId: string,
+      timeNome: string,
+      golsPro: number,
+      golsContra: number,
+    ) => {
+      return jogadores.map((jogador) => {
+        const id = jogador.id || "";
+        const gols = id ? golsPorJogador[id] || 0 : 0;
+        const assistencias = id ? assistenciasPorJogador[id] || 0 : 0;
+        const pos = normalizarPosicao(jogador.posicao);
+
+        let nota = 6 + Math.random() * 1.2;
+        nota += gols * 1.4;
+        nota += assistencias * 0.8;
+        if (golsPro > golsContra) nota += 0.45;
+        if (golsPro === golsContra) nota += 0.15;
+        if (golsPro < golsContra) nota -= 0.35;
+
+        const defensorOuGoleiro =
+          pos.includes("GL") ||
+          pos.includes("GOL") ||
+          pos.includes("ZAG") ||
+          pos.includes("LD") ||
+          pos.includes("LE") ||
+          pos.includes("LATERAL");
+
+        if (defensorOuGoleiro && golsContra === 0) nota += 0.9;
+        if (defensorOuGoleiro && golsContra <= 2) nota += 0.25;
+        if (defensorOuGoleiro && golsContra > 4) nota -= 0.8;
+
+        let destaque: string | null = null;
+        if (gols >= 2) destaque = "Decisivo";
+        else if (gols === 1) destaque = "Fez gol";
+        else if (assistencias >= 2) destaque = "Garçom";
+        else if (assistencias === 1) destaque = "Assistência";
+        else if (defensorOuGoleiro && golsContra === 0) destaque = "Defesa segura";
+
+        return {
+          jogador_id: id || null,
+          id_time: timeId,
+          time_nome: timeNome,
+          nome: jogador.nome,
+          posicao: jogador.posicao || null,
+          overall: jogador.overall || null,
+          nota: clampNota(nota),
+          gols,
+          assistencias,
+          destaque,
+        } as NotaJogador;
+      });
+    };
+
+    const notas = [
+      ...montarNotas(jogadores1, jogo.id_time1, nomeTime(jogo.id_time1), g1, g2),
+      ...montarNotas(jogadores2, jogo.id_time2, nomeTime(jogo.id_time2), g2, g1),
+    ];
+
+    return notas.sort((a, b) => b.nota - a.nota || b.gols - a.gols || b.assistencias - a.assistencias);
   }
 
   async function gerarHistoriaDoPlacar(
@@ -1409,6 +1591,14 @@ export default function LigaPage() {
         eventosProntos ||
         (await gerarHistoriaDoPlacar(jogo, g1, g2, metodoResultado));
 
+      const fichaTecnica = gerarFichaTecnicaIlustrativa(jogo, g1, g2, eventosHistoria);
+      const notasJogadores = await gerarNotasJogadoresIlustrativas(
+        jogo,
+        g1,
+        g2,
+        eventosHistoria,
+      );
+
       /**
        * Primeiro salva o placar.
        * Só depois paga. Isso evita o problema antigo: pagar e não salvar resultado.
@@ -1424,6 +1614,8 @@ export default function LigaPage() {
           simulado: metodoResultado === "simulado",
           metodo_resultado: metodoResultado,
           eventos_simulacao: eventosHistoria,
+          ficha_tecnica: fichaTecnica,
+          notas_jogadores: notasJogadores,
         })
         .eq("id", jogo.id)
         .select("*")
@@ -1448,6 +1640,8 @@ export default function LigaPage() {
                 simulado: metodoResultado === "simulado",
                 metodo_resultado: metodoResultado,
                 eventos_simulacao: eventosHistoria,
+                ficha_tecnica: fichaTecnica,
+                notas_jogadores: notasJogadores,
               }
             : j,
         ),
@@ -1575,6 +1769,8 @@ export default function LigaPage() {
           simulado: metodoResultado === "simulado",
           metodo_resultado: metodoResultado,
           eventos_simulacao: eventosHistoria,
+          ficha_tecnica: fichaTecnica,
+          notas_jogadores: notasJogadores,
           publico: null,
           renda: 0,
           receita_time1: 0,
@@ -1740,6 +1936,8 @@ export default function LigaPage() {
           simulado: false,
           simulando: false,
           eventos_simulacao: [],
+          ficha_tecnica: null,
+          notas_jogadores: [],
           metodo_resultado: null,
           play_time1: false,
           play_time2: false,
@@ -1844,6 +2042,10 @@ export default function LigaPage() {
     const eventos = Array.isArray(jogo.eventos_simulacao)
       ? jogo.eventos_simulacao
       : [];
+    const ficha = jogo.ficha_tecnica || null;
+    const notas = Array.isArray(jogo.notas_jogadores) ? jogo.notas_jogadores : [];
+    const notasTime1 = notas.filter((n) => n.id_time === jogo.id_time1).slice(0, 11);
+    const notasTime2 = notas.filter((n) => n.id_time === jogo.id_time2).slice(0, 11);
     const aoVivo = jogoAoVivo === jogo.id;
     const placarLive = placarAoVivo[jogo.id];
     const eventosLive = eventosAoVivo[jogo.id] || [];
@@ -1987,6 +2189,65 @@ export default function LigaPage() {
           {jogo.play_time2 && <span className="text-emerald-300">▶️ {nomeTime(jogo.id_time2)}</span>}
         </div>
 
+        {temPlacar && ficha && (
+          <details className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <summary className="cursor-pointer text-sm font-black text-emerald-300">
+              📋 Ficha técnica e notas dos jogadores
+            </summary>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="mb-2 text-sm font-black text-white">Ficha técnica</div>
+                <div className="space-y-2 text-xs text-zinc-300">
+                  {[
+                    ["Posse de bola", `${ficha.posse_time1}%`, `${ficha.posse_time2}%`],
+                    ["Finalizações", ficha.finalizacoes_time1, ficha.finalizacoes_time2],
+                    ["No alvo", ficha.finalizacoes_certas_time1, ficha.finalizacoes_certas_time2],
+                    ["Escanteios", ficha.escanteios_time1, ficha.escanteios_time2],
+                    ["Faltas", ficha.faltas_time1, ficha.faltas_time2],
+                    ["Amarelos", ficha.amarelos_time1, ficha.amarelos_time2],
+                    ["Vermelhos", ficha.vermelhos_time1, ficha.vermelhos_time2],
+                    ["Defesas", ficha.defesas_time1, ficha.defesas_time2],
+                  ].map(([label, a, b]) => (
+                    <div key={String(label)} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-lg bg-black/25 px-3 py-2">
+                      <span className="text-left font-black">{a}</span>
+                      <span className="text-center text-zinc-500">{label}</span>
+                      <span className="text-right font-black">{b}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="mb-2 text-sm font-black text-white">Notas ilustrativas</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    { titulo: nomeTime(jogo.id_time1), lista: notasTime1 },
+                    { titulo: nomeTime(jogo.id_time2), lista: notasTime2 },
+                  ].map((grupo) => (
+                    <div key={grupo.titulo} className="space-y-1">
+                      <div className="mb-1 text-xs font-black text-zinc-400">{grupo.titulo}</div>
+                      {grupo.lista.map((n) => (
+                        <div key={`${n.jogador_id || n.nome}-${n.id_time}`} className="grid grid-cols-[1fr_auto] gap-2 rounded-lg bg-black/25 px-2 py-1.5 text-xs">
+                          <div className="min-w-0">
+                            <div className="truncate font-bold text-zinc-100">{n.nome}</div>
+                            <div className="truncate text-[10px] text-zinc-500">
+                              {n.posicao || "POS"} {n.gols ? `• ${n.gols} gol` : ""} {n.assistencias ? `• ${n.assistencias} assist.` : ""} {n.destaque ? `• ${n.destaque}` : ""}
+                            </div>
+                          </div>
+                          <div className={`rounded-lg px-2 py-1 font-black ${n.nota >= 8 ? "bg-emerald-500/20 text-emerald-300" : n.nota < 6 ? "bg-rose-500/20 text-rose-300" : "bg-white/10 text-zinc-200"}`}>
+                            {n.nota.toFixed(1)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </details>
+        )}
+
         {aoVivo && (
           <div className="mt-3 rounded-xl border border-sky-500/20 bg-sky-500/10 p-3">
             <div className="flex items-center justify-between text-sm font-black text-sky-200">
@@ -2023,10 +2284,10 @@ export default function LigaPage() {
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-black">
               <FiAward className="text-yellow-300 drop-shadow" />
-              LigaFut — Pontos Corridos
+              LigaFut — Pontos Corridos • Ficha Técnica
             </h1>
             <p className="text-sm text-zinc-400">
-              Formato Campeonato Brasileiro • ida e volta • classificação geral • temporada {TEMPORADA}
+              Formato Campeonato Brasileiro • ida e volta • ficha técnica salva • notas ilustrativas • temporada {TEMPORADA}
             </p>
           </div>
 
