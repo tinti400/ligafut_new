@@ -15,6 +15,7 @@ import {
   Filter,
   Trash2,
   AlertTriangle,
+  DollarSign,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -175,6 +176,8 @@ export default function BaseJogadoresPage() {
   const [overallMax, setOverallMax] = useState('')
   const [pagina, setPagina] = useState(1)
   const [selecionados, setSelecionados] = useState<string[]>([])
+  const [precosEditados, setPrecosEditados] = useState<Record<string, string>>({})
+  const [novoPrecoSelecionados, setNovoPrecoSelecionados] = useState('')
   const [duracaoLeilaoMinutos, setDuracaoLeilaoMinutos] = useState('2')
 
   async function carregarJogadores() {
@@ -243,6 +246,49 @@ export default function BaseJogadoresPage() {
     )
   }
 
+  function getValorAtualizado(j: JogadorBase) {
+    const valorDigitado = precosEditados[j.id]
+
+    if (valorDigitado !== undefined && valorDigitado !== '') {
+      return numero(valorDigitado)
+    }
+
+    return Number(j.valor || 0)
+  }
+
+  function alterarPrecoJogador(id: string, valor: string) {
+    setPrecosEditados((prev) => ({
+      ...prev,
+      [id]: valor,
+    }))
+  }
+
+  function aplicarPrecoSelecionados() {
+    if (selecionados.length === 0) {
+      toast.error('Selecione pelo menos um jogador para alterar o preço.')
+      return
+    }
+
+    const valor = numero(novoPrecoSelecionados)
+
+    if (valor <= 0) {
+      toast.error('Informe um preço válido para os selecionados.')
+      return
+    }
+
+    setPrecosEditados((prev) => {
+      const atualizado = { ...prev }
+
+      selecionados.forEach((id) => {
+        atualizado[id] = String(valor)
+      })
+
+      return atualizado
+    })
+
+    toast.success(`Preço alterado para ${selecionados.length} jogador(es) selecionado(s).`)
+  }
+
   function selecionarTodosDaPagina() {
     const idsPagina = jogadoresPaginados.map((j) => j.id)
     setSelecionados((prev) => Array.from(new Set([...prev, ...idsPagina])))
@@ -255,6 +301,7 @@ export default function BaseJogadoresPage() {
     setOverallMin('')
     setOverallMax('')
     setSelecionados([])
+    setNovoPrecoSelecionados('')
     setPagina(1)
   }
 
@@ -407,12 +454,13 @@ export default function BaseJogadoresPage() {
 
   function montarPayloadMercado(j: JogadorBase) {
     const imagem = pegarImagemJogador(j)
+    const valorAtualizado = getValorAtualizado(j)
 
     return {
       nome: j.nome,
       posicao: j.posicao,
       overall: j.overall,
-      valor: j.valor || 0,
+      valor: valorAtualizado,
       salario: j.salario || 0,
       time_origem: j.time_origem,
       nacionalidade: j.nacionalidade,
@@ -443,13 +491,14 @@ export default function BaseJogadoresPage() {
   function montarPayloadLeilao(j: JogadorBase) {
     const imagem = pegarImagemJogador(j)
     const minutos = Math.max(1, Number(duracaoLeilaoMinutos) || 2)
+    const valorAtualizado = getValorAtualizado(j)
 
     return {
       nome: j.nome,
       posicao: j.posicao,
       overall: j.overall,
-      valor_atual: j.valor || 0,
-      valor_inicial: j.valor || 0,
+      valor_atual: valorAtualizado,
+      valor_inicial: valorAtualizado,
       time_origem: j.time_origem,
       nacionalidade: j.nacionalidade,
       foto: imagem,
@@ -513,6 +562,7 @@ export default function BaseJogadoresPage() {
             status: 'mercado',
             destino: jaExiste ? 'mercado_duplicado_bloqueado' : 'mercado_transferencias',
             enviado_em: new Date().toISOString(),
+            valor: getValorAtualizado(jogador),
           })
           .eq('id', jogador.id)
 
@@ -574,6 +624,7 @@ export default function BaseJogadoresPage() {
             status: 'leilao',
             destino: jaExiste ? 'leilao_duplicado_bloqueado' : 'leiloes_sistema',
             enviado_em: new Date().toISOString(),
+            valor: getValorAtualizado(jogador),
           })
           .eq('id', jogador.id)
 
@@ -771,6 +822,30 @@ export default function BaseJogadoresPage() {
               Limpar filtros
             </button>
 
+            <div className="flex flex-col md:flex-row gap-2 md:items-center rounded-xl bg-black border border-emerald-400/30 p-2">
+              <div className="flex items-center gap-2 px-2">
+                <DollarSign size={17} className="text-emerald-400" />
+                <span className="text-xs text-zinc-400 whitespace-nowrap">Preço selecionados</span>
+              </div>
+
+              <input
+                type="number"
+                min="1"
+                value={novoPrecoSelecionados}
+                onChange={(e) => setNovoPrecoSelecionados(e.target.value)}
+                placeholder="Ex: 25000000"
+                className="h-9 w-full md:w-36 rounded-lg bg-zinc-950 border border-white/10 px-3 outline-none focus:border-emerald-500 text-emerald-300 font-black"
+              />
+
+              <button
+                type="button"
+                onClick={aplicarPrecoSelecionados}
+                className="h-9 px-3 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/30 font-black whitespace-nowrap"
+              >
+                Alterar preço
+              </button>
+            </div>
+
             <button disabled={enviando} onClick={enviarParaMercado} className="h-11 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 font-black flex items-center justify-center gap-2">
               <ShoppingCart size={18} />
               Mandar para Mercado
@@ -806,6 +881,7 @@ export default function BaseJogadoresPage() {
                 {jogadoresPaginados.map((j) => {
                   const selecionado = selecionados.includes(j.id)
                   const imagem = pegarImagemJogador(j)
+                  const valorAtualizado = getValorAtualizado(j)
 
                   return (
                     <div
@@ -829,9 +905,9 @@ export default function BaseJogadoresPage() {
                           <input
                             type="checkbox"
                             checked={selecionado}
-                            readOnly
+                            onChange={() => toggleSelecionado(j.id)}
                             onClick={(e) => e.stopPropagation()}
-                            className="w-5 h-5 accent-emerald-500"
+                            className="w-5 h-5 accent-emerald-500 cursor-pointer"
                           />
                         </div>
 
@@ -870,8 +946,22 @@ export default function BaseJogadoresPage() {
                           <span>PHY {j.phy || j.physical || 0}</span>
                         </div>
 
-                        <div className="mt-3 text-center text-xs font-black bg-black/80 text-white rounded-xl py-2">
-                          {dinheiro(j.valor)}
+                        <div
+                          className="mt-3 bg-black/80 text-white rounded-xl p-2 space-y-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="text-center text-xs font-black">
+                            {dinheiro(valorAtualizado)}
+                          </div>
+
+                          <input
+                            type="number"
+                            min="1"
+                            value={precosEditados[j.id] ?? ''}
+                            onChange={(e) => alterarPrecoJogador(j.id, e.target.value)}
+                            placeholder="Editar preço"
+                            className="w-full h-8 rounded-lg bg-white/10 border border-white/10 px-2 text-center text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-400"
+                          />
                         </div>
                       </div>
                     </div>
