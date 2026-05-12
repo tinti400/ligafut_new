@@ -26,7 +26,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
       <aside
         className={`
           relative z-30 h-screen shrink-0 transition-all duration-300
-          ${sidebarOpen ? 'w-72' : 'w-0 overflow-hidden'}
+          ${sidebarOpen ? 'w-20 lg:w-72' : 'w-0 overflow-hidden'}
         `}
       >
         <Sidebar />
