@@ -995,6 +995,8 @@ export default function LeilaoSistemaPage() {
                 const logoVencedor = vencedor ? logos[vencedor] : undefined
                 const disabledPorCooldown = cooldownGlobal || !!cooldownPorLeilao[leilao.id]
                 const semLance = !leilao.id_time_vencedor && !leilao.nome_time_vencedor
+                const leilaoEncerrado = tempoRestante <= 0
+                const podeMandarMercado = isAdmin && semLance && leilaoEncerrado
                 const precoMercadoRaw = precosMercado[leilao.id] ?? String(leilao.valor_atual || '')
                 const precoMercadoPreview = Number(String(precoMercadoRaw || '').replace(/[^\d]/g, ''))
 
@@ -1041,7 +1043,7 @@ export default function LeilaoSistemaPage() {
                       finalizando={isAdmin && !semLance && !!finalizando[leilao.id]}
                     />
 
-                    {isAdmin && semLance && tempoRestante <= 0 && (
+                    {podeMandarMercado && (
                       <div className="relative mt-3 overflow-hidden rounded-[1.75rem] border border-emerald-300/20 bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(255,255,255,.045))] p-3 shadow-2xl shadow-black/30 backdrop-blur-xl">
                         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(16,185,129,.22),transparent_40%)]" />
 
@@ -1081,7 +1083,7 @@ export default function LeilaoSistemaPage() {
                               onClick={() => mandarParaMercado(leilao)}
                               className="mt-5 rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-black text-black transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {mandandoMercado[leilao.id] ? 'Enviando...' : 'Mandar'}
+                              {mandandoMercado[leilao.id] ? 'Enviando...' : 'Mandar para o Mercado'}
                             </button>
                           </div>
 
