@@ -239,20 +239,38 @@ export default function Sidebar() {
 </NavLink>
              
             {abrirCompeticoes && (
-              <div className="space-y-2 pl-0 lg:pl-2">
-                <NavLink href="/copa">
-                  <Item emoji="🏆" label="Copa Champions" />
-                </NavLink>
+  <div className="space-y-2 pl-0 lg:pl-2">
 
-                <NavLink href="/copa/artilharia">
-                  <Item emoji="⚽" label="Artilharia" />
-                </NavLink>
+    {/* LIGA */}
 
-                <NavLink href="/copa/assistencias">
-                  <Item emoji="🎯" label="Assistências" />
-                </NavLink>
-              </div>
-            )}
+    <NavLink href="/liga">
+      <Item emoji="🏆" label="Liga Brasileirão" />
+    </NavLink>
+
+    <NavLink href="/liga/artilharia">
+      <Item emoji="⚽" label="Artilharia Liga" />
+    </NavLink>
+
+    <NavLink href="/liga/assistencias">
+      <Item emoji="🎯" label="Assistências Liga" />
+    </NavLink>
+
+    {/* COPA */}
+
+    <NavLink href="/copa">
+      <Item emoji="🏆" label="Copa Champions" />
+    </NavLink>
+
+    <NavLink href="/copa/artilharia">
+      <Item emoji="⚽" label="Artilharia Copa" />
+    </NavLink>
+
+    <NavLink href="/copa/assistencias">
+      <Item emoji="🎯" label="Assistências Copa" />
+    </NavLink>
+
+  </div>
+)}
 
             <MenuButton
               icon="👑"
