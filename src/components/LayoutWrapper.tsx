@@ -22,28 +22,24 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#050505] text-white">
-      {/* SIDEBAR SEMPRE EXISTE, MAS PODE FECHAR */}
+    <div className="flex h-screen w-full overflow-hidden bg-[#050505] text-white">
       <aside
         className={`
           relative z-30 h-screen shrink-0 transition-all duration-300
-          ${sidebarOpen ? 'w-72' : 'w-0 overflow-hidden'}
+          ${sidebarOpen ? 'w-20 lg:w-72' : 'w-0 overflow-hidden'}
         `}
       >
         <Sidebar />
       </aside>
 
-      <main className="relative flex-1 overflow-y-auto bg-[#050505]">
-        {/* Fundo premium */}
+      <main className="relative min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#050505]">
         <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_top,#14532d_0%,#020617_45%,#000_100%)]" />
-
         <div className="pointer-events-none fixed inset-0 z-0 bg-[linear-gradient(135deg,rgba(34,197,94,0.12),transparent_35%,rgba(250,204,21,0.08))]" />
 
-        <div className="relative z-10 min-h-screen">
-          {/* BOTÃO ABRIR / FECHAR MENU */}
+        <div className="relative z-10 min-h-screen w-full overflow-x-hidden">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="fixed left-4 top-4 z-50 flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-black/70 text-white shadow-lg backdrop-blur hover:bg-green-600 transition"
+            className="fixed left-3 top-3 z-50 flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-black/70 text-white shadow-lg backdrop-blur transition hover:bg-green-600 lg:left-4 lg:top-4 lg:h-11 lg:w-11"
             title={sidebarOpen ? 'Fechar menu' : 'Abrir menu'}
           >
             <Menu size={22} />
@@ -51,7 +47,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
 
           <TopBar />
 
-          <div className="px-4 py-4 md:px-8 md:py-6">
+          <div className="w-full px-3 py-3 sm:px-4 md:px-6 md:py-5">
             <div className="mx-auto w-full max-w-[1600px]">
               {children}
             </div>
