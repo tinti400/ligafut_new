@@ -315,6 +315,12 @@ export default function CopaPage() {
   }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin && aba === "selecao") {
+      setAba("grupos");
+    }
+  }, [isAdmin, aba]);
+
+  useEffect(() => {
     try {
       const direto =
         localStorage.getItem("id_time") ||
@@ -2388,16 +2394,72 @@ export default function CopaPage() {
     const rows = classificacao[grupo] || [];
 
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xl font-black">Grupo {grupo}</h2>
-          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-bold text-emerald-300">
+      <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-lg font-black sm:text-xl">Grupo {grupo}</h2>
+          <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-300 sm:text-xs">
             Top 2 passa
           </span>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-white/10">
-          <table className="w-full min-w-[520px] text-sm">
+        <div className="space-y-2 sm:hidden">
+          {rows.map((r, idx) => (
+            <div
+              key={r.id}
+              className={`rounded-2xl border border-white/10 p-3 ${
+                idx < 2 ? "bg-emerald-500/10" : "bg-black/20"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/10 text-xs font-black">
+                    {idx + 1}
+                  </div>
+                  <img
+                    src={logoTime(r.id)}
+                    className="h-8 w-8 shrink-0 rounded-full bg-black/40 object-contain"
+                    alt=""
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-black">{nomeTime(r.id)}</div>
+                    <div className="text-[11px] text-zinc-400">
+                      J {r.j} • V {r.v} • E {r.e} • D {r.d}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <div className="text-lg font-black text-emerald-300">{r.pts}</div>
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">pts</div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="rounded-xl bg-white/[0.04] px-2 py-2">
+                  <div className="text-zinc-500">SG</div>
+                  <div className="font-black">{r.sg}</div>
+                </div>
+                <div className="rounded-xl bg-white/[0.04] px-2 py-2">
+                  <div className="text-zinc-500">GP</div>
+                  <div className="font-black">{r.gp}</div>
+                </div>
+                <div className="rounded-xl bg-white/[0.04] px-2 py-2">
+                  <div className="text-zinc-500">GC</div>
+                  <div className="font-black">{r.gc}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {!rows.length && (
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-6 text-center text-sm text-zinc-400">
+              Grupo ainda sem jogos ou placares.
+            </div>
+          )}
+        </div>
+
+        <div className="hidden w-full overflow-x-auto rounded-xl border border-white/10 sm:block">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-white/[0.04] text-zinc-400">
               <tr>
                 <th className="px-2 py-2 text-left">#</th>
@@ -2421,7 +2483,6 @@ export default function CopaPage() {
                   <td className="px-2 py-2 font-bold">{idx + 1}</td>
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-2">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={logoTime(r.id)}
                         className="h-6 w-6 rounded-full object-contain bg-black/40"
@@ -2442,10 +2503,7 @@ export default function CopaPage() {
               ))}
               {!rows.length && (
                 <tr>
-                  <td
-                    className="px-3 py-6 text-center text-zinc-400"
-                    colSpan={10}
-                  >
+                  <td className="px-3 py-6 text-center text-zinc-400" colSpan={10}>
                     Grupo ainda sem jogos ou placares.
                   </td>
                 </tr>
@@ -2466,7 +2524,7 @@ export default function CopaPage() {
   if (loading) return <div className="p-6 text-white">Carregando Copa...</div>;
 
   return (
-    <div className="p-4 md:p-6 text-zinc-100 space-y-6">
+    <div className="w-full max-w-full overflow-x-hidden px-3 py-4 text-zinc-100 space-y-6 sm:px-4 md:px-6">
       <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-5 shadow-2xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -2519,12 +2577,19 @@ export default function CopaPage() {
       </div>
 
       <div className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2">
-        {[
-          ["selecao", "Seleção e Potes"],
-          ["grupos", "Grupos"],
-          ["jogos", "Jogos"],
-          ["mata", "Mata-Mata"],
-        ].map(([id, label]) => (
+        {(isAdmin
+          ? [
+              ["selecao", "Seleção e Sorteio"],
+              ["grupos", "Grupos"],
+              ["jogos", "Jogos"],
+              ["mata", "Mata-Mata"],
+            ]
+          : [
+              ["grupos", "Grupos"],
+              ["jogos", "Jogos"],
+              ["mata", "Mata-Mata"],
+            ]
+        ).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setAba(id as any)}
@@ -2596,7 +2661,7 @@ export default function CopaPage() {
                 })}
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
                 <button
                   onClick={() => {
                     const ids = timesComDivisao.slice(0, 16).map((t) => t.id);
@@ -2605,7 +2670,7 @@ export default function CopaPage() {
                       `${ids.length} times com divisão selecionados.`,
                     );
                   }}
-                  className="rounded-xl bg-yellow-500/20 px-4 py-2 text-yellow-300 font-black hover:bg-yellow-500/30"
+                  className="w-full justify-center sm:w-auto rounded-xl bg-yellow-500/20 px-4 py-2 text-yellow-300 font-black hover:bg-yellow-500/30"
                 >
                   Selecionar 16 com divisão
                 </button>
@@ -2615,14 +2680,14 @@ export default function CopaPage() {
                     setSelecionados([]);
                     toast("Seleção limpa.");
                   }}
-                  className="rounded-xl bg-white/10 px-4 py-2 text-white font-black hover:bg-white/20"
+                  className="w-full justify-center sm:w-auto rounded-xl bg-white/10 px-4 py-2 text-white font-black hover:bg-white/20"
                 >
                   Limpar seleção
                 </button>
 
                 <button
                   onClick={salvarParticipantes}
-                  className="rounded-xl bg-emerald-500/20 px-4 py-2 text-emerald-300 font-black hover:bg-emerald-500/30"
+                  className="w-full justify-center sm:w-auto rounded-xl bg-emerald-500/20 px-4 py-2 text-emerald-300 font-black hover:bg-emerald-500/30"
                 >
                   Salvar participantes ({selecionados.length}/16)
                 </button>
@@ -2630,7 +2695,7 @@ export default function CopaPage() {
                 <button
                   onClick={iniciarSorteioAnimado}
                   disabled={sorteandoAoVivo}
-                  className="rounded-xl bg-sky-500/20 px-4 py-2 text-sky-300 font-black hover:bg-sky-500/30 disabled:opacity-50 flex items-center gap-2"
+                  className="w-full justify-center sm:w-auto rounded-xl bg-sky-500/20 px-4 py-2 text-sky-300 font-black hover:bg-sky-500/30 disabled:opacity-50 flex items-center gap-2"
                 >
                   <FiShuffle />{" "}
                   {sorteandoAoVivo ? "Sorteando..." : "Sorteio ao vivo"}
@@ -2639,7 +2704,7 @@ export default function CopaPage() {
                 <button
                   onClick={reiniciarSorteioTeste}
                   disabled={sorteandoAoVivo}
-                  className="rounded-xl bg-white/10 px-4 py-2 text-white font-black hover:bg-white/20 disabled:opacity-50"
+                  className="w-full justify-center sm:w-auto rounded-xl bg-white/10 px-4 py-2 text-white font-black hover:bg-white/20 disabled:opacity-50"
                 >
                   Reiniciar sorteio
                 </button>
@@ -2647,7 +2712,7 @@ export default function CopaPage() {
                 <button
                   onClick={confirmarSorteioEGerarJogos}
                   disabled={sorteandoAoVivo || !sorteioConfirmavel}
-                  className="rounded-xl bg-emerald-500/20 px-4 py-2 text-emerald-300 font-black hover:bg-emerald-500/30 disabled:opacity-50"
+                  className="w-full justify-center sm:w-auto rounded-xl bg-emerald-500/20 px-4 py-2 text-emerald-300 font-black hover:bg-emerald-500/30 disabled:opacity-50"
                 >
                   Confirmar sorteio
                 </button>
