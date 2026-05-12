@@ -40,6 +40,7 @@ export default function Sidebar() {
   useEffect(() => {
     try {
       const open = localStorage.getItem('sidebar_open')
+
       if (open !== null) {
         setIsOpen(open === '1')
       }
@@ -84,7 +85,7 @@ export default function Sidebar() {
       <Link
         href={href}
         className={[
-          'flex items-center gap-2 rounded-xl px-3 py-2 transition ring-1 ring-inset',
+          'flex min-h-[56px] items-center justify-center gap-2 rounded-xl px-3 py-2 transition ring-1 ring-inset lg:justify-start',
           active
             ? 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30'
             : 'text-white/85 ring-white/10 hover:bg-white/10 hover:text-white',
@@ -172,50 +173,55 @@ export default function Sidebar() {
             )}
           </div>
 
-          {isOpen && (
-            <div className="mb-3 hidden rounded-2xl bg-emerald-500/10 p-3 ring-1 ring-emerald-400/25 lg:block">
-              <div className="text-[11px] text-white/50">
-                Time logado
-              </div>
-
-              <div className="truncate text-sm font-black">
-                {logado ? nomeTime : 'Não logado'}
-              </div>
-            </div>
-          )}
-
           <nav className="space-y-2">
             {!logado && (
               <NavLink href="/login">
-                🔑 Login
+                <span className="text-xl">🔑</span>
+                <span className="hidden lg:inline">Login</span>
               </NavLink>
             )}
 
             <NavLink href="/">
-              🏠 Home
+              <span className="text-xl">🏠</span>
+              <span className="hidden lg:inline">Home</span>
             </NavLink>
 
             <button
               type="button"
               onClick={() => setAbrirCompeticoes(!abrirCompeticoes)}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 ring-1 ring-white/10 hover:bg-white/10"
+              className="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl px-3 py-2 ring-1 ring-white/10 hover:bg-white/10 lg:justify-between"
             >
-              <span>🏆 Competições</span>
-              <span>{abrirCompeticoes ? '▾' : '▸'}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xl">🏆</span>
+                <span className="hidden lg:inline">Competições</span>
+              </span>
+
+              <span className="hidden lg:inline">
+                {abrirCompeticoes ? '▾' : '▸'}
+              </span>
             </button>
 
             {abrirCompeticoes && (
-              <div className="space-y-2 pl-2">
+              <div className="space-y-2 pl-0 lg:pl-2">
                 <NavLink href="/copa">
-                  🏆 Copa Champions
+                  <span className="text-xl">🏆</span>
+                  <span className="hidden lg:inline">
+                    Copa Champions
+                  </span>
                 </NavLink>
 
                 <NavLink href="/copa/artilharia">
-                  ⚽ Artilharia
+                  <span className="text-xl">⚽</span>
+                  <span className="hidden lg:inline">
+                    Artilharia
+                  </span>
                 </NavLink>
 
                 <NavLink href="/copa/assistencias">
-                  🎯 Assistências
+                  <span className="text-xl">🎯</span>
+                  <span className="hidden lg:inline">
+                    Assistências
+                  </span>
                 </NavLink>
               </div>
             )}
@@ -223,24 +229,37 @@ export default function Sidebar() {
             <button
               type="button"
               onClick={() => setAbrirClube(!abrirClube)}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 ring-1 ring-white/10 hover:bg-white/10"
+              className="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl px-3 py-2 ring-1 ring-white/10 hover:bg-white/10 lg:justify-between"
             >
-              <span>👥 Meu Clube</span>
-              <span>{abrirClube ? '▾' : '▸'}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xl">👥</span>
+                <span className="hidden lg:inline">
+                  Meu Clube
+                </span>
+              </span>
+
+              <span className="hidden lg:inline">
+                {abrirClube ? '▾' : '▸'}
+              </span>
             </button>
 
             {abrirClube && (
-              <div className="space-y-2 pl-2">
+              <div className="space-y-2 pl-0 lg:pl-2">
                 <NavLink href="/elenco">
-                  👥 Elenco
+                  <span className="text-xl">👥</span>
+                  <span className="hidden lg:inline">Elenco</span>
                 </NavLink>
 
                 <NavLink href="/financas">
-                  💰 Finanças
+                  <span className="text-xl">💰</span>
+                  <span className="hidden lg:inline">
+                    Finanças
+                  </span>
                 </NavLink>
 
                 <NavLink href="/estadio">
-                  🏟️ Estádio
+                  <span className="text-xl">🏟️</span>
+                  <span className="hidden lg:inline">Estádio</span>
                 </NavLink>
               </div>
             )}
@@ -248,68 +267,57 @@ export default function Sidebar() {
             <button
               type="button"
               onClick={() => setAbrirMercado(!abrirMercado)}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 ring-1 ring-white/10 hover:bg-white/10"
+              className="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl px-3 py-2 ring-1 ring-white/10 hover:bg-white/10 lg:justify-between"
             >
-              <span>💸 Mercado</span>
-              <span>{abrirMercado ? '▾' : '▸'}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xl">💸</span>
+                <span className="hidden lg:inline">Mercado</span>
+              </span>
+
+              <span className="hidden lg:inline">
+                {abrirMercado ? '▾' : '▸'}
+              </span>
             </button>
 
             {abrirMercado && (
-              <div className="space-y-2 pl-2">
+              <div className="space-y-2 pl-0 lg:pl-2">
                 <NavLink href="/mercado">
-                  💸 Mercado
+                  <span className="text-xl">💸</span>
+                  <span className="hidden lg:inline">Mercado</span>
                 </NavLink>
 
                 <NavLink href="/negociacoes">
-                  🤝 Negociações
+                  <span className="text-xl">🤝</span>
+                  <span className="hidden lg:inline">
+                    Negociações
+                  </span>
                 </NavLink>
 
                 <NavLink href="/propostas_recebidas">
-                  📥 Propostas Recebidas
+                  <span className="text-xl">📥</span>
+                  <span className="hidden lg:inline">
+                    Propostas
+                  </span>
                 </NavLink>
 
                 <NavLink href="/propostas_enviadas">
-                  📤 Propostas Enviadas
+                  <span className="text-xl">📤</span>
+                  <span className="hidden lg:inline">
+                    Enviadas
+                  </span>
                 </NavLink>
 
                 <NavLink href="/leilao">
-                  🎯 Leilão
+                  <span className="text-xl">🎯</span>
+                  <span className="hidden lg:inline">Leilão</span>
                 </NavLink>
               </div>
             )}
 
             <NavLink href="/BID">
-              📰 BID
+              <span className="text-xl">📰</span>
+              <span className="hidden lg:inline">BID</span>
             </NavLink>
-
-            <button
-              type="button"
-              onClick={() => setAbrirAdmin(!abrirAdmin)}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 ring-1 ring-white/10 hover:bg-white/10"
-            >
-              <span>🛠️ Admin</span>
-              <span>{abrirAdmin ? '▾' : '▸'}</span>
-            </button>
-
-            {abrirAdmin && (
-              <div className="space-y-2 pl-2">
-                <NavLink href="/admin">
-                  🛠️ Painel Admin
-                </NavLink>
-
-                <NavLink href="/admin/times">
-                  🏟️ Admin Times
-                </NavLink>
-
-                <NavLink href="/admin/mercado">
-                  💸 Admin Mercado
-                </NavLink>
-
-                <NavLink href="/admin/leilao">
-                  🎯 Admin Leilão
-                </NavLink>
-              </div>
-            )}
           </nav>
         </div>
 
