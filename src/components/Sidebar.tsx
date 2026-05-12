@@ -775,14 +775,7 @@ export default function Sidebar() {
 
                   {abrirCompeticoes && (
                     <div className="ml-3 mt-2 space-y-1 text-sm">
-                      <NavLink href="/copa">
-                        <span className="flex items-center gap-2">
-                          🏆 Copa Champions
-                          <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] font-black text-yellow-300 ring-1 ring-yellow-400/25">
-                            NOVA
-                          </span>
-                        </span>
-                      </NavLink>
+                      <NavLink href="/copa">🏆 Copa Champions</NavLink>
 
                       <NavLink href="/copa/artilharia">
                       <NavLink href="/copa/assistencias">
