@@ -233,7 +233,11 @@ export default function Sidebar() {
               open={abrirCompeticoes}
               onClick={() => setAbrirCompeticoes(!abrirCompeticoes)}
             />
-
+            
+            <NavLink href="/liga">
+  <Item emoji="🏆" label="Liga Brasileirão" />
+</NavLink>
+             
             {abrirCompeticoes && (
               <div className="space-y-2 pl-0 lg:pl-2">
                 <NavLink href="/copa">
