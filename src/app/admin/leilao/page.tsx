@@ -518,7 +518,6 @@ export default function AdminLeilaoPage() {
 
       setMsg(`✅ ${item.nome} enviado para o mercado com sucesso!`)
       await buscarLeiloesAtivos()
-      router.refresh()
     } catch (e: any) {
       setMsg('❌ Erro ao enviar para o mercado: ' + (e?.message || 'desconhecido'))
     } finally {
