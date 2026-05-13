@@ -457,73 +457,73 @@ export default function AdminLeilaoPage() {
   }
 
   async function mandarParaMercado(item: any) {
-    if (!confirm(`Enviar ${item.nome} para o mercado?`)) return
+  if (!confirm(`Enviar ${item.nome} para o mercado?`)) return
 
-    setEnviandoMercado((prev) => ({ ...prev, [item.id]: true }))
+  setEnviandoMercado((prev) => ({ ...prev, [item.id]: true }))
 
-    try {
-      const valorMercado = Number(item.valor_atual || 0)
+  try {
+    const valorMercado = Number(item.valor_atual || 0)
 
-      if (!valorMercado || valorMercado <= 0) {
-        setMsg('❌ Valor inválido para enviar ao mercado.')
-        return
-      }
-
-      if (item.id_time_vencedor || item.nome_time_vencedor) {
-        setMsg('❌ Esse leilão já teve lance. Finalize o leilão normalmente.')
-        return
-      }
-
-      const { data: leilaoAtual, error: erroBusca } = await supabase
-        .from('leiloes_sistema')
-        .select('id, nome, posicao, overall, valor_atual, nacionalidade, imagem_url, link_sofifa, id_time_vencedor, nome_time_vencedor, status')
-        .eq('id', item.id)
-        .single()
-
-      if (erroBusca || !leilaoAtual) {
-        throw new Error(erroBusca?.message || 'Não foi possível validar o leilão.')
-      }
-
-      if ((leilaoAtual as any).id_time_vencedor || (leilaoAtual as any).nome_time_vencedor) {
-        throw new Error('Esse jogador recebeu lance e não pode ir direto para o mercado.')
-      }
-
-      const { error: insertError } = await supabase
-        .from('mercado_transferencias')
-        .insert({
-          nome: (leilaoAtual as any).nome,
-          posicao: (leilaoAtual as any).posicao,
-          overall: Number((leilaoAtual as any).overall || 0),
-          valor: Number((leilaoAtual as any).valor_atual || 0),
-          nacionalidade: (leilaoAtual as any).nacionalidade || null,
-          imagem_url: (leilaoAtual as any).imagem_url || null,
-          link_sofifa: (leilaoAtual as any).link_sofifa || null,
-          status: 'ativo',
-          data_listagem: new Date().toISOString(),
-        })
-
-      if (insertError) {
-        console.error('Erro insert mercado:', insertError)
-        throw new Error(insertError.message)
-      }
-
-      const { error: updateError } = await supabase
-        .from('leiloes_sistema')
-        .update({ status: 'cancelado' })
-        .eq('id', item.id)
-
-      if (updateError) {
-        throw new Error(updateError.message)
-      }
-
-      setMsg(`✅ ${item.nome} enviado para o mercado com sucesso!`)
-      await buscarLeiloesAtivos()
-    } catch (e: any) {
-      setMsg('❌ Erro ao enviar para o mercado: ' + (e?.message || 'desconhecido'))
-    } finally {
-      setEnviandoMercado((prev) => ({ ...prev, [item.id]: false }))
+    if (!valorMercado || valorMercado <= 0) {
+      setMsg('❌ Valor inválido para enviar ao mercado.')
+      return
     }
+
+    if (item.id_time_vencedor || item.nome_time_vencedor) {
+      setMsg('❌ Esse leilão já teve lance. Finalize o leilão normalmente.')
+      return
+    }
+
+    const imagemFinal = item.imagem_url || item.foto || null
+
+    const payloadMercado = {
+      nome: item.nome,
+      posicao: item.posicao,
+      overall: Number(item.overall || 0),
+      valor: valorMercado,
+      nacionalidade: item.nacionalidade || null,
+      imagem_url: imagemFinal,
+      foto: imagemFinal,
+      link_sofifa: item.link_sofifa || null,
+      status: 'ativo',
+      data_listagem: new Date().toISOString(),
+    }
+
+    const { data: jogadorMercado, error: insertError } = await supabase
+      .from('mercado_transferencias')
+      .insert(payloadMercado)
+      .select()
+
+    if (insertError) {
+      console.error('ERRO MERCADO:', insertError)
+      setMsg(
+        `❌ Erro ao enviar para o mercado: ${insertError.message} ${insertError.details || ''} ${insertError.hint || ''}`
+      )
+      return
+    }
+
+    const { error: updateError } = await supabase
+      .from('leiloes_sistema')
+      .update({ status: 'cancelado' })
+      .eq('id', item.id)
+
+    if (updateError) {
+      console.error('ERRO CANCELAR LEILAO:', updateError)
+      setMsg(`⚠️ Jogador foi para o mercado, mas não saiu do leilão: ${updateError.message}`)
+      return
+    }
+
+    console.log('JOGADOR INSERIDO NO MERCADO:', jogadorMercado)
+
+    setMsg(`✅ ${item.nome} enviado para o mercado com sucesso!`)
+    await buscarLeiloesAtivos()
+  } catch (e: any) {
+    console.error('ERRO GERAL MERCADO:', e)
+    setMsg('❌ Erro ao enviar para o mercado: ' + (e?.message || 'desconhecido'))
+  } finally {
+    setEnviandoMercado((prev) => ({ ...prev, [item.id]: false }))
   }
+}
 
   async function cancelarLeilaoEscuro(id: string) {
     if (!confirm('Cancelar este leilão no escuro?')) return
